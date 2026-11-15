@@ -1,0 +1,7 @@
+# The differential harness lives in its own workspace (`crates/plane-testkit`),
+# but shares this directory's target directory so `target/debug/difftest` and
+# `target/difftest-logs` stay where the scripts and docs expect them, including
+# when it is built with `--manifest-path` from here (cargo reads config from the
+# current directory, not from the manifest's workspace).
+[build]
+target-dir = "target"

@@ -1,0 +1,6 @@
+# Keep the harness's build output in the server workspace's target directory,
+# so `apps/server/target/debug/difftest` keeps working for scripts and docs.
+# Paths in a cargo config file are relative to the directory that contains
+# `.cargo`, so this resolves to `apps/server/target`.
+[build]
+target-dir = "../../target"

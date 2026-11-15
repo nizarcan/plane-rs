@@ -1,11 +1,18 @@
+# `plane-testkit` is its own workspace root so that the features it needs
+# (`serde_json` `preserve_order` + `arbitrary_precision`, `tokio` "full",
+# `reqwest`, `lapin`, YAML, ...) are not unified into the server workspace and
+# do not change how the server crates compile in `cargo test --workspace`.
+# Build it with `--manifest-path crates/plane-testkit/Cargo.toml`.
+[workspace]
+
 [package]
 name = "plane-testkit"
 description = "Differential test harness comparing Django with the Rust backend"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-repository.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "AGPL-3.0-only"
+repository = "https://github.com/makeplane/plane"
 
 [lib]
 name = "plane_testkit"
@@ -15,26 +22,38 @@ path = "src/lib.rs"
 name = "difftest"
 path = "src/bin/difftest.rs"
 
+# Versions and features are pinned here rather than inherited from the server
+# workspace, which must stay free of the harness's features.
 [dependencies]
-anyhow.workspace = true
-chrono.workspace = true
-clap.workspace = true
-flate2.workspace = true
-futures-util.workspace = true
-lapin.workspace = true
-percent-encoding.workspace = true
-regex.workspace = true
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-serde_yaml_ng.workspace = true
-similar.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
-tokio-postgres.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-uuid.workspace = true
+anyhow = "1.0.100"
+chrono = { version = "0.4.42", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive"] }
+flate2 = "1.1.11"
+futures-util = "0.3.31"
+lapin = "4.12.3"
+percent-encoding = "2.3.2"
+regex = "1.12.2"
+reqwest = { version = "0.13.5", default-features = false, features = [
+  "rustls",
+  "http2",
+  "json",
+] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = [
+  "preserve_order",
+  "arbitrary_precision",
+] }
+serde_yaml_ng = "0.10.0"
+similar = "3.2.1"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+tokio-postgres = "0.7.18"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+uuid = { version = "1.29.2", features = ["v4"] }
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"

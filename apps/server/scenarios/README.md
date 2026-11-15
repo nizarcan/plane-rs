@@ -6,10 +6,14 @@ rewrite: a ported route is not done until the same scenario produces the same
 status, headers, bodies, database diff and Celery messages on Django and on
 `plane-api`.
 
+The harness is its own cargo workspace (`crates/plane-testkit`), so it is
+built by manifest path. Its build output still lands in `apps/server/target`,
+which is why `./target/debug/difftest` works from `apps/server`.
+
 ```bash
 cd apps/server
-cargo run -p plane-testkit --bin difftest -- selftest
-cargo run -p plane-testkit --bin difftest -- \
+cargo run --manifest-path crates/plane-testkit/Cargo.toml --bin difftest -- selftest
+cargo run --manifest-path crates/plane-testkit/Cargo.toml --bin difftest -- \
   run --scenario scenarios/basic-session.yaml --a django --b django
 ```
 
@@ -125,7 +129,7 @@ divergence into one database):
 PLANE_DB=t_a PLANE_REDIS_DB=1 PLANE_MQ_VHOST=t_a dev/django-serve.sh 18001 &
 PLANE_DB=t_b PLANE_REDIS_DB=2 PLANE_MQ_VHOST=t_b dev/django-serve.sh 18002 &
 
-difftest run --scenario scenarios/basic-session.yaml \
+./target/debug/difftest run --scenario scenarios/basic-session.yaml \
   --a-url http://127.0.0.1:18001 --b-url http://127.0.0.1:18002 \
   --a-db t_a --b-db t_b --a-vhost t_a --b-vhost t_b
 ```
@@ -145,7 +149,7 @@ that no response echoes, so a clean run must turn into a database-only DIFF.
 # Snapshot timing and row counts for a clone (not the template: it is
 # ALLOW_CONNECTIONS false)
 dev/mkdb.sh t_inspect
-difftest snapshot --db t_inspect --iterations 5
+./target/debug/difftest snapshot --db t_inspect --iterations 5
 dev/dropdb.sh t_inspect
 ```
 
