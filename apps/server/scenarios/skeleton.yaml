@@ -10,9 +10,9 @@
 #   apps/server/dev/mkdb.sh t_skel_a
 #   apps/server/dev/mkdb.sh t_skel_b
 #
-#   PLANE_DB=t_skel_a PLANE_REDIS_DB=5 FILE_SIZE_LIMIT=4096 \
+#   PLANE_DB=t_skel_a PLANE_REDIS_DB=5 \
 #     dev/django-serve.sh 18001
-#   PLANE_DB=t_skel_b PLANE_REDIS_DB=6 FILE_SIZE_LIMIT=4096 \
+#   PLANE_DB=t_skel_b PLANE_REDIS_DB=6 \
 #     PLANE_RS_BIND=127.0.0.1:18101 \
 #     bash -c 'eval "$(dev/django-env.sh)"; exec target/debug/plane-api'
 #
@@ -20,14 +20,16 @@
 #     --a-url http://127.0.0.1:18001 --b-url http://127.0.0.1:18101 \
 #     --a-db t_skel_a --b-db t_skel_b --no-celery
 #
-# `FILE_SIZE_LIMIT=4096` on **both** targets is required for the 413 step: the
-# body is 5000 bytes, so it is over the limit only with that override (Plane's
-# default is 5 MiB, and putting 5 MiB in this file is not practical).
+# The 413 step needs `FILE_SIZE_LIMIT=4096` on **both** targets; the scenario's
+# `target_env` block above applies it to both managed targets, so a run started
+# with `--a django --b rust` needs no exported environment of its own. In attach
+# mode, pass it yourself on each target's command line (the harness does not
+# start attached targets). With `FILE_SIZE_LIMIT` left at its default the
+# `body-too-large` step returns 200 on both sides instead of 413, and its
+# `expect_status` makes that a failure rather than a silent no-op.
 # `ALLOWED_HOSTS=*` (the dev default) still rejects the malformed host in the
 # `host-malformed` step, because Django's syntax check runs before the
-# allow-list. With `FILE_SIZE_LIMIT` left at its default the `body-too-large`
-# step returns 200 on both sides instead of 413, and its `expect_status` makes
-# that a failure rather than a silent no-op.
+# allow-list.
 #
 # The scenario performs no writes, so the database diff of every step is empty
 # on both sides; that is asserted by the harness like any other difference.
@@ -35,6 +37,11 @@
 name: skeleton
 template_db: plane_tpl
 redis_db: [5, 6]
+# Both targets need the same body-size limit for the 413 step below: the body
+# is 5000 bytes, so it is over the limit only with this override (Plane's
+# default is 5 MiB, and putting 5 MiB in this file is not practical).
+target_env:
+  FILE_SIZE_LIMIT: "4096"
 vars:
   cors_origin: http://localhost:3000
 steps:

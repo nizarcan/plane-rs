@@ -167,9 +167,11 @@ services:
       - "127.0.0.1:18080:18080"
     volumes:
       # The whole apps/server tree, read only, so the relative import in
-      # Caddyfile.dev (../deploy/caddy/rust-routes.caddy) resolves exactly as
-      # it does in the repository. `proxy.sh reload` only has to rewrite the
-      # generated file on the host; the next reload reads it.
+      # Caddyfile.dev (run/rust-routes.caddy, the dev copy written by proxy.sh)
+      # resolves exactly as it does in the repository. `proxy.sh reload` only
+      # has to rewrite the generated file on the host; the next reload reads it.
+      # The committed deploy/caddy/rust-routes.caddy is mounted too but never
+      # imported here, so a dev experiment cannot change it.
       - ..:/srv/plane:ro
     # proxy.sh writes the PLANE_RS_GROUP_* values exported in the caller's
     # shell (and PLANE_RS_API_UPSTREAM) to this gitignored file before `up`.

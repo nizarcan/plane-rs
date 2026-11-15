@@ -14,12 +14,16 @@ The inputs are all checked in:
   ``rust`` or ``rust(GET,HEAD)``.
 * ``apps/server/deploy/route-groups.yaml`` -- which routes form a group, so a
   group can be moved to Rust or sent back with one flag.
+* ``apps/proxy/Caddyfile.ce`` -- the production routing. Only the paths its
+  ``reverse_proxy … api:8000`` lines send to the API can be moved to Rust; see
+  "What may be routed" below.
 
 The output is ``apps/server/deploy/caddy/rust-routes.caddy``, a Caddyfile
 fragment imported by ``deploy/caddy/Caddyfile.coexist`` (production shape) and
-``dev/Caddyfile.dev`` (local proxy). It contains one named matcher and one
-``handle`` block per group that has at least one Rust-owned route+method, and
-nothing but a comment for groups that are entirely Django-owned.
+by the dev proxy's copy in ``dev/run/`` (``dev/Caddyfile.dev``). It contains one
+named matcher and one ``handle`` block per group that has at least one
+Rust-owned route+method, and nothing but a comment for groups that are entirely
+Django-owned.
 
 Usage::
 
@@ -30,6 +34,15 @@ Usage::
 ``--check`` regenerates in memory and exits 1 when the committed file is stale;
 CI runs it. ``--explain`` prints the route -> group assignment and the flag for
 every group.
+
+What may be routed
+------------------
+Only the paths the production proxy sends to the API can be moved to Rust. The
+allowed path matchers are parsed from the ``reverse_proxy … api:8000`` lines of
+``apps/proxy/Caddyfile.ce`` (``/api/*``, ``/auth/*`` and ``/static/*`` today;
+``/`` and ``/robots.txt`` go to the ``web`` frontend). A route outside those
+paths that is marked ``rust`` is refused with an error instead of emitting a
+matcher that would hijack the frontend.
 
 Why a per-request environment lookup
 ------------------------------------
@@ -73,6 +86,14 @@ DEFAULT_ROUTES_JSON = SERVER_DIR / "routes.json"
 DEFAULT_OWNERS_FILE = SERVER_DIR / "ROUTES.md"
 DEFAULT_GROUPS_FILE = SERVER_DIR / "deploy" / "route-groups.yaml"
 DEFAULT_OUT = SERVER_DIR / "deploy" / "caddy" / "rust-routes.caddy"
+DEFAULT_PRODUCTION_CADDYFILE = REPO_ROOT / "apps" / "proxy" / "Caddyfile.ce"
+
+# The upstream the production proxy uses for the Django/Rust API. Only the
+# paths Caddyfile.ce sends here can ever be served by this fragment: everything
+# else goes to a frontend, MinIO or the web app, so a Rust matcher for one of
+# those paths would shadow that upstream instead of taking over an API route.
+API_UPSTREAM = "api:8000"
+REVERSE_PROXY_RE = re.compile(r"^\s*reverse_proxy\s+(?P<matcher>\S+)\s+(?P<upstream>\S+)\s*$")
 
 UPSTREAM_PLACEHOLDER = "{$PLANE_RS_API_UPSTREAM:plane-api:8000}"
 UPSTREAM_ENV = "PLANE_RS_API_UPSTREAM"
@@ -141,6 +162,68 @@ def load_inventory_module() -> Any:
 def load_owners(path: Path) -> dict[tuple[str, str, str], tuple[str, str]]:
     routes_module = load_inventory_module()
     return routes_module.parse_ownership(path.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# What the production proxy sends to the API
+# ---------------------------------------------------------------------------
+
+
+def api_path_matchers(path: Path = DEFAULT_PRODUCTION_CADDYFILE) -> tuple[str, ...]:
+    """Path matchers ``Caddyfile.ce`` sends to ``api:8000``, in file order.
+
+    This is the gate on what Rust may take over. The production Caddyfile is the
+    single source of truth for the split, so it is parsed instead of hard-coding
+    ``/api/*``: a deployment that routes something else to the API (or stops
+    routing ``/api/*`` there) must be reflected here rather than silently
+    producing a matcher for a path Caddy sends elsewhere.
+
+    A matcher is a Caddy path matcher: ``/api/*`` (prefix), ``/*`` (everything)
+    or an exact path. Non-path matchers (the ``{$BUCKET_NAME}`` forms) and the
+    frontend/MinIO upstreams are ignored.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise SystemExit(
+            f"cannot read the production Caddyfile {display_path(path)}: {error}"
+        ) from None
+
+    matchers: list[str] = []
+    for line in text.splitlines():
+        match = REVERSE_PROXY_RE.match(line)
+        if match is None or match.group("upstream") != API_UPSTREAM:
+            continue
+        matcher = match.group("matcher")
+        if not matcher.startswith("/"):
+            continue
+        if matcher not in matchers:
+            matchers.append(matcher)
+
+    if not matchers:
+        raise SystemExit(
+            f"{display_path(path)} has no `reverse_proxy <path> {API_UPSTREAM}` "
+            "line; cannot tell which paths the production proxy sends to the API"
+        )
+    return tuple(matchers)
+
+
+def is_api_path(route_path: str, matchers: tuple[str, ...]) -> bool:
+    """True when ``route_path`` is a path the production proxy sends to the API."""
+    for matcher in matchers:
+        if matcher.endswith("*"):
+            base = matcher[:-1]
+            # `/api/*` matches `/api/...`; Django also has paths that are the
+            # bare prefix (`/api/`), which Caddy's matcher does not match.
+            if route_path.startswith(base) or route_path == base.rstrip("/"):
+                return True
+        elif route_path == matcher:
+            return True
+    return False
+
+
+def explain_api_paths(matchers: tuple[str, ...]) -> str:
+    return ", ".join(f"`{matcher}`" for matcher in matchers)
 
 
 # ---------------------------------------------------------------------------
@@ -375,10 +458,12 @@ def escape_literal(text: str) -> str:
 def route_converters(route: dict[str, Any]) -> dict[str, str]:
     """Map each ``{name}`` in the route template to its converter or regex group.
 
-    ``routes.json`` carries leaf parameters in ``params``. Parameters that come
-    from an enclosing ``URLResolver`` (for example the ``<str:slug>`` prefix of
-    the ``/api/v1/workspaces/<str:slug>/`` include) are not repeated there, so
-    they are read from ``django_pattern``, which is the full Django pattern.
+    ``routes.json`` carries every parameter in ``params``, including the ones a
+    converter on an enclosing ``URLResolver`` declares (for example the
+    ``<str:slug>`` prefix of the ``/api/v1/workspaces/<str:slug>/`` include,
+    which the router-generated leaves inherit). ``django_pattern`` is the full
+    Django pattern and is used as a cross-check and as a fallback for inventories
+    written before that was fixed.
     """
     converters: dict[str, str] = dict(route.get("params") or {})
 
@@ -497,7 +582,11 @@ def build_plan(
     owners: dict[tuple[str, str, str], tuple[str, str]],
     groups: list[Group],
     routes_module: Any,
+    api_matchers: tuple[str, ...] | None = None,
 ) -> list[GroupPlan]:
+    if api_matchers is None:
+        api_matchers = api_path_matchers()
+
     _by_order, by_group = assign_groups(routes, groups)
 
     plans: list[GroupPlan] = []
@@ -520,6 +609,19 @@ def build_plan(
 
             if engine == "django":
                 continue
+            if not is_api_path(route["path"], api_matchers):
+                # Caddy would send this request to a frontend, MinIO or the
+                # web app; a `handle` for it here would hijack that upstream
+                # instead of moving an API route to Rust. Refuse rather than
+                # emit a matcher that changes production routing.
+                raise SystemExit(
+                    f"error: {route['path']} ({group.name} group) is marked "
+                    f"{owner_cell} in the Owner column, but the production proxy "
+                    f"({display_path(DEFAULT_PRODUCTION_CADDYFILE)}) sends only "
+                    f"{explain_api_paths(api_matchers)} to {API_UPSTREAM}; "
+                    f"{route['path']} never reaches the API. Refusing to emit a "
+                    "matcher that would hijack a non-API path."
+                )
             if declared is None:
                 methods = routes_module.route_methods(route)
             else:
@@ -776,6 +878,16 @@ def main(argv: list[str] | None = None) -> int:
         help=f"group map (default: {DEFAULT_GROUPS_FILE.relative_to(REPO_ROOT)})",
     )
     parser.add_argument(
+        "--production-caddyfile",
+        type=Path,
+        default=DEFAULT_PRODUCTION_CADDYFILE,
+        help=(
+            "Caddyfile whose `reverse_proxy … api:8000` lines say which paths "
+            "can be routed to Rust (default: "
+            f"{DEFAULT_PRODUCTION_CADDYFILE.relative_to(REPO_ROOT)})"
+        ),
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=DEFAULT_OUT,
@@ -805,7 +917,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: invalid Owner cell: {error}", file=sys.stderr)
         return 2
 
-    plans = build_plan(routes, owners, groups, routes_module)
+    plans = build_plan(
+        routes,
+        owners,
+        groups,
+        routes_module,
+        api_path_matchers(args.production_caddyfile),
+    )
 
     if args.explain:
         explain(routes, owners, groups, routes_module)

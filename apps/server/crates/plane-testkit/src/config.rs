@@ -69,6 +69,27 @@ fn default_ignore_headers() -> Vec<String> {
     ]
 }
 
+/// Environment variables a scenario may not set through `target_env`.
+///
+/// Each one selects a resource the harness gives to exactly one target: the
+/// database clone, the Redis logical database, the broker vhost and the bind
+/// address. A scenario value that overrode one of them would make both targets
+/// share a resource, so the differences a run reports would no longer be
+/// attributable to one backend.
+pub const RESERVED_TARGET_ENV: &[&str] = &[
+    "DATABASE_URL",
+    "REDIS_URL",
+    "PLANE_DB",
+    "PLANE_REDIS_DB",
+    "PLANE_MQ_VHOST",
+    "PLANE_RS_BIND",
+    // The broker is selected by these two as well; `django-env.sh` builds
+    // CELERY_BROKER_URL from RABBITMQ_* and refuses AMQP_URL.
+    "RABBITMQ_VHOST",
+    "AMQP_URL",
+    "CELERY_BROKER_URL",
+];
+
 // ---------------------------------------------------------------------------
 // targets.yaml
 // ---------------------------------------------------------------------------
@@ -118,6 +139,20 @@ pub struct TargetSpec {
 }
 
 impl TargetSpec {
+    /// A copy of this target with `extra` merged into `env`.
+    ///
+    /// `extra` wins over a key already present, and both are applied after
+    /// `env_from` when the target starts, which is exactly where a scenario's
+    /// `target_env` belongs: the value must hold for both targets and may
+    /// override a default from `targets.yaml`.
+    pub fn with_env(&self, extra: &BTreeMap<String, String>) -> Self {
+        let mut spec = self.clone();
+        for (key, value) in extra {
+            spec.env.insert(key.clone(), value.clone());
+        }
+        spec
+    }
+
     fn validate(&self, name: &str) -> Result<()> {
         if self.kind.trim().is_empty() {
             bail!("target {name}: `kind` must not be empty");
@@ -235,6 +270,15 @@ pub struct Scenario {
     /// [A, B]. Defaults to [1, 2].
     #[serde(default = "default_redis_db")]
     pub redis_db: Vec<i64>,
+    /// Extra environment for both managed targets, merged into each target's
+    /// `env:` map (which is applied after `env_from`, so it also wins over a
+    /// value in `targets.yaml`). Use it for a setting the scenario itself
+    /// depends on and that must be identical on both sides, for example
+    /// `FILE_SIZE_LIMIT: "4096"`. Variables that select a per-target resource
+    /// (database, Redis index, broker vhost, bind address) are rejected; see
+    /// [`RESERVED_TARGET_ENV`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub target_env: BTreeMap<String, String>,
     pub steps: Vec<Step>,
 }
 
@@ -316,6 +360,21 @@ impl Scenario {
         }
         if self.steps.is_empty() {
             bail!("scenario {}: no steps", self.name);
+        }
+        for key in self.target_env.keys() {
+            if key.trim().is_empty() {
+                bail!(
+                    "scenario {}: `target_env` has an empty variable name",
+                    self.name
+                );
+            }
+            if RESERVED_TARGET_ENV.contains(&key.as_str()) {
+                bail!(
+                    "scenario {}: `target_env` may not set {key}: the harness gives each \
+                     target its own database, Redis index, broker vhost and bind address",
+                    self.name
+                );
+            }
         }
         for variable in &self.password_vars {
             if !self.vars.contains_key(variable) {
@@ -951,6 +1010,102 @@ volatile_db_columns:
         );
         let error = rules.validate().expect_err("must reject");
         assert!(error.to_string().contains("needs a response part"));
+    }
+
+    #[test]
+    fn target_env_is_parsed_and_allowed() {
+        let scenario = parse_scenario(
+            r#"
+name: t
+target_env:
+  FILE_SIZE_LIMIT: "4096"
+steps:
+  - name: s
+    path: /x
+"#,
+        );
+        scenario.validate().expect("valid");
+        assert_eq!(
+            scenario
+                .target_env
+                .get("FILE_SIZE_LIMIT")
+                .map(String::as_str),
+            Some("4096")
+        );
+    }
+
+    #[test]
+    fn target_env_may_not_select_a_per_target_resource() {
+        for key in RESERVED_TARGET_ENV {
+            let scenario = parse_scenario(&format!(
+                r#"
+name: t
+target_env:
+  {key}: "x"
+steps:
+  - name: s
+    path: /x
+"#
+            ));
+            let error = scenario.validate().expect_err(key);
+            let message = error.to_string();
+            assert!(message.contains(key), "{message}");
+            assert!(
+                message.contains("its own database"),
+                "the message must say why: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn target_env_rejects_an_empty_name() {
+        let scenario = parse_scenario(
+            r#"
+name: t
+target_env:
+  "": "x"
+steps:
+  - name: s
+    path: /x
+"#,
+        );
+        let error = scenario.validate().expect_err("must reject");
+        assert!(error.to_string().contains("empty variable name"));
+    }
+
+    #[test]
+    fn target_env_wins_over_the_target_env_map() {
+        let file: TargetsFile = serde_yaml_ng::from_str(
+            r#"
+targets:
+  rust:
+    kind: rust
+    command: ["/bin/true"]
+    env:
+      FILE_SIZE_LIMIT: "5242880"
+      PLANE_RS_BIND: "127.0.0.1:{port}"
+    health: /
+"#,
+        )
+        .expect("parse");
+        let spec = file.get("rust").expect("target");
+        let merged = spec.with_env(&BTreeMap::from([(
+            "FILE_SIZE_LIMIT".to_string(),
+            "4096".to_string(),
+        )]));
+        assert_eq!(
+            merged.env.get("FILE_SIZE_LIMIT").map(String::as_str),
+            Some("4096")
+        );
+        // Other keys are untouched, and the original target is not modified.
+        assert_eq!(
+            merged.env.get("PLANE_RS_BIND").map(String::as_str),
+            Some("127.0.0.1:{port}")
+        );
+        assert_eq!(
+            spec.env.get("FILE_SIZE_LIMIT").map(String::as_str),
+            Some("5242880")
+        );
     }
 
     #[test]

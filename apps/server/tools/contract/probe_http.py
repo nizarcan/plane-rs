@@ -122,6 +122,34 @@ def run_all():
     show("HEAD /  (plain function view answers HEAD)", c.head("/"))
     show("OPTIONS /  (plain function view answers OPTIONS with its normal body)", c.options("/"))
 
+    # Function views do not restrict methods, but an unsafe method on a
+    # non-exempt view is checked by CsrfViewMiddleware first (middleware #5
+    # runs before the view). With no token that is the 200 HTML failure page of
+    # §7.5, not the health body.
+    csrf_client = client(enforce_csrf_checks=True)
+    show(
+        "POST / with no CSRF token (CsrfViewMiddleware -> 200 HTML csrf_failure, not the health body)",
+        csrf_client.post("/", data=b'{"ping": true}', content_type="application/json"),
+    )
+    show(
+        "PUT / with no CSRF token (same)",
+        csrf_client.put("/", data=b"", content_type="text/plain"),
+    )
+    show("DELETE / with no CSRF token (same)", csrf_client.delete("/"))
+    token_response = csrf_client.get("/auth/get-csrf-token/")
+    token = token_response.json()["csrf_token"]
+    cookie = token_response.cookies["csrftoken"].value
+    show(
+        "POST / with a valid X-CSRFToken and its cookie (passes CSRF; the view answers POST)",
+        csrf_client.post(
+            "/",
+            data=b'{"ping": true}',
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            cookies={"csrftoken": cookie},
+        ),
+    )
+
     section("2. APPEND_SLASH (CommonMiddleware)")
     show("GET /api/users/me  (no trailing slash -> 301 to /api/users/me/)", c.get("/api/users/me"))
     show(

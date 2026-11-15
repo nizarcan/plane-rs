@@ -16,9 +16,14 @@
 # it and `down.sh` does not stop it. Only this script manages it.
 #
 # The Caddy container mounts apps/server read-only at /srv/plane and runs
-# /srv/plane/dev/Caddyfile.dev, which imports the generated
-# deploy/caddy/rust-routes.caddy. `reload` rewrites that file and asks Caddy to
-# reload its configuration in place; the container keeps running.
+# /srv/plane/dev/Caddyfile.dev, which imports the generated snippet from
+# dev/run/rust-routes.caddy (gitignored). `reload` rewrites that copy and asks
+# Caddy to reload its configuration in place; the container keeps running.
+#
+# The dev proxy never writes the committed deploy/caddy/rust-routes.caddy: that
+# file changes only when someone runs gen_caddy.py deliberately (or CI's
+# --check). This keeps PLANE_RS_OWNERS_FILE / PLANE_RS_GROUPS_FILE experiments
+# out of `git status`.
 #
 # Flags. PLANE_RS_GROUP_<NAME> is read by Caddy per request from the container
 # environment (see the generated file), so a flag change means recreating the
@@ -48,24 +53,27 @@ PROXY_CONTAINER="plane-rs-dev-proxy"
 PROXY_PORT=18080
 PROXY_CONFIG_IN_CONTAINER="/srv/plane/dev/Caddyfile.dev"
 PROXY_ENV_FILE="$PLANE_DEV_RUN_DIR/proxy.env"
+# The snippet Caddy imports. It lives under the gitignored dev/run/ so an
+# experiment here never touches the committed deploy/caddy/rust-routes.caddy.
+PROXY_SNIPPET="$PLANE_DEV_RUN_DIR/rust-routes.caddy"
 DEFAULT_RS_UPSTREAM="host.docker.internal:18100"
 
 usage() {
   cat <<'EOF'
 usage: proxy.sh <up|down|reload|status>
 
-  up       generate deploy/caddy/rust-routes.caddy, then create/start the
+  up       generate dev/run/rust-routes.caddy, then create/start the
            plane-rs-dev-proxy container with the flags exported right now
   reload   regenerate the snippet and reload Caddy without restarting it
   status   print container state, the flags it was started with, and a probe
-  down     stop and remove the container (the generated file is kept)
+  down     stop and remove the container (the generated snippet is kept)
 EOF
 }
 
 generate_snippet() {
   [[ -x "$PLANE_DJANGO_PYTHON" ]] ||
     die "python not found at $PLANE_DJANGO_PYTHON (the orchestrator creates apps/api/.venv)"
-  local args=()
+  local args=(--out "$PROXY_SNIPPET")
   if [[ -n "${PLANE_RS_OWNERS_FILE:-}" ]]; then
     args+=(--owners-file "$PLANE_RS_OWNERS_FILE")
   fi

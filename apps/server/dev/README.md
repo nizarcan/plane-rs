@@ -46,7 +46,7 @@ executed.
 | `django-env.sh` | Prints (when executed) or exports (when sourced) the environment Django needs. See the table below. |
 | `django.sh <args>` | Runs `apps/api/.venv/bin/python manage.py <args>` from `apps/api` with that environment. |
 | `django-serve.sh <port>` | Serves Django in the foreground exactly as `apps/api/bin/docker-entrypoint-api.sh` does after its setup steps: gunicorn 23 with one `uvicorn.workers.UvicornWorker`, `plane.asgi:application`, bound to `127.0.0.1:<port>`, access log on stderr. No `--max-requests`, no registration/collectstatic. |
-| `proxy.sh up\|down\|reload\|status` | Runs the coexistence proxy in a `caddy:2.11.4-alpine` container named `plane-rs-dev-proxy` on `127.0.0.1:18080`. Rust-owned routes go to `host.docker.internal:18100`, `/api/*`, `/auth/*` and `/static/*` to Django on 18000, `/uploads/*` to MinIO on 59000, `/spaces/*`, `/god-mode/*`, `/live/*` and everything else to the frontend dev servers. It lives in the compose `proxy` profile, so `up.sh`/`down.sh` leave it alone. `reload` regenerates `deploy/caddy/rust-routes.caddy` and reloads Caddy in place. |
+| `proxy.sh up\|down\|reload\|status` | Runs the coexistence proxy in a `caddy:2.11.4-alpine` container named `plane-rs-dev-proxy` on `127.0.0.1:18080`. Rust-owned routes go to `host.docker.internal:18100`, `/api/*`, `/auth/*` and `/static/*` to Django on 18000, `/uploads/*` to MinIO on 59000, `/spaces/*`, `/god-mode/*`, `/live/*` and everything else to the frontend dev servers. It lives in the compose `proxy` profile, so `up.sh`/`down.sh` leave it alone. `up`/`reload` regenerate the gitignored `dev/run/rust-routes.caddy`; the committed `deploy/caddy/rust-routes.caddy` is only written by running `gen_caddy.py` deliberately. |
 | `mq-vhost.sh <vhost>` | Creates a RabbitMQ vhost and grants `plane` configure/write/read on it. Idempotent. `--delete [--force]` removes it; the shared `plane` vhost needs `--force`. |
 | `bootstrap.sh [--force]` | Builds the `plane_tpl` template database. Does nothing if it already exists, unless `--force` drops and rebuilds it. |
 | `mkdb.sh <name> [--replace]` | Clones `plane_tpl` as `<name>`. Refuses an existing name unless `--replace` (which drops it first). |
@@ -200,10 +200,14 @@ The frontends may be down; Caddy answers 502 for their routes and keeps
 serving the backend ones. `host.docker.internal` is provided by the compose
 `extra_hosts` entry, which works on Colima and Docker Desktop.
 
-Ownership comes from `ROUTES.md` + `deploy/route-groups.yaml`; the generated
-fragment is `deploy/caddy/rust-routes.caddy`. `proxy.sh reload` regenerates it
-and reloads Caddy without recreating the container. While every Owner cell is
-`django` the fragment has no matchers and the proxy is a plain pass-through.
+Ownership comes from `ROUTES.md` + `deploy/route-groups.yaml`; the dev proxy
+imports a generated copy at `dev/run/rust-routes.caddy`. `proxy.sh up`/`reload`
+regenerate that copy and (for `reload`) reload Caddy without recreating the
+container. The committed `deploy/caddy/rust-routes.caddy` is never touched by
+the dev scripts: it changes only when someone runs
+`apps/server/tools/proxy/gen_caddy.py` on purpose, which CI verifies with
+`--check`. While every Owner cell is `django` the fragment has no matchers and
+the proxy is a plain pass-through.
 
 Each group is flipped with `PLANE_RS_GROUP_<NAME>` (for example
 `PLANE_RS_GROUP_META`, `PLANE_RS_GROUP_USERS_ME`); unset or `rust` sends the
@@ -215,7 +219,8 @@ copies every exported `PLANE_RS_GROUP_*` variable into the gitignored
 `deploy/caddy/README.md` for the full ownership workflow.
 
 For a local experiment without touching the committed `ROUTES.md`, point the
-generator at a copy:
+generator at a copy. The output still goes to `dev/run/`, so the committed
+`deploy/caddy/rust-routes.caddy` does not change either:
 
 ```sh
 PLANE_RS_OWNERS_FILE=/tmp/ROUTES.md apps/server/dev/proxy.sh reload

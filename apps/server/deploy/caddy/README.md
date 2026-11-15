@@ -15,7 +15,8 @@ one-line change plus a reload.
 `apps/proxy/Caddyfile.ce` itself is not modified: production keeps using it
 until cutover. `Caddyfile.coexist` is the drop-in replacement for the
 transition, and `apps/server/dev/proxy.sh` runs the same generated fragment
-against the local stack.
+against the local stack. The dev script writes its own gitignored copy,
+`dev/run/rust-routes.caddy`, and never the committed `deploy/caddy/` file.
 
 ## Moving a group
 
@@ -23,7 +24,12 @@ against the local stack.
    `rust` (whole row, including implicit `HEAD`/`OPTIONS`) or to
    `rust(GET,HEAD)` (only those methods). Method names are uppercase and must
    be methods the row answers; invalid cells are rejected by both
-   `tools/inventory/routes.py` and `tools/proxy/gen_caddy.py`.
+   `tools/inventory/routes.py` and `tools/proxy/gen_caddy.py`. Only a path the
+   production proxy already sends to the API can move: the generator parses the
+   `reverse_proxy … api:8000` lines of `apps/proxy/Caddyfile.ce` (`/api/*`,
+   `/auth/*`, `/static/*` today) and refuses a `rust` cell outside them — `/`
+   and `/robots.txt` go to the web frontend, so `health` and `web` stay on
+   Django by construction.
 2. Regenerate the inventory (it preserves Owner and Status):
 
    ```sh
@@ -42,7 +48,9 @@ against the local stack.
 
 4. Reload the proxy. Production: put `Caddyfile.coexist` at `/etc/caddy/Caddyfile`
    (the path the proxy image loads) and run `caddy reload --config /etc/caddy/Caddyfile`.
-   Dev: `apps/server/dev/proxy.sh reload`.
+   Dev: `apps/server/dev/proxy.sh reload` regenerates the gitignored
+   `dev/run/rust-routes.caddy` from the same inputs and reloads Caddy; it does
+   not write the committed fragment.
 
 `gen_caddy.py --explain` prints every route with its group and effective
 methods, which is the quickest way to see what a change did.

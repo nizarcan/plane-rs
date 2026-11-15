@@ -323,6 +323,12 @@ async fn run_inner(
             .join("apps/server/target")
             .join("difftest-logs")
             .join(run_id);
+        // Scenario-level `target_env` (FILE_SIZE_LIMIT and friends) is merged
+        // into each managed target's `env`, which is applied after `env_from`.
+        // Attached targets are not started here and get it from their own
+        // command line instead.
+        let spec_a = spec_a.with_env(&scenario.target_env);
+        let spec_b = spec_b.with_env(&scenario.target_env);
         let mut ports = PortAllocator::new(spec_a.port_range[0], spec_a.port_range[1]);
         let port_a = ports.allocate().await?;
         let port_a_context = target_context(port_a, &a_db, a_redis_db, &a_vhost);

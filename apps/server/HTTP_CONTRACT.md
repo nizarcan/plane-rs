@@ -595,9 +595,11 @@ error in this area.
 
 **Every DRF view is CSRF-exempt.** `APIView.as_view` returns `csrf_exempt(view)`
 (`py:rest_framework/views.py:143-149`). `plane` itself never uses
-`django.views.decorators.csrf.csrf_exempt` (grep: no hits), so the *only* routes that
-Django's CSRF middleware checks are the `django.views.View` subclasses in
-`plane/authentication/views/` — all of which are form POSTs that redirect:
+`django.views.decorators.csrf.csrf_exempt` (grep: no hits), so the routes Django's
+CSRF middleware checks are the `django.views.View` subclasses in
+`plane/authentication/views/` — all of which are form POSTs that redirect — plus
+the two non-exempt function views in `plane/web/views.py` (`/` and `/robots.txt`,
+§11.5). The `View`s first:
 
 | Path | View class | Base | Method |
 | --- | --- | --- | --- |
@@ -1322,9 +1324,12 @@ and `MultiPartParserError` (`py:django/core/handlers/exception.py:84-126`).
 \n<!doctype html>\n<html lang="en">\n<head>\n  <title>403 Forbidden</title>\n</head>\n<body>\n  <h1>403 Forbidden</h1><p></p>\n</body>\n</html>\n
 ```
 
-141 bytes, `text/html; charset=utf-8`. This path is not covered by a probe because it
-needs a configured `DISALLOWED_USER_AGENTS`; the byte count is computed from the
-template.
+135 bytes, `text/html; charset=utf-8`. The size follows from
+`ERROR_PAGE_TEMPLATE % {"title": "403 Forbidden", "details": ""}`: the title appears
+twice (in `<title>` and `<h1>`), which is why the 400 page (`Bad Request (400)`) is 143
+bytes and the 500 page (`Server Error (500)`) 145. This path is not covered by a probe
+because it needs a configured `DISALLOWED_USER_AGENTS`; the byte count is computed from
+the template.
 
 ### 11.5 Routes that do not use DRF `Response`
 
@@ -1374,9 +1379,16 @@ accessed, `Vary: Cookie` — exactly like DRF responses, only with a different b
 encoding.
 
 `/` and `/robots.txt` are `plane.web.views` function views, and function views do not
-restrict methods: `POST /`, `PUT /`, `OPTIONS /` all return the health body
-(`§A.1.1`, `HEAD`/`OPTIONS` blocks). Port that, or make `/` `GET`-only and accept the
-divergence explicitly.
+restrict methods. Safe methods never reach `CsrfViewMiddleware`'s token check, so
+`GET`, `HEAD` and `OPTIONS /` return the health body (`§A.1.1`, and the `robots.txt`
+blocks). Unsafe methods do, and the two views declare no exemption: `POST`, `PUT`,
+`PATCH` and `DELETE` without a CSRF token are rejected by `CsrfViewMiddleware` with the
+**200** HTML `csrf_failure` page of §7.5 — not the health body — because the check runs
+in middleware 5 before the view (`§A.1.1`, the `POST /`/`PUT /`/`DELETE /` blocks). With
+a valid `X-CSRFToken` and its cookie the view *is* reached and answers its normal body
+(`200 {"status": "OK"}`, or `User-agent: *\nDisallow: /` for `/robots.txt`), because the
+function view accepts every method. Port both halves: the CSRF rejection and the
+method-agnostic view response when the token checks out.
 
 ### 11.6 `Cache-Control` on four endpoints
 
@@ -1748,6 +1760,50 @@ status: 200
   Referrer-Policy: same-origin
   Cross-Origin-Opener-Policy: same-origin
 body(16 bytes): b'{"status": "OK"}'
+
+### POST / with no CSRF token (CsrfViewMiddleware -> 200 HTML csrf_failure, not the health body)
+status: 200
+  Content-Type: text/html; charset=utf-8
+  Vary: Accept-Encoding, Cookie, origin
+  X-Frame-Options: DENY
+  Content-Length: 1732
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin
+body(1732 bytes, first 400): b'<!-- templates/csrf_failure.html -->\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>CSRF Verification Failed</title>\n    <style>\n      body {\n        font-family: Arial, sans-serif;\n        background-color: #f8f9fa;\n        padding: 50px;\n        display: flex;\n        justify-content: '
+
+### PUT / with no CSRF token (same)
+status: 200
+  Content-Type: text/html; charset=utf-8
+  Vary: Accept-Encoding, Cookie, origin
+  X-Frame-Options: DENY
+  Content-Length: 1732
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin
+body(1732 bytes, first 400): b'<!-- templates/csrf_failure.html -->\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>CSRF Verification Failed</title>\n    <style>\n      body {\n        font-family: Arial, sans-serif;\n        background-color: #f8f9fa;\n        padding: 50px;\n        display: flex;\n        justify-content: '
+
+### DELETE / with no CSRF token (same)
+status: 200
+  Content-Type: text/html; charset=utf-8
+  Vary: Accept-Encoding, Cookie, origin
+  X-Frame-Options: DENY
+  Content-Length: 1732
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin
+body(1732 bytes, first 400): b'<!-- templates/csrf_failure.html -->\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>CSRF Verification Failed</title>\n    <style>\n      body {\n        font-family: Arial, sans-serif;\n        background-color: #f8f9fa;\n        padding: 50px;\n        display: flex;\n        justify-content: '
+
+### POST / with a valid X-CSRFToken and its cookie (passes CSRF; the view answers POST)
+status: 200
+  Content-Type: application/json
+  X-Frame-Options: DENY
+  Content-Length: 16
+  Vary: Cookie, origin
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Cross-Origin-Opener-Policy: same-origin
+body(16 bytes): b'{"status": "OK"}'
 ```
 
 ### A.1.2 APPEND_SLASH (CommonMiddleware)
@@ -2037,8 +2093,8 @@ status: 200
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
   Cross-Origin-Opener-Policy: same-origin
-  Set-Cookie(raw): Set-Cookie: csrftoken=4gEK7Vpmp0SwKFXRd4CKev7VKFCZt5Hr; expires=Sun, 14 Nov 2027 17:44:46 GMT; HttpOnly; Max-Age=31449600; Path=/; SameSite=Lax
-body(81 bytes): b'{"csrf_token":"vYZRZFf21w034LEA8KY5JHGdL13Ki9iQp4trWquegmIpEgrhbEqFN2DYlwvzB4P7"}'
+  Set-Cookie(raw): Set-Cookie: csrftoken=c3k0TNCh4qA6voOuD1XNLyQpJXRyj8fr; expires=Sun, 14 Nov 2027 19:57:06 GMT; HttpOnly; Max-Age=31449600; Path=/; SameSite=Lax
+body(81 bytes): b'{"csrf_token":"5ca86eCZPJ5m6FSnHSDRnXZRgOW7zNGz75kYPR46JZvirTwHaJquYlF6PBDvILLQ"}'
 
   token length: 64
 
@@ -2052,8 +2108,8 @@ status: 200
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
   Cross-Origin-Opener-Policy: same-origin
-  Set-Cookie(raw): Set-Cookie: csrftoken=eSOLNDgX0xKPLHT9iJDmjRT09bRUoP26; Domain=.plane.so; expires=Sun, 14 Nov 2027 17:44:46 GMT; HttpOnly; Max-Age=31449600; Path=/; SameSite=Lax; Secure
-body(81 bytes): b'{"csrf_token":"r4qlM0CHLky4spHGjGs6NN2sQTLuJiwFvM4WptIuBH8J3WqFrfViWuLiPUseXXoB"}'
+  Set-Cookie(raw): Set-Cookie: csrftoken=czJugz6Cl7rUwEVdyRgwYRL0RFJiQDYm; Domain=.plane.so; expires=Sun, 14 Nov 2027 19:57:06 GMT; HttpOnly; Max-Age=31449600; Path=/; SameSite=Lax; Secure
+body(81 bytes): b'{"csrf_token":"TA4OPbMcHWbFr2rOkbizhR5r7KzdffWrVZD8VAIESTspNwcRISoV5yGhOf8lVIKD"}'
 
 ### GET /auth/get-csrf-token/ with CSRF_COOKIE_HTTPONLY=False
 status: 200
@@ -2065,8 +2121,8 @@ status: 200
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
   Cross-Origin-Opener-Policy: same-origin
-  Set-Cookie(raw): Set-Cookie: csrftoken=eGnVtTmKpWjbewVe009PFAWp45fQ0GJu; expires=Sun, 14 Nov 2027 17:44:46 GMT; Max-Age=31449600; Path=/; SameSite=Lax
-body(81 bytes): b'{"csrf_token":"nTUl7PlN27z9T66xe6fdbMufGQqhLuWlrp76qyxnhTIaXsRB4WeSGcguALvXB0vF"}'
+  Set-Cookie(raw): Set-Cookie: csrftoken=XWh1OhInDAwB8pFXq8fA4x9N8sYZtbrW; expires=Sun, 14 Nov 2027 19:57:06 GMT; Max-Age=31449600; Path=/; SameSite=Lax
+body(81 bytes): b'{"csrf_token":"MrPeu8jBoBZQMzQUHep5iLfWt7HANxY7zdW58fROR1lhKOlHXcuvc8ezrpvp6yfT"}'
 ```
 
 ### A.1.9 CsrfViewMiddleware on a plain Django View (POST /auth/magic-sign-in/)
@@ -2096,8 +2152,8 @@ status: 200
   access-control-allow-credentials: true
 body(1732 bytes, first 400): b'<!-- templates/csrf_failure.html -->\n<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>CSRF Verification Failed</title>\n    <style>\n      body {\n        font-family: Arial, sans-serif;\n        background-color: #f8f9fa;\n        padding: 50px;\n        display: flex;\n        justify-content: '
 
-  csrftoken cookie value (first 8): Qsh99IDc len 32
-  JSON csrf_token  (first 8): p0cE0X8r len 64
+  csrftoken cookie value (first 8): ecSWf941 len 32
+  JSON csrf_token  (first 8): VUdTNMEx len 64
 
 ### POST /auth/magic-sign-in/ with matching X-CSRFToken and cookie (passes CSRF, then 500 on Redis)
 status: 500
@@ -2553,7 +2609,7 @@ status: 200
   Content-Type: application/json
   Allow: GET, HEAD, OPTIONS
   X-RateLimit-Remaining: 59
-  X-RateLimit-Reset: 1794764746
+  X-RateLimit-Reset: 1794772686
   X-Frame-Options: DENY
   Content-Length: 11
   X-Content-Type-Options: nosniff
@@ -2567,7 +2623,7 @@ status: 200
   Content-Type: application/json
   Allow: GET, HEAD, OPTIONS
   X-RateLimit-Remaining: 60
-  X-RateLimit-Reset: 1794764746
+  X-RateLimit-Reset: 1794772687
   X-Frame-Options: DENY
   Content-Length: 11
   X-Content-Type-Options: nosniff
@@ -2653,7 +2709,7 @@ body(94985 bytes, first 300): b'<!DOCTYPE html>\n<html lang="en">\n<head>\n  <me
 
 ```text
 Django 5.2.17
-now = 1794764687
+now = 1794772627
 
 Defaults: SESSION_COOKIE_NAME=session-id, SESSION_COOKIE_AGE=604800,
           ADMIN_SESSION_COOKIE_NAME=admin-session-id, ADMIN_SESSION_COOKIE_AGE=3600,
@@ -2666,24 +2722,24 @@ Defaults: SESSION_COOKIE_NAME=session-id, SESSION_COOKIE_AGE=604800,
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 17:44:47 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
-  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 17:44:47 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 19:57:07 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
+  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 19:57:07 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 2. new session on an admin path (substring 'instances')
   path='/api/instances/users/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: admin-session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 18:44:47 GMT; HttpOnly; Max-Age=3600; Path=/; SameSite=Lax
-  morsel[admin-session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 18:44:47 GMT'), ('httponly', True), ('max-age', 3600), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: admin-session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 20:57:07 GMT; HttpOnly; Max-Age=3600; Path=/; SameSite=Lax
+  morsel[admin-session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 20:57:07 GMT'), ('httponly', True), ('max-age', 3600), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 3. path that merely contains 'instances' also gets the admin cookie
   path='/api/workspaces/acme/instances/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: admin-session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 18:44:47 GMT; HttpOnly; Max-Age=3600; Path=/; SameSite=Lax
-  morsel[admin-session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 18:44:47 GMT'), ('httponly', True), ('max-age', 3600), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: admin-session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 20:57:07 GMT; HttpOnly; Max-Age=3600; Path=/; SameSite=Lax
+  morsel[admin-session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 20:57:07 GMT'), ('httponly', True), ('max-age', 3600), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 4. session accessed but not modified
   path='/api/users/me/' cookie_key=None
@@ -2720,8 +2776,8 @@ Defaults: SESSION_COOKIE_NAME=session-id, SESSION_COOKIE_AGE=604800,
   session data={}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 17:44:47 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
-  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 17:44:47 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 19:57:07 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
+  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 19:57:07 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 8. response status 500 -> no save, no cookie
   path='/api/users/me/' cookie_key=None
@@ -2743,56 +2799,56 @@ Defaults: SESSION_COOKIE_NAME=session-id, SESSION_COOKIE_AGE=604800,
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}, '_session_expiry': 100}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 17:46:27 GMT; HttpOnly; Max-Age=100; Path=/; SameSite=Lax
-  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 17:46:27 GMT'), ('httponly', True), ('max-age', 100), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 19:58:47 GMT; HttpOnly; Max-Age=100; Path=/; SameSite=Lax
+  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 19:58:47 GMT'), ('httponly', True), ('max-age', 100), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 11. custom expiry as an ISO timestamp
   path='/api/users/me/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}, '_session_expiry': '2099-01-01T00:00:00+00:00'}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Wed, 31 Dec 2098 23:59:59 GMT; HttpOnly; Max-Age=2276144112; Path=/; SameSite=Lax
-  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Wed, 31 Dec 2098 23:59:59 GMT'), ('httponly', True), ('max-age', 2276144112), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Wed, 31 Dec 2098 23:59:59 GMT; HttpOnly; Max-Age=2276136172; Path=/; SameSite=Lax
+  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Wed, 31 Dec 2098 23:59:59 GMT'), ('httponly', True), ('max-age', 2276136172), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 12. SESSION_COOKIE_SECURE=True -> Secure attribute
   path='/api/users/me/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 17:44:47 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax; Secure
-  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 17:44:47 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', True), ('version', '')]
+  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 19:57:07 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax; Secure
+  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 19:57:07 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', True), ('version', '')]
 
 ### 13. COOKIE_DOMAIN=.plane.so -> Domain attribute
   path='/api/users/me/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; Domain=.plane.so; expires=Sun, 22 Nov 2026 17:44:47 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
-  morsel[session-id] attrs = [('comment', ''), ('domain', '.plane.so'), ('expires', 'Sun, 22 Nov 2026 17:44:47 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; Domain=.plane.so; expires=Sun, 22 Nov 2026 19:57:07 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
+  morsel[session-id] attrs = [('comment', ''), ('domain', '.plane.so'), ('expires', 'Sun, 22 Nov 2026 19:57:07 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 14. SESSION_SAVE_EVERY_REQUEST=True, not modified -> cookie refreshed
   path='/api/users/me/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=False
   Vary = Cookie
-  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 17:44:47 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
-  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 17:44:47 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: session-id=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 19:57:07 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
+  morsel[session-id] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 19:57:07 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 15. renamed cookies
   path='/api/users/me/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: plane-session=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 17:44:47 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
-  morsel[plane-session] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 17:44:47 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: plane-session=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 22 Nov 2026 19:57:07 GMT; HttpOnly; Max-Age=604800; Path=/; SameSite=Lax
+  morsel[plane-session] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 22 Nov 2026 19:57:07 GMT'), ('httponly', True), ('max-age', 604800), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 ### 16. renamed admin cookie
   path='/api/instances/x/' cookie_key=None
   session data={'_auth_user_id': '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0', 'backend': 'django.contrib.auth.backends.ModelBackend', '_auth_user_hash': '9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f9f2f', 'device_info': {'user_agent': 'probe', 'ip_address': '203.0.113.7', 'domain': 'http://localhost/'}}
   status=200 accessed=True modified=True
   Vary = Cookie
-  Set-Cookie = Set-Cookie: plane-admin=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 18:44:47 GMT; HttpOnly; Max-Age=3600; Path=/; SameSite=Lax
-  morsel[plane-admin] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 18:44:47 GMT'), ('httponly', True), ('max-age', 3600), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
+  Set-Cookie = Set-Cookie: plane-admin=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk; expires=Sun, 15 Nov 2026 20:57:07 GMT; HttpOnly; Max-Age=3600; Path=/; SameSite=Lax
+  morsel[plane-admin] attrs = [('comment', ''), ('domain', ''), ('expires', 'Sun, 15 Nov 2026 20:57:07 GMT'), ('httponly', True), ('max-age', 3600), ('path', '/'), ('samesite', 'Lax'), ('secure', ''), ('version', '')]
 
 Cookie attribute order is http.cookies.Morsel.OutputString():
   `sorted(self.items())`, i.e. alphabetical by lower-case attribute name:
@@ -3059,9 +3115,9 @@ VECTOR 1 (deterministic)
   _does_token_match(secret, other)    = False
 
 VECTOR 2 (random, produced by django)
-  secret = CTIGYblqvShV8RkLZ7bt4ZaWAiFZYPoF
-  masked = auJMQXMEZbVPi6NmJTFdzXZ62SxwRmpZCdhiEYXUkT2AgNXXyQGwtMZSs02lF1Du
-  unmask = CTIGYblqvShV8RkLZ7bt4ZaWAiFZYPoF
+  secret = c32gKbAEpCqsbFdHQPczma8wMxcMEfAL
+  masked = 8LujBmuh3AZGHmgkn2N65CBrLKdWtxseaEmpbnULi2fYIRjR3HPvhCzNn7fyXCSP
+  unmask = c32gKbAEpCqsbFdHQPczma8wMxcMEfAL
   match  = True
 
 Format checks (_check_token_format):

@@ -21037,7 +21037,9 @@
       "group": "v1",
       "django_pattern": "api/v1/workspaces/<str:slug>/^invitations/$",
       "path": "/api/v1/workspaces/{slug}/invitations/",
-      "params": {},
+      "params": {
+        "slug": "str"
+      },
       "name": "workspace-invitations-list",
       "view": "plane.api.views.invite.WorkspaceInvitationsViewset",
       "kind": "ViewSet",
@@ -21090,6 +21092,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/^invitations\\.(?P<format>[a-z0-9]+)/?$",
       "path": "/api/v1/workspaces/{slug}/invitations.{format}",
       "params": {
+        "slug": "str",
         "format": "[a-z0-9]+"
       },
       "name": "workspace-invitations-list",
@@ -21146,6 +21149,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/^invitations/(?P<pk>[^/.]+)/$",
       "path": "/api/v1/workspaces/{slug}/invitations/{pk}/",
       "params": {
+        "slug": "str",
         "pk": "[^/.]+"
       },
       "name": "workspace-invitations-detail",
@@ -21206,6 +21210,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/^invitations/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
       "path": "/api/v1/workspaces/{slug}/invitations/{pk}.{format}",
       "params": {
+        "slug": "str",
         "pk": "[^/.]+",
         "format": "[a-z0-9]+"
       },
@@ -21268,7 +21273,9 @@
       "group": "v1",
       "django_pattern": "api/v1/workspaces/<str:slug>/",
       "path": "/api/v1/workspaces/{slug}/",
-      "params": {},
+      "params": {
+        "slug": "str"
+      },
       "name": "api-root",
       "view": "rest_framework.routers.APIRootView",
       "kind": "APIView",
@@ -21318,6 +21325,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/<drf_format_suffix:format>",
       "path": "/api/v1/workspaces/{slug}/.{format}",
       "params": {
+        "slug": "str",
         "format": "drf_format_suffix"
       },
       "name": "api-root",
@@ -21370,7 +21378,9 @@
       "group": "v1",
       "django_pattern": "api/v1/workspaces/<str:slug>/^stickies/$",
       "path": "/api/v1/workspaces/{slug}/stickies/",
-      "params": {},
+      "params": {
+        "slug": "str"
+      },
       "name": "workspace-stickies-list",
       "view": "plane.api.views.sticky.StickyViewSet",
       "kind": "ViewSet",
@@ -21423,6 +21433,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/^stickies\\.(?P<format>[a-z0-9]+)/?$",
       "path": "/api/v1/workspaces/{slug}/stickies.{format}",
       "params": {
+        "slug": "str",
         "format": "[a-z0-9]+"
       },
       "name": "workspace-stickies-list",
@@ -21479,6 +21490,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/^stickies/(?P<pk>[^/.]+)/$",
       "path": "/api/v1/workspaces/{slug}/stickies/{pk}/",
       "params": {
+        "slug": "str",
         "pk": "[^/.]+"
       },
       "name": "workspace-stickies-detail",
@@ -21539,6 +21551,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/^stickies/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$",
       "path": "/api/v1/workspaces/{slug}/stickies/{pk}.{format}",
       "params": {
+        "slug": "str",
         "pk": "[^/.]+",
         "format": "[a-z0-9]+"
       },
@@ -21601,7 +21614,9 @@
       "group": "v1",
       "django_pattern": "api/v1/workspaces/<str:slug>/",
       "path": "/api/v1/workspaces/{slug}/",
-      "params": {},
+      "params": {
+        "slug": "str"
+      },
       "name": "api-root",
       "view": "rest_framework.routers.APIRootView",
       "kind": "APIView",
@@ -21652,6 +21667,7 @@
       "django_pattern": "api/v1/workspaces/<str:slug>/<drf_format_suffix:format>",
       "path": "/api/v1/workspaces/{slug}/.{format}",
       "params": {
+        "slug": "str",
         "format": "drf_format_suffix"
       },
       "name": "api-root",

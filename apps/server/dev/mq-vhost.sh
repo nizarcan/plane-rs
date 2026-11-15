@@ -65,8 +65,20 @@ rabbitmqctl() {
 }
 
 vhost_exists() {
-  # --no-table-headers keeps the output to one bare name per line.
-  rabbitmqctl list_vhosts --no-table-headers 2>/dev/null | grep -Fxq -- "$1"
+  # `-q` (--quiet) suppresses the `Listing vhosts ...` banner that rabbitmqctl
+  # 3.13 writes to *stdout* even with `--no-table-headers`, so the listing is
+  # exactly one bare vhost name per line; `--no-table-headers` drops the `name`
+  # column header.
+  #
+  # The listing is captured first instead of piped straight into `grep -q`:
+  # with `set -o pipefail`, `grep -q` exiting after the first match can leave
+  # rabbitmqctl with a SIGPIPE (141), and a transient CLI failure would then be
+  # indistinguishable from "the vhost does not exist" -- which makes creation
+  # and deletion silently non-idempotent. Fail loudly instead.
+  local listing
+  listing="$(rabbitmqctl -q list_vhosts --no-table-headers)" ||
+    die "rabbitmqctl list_vhosts failed; cannot tell whether vhost '$1' exists"
+  grep -Fxq -- "$1" <<<"$listing"
 }
 
 if ((delete)); then

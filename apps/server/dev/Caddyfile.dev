@@ -29,6 +29,11 @@
 # The flag values and PLANE_RS_API_UPSTREAM are passed to the container by
 # apps/server/dev/proxy.sh (compose env_file dev/run/proxy.env), and the proxy
 # image is caddy:2.11.4-alpine.
+#
+# The imported snippet is the gitignored dev/run/rust-routes.caddy, written by
+# proxy.sh from the same generator that produces the committed
+# deploy/caddy/rust-routes.caddy. The dev proxy never rewrites the committed
+# file, so ownership experiments do not show up in `git status`.
 
 {
 	# Admin API stays on the container's loopback; proxy.sh reload uses
@@ -38,7 +43,7 @@
 }
 
 :18080 {
-	import ../deploy/caddy/rust-routes.caddy
+	import run/rust-routes.caddy
 
 	handle {
   redir /spaces /spaces/ permanent

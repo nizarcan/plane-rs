@@ -58,6 +58,8 @@ undetected. It runs in `cargo test` too.
 ```yaml
 name: example
 template_db: plane_tpl          # default
+target_env:                     # extra env for both managed targets
+  FILE_SIZE_LIMIT: "4096"
 vars:                           # scenario variables, available as {{name}}
   email: user@example.com
   password: Diff-Test-Passw0rd-2026!
@@ -84,6 +86,22 @@ steps:
         header: Location
         pattern: '/workspaces/([^/]+)/'
 ```
+
+`target_env` is merged into the `env:` map of both targets the harness starts,
+which is applied after `env_from`, so it wins over both `targets.yaml` and the
+variables `django-env.sh` exports. Use it for a setting the scenario itself
+depends on that must be identical on the two sides — `FILE_SIZE_LIMIT` for the
+body-limit step, say — instead of requiring the caller to export it. Values go
+through the same `{port}`/`{db}`/`{repo}` rendering as a target's `env:` map,
+but a scenario-level value is meant to be a constant: use `targets.yaml` for
+anything that must differ between A and B. The variables that select a
+per-target resource are rejected, because setting them would make both targets
+share a database, Redis index or broker:
+`DATABASE_URL`, `REDIS_URL`, `PLANE_DB`, `PLANE_REDIS_DB`, `PLANE_MQ_VHOST`,
+`PLANE_RS_BIND`, `RABBITMQ_VHOST`, `AMQP_URL`, `CELERY_BROKER_URL`. The key list
+is `RESERVED_TARGET_ENV` in `crates/plane-testkit/src/config.rs`. Attach mode
+does not start targets, so `target_env` is ignored there; pass the variable on
+each target's own command line instead.
 
 `json:` sends a JSON body, `body:` sends a raw string body (default
 `text/plain;charset=UTF-8`). Variables are per target: A captures and uses

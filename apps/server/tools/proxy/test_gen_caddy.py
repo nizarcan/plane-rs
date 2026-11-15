@@ -113,6 +113,145 @@ class GeneratorTestCase(unittest.TestCase):
         ]
 
 
+class TestInventoryParams(GeneratorTestCase):
+    """`routes.py` must describe the whole pattern, not just the leaf."""
+
+    def test_every_path_parameter_has_a_converter(self) -> None:
+        for route in self.routes:
+            for name in re.findall(r"\{([^}]+)\}", route["path"]):
+                self.assertIn(
+                    name,
+                    route["params"],
+                    f"{route['path']} has no converter for {name!r} "
+                    f"(django_pattern {route['django_pattern']!r})",
+                )
+
+    def test_parameters_are_ordered_as_they_appear_in_the_path(self) -> None:
+        for route in self.routes:
+            in_path = [
+                name
+                for name in re.findall(r"\{([^}]+)\}", route["path"])
+                if name in route["params"]
+            ]
+            self.assertEqual(
+                [name for name in route["params"] if name in in_path],
+                in_path,
+                f"{route['path']}: `params` order must follow the URL",
+            )
+
+    def test_enclosing_include_converters_are_inherited(self) -> None:
+        # The invitations and stickies routers are included under
+        # `api/v1/workspaces/<str:slug>/`, so Django captures `slug` in the
+        # enclosing resolver and the router-generated leaf captures nothing.
+        # Before routes.py carried converters down the walk these 12 rows had
+        # `params: {}` (or only the leaf's own groups) even though their
+        # `django_pattern` contains `<str:slug>`.
+        by_path = {route["path"]: route for route in self.routes}
+        self.assertEqual(
+            list(by_path["/api/v1/workspaces/{slug}/invitations/"]["params"].items()),
+            [("slug", "str")],
+        )
+        self.assertEqual(
+            list(by_path["/api/v1/workspaces/{slug}/stickies/"]["params"].items()),
+            [("slug", "str")],
+        )
+        self.assertEqual(
+            list(
+                by_path["/api/v1/workspaces/{slug}/invitations/{pk}.{format}"][
+                    "params"
+                ].items()
+            ),
+            [("slug", "str"), ("pk", "[^/.]+"), ("format", "[a-z0-9]+")],
+        )
+        include = "api/v1/workspaces/<str:slug>/"
+        inherited = [
+            route
+            for route in self.routes
+            if route["django_pattern"].startswith(include)
+            and (
+                route["django_pattern"] == include
+                or route["django_pattern"][len(include) :].startswith("^")
+                or route["django_pattern"][len(include) :].startswith(
+                    "<drf_format_suffix:"
+                )
+            )
+        ]
+        self.assertEqual(len(inherited), 12, [route["path"] for route in inherited])
+        for route in inherited:
+            self.assertEqual(route["params"].get("slug"), "str", route["path"])
+
+
+class TestProductionPaths(GeneratorTestCase):
+    """Only paths Caddyfile.ce sends to the API may be routed to Rust."""
+
+    def test_api_matchers_come_from_the_production_caddyfile(self) -> None:
+        self.assertEqual(
+            gen_caddy.api_path_matchers(),
+            ("/api/*", "/auth/*", "/static/*"),
+        )
+
+    def test_the_parser_ignores_the_frontend_and_bucket_upstreams(self) -> None:
+        matchers = gen_caddy.api_path_matchers()
+        for matcher in matchers:
+            self.assertTrue(matcher.startswith("/"))
+        # `/` (web), `/uploads/*` (MinIO in dev) and the frontend paths are not
+        # in the list even though Caddyfile.ce reverse-proxies them.
+        self.assertNotIn("/*", matchers)
+        self.assertFalse(any("BUCKET" in matcher for matcher in matchers))
+
+    def test_non_api_paths_are_refused(self) -> None:
+        for order in (389, 390):  # `/robots.txt` (web) and `/` (health)
+            route = self.by_order[order]
+            self.assertIsNotNone(route, order)
+            self.assertFalse(gen_caddy.is_api_path(route["path"], gen_caddy.api_path_matchers()))
+            owners = self.owners_with((route, "rust"))
+            with self.subTest(path=route["path"]):
+                with self.assertRaises(SystemExit) as raised:
+                    self.plan_for(owners)
+                message = str(raised.exception)
+                self.assertIn(route["path"], message)
+                self.assertIn("api:8000", message)
+                self.assertIn("hijack", message)
+
+    def test_a_method_split_outside_the_api_is_refused_too(self) -> None:
+        route = self.by_order[389]  # /robots.txt
+        with self.assertRaises(SystemExit) as raised:
+            self.plan_for(self.owners_with((route, "rust(TRACE)")))
+        self.assertIn("/robots.txt", str(raised.exception))
+
+    def test_a_custom_caddyfile_is_used_instead_of_the_committed_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            caddyfile = Path(tmp) / "Caddyfile.ce"
+            caddyfile.write_text(
+                "{\n\treverse_proxy /v2/* api:8000\n\treverse_proxy /* web:3000\n}\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(gen_caddy.api_path_matchers(caddyfile), ("/v2/*",))
+            self.assertFalse(gen_caddy.is_api_path("/api/instances/", ("/v2/*",)))
+            self.assertTrue(gen_caddy.is_api_path("/v2/instances/", ("/v2/*",)))
+
+    def test_a_caddyfile_without_an_api_upstream_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            caddyfile = Path(tmp) / "Caddyfile.ce"
+            caddyfile.write_text("{\n\treverse_proxy /* web:3000\n}\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as raised:
+                gen_caddy.api_path_matchers(caddyfile)
+            self.assertIn("no `reverse_proxy", str(raised.exception))
+
+    def test_path_matching(self) -> None:
+        matchers = ("/api/*", "/auth/*", "/static/*")
+        self.assertTrue(gen_caddy.is_api_path("/api/instances/", matchers))
+        self.assertTrue(gen_caddy.is_api_path("/api/", matchers))
+        self.assertTrue(gen_caddy.is_api_path("/auth/sign-in/", matchers))
+        self.assertTrue(gen_caddy.is_api_path("/static/css/style.css", matchers))
+        self.assertFalse(gen_caddy.is_api_path("/", matchers))
+        self.assertFalse(gen_caddy.is_api_path("/robots.txt", matchers))
+        # No `/apifoo` false positive: the prefix keeps its trailing slash.
+        self.assertFalse(gen_caddy.is_api_path("/apifoo/", matchers))
+        # `/*` means everything, including `/`.
+        self.assertTrue(gen_caddy.is_api_path("/", ("/*",)))
+
+
 class TestRouteGroups(GeneratorTestCase):
     def test_every_route_belongs_to_exactly_one_group(self) -> None:
         by_order, by_group = gen_caddy.assign_groups(self.routes, self.groups)
@@ -337,11 +476,26 @@ class TestSampleUrls(GeneratorTestCase):
     """The per-route property the proxy depends on."""
 
     def test_every_route_matches_its_own_group_and_nothing_else(self) -> None:
+        matchers = gen_caddy.api_path_matchers()
         reachable = [route for route in self.routes if not is_unreachable(route)]
-        samples = {route["order"]: route_samples(route) for route in reachable}
+        routable = [
+            route for route in reachable if gen_caddy.is_api_path(route["path"], matchers)
+        ]
+        # The only entries the production proxy never sends to the API: the
+        # health check at `/` and `robots.txt`, both served by the web app.
+        routable_orders = {route["order"] for route in routable}
+        self.assertEqual(
+            sorted(
+                route["path"]
+                for route in reachable
+                if route["order"] not in routable_orders
+            ),
+            ["/", "/robots.txt"],
+        )
+        samples = {route["order"]: route_samples(route) for route in routable}
         by_order, _by_group = gen_caddy.assign_groups(self.routes, self.groups)
 
-        for route in reachable:
+        for route in routable:
             group_name = by_order[route["order"]].name
             owners = self.owners_with((route, "rust"))
             plan = self.group_plan(self.plan_for(owners), group_name)
@@ -365,7 +519,7 @@ class TestSampleUrls(GeneratorTestCase):
                     f"{route['path']}: own regex {regexes} does not match {url!r}",
                 )
 
-            for other in reachable:
+            for other in routable:
                 if other["order"] == route["order"]:
                     continue
                 for url in samples[other["order"]]:
@@ -436,11 +590,12 @@ class TestMethodSplits(GeneratorTestCase):
         self.assertEqual(post_cluster.regexes, ["^/api/instances/workspaces/$"])
 
     def test_method_split_can_cover_a_route_django_never_implements(self) -> None:
-        # /robots.txt is a function view that accepts every method (including
-        # TRACE); a split must be able to name exactly one of them.
-        route = self.by_order[389]
-        plan = self.group_plan(self.plan_for(self.owners_with((route, "rust(TRACE)"))), "web")
-        self.assertEqual(plan.clusters[0].methods, ("TRACE",))
+        # `/api/instances/` registers GET and PATCH; HEAD is implicit, and a
+        # split may name only one of the methods the row answers.
+        route = self.by_order[259]
+        plan = self.group_plan(self.plan_for(self.owners_with((route, "rust(PATCH)"))), "instances")
+        self.assertEqual(plan.clusters[0].methods, ("PATCH",))
+        self.assertIn('method("PATCH")', "\n".join(gen_caddy.render_expression(plan)))
 
 
 class TestRendering(GeneratorTestCase):

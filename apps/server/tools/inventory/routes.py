@@ -636,36 +636,55 @@ def collect_routes() -> tuple[list[dict[str, Any]], str, str, bool]:
     import rest_framework
     from django.conf import settings
     from django.urls import URLResolver, get_resolver
-    from django.urls.resolvers import RegexPattern, RoutePattern
+    from django.urls.resolvers import RoutePattern
 
     routes: list[dict[str, Any]] = []
 
-    def walk(resolver: Any, prefix_path: str, prefix_django: str) -> None:
+    def pattern_parts(
+        pattern: Any, django_leaf: str
+    ) -> tuple[str, OrderedDict[str, str], bool]:
+        """Normalised leaf template, the parameters it captures, optional slash."""
+        if isinstance(pattern, RoutePattern):
+            leaf = normalise_route_pattern(pattern)
+            params: OrderedDict[str, str] = OrderedDict(
+                (name, converter_name(converter))
+                for name, converter in pattern.converters.items()
+            )
+            optional_trailing_slash = bool(
+                re.search(r"<drf_format_suffix:[^>]+>$", str(pattern))
+            )
+            return leaf, params, optional_trailing_slash
+        return normalise_regex_pattern(django_leaf)
+
+    def walk(
+        resolver: Any,
+        prefix_path: str,
+        prefix_django: str,
+        prefix_params: OrderedDict[str, str],
+    ) -> None:
         for entry in resolver.url_patterns:
             pattern = entry.pattern
             django_leaf = str(pattern)
 
             if isinstance(entry, URLResolver):
-                if isinstance(pattern, RegexPattern):
-                    leaf, _, _ = normalise_regex_pattern(django_leaf)
-                else:
-                    leaf = normalise_route_pattern(pattern)
-                walk(entry, prefix_path + leaf, prefix_django + django_leaf)
+                leaf, leaf_params, _ = pattern_parts(pattern, django_leaf)
+                # A converter declared on the include belongs to every route
+                # below it: `path("api/v1/workspaces/<str:slug>/", include(...))`
+                # gives each router-generated leaf a `slug` parameter even
+                # though the leaf pattern itself captures nothing. Carry them
+                # down in URL order (outermost first) so `params` describes the
+                # full pattern, not just the leaf.
+                inherited = OrderedDict(prefix_params)
+                inherited.update(leaf_params)
+                walk(entry, prefix_path + leaf, prefix_django + django_leaf, inherited)
                 continue
 
-            if isinstance(pattern, RoutePattern):
-                leaf = normalise_route_pattern(pattern)
-                params: OrderedDict[str, str] = OrderedDict(
-                    (name, converter_name(converter))
-                    for name, converter in pattern.converters.items()
-                )
-                optional_trailing_slash = bool(
-                    re.search(r"<drf_format_suffix:[^>]+>$", str(pattern))
-                )
-                pattern_type = "path"
-            else:
-                leaf, params, optional_trailing_slash = normalise_regex_pattern(django_leaf)
-                pattern_type = "regex"
+            leaf, leaf_params, optional_trailing_slash = pattern_parts(
+                pattern, django_leaf
+            )
+            params: OrderedDict[str, str] = OrderedDict(prefix_params)
+            params.update(leaf_params)
+            pattern_type = "path" if isinstance(pattern, RoutePattern) else "regex"
 
             raw_path = prefix_path + leaf
             path = "/" + raw_path.lstrip("/")
@@ -762,7 +781,7 @@ def collect_routes() -> tuple[list[dict[str, Any]], str, str, bool]:
             )
             routes.append(route)
 
-    walk(get_resolver(), "", "")
+    walk(get_resolver(), "", "", OrderedDict())
 
     # Annotate duplicate normalised paths; Django serves only the first.
     by_path: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
