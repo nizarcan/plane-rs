@@ -4,7 +4,7 @@ Read at the start of every session; update at the end.
 
 ## Current phase
 
-Phase 0: Inventory.
+Phase 1: Skeleton. Phase 0 exit check passed on 2026-11-15 (see below).
 
 ## Upstream reference
 
@@ -13,25 +13,78 @@ The port tracks `rust-rewrite`, based on upstream `preview` at `290383d7f9`
 
 ## Done
 
-- Session 1: brief read; environment checked (Rust 1.99.1, Docker with 2 CPUs and 2 GB,
-  uv 0.12.21 through uvx, Python 3.12). `apps/api` dependencies synced into `apps/api/.venv`.
-  Conventions (`AGENTS.md`) and dependency decisions (`DECISIONS.md`) written.
+### Phase 0: Inventory (complete)
+
+| Artefact | Notes |
+| --- | --- |
+| `dev/` | Isolated dev stack (`plane-rs-dev`), template DB `plane_tpl` (167 migrations, 1 instance, 36 instance configuration rows). Django runs natively from `apps/api/.venv` (gunicorn 23.0.0 added to the venv, the production-group pin). |
+| `ROUTES.md`, `routes.json` | 391 resolver entries, 708 endpoint × method pairs (app 234, v1 79, public 25, auth 37, instances 14, web 2). No Django-vs-matchit routing disagreement. 5 routes have two params in one segment (matchit cannot express them; need custom matching). 24 method/path pairs answer 405 through the `BaseViewSet` guard. |
+| `MODEL_HOOKS.md` | 96 concrete models, 39 hooks (H01–H36), 101 `bulk_*` sites that bypass hooks, the soft-delete cascade algorithm, 206 non-CASCADE FKs. Django FKs have no `ON DELETE`: Rust must emulate cascades. |
+| `TASKS.md` | 46 registered tasks (47 definitions, one never imported), 13 beat entries over 12 tasks, 166 enqueue sites. Wire format captured: protocol 2, exchange `""`, routing key `celery`, kombu non-compact JSON, UUID envelopes. |
+| `ENV.md` | 131 variables, derived settings, 36 instance configuration keys, Fernet scheme with a test vector. |
+| `HTTP_CONTRACT.md` | Middleware stack, CORS, security headers, sessions (codec test vector), CSRF (masked-token test vector), APPEND_SLASH, gzip, DRF errors, throttles (protocol-4 pickle values). |
+| `crates/plane-testkit` (`difftest`) | Exit check: `basic-session.yaml` (46 steps) Django vs Django, 46/46 clean, repeated 5+ times; detects injected HTTP and DB-only differences; `selftest` 56 checks. Snapshot ~23 ms per step. |
 
 ## In flight
 
-- Phase 0 tasks: dev stack, routes inventory, model hooks, tasks table, env-var table,
-  HTTP contract notes, differential harness.
+- Phase 1 skeleton tasks (see "Next three steps").
 
-## Open questions
+## Open questions for the owner
 
-(none yet)
+1. `SECRET_KEY` unset: Django falls back to a random key per process (sessions and encrypted
+   instance configuration then break across processes). Default taken: Rust does the same
+   and logs the same critical message, because behaviour must match. Say if Rust should
+   refuse to start instead.
+2. Scout APM (`SCOUT_MONITOR`, `SCOUT_KEY`) is a Python agent. Default taken: not ported;
+   the variables are accepted and ignored.
+3. boto3 resolves S3 credentials through its full chain (env, profile files, instance
+   roles). Default taken: the Rust client supports env credentials plus the container and
+   instance metadata providers; profile files only if a deployment needs them. Decide at
+   Phase 5.
+4. Celery arguments: some callers pass UUID objects (serialised as kombu
+   `{"__type__":"uuid",...}` envelopes), others strings. Default taken: the Rust publisher
+   reproduces each call site's types exactly.
 
 ## Suspected upstream bugs, ported as they are
 
-(none yet)
+- `GET /api/workspaces/` returns 400 `{"error": "The required key does not exist."}`:
+  `allow_permission` reads `kwargs["slug"]` on a route without it
+  (`plane/app/permissions/base.py:62`). The web app uses `/api/users/me/workspaces/`.
+- A CSRF rejection on Django form views returns 200 with an HTML page
+  (`plane/authentication/views/common.py:39-45`).
+- The admin session cookie is chosen by `"instances" in request.path`, a substring test
+  (`plane/authentication/middleware/session.py:23,43`).
+- `APPEND_SLASH` answers a POST with 301 and drops the body at `DEBUG=0`.
+- With `NUM_PROXIES` unset, the throttle identity collapses `X-Forwarded-For`, so clients
+  behind a proxy share one bucket (`rest_framework/throttling.py:40`).
+- `ApiKeyRateThrottle` puts the raw API token in the Redis key (`plane/api/rate_limit.py:23`).
+- `is_allowed_origin` compares host only, not scheme (`plane/authentication/session.py:51`).
+- `project_invitations.delay(...)` is called on a list and the task module is never
+  imported (`plane/app/views/project/invite.py:121`): that route creates invites then 500s.
+- Draft-to-issue conversion publishes `project_id="None"`, dropped by `issue_activity`.
+- `recent_visited_task` trims at `count == 20`, not `>=`.
+- `delete_old_s3_link` is scheduled twice (01:30 and 03:45).
+- `webhook_send_task` "backoff" is uniform 0–600 s (retry_backoff hits the 600 s cap).
+- `hard_delete` probably violates the `issue_activities` FK (deletes issues before their
+  `DO_NOTHING` activity rows; `plane/bgtasks/deletion_task.py:150,164`). Verify on a real
+  database before porting.
+- `Workspace.delete` can overflow the 48-character slug when appending `__<epoch>`
+  (`plane/db/models/workspace.py:156-174`).
+- API-created comment descriptions get NULL audit columns (`plane/db/models/issue.py:493-508`).
+- Cascaded soft deletes in Celery null `created_by`/`updated_by` (no request user).
+- Default project states are bulk-created with empty `slug` (bypasses `State.save`).
+- Seeded issues: `IssueSequence.sequence` stays 1 while `sequence_id` is max+1.
+- Seed defaults that contradict readers: `ENABLE_MAGIC_LINK_LOGIN` seeded `"0"`, read with
+  default `"1"`; `EMAIL_FROM` seeded `""`; `GITLAB_HOST` seeded NULL.
+- Duplicate DRF api-root at `/api/v1/workspaces/{slug}/` (invitations router wins).
+- `plane/api/urls/schema.py` and `estimate.py` are never included (dead v1 routes).
 
 ## Next three steps
 
-1. Finish the Phase 0 inventories.
-2. Build the differential harness and replay a recorded session against Django twice.
-3. Start Phase 1 (skeleton).
+1. Phase 1 skeleton: `plane-core` (config from `ENV.md`, DRF error type), `plane-serde`
+   (DRF/Django JSON and datetime formatting with golden tests), `plane-db` (pools,
+   query catalog, `schema_check`), `plane-api` (tower layers per `HTTP_CONTRACT.md`,
+   `/` health and `/robots.txt` identical to Django).
+2. Coexistence proxy generated from `ROUTES.md` ownership, dev proxy on 18080, CI workflow.
+3. Harness hardening for Phase 2: consistent placeholders for volatile values (instead of
+   erasing them), shape checks, decoded and compared session payloads, a `rust` target.
