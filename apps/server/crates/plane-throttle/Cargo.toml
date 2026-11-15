@@ -1,0 +1,50 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-throttle"
+description = "DRF rate throttles over django-redis-compatible Redis keys, wire-compatible with Django"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# DECISIONS.md D5: `redis` 1.8 with a multiplexed `ConnectionManager`.
+# `tokio-rustls-comp` brings TLS for `rediss://`; `tls-rustls-insecure` is what
+# redis-rs requires to honour `ssl_cert_reqs=none` (an existing deployment
+# option, ENV.md §1.4). DECISIONS.md D9 (one crypto provider, aws-lc-rs) is
+# satisfied by enabling `aws_lc_rs` on the `rustls` dependency the crate pulls
+# in indirectly, because Cargo unifies features across one build.
+redis = { version = "1.8", default-features = false, features = [
+  "tokio-comp",
+  "connection-manager",
+  "tokio-rustls-comp",
+  "tls-rustls-insecure",
+] }
+rustls = { workspace = true, default-features = false, features = [
+  "aws_lc_rs",
+  "std",
+  "tls12",
+] }
+
+http.workspace = true
+# `plane_auth::RequestUser` is the production `request.user`; the throttle
+# reads it through the `ThrottleUser` trait (see `throttle.rs`).
+plane-auth = { path = "../plane-auth" }
+plane-core = { path = "../plane-core" }
+plane-serde = { path = "../plane-serde" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
