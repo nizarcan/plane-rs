@@ -1,0 +1,27 @@
+[package]
+name = "plane-serde"
+description = "Byte-exact Python JSON dialects and value formatting for the Plane rewrite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+itoa = "1.0.19"
+ryu = "1.0.23"
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+criterion = "0.8.2"
+serde_json = { workspace = true }
+
+[[bench]]
+name = "render"
+harness = false
+
+[lints]
+workspace = true
