@@ -1,0 +1,1084 @@
+// Copyright (c) 2023-present Plane Software, Inc. and contributors
+// SPDX-License-Identifier: AGPL-3.0-only
+// See the LICENSE file for details.
+
+//! Orchestration of one differential run.
+//!
+//! For each step the harness brackets the request with database snapshots,
+//! drains the target's Celery queues, normalises every part, and compares.
+//! Steps run in the recorded order with both targets advancing together, so
+//! target state never depends on the order the harness happens to poll.
+
+use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail};
+use chrono::{DateTime, Utc};
+use serde_json::Value;
+
+use crate::celery::{
+    CeleryDrain, CeleryMessage, RabbitAdmin, amqp_url_with_vhost, wait_management,
+};
+use crate::compare::{
+    Difference, FormattingStatus, check_drf_formatting, compare_bodies, compare_celery, compare_db,
+    compare_formatting, compare_headers, compare_status,
+};
+use crate::config::{CaptureSource, NormalizeRules, Scenario, Step, TargetsFile};
+use crate::db::{DbAdmin, DbDiff, DbSnapshot, DbSnapshotter, diff_snapshots};
+use crate::http::{HttpClient, HttpRequest, HttpResponse};
+use crate::normalize::{
+    BodyValue, GZIP_RANDOM_WHY, NormalizedBody, TargetNormalizer, collect_known_uuids,
+    content_type_is_json,
+};
+use crate::provision::{PortAllocator, TargetInstance, host_port, wait_tcp};
+use crate::redis::RedisAdmin;
+use crate::report::{RunReport, SideReport, SnapshotStats, StepReport, TargetRules};
+use crate::util::{ellipsize, new_run_id, now_utc, repo_root, validate_identifier};
+
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct RunOptions {
+    pub scenario_path: PathBuf,
+    pub targets_path: PathBuf,
+    pub normalize_path: PathBuf,
+    pub target_a: String,
+    pub target_b: String,
+    pub keep: bool,
+    pub report_path: Option<PathBuf>,
+    pub pg_url: String,
+    pub redis_url: String,
+    pub rabbit_amqp: String,
+    pub rabbit_http: String,
+    pub rabbit_user: String,
+    pub rabbit_password: String,
+    /// Per-target scenario variable overrides (`--a-var name=value`). Used to
+    /// build a deliberately divergent B for the harness self-proof.
+    pub a_vars: BTreeMap<String, String>,
+    pub b_vars: BTreeMap<String, String>,
+    pub attach: Option<AttachOptions>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AttachOptions {
+    pub a_url: String,
+    pub b_url: String,
+    pub a_db: String,
+    pub b_db: String,
+    pub a_redis_db: i64,
+    pub b_redis_db: i64,
+    pub a_vhost: String,
+    pub b_vhost: String,
+    pub celery: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Resources created by a run
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct Resources {
+    targets: Vec<TargetInstance>,
+    databases: Vec<String>,
+    vhosts: Vec<String>,
+}
+
+impl Resources {
+    async fn cleanup(&mut self, opts: &RunOptions, run_id: &str) -> Result<()> {
+        let mut errors = Vec::new();
+        for target in &mut self.targets {
+            if let Err(error) = target.stop().await {
+                errors.push(format!("stopping target {}: {error:#}", target.name));
+            }
+        }
+        if opts.keep {
+            if !self.databases.is_empty() || !self.vhosts.is_empty() {
+                println!(
+                    "--keep: left databases [{}] and RabbitMQ vhosts [{}] for run {run_id}",
+                    self.databases.join(", "),
+                    self.vhosts.join(", ")
+                );
+            }
+            return if errors.is_empty() {
+                Ok(())
+            } else {
+                bail!(errors.join("; "))
+            };
+        }
+        if !self.databases.is_empty() {
+            let admin = DbAdmin::new(&opts.pg_url);
+            for database in &self.databases {
+                if let Err(error) = admin.drop_database(database).await {
+                    errors.push(format!("dropping database {database}: {error:#}"));
+                }
+            }
+        }
+        if !self.vhosts.is_empty() {
+            match RabbitAdmin::new(&opts.rabbit_http, &opts.rabbit_user, &opts.rabbit_password) {
+                Ok(rabbit) => {
+                    for vhost in &self.vhosts {
+                        if let Err(error) = rabbit.delete_vhost(vhost).await {
+                            errors.push(format!("deleting vhost {vhost}: {error:#}"));
+                        }
+                    }
+                }
+                Err(error) => errors.push(format!("RabbitMQ management client: {error:#}")),
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            bail!(errors.join("; "))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-target state
+// ---------------------------------------------------------------------------
+
+struct Side {
+    target: String,
+    base_url: String,
+    database: String,
+    vhost: String,
+    http: HttpClient,
+    vars: BTreeMap<String, String>,
+    normalizer: TargetNormalizer,
+    snapshotter: DbSnapshotter,
+    last_snapshot: DbSnapshot,
+    celery: Option<CeleryDrain>,
+    stats: SnapshotStats,
+}
+
+struct SideOutcome {
+    status: u16,
+    raw_body: Vec<u8>,
+    duration: Duration,
+    snapshot_ms: f64,
+    headers: Vec<(String, String)>,
+    body: NormalizedBody,
+    formatting: FormattingStatus,
+    db_diff: DbDiff,
+    messages: Vec<CeleryMessage>,
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+pub async fn run(opts: RunOptions) -> Result<RunReport> {
+    let mut resources = Resources::default();
+    let run_id = new_run_id();
+    let outcome = run_inner(&opts, &run_id, &mut resources).await;
+    let cleanup = resources.cleanup(&opts, &run_id).await;
+    match (outcome, cleanup) {
+        (Ok(report), Ok(())) => Ok(report),
+        (Ok(report), Err(error)) => {
+            eprintln!("difftest: cleanup problem: {error:#}");
+            Ok(report)
+        }
+        (Err(error), Ok(())) => Err(error),
+        (Err(error), Err(cleanup_error)) => {
+            Err(error.context(format!("cleanup also failed: {cleanup_error:#}")))
+        }
+    }
+}
+
+async fn run_inner(
+    opts: &RunOptions,
+    run_id: &str,
+    resources: &mut Resources,
+) -> Result<RunReport> {
+    let started_at = now_utc();
+    let scenario = Scenario::load(&opts.scenario_path)?;
+    let rules = Arc::new(NormalizeRules::load(&opts.normalize_path)?);
+    let targets = TargetsFile::load(&opts.targets_path)?;
+    let spec_a = targets.get(&opts.target_a)?.clone();
+    let spec_b = targets.get(&opts.target_b)?.clone();
+
+    println!(
+        "difftest run {run_id}: scenario {} ({} steps), A={} ({}) B={} ({})",
+        scenario.name,
+        scenario.steps.len(),
+        opts.target_a,
+        spec_a.kind,
+        opts.target_b,
+        spec_b.kind
+    );
+
+    let (pg_host, pg_port) = host_port(&opts.pg_url, 5432);
+    let (redis_host, redis_port) = host_port(&opts.redis_url, 6379);
+    let (amqp_host, amqp_port) = host_port(&opts.rabbit_amqp, 5672);
+    let rabbit = Arc::new(RabbitAdmin::new(
+        &opts.rabbit_http,
+        &opts.rabbit_user,
+        &opts.rabbit_password,
+    )?);
+
+    wait_tcp("Postgres", &pg_host, pg_port, Duration::from_secs(30)).await?;
+    wait_tcp("Redis", &redis_host, redis_port, Duration::from_secs(30)).await?;
+    wait_tcp(
+        "RabbitMQ AMQP",
+        &amqp_host,
+        amqp_port,
+        Duration::from_secs(30),
+    )
+    .await?;
+    wait_management(&rabbit, Duration::from_secs(30)).await?;
+    let redis = RedisAdmin::from_url(&opts.redis_url)?;
+    redis.ping().await?;
+
+    let db_admin = DbAdmin::new(&opts.pg_url);
+    let mut known_uuids: HashSet<String> = HashSet::new();
+
+    let (a_url, b_url, a_db, b_db, a_redis_db, b_redis_db, a_vhost, b_vhost) = if let Some(attach) =
+        &opts.attach
+    {
+        (
+            attach.a_url.clone(),
+            attach.b_url.clone(),
+            attach.a_db.clone(),
+            attach.b_db.clone(),
+            attach.a_redis_db,
+            attach.b_redis_db,
+            attach.a_vhost.clone(),
+            attach.b_vhost.clone(),
+        )
+    } else {
+        let a_db = format!("dt_{run_id}_a");
+        let b_db = format!("dt_{run_id}_b");
+        let a_vhost = format!("dt_{run_id}_a");
+        let b_vhost = format!("dt_{run_id}_b");
+        validate_identifier(&a_db)?;
+        validate_identifier(&b_db)?;
+        let a_redis_db = scenario.redis_db[0];
+        let b_redis_db = scenario.redis_db[1];
+
+        for (vhost, database, index) in
+            [(&a_vhost, &a_db, a_redis_db), (&b_vhost, &b_db, b_redis_db)]
+        {
+            resources.vhosts.push(vhost.clone());
+            rabbit.create_vhost(vhost).await?;
+            rabbit
+                .grant_full_permissions(vhost, &opts.rabbit_user)
+                .await?;
+            resources.databases.push(database.clone());
+            redis.flush_db(index).await?;
+        }
+
+        // The template is marked ALLOW_CONNECTIONS false (dev/README.md), so
+        // its UUIDs are read from the two clones' baselines below. They are
+        // byte-identical to the template's, and the baselines also cover
+        // attach mode, where the template is unknown.
+        db_admin
+            .clone_database(&scenario.template_db, &a_db)
+            .await?;
+        db_admin
+            .clone_database(&scenario.template_db, &b_db)
+            .await?;
+
+        // `apps/server/target/` is gitignored by apps/server/.gitignore.
+        let log_dir = repo_root()
+            .join("apps/server/target")
+            .join("difftest-logs")
+            .join(run_id);
+        let mut ports = PortAllocator::new(spec_a.port_range[0], spec_a.port_range[1]);
+        let port_a = ports.allocate().await?;
+        let port_a_context = target_context(port_a, &a_db, a_redis_db, &a_vhost);
+        let mut target_a = TargetInstance::start("a", &spec_a, &port_a_context, &log_dir).await?;
+        let port_b = ports.allocate().await?;
+        let port_b_context = target_context(port_b, &b_db, b_redis_db, &b_vhost);
+        let mut target_b = TargetInstance::start("b", &spec_b, &port_b_context, &log_dir).await?;
+        let (health_a, health_b) = tokio::join!(
+            target_a.wait_healthy(
+                &spec_a.health,
+                Duration::from_secs(spec_a.health_timeout_secs)
+            ),
+            target_b.wait_healthy(
+                &spec_b.health,
+                Duration::from_secs(spec_b.health_timeout_secs)
+            ),
+        );
+        health_a?;
+        health_b?;
+        let a_url = target_a.base_url.clone();
+        let b_url = target_b.base_url.clone();
+        resources.targets.push(target_a);
+        resources.targets.push(target_b);
+        (
+            a_url, b_url, a_db, b_db, a_redis_db, b_redis_db, a_vhost, b_vhost,
+        )
+    };
+
+    for (label, database, index) in [("A", &a_db, a_redis_db), ("B", &b_db, b_redis_db)] {
+        if opts.attach.is_some() {
+            redis.flush_db(index).await?;
+        }
+        println!("target {label}: {database} (redis db {index})");
+    }
+
+    let (catalog_a, catalog_b) = tokio::try_join!(
+        db_admin.load_catalog(&a_db, &rules.db_schemas, &rules.db_exclude_tables),
+        db_admin.load_catalog(&b_db, &rules.db_schemas, &rules.db_exclude_tables),
+    )?;
+    let snapshotter_a = db_admin.snapshotter(&a_db, catalog_a).await?;
+    let snapshotter_b = db_admin.snapshotter(&b_db, catalog_b).await?;
+    let (baseline_a, baseline_b) =
+        tokio::try_join!(snapshotter_a.snapshot(), snapshotter_b.snapshot())?;
+    println!(
+        "baseline: A {} rows ({:.1} ms), B {} rows ({:.1} ms)",
+        baseline_a.snapshot.row_count(),
+        baseline_a.duration.as_secs_f64() * 1000.0,
+        baseline_b.snapshot.row_count(),
+        baseline_b.duration.as_secs_f64() * 1000.0
+    );
+    for snapshot in [&baseline_a.snapshot, &baseline_b.snapshot] {
+        known_uuids.extend(collect_known_uuids(
+            snapshot
+                .tables
+                .values()
+                .flat_map(|rows| rows.values().cloned()),
+        ));
+    }
+    let known_uuids = Arc::new(known_uuids);
+
+    let mut side_a = Side {
+        target: spec_a.kind.clone(),
+        base_url: a_url.clone(),
+        database: a_db.clone(),
+        vhost: a_vhost.clone(),
+        http: HttpClient::new(&a_url)?,
+        vars: side_vars(&scenario, &opts.a_vars),
+        normalizer: TargetNormalizer::new(
+            Arc::clone(&rules),
+            a_url.clone(),
+            Arc::clone(&known_uuids),
+        ),
+        snapshotter: snapshotter_a,
+        last_snapshot: baseline_a.snapshot,
+        celery: None,
+        stats: SnapshotStats::default(),
+    };
+    let mut side_b = Side {
+        target: spec_b.kind.clone(),
+        base_url: b_url.clone(),
+        database: b_db.clone(),
+        vhost: b_vhost.clone(),
+        http: HttpClient::new(&b_url)?,
+        vars: side_vars(&scenario, &opts.b_vars),
+        normalizer: TargetNormalizer::new(
+            Arc::clone(&rules),
+            b_url.clone(),
+            Arc::clone(&known_uuids),
+        ),
+        snapshotter: snapshotter_b,
+        last_snapshot: baseline_b.snapshot,
+        celery: None,
+        stats: SnapshotStats::default(),
+    };
+    side_a
+        .stats
+        .record(baseline_a.duration.as_secs_f64() * 1000.0);
+    side_b
+        .stats
+        .record(baseline_b.duration.as_secs_f64() * 1000.0);
+
+    let celery_enabled = match &opts.attach {
+        Some(attach) => attach.celery,
+        None => true,
+    };
+    if celery_enabled {
+        let url_a = amqp_url_with_vhost(
+            &opts.rabbit_amqp,
+            &a_vhost,
+            &opts.rabbit_user,
+            &opts.rabbit_password,
+        )?;
+        let url_b = amqp_url_with_vhost(
+            &opts.rabbit_amqp,
+            &b_vhost,
+            &opts.rabbit_user,
+            &opts.rabbit_password,
+        )?;
+        side_a.celery = Some(CeleryDrain::connect(&url_a).await?);
+        side_b.celery = Some(CeleryDrain::connect(&url_b).await?);
+    }
+
+    let mut step_reports = Vec::with_capacity(scenario.steps.len());
+    let mut all_ok = true;
+    for (index, step) in scenario.steps.iter().enumerate() {
+        let number = index + 1;
+        let (a_result, b_result) = tokio::join!(
+            execute_step(&mut side_a, step, &scenario, Some(rabbit.as_ref())),
+            execute_step(&mut side_b, step, &scenario, Some(rabbit.as_ref()))
+        );
+        let a_outcome =
+            a_result.with_context(|| format!("step {number} ({}) on target A", step.name))?;
+        let b_outcome =
+            b_result.with_context(|| format!("step {number} ({}) on target B", step.name))?;
+
+        // gzip output length depends on the random filename Django adds and on
+        // the ASGI worker's chunk boundaries, so content-length is only stable
+        // for bodies that were never compressed. It is still compared whenever
+        // the bodies were not encoded and needed no normalisation.
+        let mut a_headers = a_outcome.headers.clone();
+        let mut b_headers = b_outcome.headers.clone();
+        let random_encoding = content_encoding_is_random(&a_outcome.raw_body)
+            || content_encoding_is_random(&b_outcome.raw_body);
+        if random_encoding {
+            normalise_content_encoding(&mut a_headers);
+            normalise_content_encoding(&mut b_headers);
+            side_a
+                .normalizer
+                .note_rule("content-encoding-random", GZIP_RANDOM_WHY);
+            side_b
+                .normalizer
+                .note_rule("content-encoding-random", GZIP_RANDOM_WHY);
+        }
+        let compressed = a_headers
+            .iter()
+            .chain(b_headers.iter())
+            .any(|(name, _)| name.eq_ignore_ascii_case("content-encoding"));
+        let keep_content_length =
+            !a_outcome.body.modified && !b_outcome.body.modified && !compressed;
+        let a_headers = filter_headers(&a_headers, &rules, keep_content_length);
+        let b_headers = filter_headers(&b_headers, &rules, keep_content_length);
+
+        let mut differences = Vec::new();
+        differences.extend(compare_status(a_outcome.status, b_outcome.status));
+        differences.extend(compare_headers(&a_headers, &b_headers));
+        differences.extend(compare_bodies(&a_outcome.body, &b_outcome.body));
+        differences.extend(compare_formatting(
+            &a_outcome.formatting,
+            &b_outcome.formatting,
+        ));
+        differences.extend(compare_db(&a_outcome.db_diff, &b_outcome.db_diff));
+        differences.extend(compare_celery(&a_outcome.messages, &b_outcome.messages));
+        if let Some(expected) = step.expect_status {
+            for (label, outcome) in [("A", &a_outcome), ("B", &b_outcome)] {
+                if outcome.status != expected {
+                    differences.push(Difference::new(
+                        "expect_status",
+                        label,
+                        format!("scenario expected {expected}, got {}", outcome.status),
+                    ));
+                }
+            }
+        }
+
+        let ok = differences.is_empty();
+        all_ok &= ok;
+        if ok {
+            println!(
+                "  ok   {number:02} {} {} ({:.0} ms, db {:.0} ms)",
+                step.method,
+                step.path,
+                a_outcome.duration.as_secs_f64() * 1000.0,
+                a_outcome.snapshot_ms
+            );
+        } else {
+            println!(
+                "  DIFF {number:02} {} {} — {} difference(s)",
+                step.method,
+                step.path,
+                differences.len()
+            );
+            for difference in &differences {
+                let rendered = difference.render();
+                for line in rendered.lines() {
+                    println!("       {line}");
+                }
+            }
+        }
+
+        let side_report = |side: &Side, outcome: &SideOutcome| SideReport {
+            target: side.target.clone(),
+            url: side.base_url.clone(),
+            database: side.database.clone(),
+            status: outcome.status,
+            duration_ms: outcome.duration.as_secs_f64() * 1000.0,
+            snapshot_ms: outcome.snapshot_ms,
+            headers: headers_to_map(&filter_headers(&outcome.headers, &rules, true)),
+            body: match &outcome.body.value {
+                BodyValue::Json(_) | BodyValue::Text(_) => {
+                    Some(ellipsize(&outcome.body.pretty(), 20_000))
+                }
+                BodyValue::Binary(_) => Some(ellipsize(&outcome.body.pretty(), 20_000)),
+            },
+            body_modified: outcome.body.modified,
+            formatting: match &outcome.formatting {
+                FormattingStatus::NotJson => "not-json".to_string(),
+                FormattingStatus::Pass => "pass".to_string(),
+                FormattingStatus::Fail(error) => format!("fail: {error}"),
+            },
+            db: serde_json::to_value(&outcome.db_diff).unwrap_or(Value::Null),
+            celery: serde_json::to_value(&outcome.messages).unwrap_or(Value::Null),
+        };
+
+        step_reports.push(StepReport {
+            index: number,
+            name: step.name.clone(),
+            method: step.method.clone(),
+            path: step.path.clone(),
+            a: side_report(&side_a, &a_outcome),
+            b: side_report(&side_b, &b_outcome),
+            differences,
+            ok,
+        });
+    }
+
+    let finished_at = now_utc();
+    let mut snapshot = BTreeMap::new();
+    snapshot.insert("A".to_string(), side_a.stats.clone());
+    snapshot.insert("B".to_string(), side_b.stats.clone());
+    let report = RunReport {
+        run_id: run_id.to_string(),
+        scenario: scenario.name.clone(),
+        targets: BTreeMap::from([
+            (
+                "A".to_string(),
+                format!("{} ({})", opts.target_a, spec_a.kind),
+            ),
+            (
+                "B".to_string(),
+                format!("{} ({})", opts.target_b, spec_b.kind),
+            ),
+        ]),
+        a_url: a_url.clone(),
+        b_url: b_url.clone(),
+        a_db: a_db.clone(),
+        b_db: b_db.clone(),
+        started_at: started_at.to_rfc3339(),
+        finished_at: finished_at.to_rfc3339(),
+        total_secs: (finished_at - started_at).num_milliseconds() as f64 / 1000.0,
+        snapshot,
+        normalisation: vec![
+            TargetRules {
+                target: "A".to_string(),
+                rules: side_a.normalizer.applied(),
+            },
+            TargetRules {
+                target: "B".to_string(),
+                rules: side_b.normalizer.applied(),
+            },
+        ],
+        steps: step_reports,
+        ok: all_ok,
+    };
+    Ok(report)
+}
+
+fn target_context(
+    port: u16,
+    database: &str,
+    redis_db: i64,
+    vhost: &str,
+) -> BTreeMap<&'static str, String> {
+    BTreeMap::from([
+        ("port", port.to_string()),
+        ("db", database.to_string()),
+        ("redis_db", redis_db.to_string()),
+        ("vhost", vhost.to_string()),
+        ("repo", repo_root().display().to_string()),
+    ])
+}
+
+fn side_vars(
+    scenario: &Scenario,
+    overrides: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut vars = scenario.vars.clone();
+    for (key, value) in overrides {
+        vars.insert(key.clone(), value.clone());
+    }
+    vars
+}
+
+/// Django's `compress_string` adds a random 1-100 byte filename to the gzip
+/// header, and `GZipMiddleware` only keeps the compressed body when it is
+/// shorter than the original. For a body near the 200-byte threshold the
+/// decision is therefore random. Include the worst-case 102-byte filename and
+/// terminator (`django/utils/text.py:351`).
+fn content_encoding_is_random(raw: &[u8]) -> bool {
+    if raw.len() < 200 {
+        return false;
+    }
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
+    if std::io::Write::write_all(&mut encoder, raw).is_err() {
+        return true;
+    }
+    let Ok(compressed) = encoder.finish() else {
+        return true;
+    };
+    compressed.len() + 102 >= raw.len()
+}
+
+fn normalise_content_encoding(headers: &mut Vec<(String, String)>) {
+    const MARKER: &str = "<gzip-or-identity>";
+    match headers
+        .iter_mut()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+    {
+        Some((_, value)) => *value = MARKER.to_string(),
+        None => headers.push(("Content-Encoding".to_string(), MARKER.to_string())),
+    }
+}
+
+fn headers_to_map(headers: &[(String, String)]) -> BTreeMap<String, Vec<String>> {
+    let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (name, value) in headers {
+        map.entry(name.to_ascii_lowercase())
+            .or_default()
+            .push(value.clone());
+    }
+    map
+}
+
+fn filter_headers(
+    headers: &[(String, String)],
+    rules: &NormalizeRules,
+    keep_content_length: bool,
+) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter(|(name, _)| {
+            if name.eq_ignore_ascii_case("content-length") {
+                return keep_content_length;
+            }
+            !rules.ignore_header(name)
+        })
+        .cloned()
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// One step on one target
+// ---------------------------------------------------------------------------
+
+async fn execute_step(
+    side: &mut Side,
+    step: &Step,
+    scenario: &Scenario,
+    rabbit: Option<&RabbitAdmin>,
+) -> Result<SideOutcome> {
+    let before = std::mem::take(&mut side.last_snapshot);
+    let request = build_request(side, step, scenario)?;
+    let started: DateTime<Utc> = now_utc();
+    let response = side
+        .http
+        .send(&request)
+        .await
+        .with_context(|| format!("{} {}", step.method, request.path_and_query))?;
+    let ended: DateTime<Utc> = now_utc();
+
+    let snapshot = side.snapshotter.snapshot().await?;
+    let snapshot_ms = snapshot.duration.as_secs_f64() * 1000.0;
+    side.stats.record(snapshot_ms);
+    let after = snapshot.snapshot;
+
+    let mut messages = Vec::new();
+    if let (Some(rabbit), Some(drain)) = (rabbit, &side.celery) {
+        let queues = rabbit
+            .queues(&side.vhost)
+            .await
+            .with_context(|| format!("listing queues for vhost {}", side.vhost))?;
+        messages = drain
+            .drain(&queues)
+            .await
+            .with_context(|| format!("draining {} queue(s)", queues.len()))?;
+    }
+
+    let captures = collect_captures(side, step, &response)?;
+
+    // Normalisation order is fixed: headers (Location first), body, database,
+    // Celery. Placeholder numbering depends on it.
+    side.normalizer.start_step(started, ended);
+    let headers = side.normalizer.normalize_headers(&response.headers);
+    let json = content_type_is_json(&response.headers);
+    let body = side.normalizer.normalize_body(&response.body, json);
+    let mut db_diff = diff_snapshots(&before, &after);
+    side.normalizer.normalize_db_diff(&mut db_diff);
+    for message in &mut messages {
+        side.normalizer.normalize_celery(message);
+    }
+
+    let formatting = if json {
+        match check_drf_formatting(&response.body) {
+            Ok(()) => FormattingStatus::Pass,
+            Err(error) => FormattingStatus::Fail(error),
+        }
+    } else {
+        FormattingStatus::NotJson
+    };
+
+    side.last_snapshot = after;
+    for (key, value) in captures {
+        side.vars.insert(key, value);
+    }
+
+    Ok(SideOutcome {
+        status: response.status,
+        raw_body: response.body.clone(),
+        duration: (ended - started).to_std().unwrap_or_default(),
+        snapshot_ms,
+        headers,
+        body,
+        formatting,
+        db_diff,
+        messages,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Request construction
+// ---------------------------------------------------------------------------
+
+fn template_regex() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}").expect("static template regex")
+    })
+}
+
+fn render_vars(template: &str, vars: &BTreeMap<String, String>, base_url: &str) -> Result<String> {
+    let mut missing: Option<String> = None;
+    let rendered = template_regex()
+        .replace_all(template, |captures: &regex::Captures<'_>| {
+            let name = captures
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if name == "base_url" {
+                return base_url.to_string();
+            }
+            match vars.get(&name) {
+                Some(value) => value.clone(),
+                None => {
+                    missing = Some(name.clone());
+                    String::new()
+                }
+            }
+        })
+        .into_owned();
+    if let Some(name) = missing {
+        bail!("undefined scenario variable {name:?} in {template:?}");
+    }
+    Ok(rendered)
+}
+
+fn build_request(side: &Side, step: &Step, scenario: &Scenario) -> Result<HttpRequest> {
+    let vars = {
+        let mut merged = scenario.vars.clone();
+        merged.extend(side.vars.clone());
+        merged
+    };
+    let path = render_vars(&step.path, &vars, &side.base_url)?;
+    let mut path_and_query = path;
+    if let Some(query) = &step.query {
+        let encoded = match query {
+            crate::config::Query::Map(map) => {
+                let mut pairs = Vec::with_capacity(map.len());
+                for (key, value) in map {
+                    pairs.push((
+                        render_vars(key, &vars, &side.base_url)?,
+                        render_vars(value, &vars, &side.base_url)?,
+                    ));
+                }
+                form_encode(&pairs)
+            }
+            crate::config::Query::Raw(raw) => render_vars(raw, &vars, &side.base_url)?,
+        };
+        if !encoded.is_empty() {
+            if path_and_query.contains('?') {
+                path_and_query.push('&');
+            } else {
+                path_and_query.push('?');
+            }
+            path_and_query.push_str(&encoded);
+        }
+    }
+
+    let mut headers = Vec::with_capacity(step.headers.len() + 1);
+    let mut body = None;
+    let mut content_type: Option<&'static str> = None;
+    if let Some(value) = &step.json {
+        let mut rendered = value.clone();
+        render_json_vars(&mut rendered, &vars, &side.base_url)?;
+        body = Some(serde_json::to_vec(&rendered).context("serialising the JSON body")?);
+        content_type = Some("application/json");
+    } else if let Some(form) = &step.form {
+        let mut pairs = Vec::with_capacity(form.len());
+        for (key, value) in form {
+            pairs.push((
+                render_vars(key, &vars, &side.base_url)?,
+                render_vars(value, &vars, &side.base_url)?,
+            ));
+        }
+        body = Some(form_encode(&pairs).into_bytes());
+        content_type = Some("application/x-www-form-urlencoded");
+    } else if let Some(raw) = &step.body {
+        body = Some(render_vars(raw, &vars, &side.base_url)?.into_bytes());
+        content_type = Some("text/plain;charset=UTF-8");
+    }
+    let has_content_type = step
+        .headers
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case("content-type"));
+    if let Some(content_type) = content_type
+        && !has_content_type
+    {
+        headers.push(("Content-Type".to_string(), content_type.to_string()));
+    }
+    for (name, value) in &step.headers {
+        headers.push((name.clone(), render_vars(value, &vars, &side.base_url)?));
+    }
+
+    Ok(HttpRequest {
+        method: step.method.clone(),
+        path_and_query,
+        headers,
+        body,
+        jar: step.jar.clone(),
+    })
+}
+
+fn render_json_vars(
+    value: &mut Value,
+    vars: &BTreeMap<String, String>,
+    base_url: &str,
+) -> Result<()> {
+    match value {
+        Value::String(text) => {
+            *text = render_vars(text, vars, base_url)?;
+        }
+        Value::Array(items) => {
+            for item in items {
+                render_json_vars(item, vars, base_url)?;
+            }
+        }
+        Value::Object(map) => {
+            for item in map.values_mut() {
+                render_json_vars(item, vars, base_url)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn form_encode(pairs: &[(String, String)]) -> String {
+    pairs
+        .iter()
+        .map(|(key, value)| format!("{}={}", url_encode(key), url_encode(value)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn url_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Captures
+// ---------------------------------------------------------------------------
+
+fn collect_captures(
+    side: &Side,
+    step: &Step,
+    response: &HttpResponse,
+) -> Result<BTreeMap<String, String>> {
+    let mut captures = BTreeMap::new();
+    for capture in &step.capture {
+        let value = match capture.source {
+            CaptureSource::Json => {
+                let pointer = capture.pointer.as_deref().unwrap_or_default();
+                let body: Value = serde_json::from_slice(&response.body).with_context(|| {
+                    format!(
+                        "step {}: capture {} needs a JSON response body",
+                        step.name, capture.name
+                    )
+                })?;
+                let found = crate::util::json_pointer(&body, pointer)
+                    .with_context(|| format!("step {}: capture {}", step.name, capture.name))?;
+                match found {
+                    Value::String(text) => text.clone(),
+                    other => serde_json::to_string(other)?,
+                }
+            }
+            CaptureSource::Header => {
+                let name = capture.header.as_deref().unwrap_or_default();
+                response.header(name).map(str::to_string).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "step {}: capture {}: header {name} missing",
+                        step.name,
+                        capture.name
+                    )
+                })?
+            }
+            CaptureSource::Cookie => {
+                let name = capture.cookie.as_deref().unwrap_or_default();
+                side.http
+                    .jar(&step.jar)
+                    .and_then(|jar| jar.get(name))
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "step {}: capture {}: cookie {name} missing from jar {}",
+                            step.name,
+                            capture.name,
+                            step.jar
+                        )
+                    })?
+            }
+            CaptureSource::Regex => {
+                let header = capture.header.as_deref().unwrap_or_default();
+                let pattern = capture.pattern.as_deref().unwrap_or_default();
+                let haystack = response.header(header).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "step {}: capture {}: header {header} missing",
+                        step.name,
+                        capture.name
+                    )
+                })?;
+                let regex = regex::Regex::new(pattern).with_context(|| {
+                    format!(
+                        "step {}: capture {}: invalid regex",
+                        step.name, capture.name
+                    )
+                })?;
+                let captures = regex.captures(haystack).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "step {}: capture {}: pattern {pattern:?} did not match {header:?}={haystack:?}",
+                        step.name,
+                        capture.name
+                    )
+                })?;
+                captures
+                    .get(1)
+                    .or_else(|| captures.get(0))
+                    .map(|m| m.as_str().to_string())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "step {}: capture {}: regex has no capture",
+                            step.name,
+                            capture.name
+                        )
+                    })?
+            }
+        };
+        captures.insert(capture.name.clone(), value);
+    }
+    Ok(captures)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn url_encoding_matches_form_rules() {
+        assert_eq!(url_encode("hello world"), "hello%20world");
+        assert_eq!(url_encode("a+b&c=d"), "a%2Bb%26c%3Dd");
+        assert_eq!(
+            form_encode(&[("a b".to_string(), "c&d".to_string())]),
+            "a%20b=c%26d"
+        );
+    }
+
+    #[test]
+    fn variables_are_rendered_and_missing_ones_fail() {
+        let vars = BTreeMap::from([("slug".to_string(), "ws".to_string())]);
+        assert_eq!(
+            render_vars("/api/workspaces/{{ slug }}/", &vars, "http://127.0.0.1:1")
+                .expect("render"),
+            "/api/workspaces/ws/"
+        );
+        assert_eq!(
+            render_vars("{{base_url}}/x", &vars, "http://127.0.0.1:1").expect("render"),
+            "http://127.0.0.1:1/x"
+        );
+        assert!(render_vars("{{nope}}", &vars, "http://x").is_err());
+    }
+
+    #[test]
+    fn json_body_variables_are_rendered_recursively() {
+        let mut value = json!({"name": "{{name}}", "nested": ["{{name}}", 2]});
+        render_json_vars(
+            &mut value,
+            &BTreeMap::from([("name".to_string(), "x".to_string())]),
+            "http://y",
+        )
+        .expect("render");
+        assert_eq!(value, json!({"name": "x", "nested": ["x", 2]}));
+    }
+
+    #[test]
+    fn near_threshold_bodies_are_detected_as_a_random_gzip_zone() {
+        assert!(!content_encoding_is_random(b"{}"));
+        let big = serde_json::to_vec(&vec!["x".repeat(64); 60]).expect("json");
+        assert!(
+            big.len() > 600,
+            "test body should be well above the threshold"
+        );
+        assert!(!content_encoding_is_random(&big));
+        // 200-300 high-entropy bytes is where the two possible outcomes meet.
+        let mut state = 0x1234_5678_9abc_def0_u64;
+        let text: String = (0..210)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                char::from(b'a' + ((state >> 33) % 26) as u8)
+            })
+            .collect();
+        let borderline = serde_json::to_vec(&text).expect("json");
+        assert!(borderline.len() >= 200 && borderline.len() < 400);
+        assert!(content_encoding_is_random(&borderline));
+    }
+
+    #[test]
+    fn random_content_encoding_is_marked_on_both_shapes() {
+        let mut with = vec![("Content-Encoding".to_string(), "gzip".to_string())];
+        normalise_content_encoding(&mut with);
+        let mut without = vec![("Content-Type".to_string(), "application/json".to_string())];
+        normalise_content_encoding(&mut without);
+        assert_eq!(with[0].1, without[1].1);
+    }
+
+    #[test]
+    fn content_length_is_user_controlled() {
+        let rules = NormalizeRules {
+            ignore_headers: vec!["content-length".to_string(), "date".to_string()],
+            volatile_cookies: vec![],
+            volatile_json_keys: vec![],
+            volatile_celery_headers: vec![],
+            volatile_db_columns: vec![],
+            timestamp_slack_secs: 2,
+            db_schemas: vec!["public".to_string()],
+            db_exclude_tables: vec![],
+        };
+        let headers = vec![
+            ("Content-Length".to_string(), "2".to_string()),
+            ("Date".to_string(), "x".to_string()),
+            ("Vary".to_string(), "Cookie".to_string()),
+        ];
+        assert_eq!(filter_headers(&headers, &rules, true).len(), 2);
+        assert_eq!(filter_headers(&headers, &rules, false).len(), 1);
+    }
+}

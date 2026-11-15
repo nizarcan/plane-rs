@@ -1,0 +1,98 @@
+# Normalisation table for the differential harness.
+#
+# Every entry has a one-line `why` that is copied into the run report. The
+# list is deliberately short: only values that are genuinely random or based
+# on the wall clock belong here. The built-in rules (generated UUIDs,
+# in-window timestamps, the target's own base URL and cookie expiry relative
+# to the step clock) are documented in crates/plane-testkit/src/normalize.rs.
+#
+# A rule is applied per target, so target A's generated value only ever
+# becomes the same placeholder as target B's independently generated value.
+
+# Headers that are not part of the HTTP contract.
+ignore_headers:
+  # Wall-clock time of the response.
+  - date
+  # Names the implementation (gunicorn vs hyper); the contract does not cover it.
+  - server
+  # Changes whenever a volatile value of a different length is substituted.
+  # The comparator still compares it whenever no normalisation was applied.
+  - content-length
+
+# Intermediate and final timestamps are compared to an exact value only when
+# they fall outside [request start - slack, response end + slack].
+timestamp_slack_secs: 2
+
+# Django table schemas to snapshot.
+db_schemas:
+  - public
+  - plane_jobs
+
+# Tables that never participate in a step's side effects. Empty: the harness
+# snapshots every table, which is what makes it able to catch an unexpected
+# write anywhere.
+db_exclude_tables: []
+
+volatile_cookies:
+  - name: session-id
+    why: "Django session key: 32 random characters generated on login (plane/authentication/middleware/session.py)"
+  - name: admin-session-id
+    why: "instance-admin session key, same random session store, different cookie name (plane/settings/common.py:431)"
+  - name: csrftoken
+    why: "Django's CSRF cookie is a random masked secret, rotated on login (django.middleware.csrf)"
+
+volatile_json_keys:
+  - name: csrf_token
+    why: "get_token() returns a fresh masked token (plane/authentication/views/common.py:29)"
+  - name: username
+    why: "every new user gets uuid.uuid4().hex as username (plane/authentication/adapter/base.py:352)"
+  - name: token
+    mode: volatile_if_non_empty
+    why: "users.token is 64 random hex characters when token_updated_at is set (plane/db/models/user.py:174)"
+  - name: background_color
+    mode: random_color
+    why: "random default '#rrggbb' colour (plane/utils/color.py:9), used by workspaces and profiles"
+  - name: epoch
+    mode: unix_time
+    why: "int(timezone.now().timestamp()) at enqueue time (plane/app/views/issue/base.py:429); two runs can land in different seconds"
+
+volatile_db_columns:
+  - table: sessions
+    column: session_key
+    why: "Django session key: 32 random characters (plane/db/models/session.py)"
+  - table: sessions
+    column: session_data
+    why: "signed session payload embeds a signing timestamp plus the password hash in _auth_user_hash"
+  - table: sessions
+    column: expire_date
+    mode: relative_time
+    why: "start + SESSION_COOKIE_AGE (604800 s); the absolute value differs by the milliseconds between the two requests"
+  - table: users
+    column: username
+    why: "new users are created with uuid.uuid4().hex as username (plane/authentication/adapter/base.py:352)"
+  - table: users
+    column: password
+    mode: password_prefix
+    why: "Django PBKDF2 hash has a random salt; algorithm and iteration count are still compared"
+  - table: users
+    column: token
+    mode: volatile_if_non_empty
+    why: "random API token, written when token_updated_at is set (plane/db/models/user.py:174)"
+  - table: profiles
+    column: background_color
+    mode: random_color
+    why: "random default '#rrggbb' colour (plane/db/models/user.py:254, plane/utils/color.py:9)"
+  - table: workspaces
+    column: background_color
+    mode: random_color
+    why: "random default '#rrggbb' colour (plane/db/models/workspace.py:139, plane/utils/color.py:9)"
+
+volatile_celery_headers:
+  - name: id
+    why: "Celery assigns a fresh UUID to every message (celery/app/amqp.py)"
+  - name: root_id
+    why: "root task id of the current celery call chain"
+  - name: parent_id
+    why: "parent task id of the current celery call chain"
+  - name: origin
+    why: "hostname:pid of the publishing process, which differs per gunicorn worker"

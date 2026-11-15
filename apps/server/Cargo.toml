@@ -1,0 +1,57 @@
+# Workspace for the Rust rewrite of Plane's backend.
+#
+# Members are globs so a new crate or binary can be added without editing this file.
+
+[workspace]
+resolver = "3"
+# Globs so a new crate or binary can be added without editing this file.
+# Cargo treats an unmatched member glob as a literal path; `bins/.gitkeep`
+# keeps `bins/*` expanded while the directory has no binary crate yet.
+members = ["crates/*", "bins/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "AGPL-3.0-only"
+repository = "https://github.com/makeplane/plane"
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+chrono = { version = "0.4.42", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive"] }
+flate2 = "1.1.11"
+futures-util = "0.3.31"
+lapin = "4.12.3"
+percent-encoding = "2.3.2"
+regex = "1.12.2"
+reqwest = { version = "0.13.5", default-features = false, features = [
+  "rustls",
+  "http2",
+  "json",
+] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = [
+  "preserve_order",
+  "arbitrary_precision",
+] }
+serde_yaml_ng = "0.10.0"
+similar = "3.2.1"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+tokio-postgres = "0.7.18"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+uuid = { version = "1.29.2", features = ["v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

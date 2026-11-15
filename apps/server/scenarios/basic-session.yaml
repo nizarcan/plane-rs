@@ -1,0 +1,525 @@
+# A recorded first-run session of the Plane web app, replayed against two
+# targets by `difftest run`.
+#
+# Paths, methods, payload shapes and headers follow the real frontend:
+#   - apps/web/services/*.ts (user, workspace, project, issue, comment, auth)
+#   - apps/web/components/account/auth-forms/password.tsx (form POST + csrfmiddlewaretoken)
+#   - apps/admin/components/instance/setup-form.tsx (instance admin sign-up)
+#   - apps/web/components/onboarding/profile-setup.tsx (onboarding PATCHes)
+#   - apps/web/components/projects/create/root.tsx (project payload)
+#   - apps/web/components/issues/issue-modal/form.tsx (work item payload)
+# and the Django views/serializers named in the comments below.
+#
+# Variables are per target: target A's captured workspace id is used for A's
+# requests, target B's for B's. `{{base_url}}` is an implicit per-target
+# variable, so a step that needs a same-origin Origin header can use it.
+#
+# The run also exercises error paths: a 400 validation error, a 403 for a
+# non-member, a 403 for a rejected Origin, a 403 for a non-admin on an
+# instance-admin route, and a 401/403 after sign-out.
+
+name: basic-session
+template_db: plane_tpl
+vars:
+  admin_email: dt-admin@example.com
+  user_email: dt-user@example.com
+  # Strong enough for zxcvbn score >= 3 (plane/authentication/utils/password.py)
+  password: Diff-Test-Passw0rd-2026!
+  workspace_name: Diff Test Workspace
+  workspace_slug: dt-workspace
+  # Stored on the WorkspaceMember row only (plane/app/views/workspace/base.py:129),
+  # never echoed by the workspace endpoints, so overriding it gives a clean
+  # database-only divergence for the harness self-proof.
+  company_role: ""
+  project_name: Diff Test Project
+  project_identifier: DT
+steps:
+  # --- instance bootstrap ------------------------------------------------
+  # plane/license/api/views/instance.py: before setup the endpoint answers
+  # {"is_activated": false, "is_setup_done": false}.
+  - name: instance-before-setup
+    method: GET
+    path: /api/instances/
+    expect_status: 200
+
+  # plane/authentication/views/common.py:29 CSRFTokenEndpoint. The admin form
+  # posts with a csrfmiddlewaretoken field (apps/admin setup-form.tsx).
+  - name: admin-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: admin
+    expect_status: 200
+    capture:
+      - name: admin_csrf
+        source: json
+        pointer: /csrf_token
+
+  # plane/license/api/views/admin.py InstanceAdminSignUpEndpoint. Creates the
+  # InstanceAdmin, the User and the Profile, and sets admin-session-id.
+  - name: admin-sign-up
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: admin
+    form:
+      email: "{{admin_email}}"
+      password: "{{password}}"
+      first_name: Diff
+      last_name: Admin
+      company_name: Diff Test Inc
+      is_telemetry_enabled: "True"
+      csrfmiddlewaretoken: "{{admin_csrf}}"
+    expect_status: 302
+
+  # plane/license/api/views/instance.py after setup: full instance config.
+  - name: instance-after-setup
+    method: GET
+    path: /api/instances/
+    expect_status: 200
+
+  # plane/license/api/views/admin.py InstanceAdminUserMeEndpoint.
+  - name: admin-me
+    method: GET
+    path: /api/instances/admins/me/
+    jar: admin
+    expect_status: 200
+
+  - name: admin-list
+    method: GET
+    path: /api/instances/admins/
+    jar: admin
+    expect_status: 200
+
+  # Symmetric error path: the regular user's jar has no admin session.
+  # DRF answers 401 (not 403) when no authenticator succeeded at all.
+  - name: admin-list-forbidden
+    method: GET
+    path: /api/instances/admins/
+    jar: user
+    expect_status: 401
+
+  # --- regular user sign-up ---------------------------------------------
+  # apps/web/components/account/auth-forms/password.tsx posts this form to
+  # /auth/sign-up/; plane/authentication/views/app/email.py SignUpAuthEndpoint
+  # reads request.POST and redirects (302) to the onboarding page.
+  - name: user-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: user
+    expect_status: 200
+    capture:
+      - name: user_csrf
+        source: json
+        pointer: /csrf_token
+
+  - name: user-sign-up
+    method: POST
+    path: /auth/sign-up/
+    jar: user
+    form:
+      email: "{{user_email}}"
+      password: "{{password}}"
+      csrfmiddlewaretoken: "{{user_csrf}}"
+    expect_status: 302
+
+  # plane/app/views/user/base.py UserEndpoint (retrieve).
+  - name: user-me
+    method: GET
+    path: /api/users/me/
+    jar: user
+    expect_status: 200
+    capture:
+      - name: user_id
+        source: json
+        pointer: /id
+      - name: display_name
+        source: json
+        pointer: /display_name
+
+  # ProfileEndpoint GET; the onboarding screen loads this first.
+  - name: user-profile
+    method: GET
+    path: /api/users/me/profile/
+    jar: user
+    expect_status: 200
+
+  # apps/web/components/onboarding/profile-setup.tsx: updateUser({first_name,
+  # last_name}) -> PATCH /api/users/me/ (UserEndpoint partial_update).
+  - name: onboarding-user-details
+    method: PATCH
+    path: /api/users/me/
+    jar: user
+    json:
+      first_name: Diff
+      last_name: Tester
+    expect_status: 200
+
+  # ... then updateCurrentUserProfile({use_case, role}) -> PATCH profile.
+  - name: onboarding-profile
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: user
+    json:
+      use_case: Engineering
+      role: Developer
+    expect_status: 200
+
+  # ... then updateUserOnBoard() -> PATCH /api/users/me/onboard/.
+  - name: onboarding-complete
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: user
+    json:
+      is_onboarded: true
+    expect_status: 200
+
+  # plane/authentication/session.py BaseSessionAuthentication.enforce_csrf:
+  # cookie-authenticated writes from a foreign Origin are rejected.
+  - name: origin-rejected
+    method: PATCH
+    path: /api/users/me/
+    jar: user
+    headers:
+      Origin: http://evil.example
+      Referer: http://evil.example/phishing
+    json:
+      first_name: Attacker
+    expect_status: 403
+
+  # --- workspace ---------------------------------------------------------
+  # WorkSpaceViewSet.create: missing slug is a 400 with the view's own body.
+  - name: workspace-create-invalid
+    method: POST
+    path: /api/workspaces/
+    jar: user
+    json:
+      name: No Slug Workspace
+    expect_status: 400
+
+  # WorkSpaceViewSet.create: creates the workspace, the admin WorkspaceMember
+  # and enqueues workspace_seed.delay(workspace_id).
+  - name: workspace-create
+    method: POST
+    path: /api/workspaces/
+    jar: user
+    json:
+      name: "{{workspace_name}}"
+      slug: "{{workspace_slug}}"
+      organization_size: 2-10
+      company_role: "{{company_role}}"
+    expect_status: 201
+    capture:
+      - name: workspace_id
+        source: json
+        pointer: /id
+
+  # WorkSpaceViewSet.list. Known Django bug, recorded as the oracle's
+  # behaviour: list has no `slug` URL kwarg, but _allow_permission in
+  # plane/app/permissions/base.py:62 reads kwargs["slug"], the KeyError is
+  # turned into {"error": "The required key does not exist."} (400).
+  # The app lists workspaces through /api/users/me/workspaces/ below.
+  - name: workspace-list-keyerror-bug
+    method: GET
+    path: /api/workspaces/
+    jar: user
+    expect_status: 400
+
+  - name: workspace-retrieve
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/
+    jar: user
+    expect_status: 200
+
+  # UserWorkSpacesEndpoint, loaded by the workspace switcher.
+  - name: user-workspaces
+    method: GET
+    path: /api/users/me/workspaces/
+    jar: user
+    expect_status: 200
+
+  # A GET as a non-member is filtered to a 404 by WorkSpaceViewSet.get_queryset.
+  - name: workspace-not-found
+    method: GET
+    path: /api/workspaces/does-not-exist-xyz/
+    jar: user
+    expect_status: 404
+
+  # --- second user session (the instance admin) -------------------------
+  # The admin signs in through the app flow, producing a normal session-id
+  # cookie alongside the admin-session-id jar.
+  - name: admin-app-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: admin-app
+    expect_status: 200
+    capture:
+      - name: admin_app_csrf
+        source: json
+        pointer: /csrf_token
+
+  # SignInAuthEndpoint (plane/authentication/views/app/email.py).
+  - name: admin-app-sign-in
+    method: POST
+    path: /auth/sign-in/
+    jar: admin-app
+    form:
+      email: "{{admin_email}}"
+      password: "{{password}}"
+      csrfmiddlewaretoken: "{{admin_app_csrf}}"
+    expect_status: 302
+
+  # A member-only write by an authenticated non-member: WorkSpaceBasePermission
+  # allows GET but requires an Admin WorkspaceMember for PATCH -> 403.
+  - name: workspace-update-forbidden
+    method: PATCH
+    path: /api/workspaces/{{workspace_slug}}/
+    jar: admin-app
+    json:
+      name: Hijacked Workspace
+    expect_status: 403
+
+  # --- project -----------------------------------------------------------
+  # ProjectSerializer.validate_identifier rejects '!' (plane/db/models/project.py:145).
+  - name: project-create-invalid
+    method: POST
+    path: /api/workspaces/{{workspace_slug}}/projects/
+    jar: user
+    json:
+      name: Invalid Project
+      identifier: BAD!
+    expect_status: 400
+
+  # ProjectViewSet.create: creates the project, the admin ProjectMember, the
+  # six default states (plane/db/models/state.py DEFAULT_STATES) and enqueues
+  # model_activity.delay.
+  - name: project-create
+    method: POST
+    path: /api/workspaces/{{workspace_slug}}/projects/
+    jar: user
+    json:
+      name: "{{project_name}}"
+      identifier: "{{project_identifier}}"
+      description: ""
+      network: 2
+      project_lead: null
+      logo_props:
+        in_use: emoji
+        emoji:
+          value: "128640"
+    expect_status: 201
+    capture:
+      - name: project_id
+        source: json
+        pointer: /id
+
+  - name: project-list
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/
+    jar: user
+    expect_status: 200
+
+  # --- states, labels, members ------------------------------------------
+  - name: state-list
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/states/
+    jar: user
+    expect_status: 200
+
+  # StateViewSet.create (plane/app/views/state/base.py); a custom started state.
+  - name: state-create
+    method: POST
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/states/
+    jar: user
+    json:
+      name: In Review
+      color: "#FF6B00"
+      group: started
+      description: ""
+    # StateViewSet.create returns 200, not 201 (plane/app/views/state/base.py).
+    expect_status: 200
+    capture:
+      - name: state_id
+        source: json
+        pointer: /id
+
+  - name: label-list
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issue-labels/
+    jar: user
+    expect_status: 200
+
+  # LabelViewSet.create (plane/app/views/issue/label.py).
+  - name: label-create
+    method: POST
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issue-labels/
+    jar: user
+    json:
+      name: regression
+      color: "#DE3163"
+    expect_status: 201
+    capture:
+      - name: label_id
+        source: json
+        pointer: /id
+
+  - name: member-list
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/members/
+    jar: user
+    expect_status: 200
+
+  # --- work items --------------------------------------------------------
+  # IssueViewSet.create (plane/app/views/issue/base.py) with IssueCreateSerializer:
+  # state_id, label_ids and assignee_ids are the ids created/captured above.
+  - name: work-item-create-1
+    method: POST
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/
+    jar: user
+    json:
+      name: Fix the flux capacitor
+      description_html: "<p>It hums when it should not hum.</p>"
+      priority: high
+      state_id: "{{state_id}}"
+      assignee_ids:
+        - "{{user_id}}"
+      label_ids:
+        - "{{label_id}}"
+      start_date: null
+      target_date: null
+    expect_status: 201
+    capture:
+      - name: issue_1_id
+        source: json
+        pointer: /id
+      - name: issue_1_sequence
+        source: json
+        pointer: /sequence_id
+
+  # The second item omits state_id: IssueCreateSerializer falls back to the
+  # project's default state (Backlog).
+  - name: work-item-create-2
+    method: POST
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/
+    jar: user
+    json:
+      name: Calibrate the time circuits
+      description_html: "<p>1955, 1985, 2015.</p>"
+      priority: none
+      assignee_ids: []
+      label_ids: []
+    expect_status: 201
+    capture:
+      - name: issue_2_id
+        source: json
+        pointer: /id
+
+  # IssueViewSet.list: grouped=false, the shape the frontend's list view uses.
+  - name: work-item-list
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/
+    jar: user
+    query:
+      order_by: "-created_at"
+    expect_status: 200
+
+  # IssueViewSet.partial_update, which enqueues issue_activity.delay.
+  - name: work-item-update
+    method: PATCH
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/{{issue_1_id}}/
+    jar: user
+    json:
+      name: Fix the flux capacitor (again)
+      priority: urgent
+    # IssueViewSet.partial_update returns 204 (plane/app/views/issue/base.py).
+    expect_status: 204
+
+  - name: work-item-retrieve
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/{{issue_1_id}}/
+    jar: user
+    expect_status: 200
+
+  # IssueCommentViewSet.create (plane/app/views/issue/comment.py); comment_html
+  # is sanitised by validate_html_content.
+  - name: comment-create
+    method: POST
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/{{issue_1_id}}/comments/
+    jar: user
+    json:
+      comment_html: "<p>Replaced the capacitor, added a test.</p>"
+    expect_status: 201
+    capture:
+      - name: comment_id
+        source: json
+        pointer: /id
+
+  - name: comment-list
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/{{issue_1_id}}/comments/
+    jar: user
+    expect_status: 200
+
+  # IssueActivityEndpoint (plane/app/views/issue/activity.py), the history tab:
+  # merges IssueActivity rows and IssueComment rows.
+  - name: work-item-history
+    method: GET
+    path: /api/workspaces/{{workspace_slug}}/projects/{{project_id}}/issues/{{issue_1_id}}/history/
+    jar: user
+    expect_status: 200
+
+  # --- sign-out and sign-in ---------------------------------------------
+  # logout() rotates the CSRF secret (django.contrib.auth.login/rotate_token),
+  # so fetch a fresh masked token before the form POST, as signOut() does.
+  - name: sign-out-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: user
+    expect_status: 200
+    capture:
+      - name: sign_out_csrf
+        source: json
+        pointer: /csrf_token
+
+  # SignOutAuthEndpoint (plane/authentication/views/app/signout.py); sets
+  # last_logout_time/ip and deletes the session row.
+  - name: sign-out
+    method: POST
+    path: /auth/sign-out/
+    jar: user
+    form:
+      csrfmiddlewaretoken: "{{sign_out_csrf}}"
+    expect_status: 302
+
+  # After logout the session cookie is gone -> DRF rejects the request.
+  # DRF answers 401 when no authenticator succeeded (see admin-list-forbidden).
+  - name: user-me-after-sign-out
+    method: GET
+    path: /api/users/me/
+    jar: user
+    expect_status: 401
+
+  # Sign back in through the same form the web app uses.
+  - name: sign-in-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: user
+    expect_status: 200
+    capture:
+      - name: sign_in_csrf
+        source: json
+        pointer: /csrf_token
+
+  - name: sign-in
+    method: POST
+    path: /auth/sign-in/
+    jar: user
+    form:
+      email: "{{user_email}}"
+      password: "{{password}}"
+      csrfmiddlewaretoken: "{{sign_in_csrf}}"
+    expect_status: 302
+
+  - name: user-me-after-sign-in
+    method: GET
+    path: /api/users/me/
+    jar: user
+    expect_status: 200
