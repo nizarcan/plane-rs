@@ -85,6 +85,18 @@ pub enum ApiError {
     ObjectDoesNotExist,
     /// `/api/v1/`'s `ObjectDoesNotExist` catch-all (§11.2).
     ResourceDoesNotExist,
+    /// `IntegrityError` in a Plane family `handle_exception`
+    /// (`plane/app/views/base.py:210-214`): 400 `The payload is not valid`.
+    InvalidPayload,
+    /// Django's `ValidationError` in a Plane family `handle_exception`
+    /// (`plane/app/views/base.py:216-220`): 400 `Please provide valid detail`.
+    InvalidDetail,
+    /// `KeyError` in a Plane family `handle_exception`
+    /// (`plane/app/views/base.py:228-233`): 400 `The required key does not exist.`
+    MissingKey,
+    /// Any other exception in a Plane family `handle_exception`
+    /// (`plane/app/views/base.py:235-239`): 500 with Plane's JSON body.
+    FamilyServerError,
     /// DRF `MethodNotAllowed`, with the `Allow` header DRF copies onto every
     /// response (`views.py:157-165`).
     MethodNotAllowed { method: String, allow: String },
@@ -138,6 +150,8 @@ impl ApiError {
             }
             Self::PermissionDenied(_) => 403,
             Self::NotFound | Self::ObjectDoesNotExist | Self::ResourceDoesNotExist => 404,
+            Self::InvalidPayload | Self::InvalidDetail | Self::MissingKey => 400,
+            Self::FamilyServerError => 500,
             Self::MethodNotAllowed { .. } => 405,
             Self::NotAcceptable => 406,
             Self::UnsupportedMediaType(_) => 415,
@@ -184,6 +198,18 @@ impl ApiError {
             Self::ResourceDoesNotExist => {
                 ErrorBody::drf(Object::new().field("error", RESOURCE_DOES_NOT_EXIST_DETAIL))
             }
+            Self::InvalidPayload => {
+                ErrorBody::drf(Object::new().field("error", "The payload is not valid"))
+            }
+            Self::InvalidDetail => {
+                ErrorBody::drf(Object::new().field("error", "Please provide valid detail"))
+            }
+            Self::MissingKey => {
+                ErrorBody::drf(Object::new().field("error", "The required key does not exist."))
+            }
+            Self::FamilyServerError => ErrorBody::drf(
+                Object::new().field("error", "Something went wrong please try again later"),
+            ),
             Self::MethodNotAllowed { method, .. } => {
                 ErrorBody::drf(detail_body(&format!("Method \"{method}\" not allowed.")))
             }
@@ -378,6 +404,10 @@ mod tests {
         assert_eq!(ApiError::RequestBodyTooLarge.status(), 413);
         assert_eq!(ApiError::InternalServerError.status(), 500);
         assert_eq!(ApiError::NotImplemented.status(), 501);
+        assert_eq!(ApiError::InvalidPayload.status(), 400);
+        assert_eq!(ApiError::InvalidDetail.status(), 400);
+        assert_eq!(ApiError::MissingKey.status(), 400);
+        assert_eq!(ApiError::FamilyServerError.status(), 500);
     }
 
     #[test]
@@ -496,6 +526,24 @@ mod tests {
         let response = ApiError::InternalServerError.render().expect("render");
         assert_eq!(response.body.len(), 145);
         assert_eq!(response.body, ERROR_PAGE_500.as_bytes());
+
+        // Plane family `handle_exception` bodies (§11.2), DRF dialect.
+        assert_eq!(
+            ApiError::InvalidPayload.render().expect("render").body,
+            b"{\"error\":\"The payload is not valid\"}"
+        );
+        assert_eq!(
+            ApiError::InvalidDetail.render().expect("render").body,
+            b"{\"error\":\"Please provide valid detail\"}"
+        );
+        assert_eq!(
+            ApiError::MissingKey.render().expect("render").body,
+            b"{\"error\":\"The required key does not exist.\"}"
+        );
+        assert_eq!(
+            ApiError::FamilyServerError.render().expect("render").body,
+            b"{\"error\":\"Something went wrong please try again later\"}"
+        );
 
         // ValidationError keeps the array shape.
         let response = ApiError::ValidationError(json!(["boom"]))

@@ -20,6 +20,10 @@ default = []
 # Test-only `/_plane_rs/test/` endpoints. Off by default; the release binary
 # must not contain them (Phase 2 exit check).
 test-endpoints = []
+# Registers a probe handler for every non-v1 route method so the differential
+# harness can drive each route through the full DRF policy. Never in a release
+# build; see `src/probe.rs`.
+policy-probe = []
 
 [dependencies]
 anyhow.workspace = true
@@ -34,7 +38,9 @@ percent-encoding.workspace = true
 plane-auth = { path = "../../crates/plane-auth" }
 plane-core = { path = "../../crates/plane-core" }
 plane-db = { path = "../../crates/plane-db" }
+plane-drf = { path = "../../crates/plane-drf" }
 plane-serde = { path = "../../crates/plane-serde" }
+plane-throttle = { path = "../../crates/plane-throttle" }
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true

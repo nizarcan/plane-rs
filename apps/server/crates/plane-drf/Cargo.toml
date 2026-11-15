@@ -1,0 +1,33 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-drf"
+description = "Django REST Framework's view lifecycle, rebuilt from routes.json"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aws-lc-rs.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+deadpool-postgres.workspace = true
+http.workspace = true
+plane-auth = { path = "../plane-auth" }
+plane-core = { path = "../plane-core" }
+plane-db = { path = "../plane-db" }
+plane-permissions = { path = "../plane-permissions" }
+plane-serde = { path = "../plane-serde" }
+plane-throttle = { path = "../plane-throttle" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio-postgres.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

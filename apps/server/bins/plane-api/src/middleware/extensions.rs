@@ -27,6 +27,7 @@
 
 #![allow(dead_code)]
 
+use plane_core::config::Settings;
 use plane_core::context::RequestContext;
 
 use crate::response::Resp;
@@ -39,11 +40,36 @@ use crate::response::Resp;
 pub fn crum_request(_ctx: &RequestContext) {}
 
 /// Layer 11: `APITokenLogMiddleware.process_request`
-/// (`plane/middleware/logger.py:80-163`). Builds the `api_activity_logs` row
-/// (hashed token identifier, path, method, query, redacted headers, bodies,
-/// status, client IP, user agent) and enqueues `process_logs`; failures are
-/// swallowed so logging never breaks a request.
-pub fn api_token_log_response(_ctx: &RequestContext, _resp: &Resp) {}
+/// (`plane/middleware/logger.py:80-163`).
+///
+/// The data construction is `plane_drf::token_log::ApiTokenLog::build`, which
+/// reproduces the HMAC token identifier, the redacted Python `dict` repr of the
+/// headers, `_safe_decode_body` and the client IP. The row is written by the
+/// Celery task `plane.bgtasks.logger_task.process_logs`; the publisher is
+/// Phase 4's (DECISIONS.md D7), so no sink is installed yet and a request with
+/// `X-Api-Key` only logs the would-be row at debug level.
+///
+/// This is why the registry refuses `/api/v1/` routes: those are the views
+/// whose authentication depends on the header, so every one of their requests
+/// would produce the log. A request carrying `X-Api-Key` to another mount also
+/// logs in Django; that residual gap is recorded in `ROUTES.md`, and the
+/// differential probe never sends the header outside `/api/v1/`.
+pub fn api_token_log_response(settings: &Settings, ctx: &RequestContext, resp: &Resp) {
+    let Some(log) =
+        plane_drf::token_log::ApiTokenLog::build(settings, ctx, resp.status.as_u16(), &resp.body)
+    else {
+        return;
+    };
+    tracing::debug!(
+        target: "plane.api.token_log",
+        token_identifier = %log.token_identifier,
+        path = %log.path,
+        method = %log.method,
+        response_code = log.response_code,
+        "APITokenLogMiddleware row built; no Celery publisher is installed yet \
+         (Phase 4), so it is not enqueued"
+    );
+}
 
 /// Layer 13: `ReadReplicaRoutingMiddleware.process_view`
 /// (`plane/middleware/db_routing.py`). Returns whether *this* route opts into

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use plane_core::config::Settings;
 use plane_db::DbPools;
+use plane_drf::dispatch::Runtime;
 
 use crate::routes::RouteTable;
 
@@ -24,6 +25,20 @@ pub struct AppState {
     /// `DATABASE_URL` fails before the listener opens.
     #[allow(dead_code)]
     pub db: DbPools,
+    /// The DRF view runtime: policy, registered handlers and Redis handles.
+    pub drf: Runtime,
 }
 
 pub type SharedState = Arc<AppState>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn state_is_shareable() {
+        assert_send_sync::<AppState>();
+    }
+}

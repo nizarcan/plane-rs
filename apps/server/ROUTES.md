@@ -16,13 +16,46 @@ ENABLE_DRF_SPECTACULAR=0 \
 .venv/bin/python ../server/tools/inventory/routes.py
 ```
 
-Generated from commit `208e993fd3c741e6ac2556af834583d0b482782a` with Django 5.2.17 and DRF 3.18.3 (`ENABLE_DRF_SPECTACULAR=0`). `routes.json` is the machine-readable form of the same data.
+Generated from commit `26c84a701e2cb05cc2dfbb2f02927a85d93454f6` with Django 5.2.17 and DRF 3.18.3 (`ENABLE_DRF_SPECTACULAR=0`). `routes.json` is the machine-readable form of the same data.
 
 `order` is the 0-based index in Django's first-match order. `methods` is the ViewSet action map for a ViewSet, the implemented handlers for an `APIView`/`GenericAPIView`, and the methods the class or decorators accept for a Django `View` or function view. `head` and `options` are omitted unless explicitly implemented; `drf_options` records that DRF answers `OPTIONS` on every DRF view even when it is not listed. A `[405]` after a method means the method is registered but `BaseViewSet.initial` refuses it at runtime — see hazard (g).
 
 `permissions` shows the class-level permission classes (short names) and, after `;`, the per-method `allow_permission` decorator arguments as `METHODS allow(ROLES;LEVEL;creator=Model)`. `(dynamic)` means the class overrides `get_permissions`; `routes.json` also carries `dynamic_authenticators` and `dynamic_throttles` with the owning class. A `-` in the role list is an empty `allowed_roles`; only the `creator` branch can allow such a request. Every DRF view is `csrf_exempt` at Django's middleware layer (`routes.json` records that flag), but DRF's `SessionAuthentication` still enforces CSRF for session-authenticated requests. Plain `django.views.View` and function entries have no DRF security classes: they run under Django's `AuthenticationMiddleware` and inline checks, and a `permission_classes` attribute declared on such a class is dead code (flagged in the route's `notes`).
 
 With `ENABLE_DRF_SPECTACULAR=1` Django adds `/api/schema/`, `/api/schema/swagger-ui/` and `/api/schema/redoc/`; this file is generated from the default configuration unless the regeneration command sets the flag. With `DEBUG=1` and `debug_toolbar` installed, `__debug__/` routes are prepended; the production settings used here default to `DEBUG=0`, so they are absent.
+
+## Phase 2 policy fields (`plane-drf`)
+
+`routes.json` also records what `plane-drf` needs to run each route exactly. These fields are generated from the view class, never typed by hand:
+
+| Field | Meaning |
+| --- | --- |
+| `base_family` | which base class the view derives from: `app.BaseViewSet`, `app.BaseAPIView`, `api.BaseViewSet`, `api.BaseAPIView`, `space.BaseViewSet`, `space.BaseAPIView`, `license.BaseAPIView`, `drf.ViewSet`, `drf.APIView`, `django.View` or `function` |
+| `use_read_replica` | the class/function attribute the read replica router reads (`null` when it has none) |
+| `timezone_mixin` | the MRO contains a `TimezoneMixin` |
+| `http_method_names` | the effective list, in Django's order |
+| `renderer_classes`, `parser_classes`, `content_negotiation_class`, `metadata_class` | the DRF classes Django resolves through `api_settings` |
+| `view_name`, `view_description` | `get_view_name()` / `get_view_description()` on an instance built with the route's `as_view` initkwargs (so a ViewSet's `List`/`Instance` suffix is included) |
+| `lifecycle_overrides` | the hooks (`get_permissions`, `get_authenticators`, `get_throttles`, `initial`, `dispatch`, `handle_exception`, `finalize_response`, `options`) a concrete view overrides below its family base class, with the owning class; a non-null value without an implementation is a startup error |
+| `defined_methods` | for a plain `django.views.View`, the method handlers the class defines |
+| `guard_actions` | per ViewSet action: the implementing class and whether it is a DRF mixin method, so the runtime re-evaluates `BaseViewSet.initial`'s 405 rule with the permissions `get_permissions` actually resolved |
+| `options_metadata` | `attempts` (`{'PUT','POST'} & allowed_methods`), `actions_json` (the serializer field map per attempt as compact `json.dumps` text, order preserved), `error` (the exception `determine_actions` raised) and `get_object_required` |
+
+### OPTIONS metadata gaps
+
+`actions_json` is recorded for a **permitted** caller, with `check_permissions` and `get_object()` bypassed so no database is needed. At request time `plane-drf` re-runs the permission check for the attempt's method and splices the recorded text into the body. Two gaps follow:
+
+* a `PUT` action also requires `view.get_object()` to succeed on Django; the runtime cannot run a view's `get_object()` generically, so a route with `get_object_required: true` may include `PUT` actions where Django omits them (the differential probe's OPTIONS steps avoid those routes);
+* CPython iterates `{'PUT','POST'}` in hash order, which is randomised per process, so the key order of Django's `actions` object is not stable either; the runtime writes `POST` before `PUT` and the recorded text follows that order.
+
+### Policy probe coverage
+
+`scenarios/policy-probe.yaml` (generated by `tools/policy/gen_policy_scenario.py`) runs every route method outside `/api/v1/` through the Rust runtime for the fixture users. Four gaps are deliberate:
+
+* **`/api/v1/`** cannot be registered until Phase 4's Celery publisher exists: `APITokenLogMiddleware` would enqueue `plane.bgtasks.logger_task.process_logs`. The policy for those routes is generated and loaded, and the registry refuses their registration with an explicit error.
+* **Write steps are omitted** for views whose handler re-implements an authorization check with the same body `allow_permission` returns (`{"error": "You don't have the required permissions."}`; `asset/v2.py`, `asset/base.py`, `workspace/draft.py`, `project/base.py`). A 403 there cannot be attributed to the policy, so the probe does not weaken its rule; those 46 write method pairs keep the `django` owner until Phase 3 ports their handlers.
+* **`DELETE /api/users/me/`** deactivates the caller and their memberships, and **`DELETE /api/workspaces/{slug}/`** deletes the workspace. They run only with callers that cannot succeed plus one admin against a disposable object, so a permitted delete cannot change a later step.
+* **No `HEAD` steps**: the harness cannot decompress a `HEAD` response that carries `Content-Encoding: gzip` and an empty body. `HEAD` falls back to the `GET` handler (`View.setup`), which the `GET` steps exercise.
 
 ## Summary
 

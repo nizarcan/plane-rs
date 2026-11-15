@@ -45,7 +45,7 @@ pub enum Handler {
 /// One resolver entry.
 ///
 /// `path_template`, `django_pattern` and `params` are kept for diagnostics and
-/// tests; matching only needs `regex`.
+/// tests; matching uses `regex`, capture extraction uses `capture_names`.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Route {
@@ -55,6 +55,10 @@ pub struct Route {
     pub path_template: String,
     /// The inventory's `django_pattern`, for diagnostics and tests.
     pub django_pattern: String,
+    /// The dotted view path (`plane.app.views…`).
+    pub view: String,
+    /// `routes.json` `name` (`request.resolver_match.url_name`).
+    pub url_name: Option<String>,
     /// `request.csrf_exempt`: every DRF view is exempt
     /// (`rest_framework/views.py:143-149`).
     pub csrf_exempt: bool,
@@ -62,6 +66,8 @@ pub struct Route {
     pub params: std::collections::BTreeMap<String, String>,
     pub handler: Handler,
     regex: Regex,
+    /// Capture group names, in pattern order.
+    capture_names: Vec<Option<String>>,
 }
 
 /// The compiled route table.
@@ -106,6 +112,8 @@ struct RawRoute {
     csrf_exempt: bool,
     #[serde(default)]
     params: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 impl RouteTable {
@@ -130,14 +138,21 @@ impl RouteTable {
                 "plane.web.views.robots_txt" => Handler::Robots,
                 _ => Handler::Unported,
             };
+            let capture_names = regex
+                .capture_names()
+                .map(|name| name.map(str::to_string))
+                .collect();
             routes.push(Route {
                 order: raw.order,
                 path_template: raw.path,
                 django_pattern: raw.django_pattern,
+                view: raw.view,
+                url_name: raw.name,
                 csrf_exempt: raw.csrf_exempt,
                 params: raw.params,
                 handler,
                 regex,
+                capture_names,
             });
         }
         routes.sort_by_key(|route| route.order);
@@ -153,6 +168,26 @@ impl RouteTable {
     #[allow(dead_code)]
     pub fn is_valid_path(&self, path: &str) -> bool {
         self.resolve(path).is_some()
+    }
+
+    /// `view.kwargs`: the named captures of the resolved route, in URL order.
+    ///
+    /// Django's converters decode percent escapes and validate UUID/int/slug
+    /// values *before* the view runs; the regexes in `compile` already reject a
+    /// non-matching value, and `str` segments arrive as the path decoder left
+    /// them (`RequestContext` is percent-decoded once, like ASGI's `scope`
+    /// path).
+    pub fn kwargs<'a>(&self, route: &'a Route, path: &'a str) -> Vec<(&'a str, &'a str)> {
+        let Some(captures) = route.regex.captures(path) else {
+            return Vec::new();
+        };
+        route
+            .capture_names
+            .iter()
+            .skip(1)
+            .filter_map(|name| name.as_deref())
+            .filter_map(|name| captures.name(name).map(|value| (name, value.as_str())))
+            .collect()
     }
 
     #[allow(dead_code)]
@@ -208,8 +243,15 @@ fn translate_literal(raw: &RawRoute, text: &str, out: &mut String) -> Result<(),
             return Ok(());
         };
         let placeholder = &after[1..end];
-        let (converter, _name) = placeholder.split_once(':').unwrap_or(("str", placeholder));
+        let (converter, name) = placeholder.split_once(':').unwrap_or(("str", placeholder));
+        // A named group, so `RouteTable::kwargs` can reproduce `view.kwargs`.
+        // Django wraps the converter in a named group too; duplicate names in
+        // one pattern would be a Django error before it could reach us.
+        out.push_str("(?P<");
+        out.push_str(name);
+        out.push('>');
         out.push_str(converter_regex(raw, converter)?);
+        out.push(')');
         rest = &after[end + 1..];
     }
     out.push_str(&regex::escape(rest));
@@ -220,17 +262,15 @@ fn translate_literal(raw: &RawRoute, text: &str, out: &mut String) -> Result<(),
 /// `drf_format_suffix` (`rest_framework/urlpatterns.py:19-27`).
 fn converter_regex(raw: &RawRoute, converter: &str) -> Result<&'static str, RouteTableError> {
     match converter {
-        // Wrapped in a non-capturing group so that a converter containing an
-        // alternation cannot change the precedence of the surrounding pattern.
-        // Django wraps them in a *named* group instead; the name is not needed
-        // here (the matcher only needs match/no-match) and duplicate names would
-        // be a compile error in the `regex` crate.
-        "str" => Ok("(?:[^/]+)"),
-        "int" => Ok("(?:[0-9]+)"),
-        "slug" => Ok("(?:[-a-zA-Z0-9_]+)"),
-        "path" => Ok("(?:.+)"),
-        "uuid" => Ok("(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"),
-        "drf_format_suffix" => Ok("(?:\\.[a-z0-9]+/?)"),
+        // The caller wraps this in `(?P<name>…)`, like Django's
+        // `_route_to_regex`. The alternation-free bodies keep the group
+        // precedence trivial; a converter that grows one must wrap it itself.
+        "str" => Ok("[^/]+"),
+        "int" => Ok("[0-9]+"),
+        "slug" => Ok("[-a-zA-Z0-9_]+"),
+        "path" => Ok(".+"),
+        "uuid" => Ok("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"),
+        "drf_format_suffix" => Ok("\\.[a-z0-9]+/?"),
         other => Err(RouteTableError::UnknownConverter {
             order: raw.order,
             path: raw.path.clone(),
@@ -390,6 +430,7 @@ mod tests {
                 "api/workspaces/<str:slug>/work-items/<str:project_identifier>-<str:issue_identifier>/"
                     .to_string(),
             view: "plane.app.views.issue.base.IssueDetailIdentifierEndpoint".to_string(),
+            name: None,
             pattern_type: "path".to_string(),
             csrf_exempt: true,
             params: Default::default(),
@@ -410,6 +451,7 @@ mod tests {
                 "api/v1/workspaces/<str:slug>/^invitations/(?P<pk>[^/.]+)\\.(?P<format>[a-z0-9]+)/?$"
                     .to_string(),
             view: "x".to_string(),
+            name: None,
             pattern_type: "regex".to_string(),
             csrf_exempt: true,
             params: Default::default(),

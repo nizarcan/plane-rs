@@ -18,8 +18,11 @@ mod handlers;
 mod host;
 mod logging;
 mod middleware;
+#[cfg(feature = "policy-probe")]
+mod probe;
 mod response;
 mod routes;
+mod startup;
 #[cfg(feature = "test-endpoints")]
 mod test_endpoints;
 
@@ -92,16 +95,28 @@ fn start() -> anyhow::Result<()> {
     if let Some(worker_threads) = settings.rust.worker_threads {
         runtime.worker_threads(worker_threads);
     }
+
+    // The DRF policy is loaded (and validated) on the startup thread, before
+    // the listener opens: a route whose policy cannot be applied is a process
+    // that refuses to start, not a request that runs fewer checks.
+    let drf = startup::build_runtime(&settings)?;
+
     let runtime = runtime.build().context("building the tokio runtime")?;
-    runtime.block_on(serve(settings, routes, db))
+    runtime.block_on(serve(settings, routes, db, drf))
 }
 
-async fn serve(settings: Settings, routes: RouteTable, db: DbPools) -> anyhow::Result<()> {
+async fn serve(
+    settings: Settings,
+    routes: RouteTable,
+    db: DbPools,
+    drf: plane_drf::dispatch::Runtime,
+) -> anyhow::Result<()> {
     let bind = settings.rust.bind;
     let state = Arc::new(AppState {
         settings,
         routes,
         db,
+        drf,
     });
     let app = Router::new()
         .fallback(middleware::handle)

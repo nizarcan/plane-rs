@@ -50,7 +50,7 @@ use plane_core::config::ThrottlingSettings;
 /// resolved a session. The trait keeps the throttle independent of how the
 /// request user was loaded, and makes the difference between "no user" and
 /// "anonymous user" explicit at the type level.
-pub trait ThrottleUser: fmt::Debug {
+pub trait ThrottleUser: fmt::Debug + Send + Sync {
     /// `request.user.is_authenticated`.
     fn is_authenticated(&self) -> bool;
     /// `request.user.pk`; `None` for an anonymous user.

@@ -1,0 +1,224 @@
+{
+  "counts": {
+    "api_tokens": {
+      "rows": 3
+    },
+    "cycles": {
+      "rows": 1
+    },
+    "deploy_boards": {
+      "rows": 2
+    },
+    "descriptions": {
+      "rows": 1
+    },
+    "draft_issues": {
+      "rows": 1
+    },
+    "estimate_points": {
+      "rows": 1
+    },
+    "estimates": {
+      "rows": 1
+    },
+    "file_assets": {
+      "rows": 1
+    },
+    "instance_admins": {
+      "rows": 1
+    },
+    "intakes": {
+      "rows": 1
+    },
+    "issue_comments": {
+      "rows": 1
+    },
+    "issue_views": {
+      "rows": 1
+    },
+    "issues": {
+      "rows": 1
+    },
+    "labels": {
+      "rows": 1
+    },
+    "modules": {
+      "rows": 1
+    },
+    "pages": {
+      "rows": 1
+    },
+    "project_members": {
+      "rows": 15
+    },
+    "projects": {
+      "rows": 4
+    },
+    "sessions": {
+      "rows": 11
+    },
+    "states": {
+      "rows": 1
+    },
+    "stickies": {
+      "rows": 1
+    },
+    "users": {
+      "rows": 14
+    },
+    "workspace_members": {
+      "rows": 12
+    },
+    "workspaces": {
+      "rows": 3
+    }
+  },
+  "creator_objects": {
+    "plane.db.models.asset.FileAsset": "dfe775b9-c14f-5c66-9e3c-1805a1bd8916",
+    "plane.db.models.cycle.Cycle": "f95f04e2-8bca-5112-b7ae-dab3a6574319",
+    "plane.db.models.draft.DraftIssue": "75b2dbb3-6201-52f0-90b4-4f2616e40238",
+    "plane.db.models.issue.Issue": "12f3032c-51b5-5042-bf81-c7bfbd5f9744",
+    "plane.db.models.issue.IssueComment": "f04cbcc0-3aae-552f-a2c5-b8105542acc3",
+    "plane.db.models.module.Module": "5dbfe4f9-a37c-5217-a0b2-4c4ce7f70aa4",
+    "plane.db.models.sticky.Sticky": "7282975a-54ba-5e91-9733-c18a49e0836d",
+    "plane.db.models.view.IssueView": "f009c93e-bdbe-57e8-b655-30dc14a38870"
+  },
+  "objects": {
+    "anchor_bad": "anchor-bad",
+    "anchor_ok": "anchor-ok",
+    "cycle": "f95f04e2-8bca-5112-b7ae-dab3a6574319",
+    "draft": "75b2dbb3-6201-52f0-90b4-4f2616e40238",
+    "estimate": "c64c997c-6861-573e-8578-009d90a3ceea",
+    "estimate_point": "e483d9bb-1d26-5066-b171-a4141d8e0cce",
+    "file_asset": "dfe775b9-c14f-5c66-9e3c-1805a1bd8916",
+    "intake": "57630e17-cd54-57ef-bb90-d88937da4cdf",
+    "issue": "12f3032c-51b5-5042-bf81-c7bfbd5f9744",
+    "issue_comment": "f04cbcc0-3aae-552f-a2c5-b8105542acc3",
+    "issue_identifier": "ALP-1",
+    "label": "a960aff1-447f-593f-bfbe-3e6e5aa8fd5f",
+    "member": "e7497651-4ef8-5c89-8e0e-d4f681659cb8",
+    "module": "5dbfe4f9-a37c-5217-a0b2-4c4ce7f70aa4",
+    "nonexistent": "208394a1-37c7-5b59-bdad-635655560d6b",
+    "page": "0d6e91bb-63fc-5dda-91bd-b489ca958dad",
+    "state": "ebb94c1c-e9d2-5231-ac24-d147b3a78910",
+    "sticky": "7282975a-54ba-5e91-9733-c18a49e0836d",
+    "view": "f009c93e-bdbe-57e8-b655-30dc14a38870"
+  },
+  "projects": {
+    "alpha": {
+      "id": "934818c3-34a1-53c5-b840-a7fb4b9de641",
+      "identifier": "ALP"
+    },
+    "beta": {
+      "id": "2c79d2b3-88b1-5ed9-be24-f25714aefa55",
+      "identifier": "BET"
+    }
+  },
+  "scratch_database": null,
+  "session_keys": {
+    "disposable": "f87dcaf0daea5dfb838b1f14cea2f3e8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "disposable_project_leave": "6abc5c4c6cd15b888f1a570b6b0318ec000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "disposable_workspace_leave": "2b9998bc46535197861d9bd0fc28f0ab000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "inactive": "89e71550a8455d55b5dfd5a0cd30c857000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "nonmember": "944f3a8ae24e5f44b2fc6f1a33c01b71000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "pj_admin": "4f2a448425085f4dbba807232e084e84000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "pj_guest": "ba1bfe6f6a2a5967a016ad77a99b18aa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "pj_member": "c7d44574f1ca530f96f24befd320b476000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "ws_admin": "8fd03f38c3355b0582e915a790113a1e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "ws_guest": "1c0f824a71cb52dbb744bad0ae43a919000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "ws_member": "5001a96a8d2a546689a163a692e28336000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "sessions": {
+    "read:disposable": "f87dcaf0daea5dfb838b1f14cea2f3e8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:disposable_project_leave": "6abc5c4c6cd15b888f1a570b6b0318ec000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:disposable_workspace_leave": "2b9998bc46535197861d9bd0fc28f0ab000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:inactive": "89e71550a8455d55b5dfd5a0cd30c857000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:nonmember": "944f3a8ae24e5f44b2fc6f1a33c01b71000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:pj_admin": "4f2a448425085f4dbba807232e084e84000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:pj_guest": "ba1bfe6f6a2a5967a016ad77a99b18aa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:pj_member": "c7d44574f1ca530f96f24befd320b476000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:ws_admin": "8fd03f38c3355b0582e915a790113a1e000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:ws_guest": "1c0f824a71cb52dbb744bad0ae43a919000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "read:ws_member": "5001a96a8d2a546689a163a692e28336000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "throwaway_leave_project": "f5698556-3666-55d0-a0b7-3c5825c13e40",
+  "throwaway_leave_workspace_slug": "policy-throwaway-leave",
+  "throwaway_project": "942cc6e7-7396-5dfd-bcb1-94504eaebef7",
+  "throwaway_workspace_slug": "policy-throwaway",
+  "users": {
+    "policy_api_active": {
+      "email": "policy_api_active@policy.test",
+      "id": "a5699706-ac3c-5956-9a38-09eaf4f9e07f",
+      "is_active": true
+    },
+    "policy_api_expired": {
+      "email": "policy_api_expired@policy.test",
+      "id": "efff58e5-24b8-5a44-a714-0e1e333755ea",
+      "is_active": true
+    },
+    "policy_api_inactive": {
+      "email": "policy_api_inactive@policy.test",
+      "id": "2323345f-0663-592f-a1cd-728a357d8ce9",
+      "is_active": true
+    },
+    "policy_disposable": {
+      "email": "policy_disposable@policy.test",
+      "id": "6a4d28db-9cc1-5909-9b54-d55d4f93fa56",
+      "is_active": true
+    },
+    "policy_disposable_project_leave": {
+      "email": "policy_disposable_project_leave@policy.test",
+      "id": "d1344733-73d3-5ff6-920c-a0c0d882f350",
+      "is_active": true
+    },
+    "policy_disposable_workspace_leave": {
+      "email": "policy_disposable_workspace_leave@policy.test",
+      "id": "73c604af-abba-5407-a800-fbc4763b30a5",
+      "is_active": true
+    },
+    "policy_inactive": {
+      "email": "policy_inactive@policy.test",
+      "id": "c1e88fc6-6386-5f04-a15f-098280529d5f",
+      "is_active": false
+    },
+    "policy_nonmember": {
+      "email": "policy_nonmember@policy.test",
+      "id": "68391777-3913-59c4-b50d-736796c475d9",
+      "is_active": true
+    },
+    "policy_pj_admin": {
+      "email": "policy_pj_admin@policy.test",
+      "id": "2172bff8-1627-548b-8d56-d416bc2ea354",
+      "is_active": true
+    },
+    "policy_pj_guest": {
+      "email": "policy_pj_guest@policy.test",
+      "id": "b47963b4-c67b-5572-8d05-f7d9933cb571",
+      "is_active": true
+    },
+    "policy_pj_member": {
+      "email": "policy_pj_member@policy.test",
+      "id": "e7497651-4ef8-5c89-8e0e-d4f681659cb8",
+      "is_active": true
+    },
+    "policy_ws_admin": {
+      "email": "policy_ws_admin@policy.test",
+      "id": "75cdce86-7af9-58e5-be3e-42a863bcdf78",
+      "is_active": true
+    },
+    "policy_ws_guest": {
+      "email": "policy_ws_guest@policy.test",
+      "id": "addc4818-5060-55ac-9cf7-f11cf84b5fc9",
+      "is_active": true
+    },
+    "policy_ws_member": {
+      "email": "policy_ws_member@policy.test",
+      "id": "3bfe193d-014b-524a-b960-9ec8cde6216e",
+      "is_active": true
+    }
+  },
+  "workspace": {
+    "id": "4fad0e05-ee2c-59a0-961e-b78b63cdbb1f",
+    "slug": "policy"
+  }
+}

@@ -109,6 +109,31 @@ GROUP_TITLE = {
 
 ROUTE_TABLE_COLUMNS = ("#", "Path", "Methods", "View", "Permissions", "Owner", "Status")
 
+# Plane's base classes, in the order they win an MRO scan. The value is the
+# `base_family` string `plane-drf` keys its per-family behaviour on.
+BASE_FAMILIES = {
+    ("plane.app.views.base", "BaseViewSet"): "app.BaseViewSet",
+    ("plane.app.views.base", "BaseAPIView"): "app.BaseAPIView",
+    ("plane.api.views.base", "BaseViewSet"): "api.BaseViewSet",
+    ("plane.api.views.base", "BaseAPIView"): "api.BaseAPIView",
+    ("plane.space.views.base", "BaseViewSet"): "space.BaseViewSet",
+    ("plane.space.views.base", "BaseAPIView"): "space.BaseAPIView",
+    ("plane.license.api.views.base", "BaseAPIView"): "license.BaseAPIView",
+}
+
+# The hooks `plane-drf` must be told about when a concrete view overrides them:
+# each one changes the request lifecycle the runtime reproduces.
+LIFECYCLE_HOOKS = (
+    "get_permissions",
+    "get_authenticators",
+    "get_throttles",
+    "initial",
+    "dispatch",
+    "handle_exception",
+    "finalize_response",
+    "options",
+)
+
 
 # ---------------------------------------------------------------------------
 # Django bootstrap
@@ -565,6 +590,305 @@ def viewset_guard(
     return {"status": "evaluated", "refused_methods": refused}
 
 
+# ---------------------------------------------------------------------------
+# Phase 2 introspection: base family, lifecycle hooks, OPTIONS metadata
+# ---------------------------------------------------------------------------
+
+
+def base_family(cls: type | None, kind: str) -> str:
+    """Which of Plane's base classes (or which plain base) a view derives from.
+
+    Values are the strings `plane-drf` matches on: `app.BaseViewSet`,
+    `app.BaseAPIView`, `api.BaseViewSet`, `api.BaseAPIView`, `space.BaseViewSet`,
+    `space.BaseAPIView`, `license.BaseAPIView`, `drf.ViewSet`, `drf.APIView`,
+    `django.View` and `function`.
+    """
+    if cls is None:
+        return "function"
+    for klass in cls.__mro__:
+        family = BASE_FAMILIES.get((klass.__module__, klass.__qualname__))
+        if family is not None:
+            return family
+    if is_drf(kind):
+        return "drf.ViewSet" if kind == "ViewSet" else "drf.APIView"
+    from django.views import View
+
+    if isinstance(cls, type) and issubclass(cls, View):
+        return "django.View"
+    return "function"
+
+
+def family_base(cls: type | None, family: str) -> type | None:
+    """The class `family` names, or `None` for a non-class view."""
+    if cls is None:
+        return None
+    wanted = {
+        "app.BaseViewSet": ("plane.app.views.base", "BaseViewSet"),
+        "app.BaseAPIView": ("plane.app.views.base", "BaseAPIView"),
+        "api.BaseViewSet": ("plane.api.views.base", "BaseViewSet"),
+        "api.BaseAPIView": ("plane.api.views.base", "BaseAPIView"),
+        "space.BaseViewSet": ("plane.space.views.base", "BaseViewSet"),
+        "space.BaseAPIView": ("plane.space.views.base", "BaseAPIView"),
+        "license.BaseAPIView": ("plane.license.api.views.base", "BaseAPIView"),
+        "drf.ViewSet": ("rest_framework.viewsets", "ViewSet"),
+        "drf.APIView": ("rest_framework.views", "APIView"),
+        "django.View": ("django.views.generic.base", "View"),
+    }.get(family)
+    if wanted is None:
+        return None
+    for klass in cls.__mro__:
+        if (klass.__module__, klass.__qualname__) == wanted:
+            return klass
+    return None
+
+
+def lifecycle_overrides(cls: type | None, family: str) -> dict[str, str | None]:
+    """Hooks a concrete view overrides *below* the family base class.
+
+    `None` means the runtime's family implementation is what Django runs. A
+    dotted class name means the concrete view (or a mixin between it and the
+    family base) replaces that step and `plane-drf` must be given an explicit
+    implementation at registration time.
+    """
+    overrides: dict[str, str | None] = {hook: None for hook in LIFECYCLE_HOOKS}
+    if cls is None:
+        return overrides
+    base = family_base(cls, family)
+    mro = cls.__mro__
+    stop = mro.index(base) if base is not None else 0
+    for hook in LIFECYCLE_HOOKS:
+        for index, klass in enumerate(mro[:stop]):
+            if hook in vars(klass):
+                overrides[hook] = dotted_class(klass)
+                break
+    return overrides
+
+
+def effective_http_method_names(cls: type | None, callback: Any) -> list[str] | None:
+    """The effective `http_method_names`, or `None` for a function view."""
+    if cls is None:
+        return None
+    override = init_kwargs(callback).get("http_method_names")
+    names = override or getattr(cls, "http_method_names", HTTP_METHODS)
+    return [str(method).lower() for method in names]
+
+
+def class_list_attribute(cls: type | None, kind: str, attribute: str) -> list[str] | None:
+    """A DRF class attribute resolved through `api_settings`, or `None`."""
+    if cls is None or not is_drf(kind):
+        return None
+    from rest_framework.settings import api_settings
+
+    defaults = {
+        "renderer_classes": api_settings.DEFAULT_RENDERER_CLASSES,
+        "parser_classes": api_settings.DEFAULT_PARSER_CLASSES,
+        "authentication_classes": api_settings.DEFAULT_AUTHENTICATION_CLASSES,
+        "throttle_classes": api_settings.DEFAULT_THROTTLE_CLASSES,
+        "permission_classes": api_settings.DEFAULT_PERMISSION_CLASSES,
+    }
+    value = getattr(cls, attribute, defaults.get(attribute))
+    if value is None:
+        return None
+    return dedupe(dotted_class(item) for item in value)
+
+
+def class_scalar_attribute(cls: type | None, kind: str, attribute: str) -> str | None:
+    """`content_negotiation_class` / `metadata_class` as a dotted path."""
+    if cls is None or not is_drf(kind):
+        return None
+    from rest_framework.settings import api_settings
+
+    defaults = {
+        "content_negotiation_class": api_settings.DEFAULT_CONTENT_NEGOTIATION_CLASS,
+        "metadata_class": api_settings.DEFAULT_METADATA_CLASS,
+    }
+    value = getattr(cls, attribute, defaults.get(attribute))
+    if value is None:
+        return None
+    return dotted_class(value)
+
+
+def view_metadata_instance(cls: type | None, kind: str, callback: Any) -> Any | None:
+    """An instance of the view, built the way `as_view` builds it.
+
+    `get_view_name`/`get_view_description` are instance methods; ViewSets get
+    their `suffix` from the router's `as_view` initkwargs, so those matter.
+    """
+    if cls is None:
+        return None
+    initkwargs = init_kwargs(callback) if is_drf(kind) or kind == "View" else {}
+    try:
+        return cls(**initkwargs)
+    except Exception:
+        try:
+            return cls()
+        except Exception:
+            return None
+
+
+def view_names(cls: type | None, kind: str, callback: Any) -> dict[str, str | None]:
+    """`get_view_name()` and `get_view_description()` exactly as DRF returns them."""
+    if cls is None or not is_drf(kind):
+        return {"name": None, "description": None}
+    from rest_framework.views import get_view_description, get_view_name
+
+    instance = view_metadata_instance(cls, kind, callback)
+    if instance is None:
+        return {"name": None, "description": None}
+    try:
+        name = get_view_name(instance)
+    except Exception:
+        name = None
+    try:
+        description = get_view_description(instance)
+    except Exception:
+        description = None
+    return {"name": name, "description": description}
+
+
+def allowed_methods(route_methods_map: dict[str, str], implicit: list[str], names: list[str] | None) -> list[str]:
+    """`[m.upper() for m in http_method_names if hasattr(view, m)]`.
+
+    A bound ViewSet action exists for every registered method, `head` exists
+    whenever `get` does, and `APIView` always defines `options`.
+    """
+    if names is None:
+        return []
+    present = set(route_methods_map) | set(implicit)
+    return [name.upper() for name in names if name in present]
+
+
+def options_actions(
+    cls: type | None,
+    kind: str,
+    callback: Any,
+    methods: dict[str, str],
+    implicit: list[str],
+    names: list[str] | None,
+) -> dict[str, Any]:
+    """What `SimpleMetadata.determine_actions` returns for a permitted caller.
+
+    The two runtime-dependent branches — `check_permissions(clone_request(...))`
+    and, for `PUT`, `get_object()` — are bypassed here so the serializer field
+    map can be recorded statically; `plane-drf` performs the permission check
+    itself at request time. The `get_object()` branch cannot be reproduced
+    without a database, so a route whose `PUT` is allowed records
+    `get_object_required: true` and the runtime treats its PUT actions as
+    runtime-dependent (see ROUTES.md, "OPTIONS metadata").
+
+    A serializer that cannot be instantiated without a request raises inside
+    `determine_actions`, so Django answers that OPTIONS with the family 500;
+    the exact exception is recorded in `error`.
+    """
+    # `actions_json` holds each field map as compact `json.dumps` text, not as a
+    # nested object: the Rust policy reader must preserve the serializer's field
+    # order byte for byte, and `serde_json` without `preserve_order` would sort
+    # it. The runtime splices the text into the metadata body.
+    result: dict[str, Any] = {
+        "attempts": [],
+        "actions_json": {},
+        "error": None,
+        "get_object_required": False,
+    }
+    if cls is None or not is_drf(kind) or not hasattr(cls, "get_serializer"):
+        return result
+    from rest_framework.metadata import SimpleMetadata
+
+    attempts = [method for method in ("POST", "PUT") if method in allowed_methods(methods, implicit, names)]
+    result["attempts"] = attempts
+    if not attempts:
+        return result
+    instance = view_metadata_instance(cls, kind, callback)
+    if instance is None:
+        result["error"] = "could not instantiate the view"
+        return result
+    metadata = SimpleMetadata()
+    # `initial()` sets these before `options()` runs; serializers read
+    # `self.action` (via `get_serializer_class`) and `format_kwarg`.
+    instance.format_kwarg = None
+    instance.action = "metadata"
+    instance.request = None
+    for method in attempts:
+        if method == "PUT":
+            # `determine_actions` calls `view.get_object()` for PUT. Recorded as
+            # runtime-dependent rather than guessed.
+            result["get_object_required"] = True
+        try:
+            serializer = instance.get_serializer()
+            result["actions_json"][method] = json.dumps(
+                metadata.get_serializer_info(serializer),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        except Exception as exc:  # noqa: BLE001 - the exception text is recorded
+            if result["error"] is None:
+                result["error"] = f"{type(exc).__name__}: {exc}"
+    return result
+
+
+def guard_actions(
+    cls: type | None,
+    kind: str,
+    methods: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    """Per action: who implements it, for the runtime `BaseViewSet` guard.
+
+    `BaseViewSet.initial` refuses a mixin-served action when the *effective*
+    permissions authorize nothing. `routes.json` cannot always decide that
+    statically (`get_permissions` may be overridden), so the runtime evaluates
+    the rule with the permissions it resolved for the request. These fields are
+    the action half of the rule and do not depend on permissions.
+    """
+    if cls is None or kind != "ViewSet" or not hasattr(cls, "_resolved_action_is_authorized"):
+        return {}
+    from plane.app.views.base import _MIXIN_PROVIDED_ACTIONS
+
+    actions: dict[str, dict[str, Any]] = {}
+    for action in dedupe(methods.values()):
+        owner = find_owner(cls, action)
+        actions[action] = {
+            "owner": dotted_class(owner) if owner is not None else "",
+            "mixin_provided": action in _MIXIN_PROVIDED_ACTIONS,
+            "project_implemented": is_project_implementation(cls, action),
+            "project_implements_create": action == "create"
+            and is_project_implementation(cls, "perform_create"),
+            "project_implements_update": action == "partial_update"
+            and is_project_implementation(cls, "update"),
+        }
+    return actions
+
+
+def defined_methods(cls: type | None, kind: str, names: list[str] | None) -> list[str] | None:
+    """For a plain `django.View`: the method handlers the class itself defines."""
+    if cls is None or kind != "View" or names is None:
+        return None
+    from django.views.generic.base import View
+
+    defined: list[str] = []
+    for name in names:
+        owner = find_owner(cls, name)
+        if owner is None or owner is View:
+            continue
+        defined.append(name)
+    return defined
+
+
+def timezone_mixin(cls: type | None) -> bool:
+    if cls is None:
+        return False
+    return any(
+        klass.__qualname__ == "TimezoneMixin" and klass.__module__.startswith("plane.")
+        for klass in cls.__mro__
+    )
+
+
+def use_read_replica(cls: type | None, callback: Any) -> bool | None:
+    """`getattr(view, "use_read_replica", None)`, for functions and classes."""
+    target = cls if cls is not None else callback
+    value = getattr(target, "use_read_replica", None)
+    return bool(value) if value is not None else None
+
+
 def security_classes(
     cls: type | None, kind: str
 ) -> tuple[
@@ -720,6 +1044,21 @@ def collect_routes() -> tuple[list[dict[str, Any]], str, str, bool]:
 
             guard = viewset_guard(cls, kind, methods, dynamic_flags["permissions"])
 
+            family = base_family(cls, kind)
+            method_names = effective_http_method_names(cls, callback)
+            renderer_classes = class_list_attribute(cls, kind, "renderer_classes")
+            parser_classes = class_list_attribute(cls, kind, "parser_classes")
+            content_negotiation_class = class_scalar_attribute(
+                cls, kind, "content_negotiation_class"
+            )
+            metadata_class = class_scalar_attribute(cls, kind, "metadata_class")
+            names = view_names(cls, kind, callback)
+            lifecycle = lifecycle_overrides(cls, family)
+            options = options_actions(
+                cls, kind, callback, methods, implicit_methods, method_names
+            )
+            defined = defined_methods(cls, kind, method_names)
+
             notes: list[str] = []
             if cls is not None and not is_drf(kind):
                 dead_declarations = [
@@ -746,6 +1085,21 @@ def collect_routes() -> tuple[list[dict[str, Any]], str, str, bool]:
             route = OrderedDict(
                 [
                     ("order", len(routes)),
+                    # ---- Phase 2 (plane-drf) policy introspection ----
+                    ("base_family", family),
+                    ("use_read_replica", use_read_replica(cls, callback)),
+                    ("timezone_mixin", timezone_mixin(cls)),
+                    ("http_method_names", method_names),
+                    ("renderer_classes", renderer_classes),
+                    ("parser_classes", parser_classes),
+                    ("content_negotiation_class", content_negotiation_class),
+                    ("metadata_class", metadata_class),
+                    ("view_name", names["name"]),
+                    ("view_description", names["description"]),
+                    ("lifecycle_overrides", lifecycle),
+                    ("defined_methods", defined),
+                    ("guard_actions", guard_actions(cls, kind, methods)),
+                    ("options_metadata", options),
                     ("group", group_for(path)),
                     ("django_pattern", django_pattern),
                     ("path", path),
@@ -1856,6 +2210,82 @@ def render_markdown(payload: dict[str, Any], ownership: dict[tuple[str, str, str
         "the default configuration unless the regeneration command sets the flag. With "
         "`DEBUG=1` and `debug_toolbar` installed, `__debug__/` routes are prepended; the "
         "production settings used here default to `DEBUG=0`, so they are absent."
+    )
+    lines.append("")
+    lines.append("## Phase 2 policy fields (`plane-drf`)")
+    lines.append("")
+    lines.append(
+        "`routes.json` also records what `plane-drf` needs to run each route exactly. "
+        "These fields are generated from the view class, never typed by hand:"
+    )
+    lines.append("")
+    lines.append("| Field | Meaning |")
+    lines.append("| --- | --- |")
+    lines.append("| `base_family` | which base class the view derives from: `app.BaseViewSet`, `app.BaseAPIView`, `api.BaseViewSet`, `api.BaseAPIView`, `space.BaseViewSet`, `space.BaseAPIView`, `license.BaseAPIView`, `drf.ViewSet`, `drf.APIView`, `django.View` or `function` |")
+    lines.append("| `use_read_replica` | the class/function attribute the read replica router reads (`null` when it has none) |")
+    lines.append("| `timezone_mixin` | the MRO contains a `TimezoneMixin` |")
+    lines.append("| `http_method_names` | the effective list, in Django's order |")
+    lines.append("| `renderer_classes`, `parser_classes`, `content_negotiation_class`, `metadata_class` | the DRF classes Django resolves through `api_settings` |")
+    lines.append("| `view_name`, `view_description` | `get_view_name()` / `get_view_description()` on an instance built with the route's `as_view` initkwargs (so a ViewSet's `List`/`Instance` suffix is included) |")
+    lines.append("| `lifecycle_overrides` | the hooks (`get_permissions`, `get_authenticators`, `get_throttles`, `initial`, `dispatch`, `handle_exception`, `finalize_response`, `options`) a concrete view overrides below its family base class, with the owning class; a non-null value without an implementation is a startup error |")
+    lines.append("| `defined_methods` | for a plain `django.views.View`, the method handlers the class defines |")
+    lines.append("| `guard_actions` | per ViewSet action: the implementing class and whether it is a DRF mixin method, so the runtime re-evaluates `BaseViewSet.initial`'s 405 rule with the permissions `get_permissions` actually resolved |")
+    lines.append("| `options_metadata` | `attempts` (`{'PUT','POST'} & allowed_methods`), `actions_json` (the serializer field map per attempt as compact `json.dumps` text, order preserved), `error` (the exception `determine_actions` raised) and `get_object_required` |")
+    lines.append("")
+    lines.append("### OPTIONS metadata gaps")
+    lines.append("")
+    lines.append(
+        "`actions_json` is recorded for a **permitted** caller, with "
+        "`check_permissions` and `get_object()` bypassed so no database is needed. At "
+        "request time `plane-drf` re-runs the permission check for the attempt's method "
+        "and splices the recorded text into the body. Two gaps follow:"
+    )
+    lines.append("")
+    lines.append(
+        "* a `PUT` action also requires `view.get_object()` to succeed on Django; the "
+        "runtime cannot run a view's `get_object()` generically, so a route with "
+        "`get_object_required: true` may include `PUT` actions where Django omits them "
+        "(the differential probe's OPTIONS steps avoid those routes);"
+    )
+    lines.append(
+        "* CPython iterates `{'PUT','POST'}` in hash order, which is randomised per "
+        "process, so the key order of Django's `actions` object is not stable either; "
+        "the runtime writes `POST` before `PUT` and the recorded text follows that order."
+    )
+    lines.append("")
+    lines.append("### Policy probe coverage")
+    lines.append("")
+    lines.append(
+        "`scenarios/policy-probe.yaml` (generated by `tools/policy/gen_policy_scenario.py`) "
+        "runs every route method outside `/api/v1/` through the Rust runtime for the "
+        "fixture users. Four gaps are deliberate:"
+    )
+    lines.append("")
+    lines.append(
+        "* **`/api/v1/`** cannot be registered until Phase 4's Celery publisher exists: "
+        "`APITokenLogMiddleware` would enqueue `plane.bgtasks.logger_task.process_logs`. "
+        "The policy for those routes is generated and loaded, and the registry refuses "
+        "their registration with an explicit error."
+    )
+    lines.append(
+        "* **Write steps are omitted** for views whose handler re-implements an "
+        "authorization check with the same body `allow_permission` returns "
+        "(`{\"error\": \"You don't have the required permissions.\"}`; "
+        "`asset/v2.py`, `asset/base.py`, "
+        "`workspace/draft.py`, `project/base.py`). A 403 there cannot be attributed to "
+        "the policy, so the probe does not weaken its rule; those 46 write method pairs "
+        "keep the `django` owner until Phase 3 ports their handlers."
+    )
+    lines.append(
+        "* **`DELETE /api/users/me/`** deactivates the caller and their memberships, and "
+        "**`DELETE /api/workspaces/{slug}/`** deletes the workspace. They run only with "
+        "callers that cannot succeed plus one admin against a disposable object, so a "
+        "permitted delete cannot change a later step."
+    )
+    lines.append(
+        "* **No `HEAD` steps**: the harness cannot decompress a `HEAD` response that "
+        "carries `Content-Encoding: gzip` and an empty body. `HEAD` falls back to the "
+        "`GET` handler (`View.setup`), which the `GET` steps exercise."
     )
     lines.append("")
 

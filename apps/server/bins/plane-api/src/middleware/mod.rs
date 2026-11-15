@@ -255,6 +255,11 @@ async fn dispatch_view(
     match route {
         // `resolve` raised Resolver404: handler404 = custom_404_view.
         None => render(ApiError::PageNotFound),
+        // A route the DRF runtime has a handler for goes through the full
+        // policy. Everything else keeps Phase 1's answer.
+        Some(route) if state.drf.is_registered(route.order, &ctx.method) => {
+            dispatch_drf(state, ctx, auth_context, route).await
+        }
         Some(route) => match route.handler {
             Handler::Health => handlers::health(),
             Handler::Robots => handlers::robots(),
@@ -264,6 +269,63 @@ async fn dispatch_view(
             Handler::Unported => render(ApiError::NotImplemented),
         },
     }
+}
+
+/// Run a registered view through `plane-drf`.
+///
+/// The runtime owns authentication, permissions, throttles, the family
+/// `initial` hooks, `allow_permission` and the handler. What comes back is a
+/// rendered response plus the two pieces of state the pipeline owns:
+///
+/// * which Django user `request._request.user` is now (lazy, replaced by
+///   `_not_authenticated`, or resolved), because the logger at layer 12 and the
+///   `Vary: Cookie` decision depend on it (HTTP_CONTRACT §1.1);
+/// * `request.session.accessed`.
+async fn dispatch_drf(
+    state: &AppState,
+    ctx: &mut RequestContext,
+    auth_context: &mut auth::AuthContext,
+    route: &Route,
+) -> Resp {
+    let kwargs = state.routes.kwargs(route, &ctx.path_info);
+    let preloaded_user = auth_context.resolved.then(|| auth_context.user.clone());
+    let outcome = require_send(state.drf.dispatch(
+        &state.settings,
+        &state.db,
+        plane_drf::dispatch::DispatchRequest {
+            order: route.order,
+            kwargs,
+            ctx,
+            session: &mut auth_context.session,
+            preloaded_user,
+        },
+    ))
+    .await;
+
+    if outcome.session_accessed {
+        ctx.session_accessed = true;
+    }
+    match outcome.django_user {
+        plane_drf::UserOutcome::Lazy => {}
+        plane_drf::UserOutcome::Anonymous => {
+            auth_context.user = plane_auth::RequestUser::Anonymous;
+            auth_context.resolved = true;
+            auth_context.sync(ctx);
+        }
+        plane_drf::UserOutcome::Resolved(user) => {
+            auth_context.user = user;
+            auth_context.resolved = true;
+            auth_context.sync(ctx);
+        }
+    }
+    Resp::from_drf(outcome.response)
+}
+
+/// Compile-time proof that the DRF dispatch future is `Send`: axum's handler
+/// requires it, and a regression here would otherwise only show up as an
+/// unhelpful `Handler` bound error at the router.
+fn require_send<F: std::future::Future + Send>(future: F) -> F {
+    future
 }
 
 /// Render an error body with the right dialect. A rendering failure falls back
@@ -352,7 +414,7 @@ async fn response_phase(
         LAYER_XFRAME => Ok(xframe::response(resp)),
         LAYER_GZIP => Ok(gzip::response(ctx, resp)),
         LAYER_TOKEN_LOG => {
-            extensions::api_token_log_response(ctx, &resp);
+            extensions::api_token_log_response(&state.settings, ctx, &resp);
             Ok(resp)
         }
         LAYER_LOGGER => {
@@ -398,10 +460,17 @@ mod tests {
 
     fn state_from_settings(settings: &Settings) -> SharedState {
         let db = DbPools::from_settings(settings).expect("pools");
+        let policy = plane_drf::policy::PolicyTable::load().expect("drf policy");
+        let registry = plane_drf::registry::Registry::new(policy)
+            .expect("registry")
+            .finish()
+            .expect("finish");
+        let drf = plane_drf::dispatch::Runtime::new(registry, None).expect("runtime");
         Arc::new(AppState {
             settings: settings.clone(),
             routes: RouteTable::load().expect("route table"),
             db,
+            drf,
         })
     }
 

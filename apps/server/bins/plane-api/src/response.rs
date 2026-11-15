@@ -63,6 +63,26 @@ impl Resp {
         Self::json(status, APPLICATION_JSON, Dialect::Django, value)
     }
 
+    /// A DRF response from the view runtime.
+    ///
+    /// A `None` content type deletes the header, which is what DRF does for an
+    /// empty rendered body (`rest_framework/response.py:82-84`).
+    pub fn from_drf(response: plane_drf::view::DrfResponse) -> Self {
+        let mut resp = Self::empty(response.status, APPLICATION_JSON);
+        resp.content_type = response.content_type;
+        resp.body = response.body;
+        for (name, value) in response.headers {
+            let Ok(name) = axum::http::HeaderName::from_bytes(name.as_bytes()) else {
+                continue;
+            };
+            let Ok(value) = HeaderValue::from_str(&value) else {
+                continue;
+            };
+            resp.headers.append(name, value);
+        }
+        resp
+    }
+
     /// A rendered [`ErrorBody`] (the error type decides its dialect).
     pub fn from_error_response(response: plane_core::error::ErrorResponse) -> Self {
         let mut resp = Self::new(response.status, response.content_type, response.body);
