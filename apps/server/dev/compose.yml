@@ -1,0 +1,155 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Local development infrastructure for the Rust rewrite (see apps/server/AGENTS.md).
+#
+# Every port is bound to 127.0.0.1 only. The Docker VM has 2 CPUs and ~2 GB of
+# memory, so each service has a hard memory limit. This stack is independent of
+# docker-compose-local.yml and docker-compose-test.yml: never run those at the
+# same time as this one.
+#
+# Start and stop it through apps/server/dev/up.sh and down.sh; those scripts use
+# the project name below and wait for every healthcheck.
+
+name: plane-rs-dev
+
+services:
+  postgres:
+    image: postgres:15.7-alpine
+    ports:
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_USER: plane
+      POSTGRES_PASSWORD: plane
+      POSTGRES_DB: plane
+    # Dev-speed settings: a crash loses nothing that matters and the template
+    # database is rebuilt with bootstrap.sh. max_connections is high because
+    # each Django/Rust instance and each differential-test target opens its own
+    # pool; the container memory limit still bounds what is actually usable.
+    command:
+      - postgres
+      - -c
+      - max_connections=500
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+    volumes:
+      # Named so plane_tpl and the databases cloned from it survive restarts.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plane -d plane -h 127.0.0.1"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  valkey:
+    image: valkey/valkey:7.2.11-alpine
+    ports:
+      - "127.0.0.1:56379:6379"
+    # No persistence: this is a cache, a rate-limit store and the live server's
+    # pub/sub. maxmemory keeps it inside its container limit.
+    command:
+      - valkey-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 32mb
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  rabbitmq:
+    image: rabbitmq:3.13.6-management-alpine
+    ports:
+      - "127.0.0.1:55672:5672"
+      - "127.0.0.1:55673:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: plane
+      RABBITMQ_DEFAULT_PASS: plane
+      RABBITMQ_DEFAULT_VHOST: plane
+    volumes:
+      # Sets vm_memory_high_watermark.absolute; 3.13 rejects the env var for it.
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+
+  minio:
+    # Silo is the maintained MinIO-compatible object store used by this
+    # repository. The image ships both `silo` and `mc`.
+    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+    ports:
+      - "127.0.0.1:59000:9000"
+      - "127.0.0.1:59090:9001"
+    environment:
+      MINIO_ROOT_USER: access-key
+      MINIO_ROOT_PASSWORD: secret-key
+    volumes:
+      - minio-data:/export
+    # Start the server, wait until it answers, then create the `uploads` bucket.
+    # The bucket creation is idempotent, so restarts and `down.sh --purge` are
+    # both safe. The final `wait` makes the container exit if the server dies.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        silo server /export --address ':9000' --console-address ':9001' &
+        silo_pid=$$!
+        until mc alias set local http://127.0.0.1:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" >/dev/null 2>&1; do
+          sleep 1
+        done
+        until mc ready local >/dev/null 2>&1; do
+          sleep 1
+        done
+        mc mb --ignore-existing local/uploads >/dev/null
+        wait $$silo_pid
+    healthcheck:
+      # Healthy only once the bucket exists, so `up.sh --wait` also guarantees
+      # that `create_bucket`/presigned uploads will work.
+      test: ["CMD-SHELL", "mc ready local >/dev/null 2>&1 && mc ls local/uploads >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  pgdata:
+  minio-data:
