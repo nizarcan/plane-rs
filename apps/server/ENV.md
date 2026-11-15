@@ -1001,13 +1001,28 @@ observable.
 
 ## 6. Variables the Rust services will need that Django does not have
 
-None yet.
+Added in Phase 1 (`plane-api`). Every name is prefixed `PLANE_RS_`; unset means
+"use the default", so an existing deployment's environment keeps working
+unchanged.
 
-Any new variable must be prefixed `PLANE_RS_` and documented here before code
-reads it: name, default, parsing, which binary needs it, and why none of the
-existing names above can express it. Adding an unprefixed variable, or reusing
-a Django name with different semantics, is not allowed — it would silently
-change the meaning of an existing deployment's environment.
+| Variable | Default | Parsing | Binaries | Why no existing name works |
+| --- | --- | --- | --- | --- |
+| `PLANE_RS_BIND` | `0.0.0.0:${PORT:-8000}` | A `host:port` parsed into a `SocketAddr`. Invalid → startup error naming the variable. When unset, `PORT` is read with shell `${PORT:-8000}` semantics (unset and empty both give 8000) and the host is `0.0.0.0`. | `plane-api` (and the other HTTP binaries later) | Django's bind address is gunicorn's `--bind 0.0.0.0:${PORT:-8000}` (`apps/api/bin/docker-entrypoint-api.sh:38`), not a setting. Reusing `PORT` alone would fix the host to `0.0.0.0`, and `GUNICORN_WORKERS` is a process count, not an address. |
+| `PLANE_RS_WORKER_THREADS` | unset (tokio's default: one per available core) | Python `int()` semantics (`ENV.md` §0); `0` means automatic; `1`–`4096` accepted; anything else is a startup error. | `plane-api` | `GUNICORN_WORKERS` counts gunicorn *processes*, each with its own event loop, memory and connection pool. tokio has one runtime with N worker threads; mapping the variables would change memory use and the number of database connections, not just the concurrency. |
+| `PLANE_RS_DB_POOL_SIZE` | `16` | Positive integer, at most 1000; `0` and negatives are startup errors. | `plane-api` (and any later role that opens pools) | Django has no pool-size setting: it opens one connection per thread with `CONN_MAX_AGE=0` and closes it at the end of the request. `deadpool-postgres` needs an explicit maximum, and 16 covers one connection per core plus headroom without the ~760 MiB of Python workers. |
+| `PLANE_RS_LOG_FORMAT` | `json` | One of `json`, `pretty`, `compact` (exact, lower-case). Anything else is a startup error naming the variable. | all `plane-*` binaries | Django's log format is hard-coded per settings module (`plane/settings/production.py:55-67` always writes JSON). A developer running a Rust binary locally needs a readable format without introducing a second Django settings module or an unprefixed general-purpose variable such as `RUST_LOG`. |
+
+`PLANE_RS_BIND`'s `PORT` fallback keeps the container contract: compose sets
+`PORT=8000` and the Django entrypoint uses it; `plane-api` now does too.
+
+`PLANE_RS_LOG_FORMAT` only changes the *logging* subscriber, never a response:
+the HTTP contract does not include log lines.
+
+Any further variable must be prefixed `PLANE_RS_` and documented here before
+code reads it: name, default, parsing, which binary needs it, and why none of
+the existing names above can express it. Adding an unprefixed variable, or
+reusing a Django name with different semantics, is not allowed — it would
+silently change the meaning of an existing deployment's environment.
 
 ---
 

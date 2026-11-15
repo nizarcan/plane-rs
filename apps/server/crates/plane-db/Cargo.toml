@@ -1,0 +1,42 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-db"
+description = "Postgres pools, dj-database-url parsing and the static query catalog for the Plane Rust services"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+deadpool-postgres.workspace = true
+http.workspace = true
+plane-core = { path = "../plane-core" }
+rustls = { workspace = true, default-features = false, features = [
+  "aws_lc_rs",
+  "std",
+  "tls12",
+] }
+rustls-pemfile.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+tokio-postgres = { workspace = true, features = [
+  "with-chrono-0_4",
+  "with-serde_json-1",
+  "with-uuid-1",
+] }
+tokio-postgres-rustls = { workspace = true, features = ["aws-lc-rs"] }
+tracing.workspace = true
+uuid = { workspace = true, features = ["serde"] }
+webpki-roots.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

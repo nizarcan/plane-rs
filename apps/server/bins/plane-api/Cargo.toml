@@ -1,0 +1,50 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-api"
+description = "Plane's HTTP API server, byte-compatible with the Django application it replaces"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "plane-api"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+flate2.workspace = true
+futures-util.workspace = true
+http.workspace = true
+mimalloc.workspace = true
+percent-encoding.workspace = true
+plane-core = { path = "../../crates/plane-core" }
+plane-db = { path = "../../crates/plane-db" }
+plane-serde = { path = "../../crates/plane-serde" }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = [
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "time",
+] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+  "fmt",
+  "json",
+] }
+uuid.workspace = true
+
+[lints]
+workspace = true

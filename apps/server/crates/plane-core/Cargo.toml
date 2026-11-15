@@ -1,0 +1,29 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-core"
+description = "Configuration, errors, request context and shared types for the Plane Rust services"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono.workspace = true
+getrandom.workspace = true
+http.workspace = true
+ipnet.workspace = true
+percent-encoding.workspace = true
+plane-serde = { path = "../plane-serde" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+url.workspace = true
+uuid = { workspace = true, features = ["serde", "v4"] }
+
+[lints]
+workspace = true

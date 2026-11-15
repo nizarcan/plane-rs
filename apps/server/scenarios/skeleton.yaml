@@ -1,0 +1,256 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 1 skeleton: the routes `plane-api` serves, plus every cross-cutting
+# middleware decision it reproduces (HTTP_CONTRACT.md §1-§9). Run from
+# `apps/server` against one Django and one `plane-api`, each on its own clone of
+# `plane_tpl`:
+#
+#   apps/server/dev/mkdb.sh t_skel_a
+#   apps/server/dev/mkdb.sh t_skel_b
+#
+#   PLANE_DB=t_skel_a PLANE_REDIS_DB=5 FILE_SIZE_LIMIT=4096 \
+#     dev/django-serve.sh 18001
+#   PLANE_DB=t_skel_b PLANE_REDIS_DB=6 FILE_SIZE_LIMIT=4096 \
+#     PLANE_RS_BIND=127.0.0.1:18101 \
+#     bash -c 'eval "$(dev/django-env.sh)"; exec target/debug/plane-api'
+#
+#   ./target/debug/difftest run --scenario scenarios/skeleton.yaml \
+#     --a-url http://127.0.0.1:18001 --b-url http://127.0.0.1:18101 \
+#     --a-db t_skel_a --b-db t_skel_b --no-celery
+#
+# `FILE_SIZE_LIMIT=4096` on **both** targets is required for the 413 step: the
+# body is 5000 bytes, so it is over the limit only with that override (Plane's
+# default is 5 MiB, and putting 5 MiB in this file is not practical).
+# `ALLOWED_HOSTS=*` (the dev default) still rejects the malformed host in the
+# `host-malformed` step, because Django's syntax check runs before the
+# allow-list. With `FILE_SIZE_LIMIT` left at its default the `body-too-large`
+# step returns 200 on both sides instead of 413, and its `expect_status` makes
+# that a failure rather than a silent no-op.
+#
+# The scenario performs no writes, so the database diff of every step is empty
+# on both sides; that is asserted by the harness like any other difference.
+
+name: skeleton
+template_db: plane_tpl
+redis_db: [5, 6]
+vars:
+  cors_origin: http://localhost:3000
+steps:
+  # ---------------------------------------------------------------- health
+  - name: health-get
+    method: GET
+    path: /
+    expect_status: 200
+  - name: health-head
+    method: HEAD
+    path: /
+    expect_status: 200
+  - name: health-options
+    method: OPTIONS
+    path: /
+    expect_status: 200
+  # A POST to a plain function view hits Django's CSRF check (there is no token
+  # in this request), so this is the 200 HTML failure page, not the health body.
+  # The CSRF block below re-tests the same layer in more detail.
+  - name: health-post
+    method: POST
+    path: /
+    json:
+      ping: true
+    expect_status: 200
+
+  # ------------------------------------------------------------ robots.txt
+  - name: robots-get
+    method: GET
+    path: /robots.txt
+    expect_status: 200
+  - name: robots-head
+    method: HEAD
+    path: /robots.txt
+    expect_status: 200
+  - name: robots-post
+    method: POST
+    path: /robots.txt
+    expect_status: 200
+  - name: robots-options
+    method: OPTIONS
+    path: /robots.txt
+    expect_status: 200
+
+  # ------------------------------------------------------------------- 404
+  - name: unknown-root-path
+    method: GET
+    path: /nope/
+    expect_status: 404
+  - name: unknown-api-path
+    method: GET
+    path: /api/nope/
+    expect_status: 404
+  - name: api-prefix-itself
+    method: GET
+    path: /api/
+    expect_status: 404
+  - name: api-prefix-without-slash
+    method: GET
+    path: /api
+    expect_status: 404
+
+  # ----------------------------------------------------------- APPEND_SLASH
+  - name: append-slash-get
+    method: GET
+    path: /api/instances
+    expect_status: 301
+  - name: append-slash-post
+    method: POST
+    path: /api/instances
+    expect_status: 301
+  - name: append-slash-keeps-query
+    method: GET
+    path: /api/instances
+    query:
+      x: "1"
+    expect_status: 301
+  - name: append-slash-needs-a-match
+    method: GET
+    path: /robots.txt/
+    expect_status: 404
+
+  # ----------------------------------------------------------------- CORS
+  - name: cors-simple-get
+    method: GET
+    path: /
+    headers:
+      Origin: "{{cors_origin}}"
+    expect_status: 200
+  - name: cors-no-origin
+    method: GET
+    path: /
+    expect_status: 200
+  - name: cors-preflight-api
+    method: OPTIONS
+    path: /api/instances/
+    headers:
+      Origin: "{{cors_origin}}"
+      Access-Control-Request-Method: POST
+      Access-Control-Request-Headers: content-type, x-api-key
+    expect_status: 200
+  - name: cors-preflight-health
+    method: OPTIONS
+    path: /
+    headers:
+      Origin: "{{cors_origin}}"
+      Access-Control-Request-Method: GET
+    expect_status: 200
+  - name: cors-preflight-unknown
+    method: OPTIONS
+    path: /definitely-not-a-route/
+    headers:
+      Origin: "{{cors_origin}}"
+      Access-Control-Request-Method: GET
+    expect_status: 200
+  - name: cors-options-without-request-method
+    method: OPTIONS
+    path: /
+    headers:
+      Origin: "{{cors_origin}}"
+    expect_status: 200
+
+  # -------------------------------------------------- Accept-Encoding: gzip
+  - name: gzip-accepted
+    method: GET
+    path: /robots.txt
+    headers:
+      Accept-Encoding: gzip
+    expect_status: 200
+  - name: gzip-refused
+    method: GET
+    path: /robots.txt
+    headers:
+      Accept-Encoding: identity
+    expect_status: 200
+
+  # ----------------------------------------------------- request body limit
+  - name: body-too-large
+    method: POST
+    path: /
+    headers:
+      Content-Type: text/plain
+    body: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    expect_status: 413
+
+  # ------------------------------------------- unsafe methods and CSRF
+  # The two served views are plain function views: Django's CsrfViewMiddleware
+  # rejects an unsafe method without a token with the 200 HTML failure page
+  # (HTTP_CONTRACT §7.5), even though the view itself would answer it.
+  - name: csrf-put-health
+    method: PUT
+    path: /
+    expect_status: 200
+  - name: csrf-delete-robots
+    method: DELETE
+    path: /robots.txt
+    expect_status: 200
+  - name: csrf-bad-origin
+    method: POST
+    path: /
+    headers:
+      Origin: http://evil.example
+    expect_status: 200
+  - name: csrf-same-origin-no-token
+    method: POST
+    path: /
+    headers:
+      Origin: "{{base_url}}"
+    expect_status: 200
+  # A 32-character token in X-CSRFToken is accepted without unmasking, and a
+  # 64-character masked token is unmasked (HTTP_CONTRACT Appendix B.2).
+  - name: csrf-unmasked-token
+    method: POST
+    path: /
+    headers:
+      Cookie: "csrftoken=abcdefghijklmnopqrstuvwxyz012345"
+      X-CSRFToken: "abcdefghijklmnopqrstuvwxyz012345"
+    expect_status: 200
+  - name: csrf-masked-token
+    method: POST
+    path: /robots.txt
+    headers:
+      Cookie: "csrftoken=0123456789abcdefghijklmnopqrstuv"
+      X-CSRFToken: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefqsuwyACEGIKMOQSUWY02468aceqsuwyA"
+    expect_status: 200
+
+  # --------------------------------------- methods on the APPEND_SLASH path
+  # `HEAD /api/instances` is deliberately absent: Django/uvicorn frames the
+  # bodiless, Content-Length-less 301 as `Transfer-Encoding: chunked`, while
+  # hyper sends neither transfer-encoding nor content-length for a HEAD
+  # response. That header is transport framing (invisible to browsers and to
+  # `fetch`), and hyper offers no way to emit chunked for a bodyless HEAD, so
+  # the scenario records the divergence instead of hiding it.
+  - name: append-slash-options
+    method: OPTIONS
+    path: /api/instances
+    expect_status: 301
+  # A preflight on the slashless path is answered by CORS before routing.
+  - name: preflight-before-append-slash
+    method: OPTIONS
+    path: /api/instances
+    headers:
+      Origin: "{{cors_origin}}"
+      Access-Control-Request-Method: GET
+    expect_status: 200
+
+  # ---------------------------------------------------------- ALLOWED_HOSTS
+  - name: host-malformed
+    method: GET
+    path: /
+    headers:
+      Host: bad_host
+    expect_status: 400
+  - name: host-valid-wildcard
+    method: GET
+    path: /
+    headers:
+      Host: plane.example.com
+    expect_status: 200
