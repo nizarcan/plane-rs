@@ -8,6 +8,73 @@
 #
 # A rule is applied per target, so target A's generated value only ever
 # becomes the same placeholder as target B's independently generated value.
+#
+# Two rules make the comparison strict rather than forgiving:
+#
+#   * Every volatile value becomes a typed placeholder from one per-target
+#     map (`<session:1>`, `<csrf-secret:1>`, `<username:1>`, ...). The same raw
+#     value anywhere in the run - a cookie, a header, a JSON field, a database
+#     column, a Celery argument, a Redis key or value - gets the same
+#     placeholder, so a session cookie that does not match its row, or a
+#     response that shows another user's username, is a DIFF.
+#
+#   * Every placeholder rule names a `shape` from the catalogue below, and the
+#     value is checked against it on both targets *before* substitution. A
+#     session key of the wrong length or alphabet is a DIFF, not a normalised
+#     blob.
+#
+# The semantic checks are part of the rule they apply to: `session_payload`
+# verifies the signature with the target's SECRET_KEY and compares the decoded
+# dictionary; `check: csrf_masked` requires the masked token to unmask to the
+# response's own `csrftoken` cookie; `password` re-derives the PBKDF2 hash from
+# the plaintexts listed in the scenario's `password_vars`.
+
+# Value shapes, verified before placeholdering. Each shape cites the Django
+# code or observed value it comes from.
+shapes:
+  # plane/db/models/session.py:14-15,36-42:
+  # VALID_KEY_CHARS = string.ascii_lowercase + string.digits,
+  # get_random_string(128, VALID_KEY_CHARS), retried while the key exists.
+  session_key:
+    pattern: '^[a-z0-9]{128}$'
+    why: "Django session key: get_random_string(128, ascii_lowercase + digits) (plane/db/models/session.py:14)"
+  # django/middleware/csrf.py:44-46: CSRF_SECRET_LENGTH = 32,
+  # CSRF_ALLOWED_CHARS = ascii_letters + digits. The cookie stores the secret.
+  csrf_secret:
+    pattern: '^[A-Za-z0-9]{32}$'
+    why: "CSRF cookie secret: 32 characters over ascii_letters + digits (django/middleware/csrf.py:44)"
+  # The masked token is mask + cipher over the same alphabet, 2 * 32 long.
+  csrf_token:
+    pattern: '^[A-Za-z0-9]{64}$'
+    why: "masked CSRF token: 64 characters, two 32-character halves (django/middleware/csrf.py:46)"
+  # plane/authentication/adapter/base.py:352: User(email=..., username=uuid.uuid4().hex)
+  uuid_hex:
+    pattern: '^[0-9a-f]{32}$'
+    why: "new users get uuid.uuid4().hex as username (plane/authentication/adapter/base.py:352)"
+  # plane/db/models/user.py:174: self.token = uuid.uuid4().hex + uuid.uuid4().hex
+  api_token:
+    pattern: '^[0-9a-f]{64}$'
+    why: "users.token is two uuid4 hex strings when token_updated_at is set (plane/db/models/user.py:174)"
+  # plane/utils/color.py:9: "#" + "".join(random.choices(string.hexdigits, k=6)).
+  # string.hexdigits includes A-F, so upper case is legitimate and observed.
+  hex_colour:
+    pattern: '^#[0-9a-fA-F]{6}$'
+    why: "get_random_color picks six characters from string.hexdigits, so the case is mixed (plane/utils/color.py:9)"
+  # django/contrib/auth/hashers.py:313-350: PBKDF2PasswordHasher with a
+  # 22-character salt (salt_entropy 128 bits / log2(62)) and a standard-base64
+  # SHA-256 digest. "!" + 40 characters is Django's unusable-password marker.
+  django_password_hash:
+    pattern: '^(?:pbkdf2_sha256\$[0-9]{1,9}\$[A-Za-z0-9]{1,64}\$[A-Za-z0-9+/]{43}=|![A-Za-z0-9]{40})$'
+    why: "Django PBKDF2PasswordHasher: algorithm$iterations$salt$base64-sha256 (django/contrib/auth/hashers.py:324)"
+  # django/core/signing.py:230-301: value:base62-timestamp:base64url-signature;
+  # a leading "." marks a zlib-compressed payload.
+  signed_session:
+    pattern: '^\.?[A-Za-z0-9_-]+:[0-9A-Za-z]+:[A-Za-z0-9_-]+$'
+    why: "TimestampSigner layout is payload:timestamp:signature (django/core/signing.py:230)"
+  # django/contrib/auth/models.py:get_session_auth_hash: salted_hmac(...).hexdigest()
+  auth_user_hash:
+    pattern: '^[0-9a-f]{64}$'
+    why: "_auth_user_hash is a SHA-256 HMAC hexdigest of the salted password hash"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -18,6 +85,13 @@ ignore_headers:
   # Changes whenever a volatile value of a different length is substituted.
   # The comparator still compares it whenever no normalisation was applied.
   - content-length
+
+# Response headers whose value is clock-based and needs a rule. A header with
+# no rule is compared after base-URL/UUID/timestamp substitution.
+volatile_headers:
+  - name: X-RateLimit-Reset
+    mode: unix_time
+    why: "int(now + throttle duration), an absolute Unix timestamp (plane/api/views/base.py:123-136)"
 
 # Intermediate and final timestamps are compared to an exact value only when
 # they fall outside [request start - slack, response end + slack].
@@ -35,23 +109,37 @@ db_exclude_tables: []
 
 volatile_cookies:
   - name: session-id
-    why: "Django session key: 32 random characters generated on login (plane/authentication/middleware/session.py)"
+    placeholder: session
+    shape: session_key
+    why: "Django session key, 128 random lower-case alphanumeric characters (plane/db/models/session.py)"
   - name: admin-session-id
-    why: "instance-admin session key, same random session store, different cookie name (plane/settings/common.py:431)"
+    placeholder: session
+    shape: session_key
+    why: "instance-admin session key from the same store, different cookie name (plane/settings/common.py:431)"
   - name: csrftoken
-    why: "Django's CSRF cookie is a random masked secret, rotated on login (django.middleware.csrf)"
+    placeholder: csrf-secret
+    shape: csrf_secret
+    why: "Django's CSRF cookie is the unmasked 32-character secret, rotated on login (django.middleware.csrf)"
 
 volatile_json_keys:
   - name: csrf_token
-    why: "get_token() returns a fresh masked token (plane/authentication/views/common.py:29)"
+    placeholder: csrf-token
+    shape: csrf_token
+    check: csrf_masked
+    why: "get_token() returns a fresh masked token that must unmask to this response's csrftoken cookie (plane/authentication/views/common.py:29)"
   - name: username
+    placeholder: username
+    shape: uuid_hex
     why: "every new user gets uuid.uuid4().hex as username (plane/authentication/adapter/base.py:352)"
   - name: token
-    mode: volatile_if_non_empty
+    mode: placeholder_if_non_empty
+    placeholder: token
+    shape: api_token
     why: "users.token is 64 random hex characters when token_updated_at is set (plane/db/models/user.py:174)"
   - name: background_color
-    mode: random_color
-    why: "random default '#rrggbb' colour (plane/utils/color.py:9), used by workspaces and profiles"
+    placeholder: colour
+    shape: hex_colour
+    why: "random default '#rrggbb' colour, mixed case (plane/utils/color.py:9), used by workspaces and profiles"
   - name: epoch
     mode: unix_time
     why: "int(timezone.now().timestamp()) at enqueue time (plane/app/views/issue/base.py:429); two runs can land in different seconds"
@@ -59,40 +147,57 @@ volatile_json_keys:
 volatile_db_columns:
   - table: sessions
     column: session_key
-    why: "Django session key: 32 random characters (plane/db/models/session.py)"
+    placeholder: session
+    shape: session_key
+    why: "Django session key: get_random_string(128, ascii_lowercase + digits) (plane/db/models/session.py:36)"
   - table: sessions
     column: session_data
-    why: "signed session payload embeds a signing timestamp plus the password hash in _auth_user_hash"
+    mode: session_payload
+    shape: signed_session
+    why: "signed payload; verified with the target's SECRET_KEY, decoded and compared as a dictionary (HTTP_CONTRACT.md §5.3)"
   - table: sessions
     column: expire_date
     mode: relative_time
     why: "start + SESSION_COOKIE_AGE (604800 s); the absolute value differs by the milliseconds between the two requests"
   - table: users
     column: username
+    placeholder: username
+    shape: uuid_hex
     why: "new users are created with uuid.uuid4().hex as username (plane/authentication/adapter/base.py:352)"
   - table: users
     column: password
-    mode: password_prefix
-    why: "Django PBKDF2 hash has a random salt; algorithm and iteration count are still compared"
+    mode: password
+    shape: django_password_hash
+    why: "Django PBKDF2 hash: verified against the scenario's plaintext, algorithm and iteration count still compared (django/contrib/auth/hashers.py:324)"
   - table: users
     column: token
-    mode: volatile_if_non_empty
+    mode: placeholder_if_non_empty
+    placeholder: token
+    shape: api_token
     why: "random API token, written when token_updated_at is set (plane/db/models/user.py:174)"
   - table: profiles
     column: background_color
-    mode: random_color
-    why: "random default '#rrggbb' colour (plane/db/models/user.py:254, plane/utils/color.py:9)"
+    placeholder: colour
+    shape: hex_colour
+    why: "random default colour, mixed case (plane/db/models/user.py:254, plane/utils/color.py:9)"
   - table: workspaces
     column: background_color
-    mode: random_color
-    why: "random default '#rrggbb' colour (plane/db/models/workspace.py:139, plane/utils/color.py:9)"
+    placeholder: colour
+    shape: hex_colour
+    why: "random default colour, mixed case (plane/db/models/workspace.py:139, plane/utils/color.py:9)"
 
+# Celery transport headers: not part of the task's observable behaviour, so
+# they are dropped rather than placeholdered (their values are per-process).
 volatile_celery_headers:
   - name: id
+    mode: drop
     why: "Celery assigns a fresh UUID to every message (celery/app/amqp.py)"
   - name: root_id
+    mode: drop
     why: "root task id of the current celery call chain"
   - name: parent_id
+    mode: drop
     why: "parent task id of the current celery call chain"
   - name: origin
+    mode: drop
     why: "hostname:pid of the publishing process, which differs per gunicorn worker"

@@ -36,6 +36,67 @@ pub fn render_template(template: &str, values: &BTreeMap<&str, String>) -> Resul
     Ok(rendered)
 }
 
+/// Source `script` in a clean bash and return every variable it exports.
+///
+/// `env -0` is used instead of parsing `export` lines: the script is free to
+/// use quoting, and a value can contain anything but NUL. The script sees the
+/// target's own `PLANE_DB`, `PLANE_REDIS_DB` and `PLANE_MQ_VHOST`, which is how
+/// `dev/django-env.sh` selects a target's database and Redis index.
+fn script_environment(
+    script: &Path,
+    ctx: &BTreeMap<&str, String>,
+) -> Result<BTreeMap<String, String>> {
+    if !script.is_file() {
+        bail!("environment script {} does not exist", script.display());
+    }
+    let mut command = Command::new("bash");
+    command
+        .arg("-c")
+        .arg("set -a; source \"$1\" >/dev/null; env -0")
+        .arg("difftest-env")
+        .arg(script)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", std::env::var("HOME").unwrap_or_default())
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped());
+    for key in ["db", "redis_db", "vhost"] {
+        if let Some(value) = ctx.get(key) {
+            command.env(
+                match key {
+                    "db" => "PLANE_DB",
+                    "redis_db" => "PLANE_REDIS_DB",
+                    _ => "PLANE_MQ_VHOST",
+                },
+                value,
+            );
+        }
+    }
+    let output = command
+        .output()
+        .with_context(|| format!("running bash to source {}", script.display()))?;
+    if !output.status.success() {
+        bail!(
+            "sourcing {} failed with {}: {}",
+            script.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let mut env = BTreeMap::new();
+    for entry in output.stdout.split(|byte| *byte == 0) {
+        if entry.is_empty() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(entry);
+        if let Some((key, value)) = text.split_once('=') {
+            env.insert(key.to_string(), value.to_string());
+        }
+    }
+    Ok(env)
+}
+
 pub struct PortAllocator {
     first: u16,
     last: u16,
@@ -99,11 +160,25 @@ impl TargetInstance {
             .iter()
             .map(|arg| render_template(arg, ctx))
             .collect::<Result<_>>()?;
-        let env: BTreeMap<String, String> = spec
-            .env
-            .iter()
-            .map(|(key, value)| Ok((key.clone(), render_template(value, ctx)?)))
-            .collect::<Result<_>>()?;
+        // Variables exported by a sourced shell script first, then the
+        // explicit `env:` template, which wins. `django` targets get their
+        // environment from `dev/django-serve.sh`; a `rust` target uses
+        // `env_from: dev/django-env.sh` so it sees exactly the same values.
+        let mut env: BTreeMap<String, String> = match &spec.env_from {
+            Some(template) => {
+                let script = PathBuf::from(render_template(template, ctx)?);
+                script_environment(&script, ctx).with_context(|| {
+                    format!(
+                        "target {name}: reading the environment from {}",
+                        script.display()
+                    )
+                })?
+            }
+            None => BTreeMap::new(),
+        };
+        for (key, value) in &spec.env {
+            env.insert(key.clone(), render_template(value, ctx)?);
+        }
         let workdir = match &spec.workdir {
             Some(template) => PathBuf::from(render_template(template, ctx)?),
             None => repo_root(),
@@ -280,6 +355,42 @@ mod tests {
             "/repo/apps/server/dev/django-serve.sh 18001"
         );
         assert!(render_template("{unknown}", &values).is_err());
+    }
+
+    #[test]
+    fn script_environment_exports_variables() {
+        let dir = std::env::temp_dir().join(format!("difftest-env-script-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let script = dir.join("env.sh");
+        std::fs::write(
+            &script,
+            "echo ignored\n\
+             export FOO='bar baz'\n\
+             export PLANE_DB=$PLANE_DB\n\
+             export PLANE_REDIS_DB=$PLANE_REDIS_DB\n",
+        )
+        .expect("write");
+        let ctx = BTreeMap::from([
+            ("db", "t_env".to_string()),
+            ("redis_db", "3".to_string()),
+            ("vhost", "v".to_string()),
+        ]);
+        let env = script_environment(&script, &ctx).expect("environment");
+        assert_eq!(env.get("FOO").map(String::as_str), Some("bar baz"));
+        assert_eq!(env.get("PLANE_DB").map(String::as_str), Some("t_env"));
+        assert_eq!(env.get("PLANE_REDIS_DB").map(String::as_str), Some("3"));
+        // The child environment also carries the three PLANE_* knobs the
+        // script was given, plus PATH and HOME.
+        assert_eq!(env.get("PLANE_MQ_VHOST").map(String::as_str), Some("v"));
+        assert!(env.contains_key("PATH"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_environment_script_is_an_error() {
+        let missing = std::env::temp_dir().join("difftest-no-such-script.sh");
+        let error = script_environment(&missing, &BTreeMap::new()).expect_err("must fail");
+        assert!(error.to_string().contains("does not exist"));
     }
 
     #[test]

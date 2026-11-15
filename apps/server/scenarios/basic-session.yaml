@@ -33,6 +33,12 @@ vars:
   company_role: ""
   project_name: Diff Test Project
   project_identifier: DT
+# The plaintexts behind the `users.password` hashes the scenario creates. The
+# harness re-derives the PBKDF2 hash from each and reports a DIFF if none
+# verifies, so a Rust implementation that writes an unverifiable hash cannot
+# pass. Resolved per target: `--b-var password=...` changes what B must verify.
+password_vars:
+  - password
 steps:
   # --- instance bootstrap ------------------------------------------------
   # plane/license/api/views/instance.py: before setup the endpoint answers

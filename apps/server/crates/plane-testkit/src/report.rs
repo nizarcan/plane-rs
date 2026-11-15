@@ -38,12 +38,16 @@ pub struct SideReport {
     pub status: u16,
     pub duration_ms: f64,
     pub snapshot_ms: f64,
+    pub redis_ms: f64,
+    pub normalise_ms: f64,
     pub headers: BTreeMap<String, Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     pub body_modified: bool,
     pub formatting: String,
     pub db: serde_json::Value,
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    pub redis: serde_json::Value,
     pub celery: serde_json::Value,
 }
 
@@ -78,6 +82,8 @@ pub struct RunReport {
     pub finished_at: String,
     pub total_secs: f64,
     pub snapshot: BTreeMap<String, SnapshotStats>,
+    /// Redis snapshot timing per target, separate from the database one.
+    pub redis_snapshot: BTreeMap<String, SnapshotStats>,
     pub normalisation: Vec<TargetRules>,
     pub steps: Vec<StepReport>,
     pub ok: bool,

@@ -14,6 +14,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use plane_testkit::config::Scenario;
 use plane_testkit::db::{DbAdmin, measure_snapshot};
+use plane_testkit::record::{RecordOptions, run as run_record};
 use plane_testkit::runner::{AttachOptions, RunOptions, run};
 use plane_testkit::selftest;
 use plane_testkit::util::repo_root;
@@ -37,6 +38,8 @@ struct Cli {
 enum Command {
     /// Replay a scenario against two targets and compare every step.
     Run(Box<RunArgs>),
+    /// Record a browser session through a forwarding proxy into a scenario.
+    Record(RecordArgs),
     /// Exercise the normaliser and comparator on built-in synthetic cases.
     Selftest,
     /// Print table/row counts and snapshot timing for a database.
@@ -101,12 +104,34 @@ struct RunArgs {
     /// Do not drain or compare Celery messages.
     #[arg(long)]
     no_celery: bool,
+    /// Do not snapshot or compare Redis.
+    #[arg(long)]
+    no_redis: bool,
     /// Override a scenario variable for target A only (`name=value`).
     #[arg(long = "a-var", value_parser = parse_assignment)]
     a_vars: Vec<(String, String)>,
     /// Override a scenario variable for target B only (`name=value`).
     #[arg(long = "b-var", value_parser = parse_assignment)]
     b_vars: Vec<(String, String)>,
+}
+
+#[derive(Debug, Args)]
+struct RecordArgs {
+    /// Address the recording proxy listens on.
+    #[arg(long, default_value = "127.0.0.1:18090")]
+    listen: String,
+    /// Target the proxy forwards to, unchanged.
+    #[arg(long)]
+    upstream: String,
+    /// Scenario file to write. Rewritten after every request.
+    #[arg(long)]
+    out: PathBuf,
+    /// Scenario name written into the file.
+    #[arg(long, default_value = "recorded")]
+    name: String,
+    /// Redis DB indexes written into the scenario, [A, B].
+    #[arg(long, default_value = "1,2")]
+    redis_db: String,
 }
 
 #[derive(Debug, Args)]
@@ -173,6 +198,30 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
     match cli.command {
         Command::Selftest => {
             selftest::run()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Record(args) => {
+            let redis_db: Vec<i64> = args
+                .redis_db
+                .split(',')
+                .map(|value| {
+                    value
+                        .trim()
+                        .parse::<i64>()
+                        .with_context(|| format!("parsing --redis-db value {value:?}"))
+                })
+                .collect::<Result<_>>()?;
+            if redis_db.len() != 2 {
+                bail!("--redis-db needs exactly two indexes, for example 1,2");
+            }
+            run_record(RecordOptions {
+                listen: args.listen,
+                upstream: args.upstream,
+                out: args.out,
+                name: args.name,
+                redis_db,
+            })
+            .await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Snapshot(args) => {
@@ -245,6 +294,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
                 rabbit_password: args.rabbit_password.clone(),
                 a_vars: assignments(&args.a_vars),
                 b_vars: assignments(&args.b_vars),
+                no_redis: args.no_redis,
                 attach,
             };
             let report = run(options).await?;
@@ -264,6 +314,12 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
             for (label, stats) in &report.snapshot {
                 println!(
                     "snapshot {label}: {} snapshots, avg {:.1} ms, max {:.1} ms",
+                    stats.count, stats.average_ms, stats.max_ms
+                );
+            }
+            for (label, stats) in &report.redis_snapshot {
+                println!(
+                    "redis snapshot {label}: {} snapshots, avg {:.2} ms, max {:.1} ms",
                     stats.count, stats.average_ms, stats.max_ms
                 );
             }

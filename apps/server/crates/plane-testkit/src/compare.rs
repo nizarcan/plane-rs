@@ -19,6 +19,7 @@ use serde_json::{Map, Value, json};
 use crate::celery::CeleryMessage;
 use crate::db::{DbDiff, TableDiff};
 use crate::normalize::{BodyValue, NormalizedBody};
+use crate::redis::{RedisDiff, RedisEntry};
 use crate::util::ellipsize;
 
 const MAX_RENDERED_VALUE: usize = 100_000;
@@ -577,10 +578,141 @@ fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| "<invalid json>".to_string())
 }
 
+// ---------------------------------------------------------------------------
+// Redis
+// ---------------------------------------------------------------------------
+
+/// TTLs are compared with a tolerance: a key written during one target's step
+/// and re-read a few milliseconds later on the other side must not differ.
+pub const TTL_TOLERANCE_MS: i64 = 2_000;
+
+/// Compare the Redis side effects of one step.
+///
+/// `added`, `changed` and `removed` are treated as actions: the same key added
+/// on both sides is compared by entry, one side adding a key the other does not
+/// is a difference, and a key removed on both sides is equal (its before-state
+/// was compared when it was written).
+pub fn compare_redis(a: &RedisDiff, b: &RedisDiff) -> Vec<Difference> {
+    let keys: BTreeSet<&Vec<u8>> = a
+        .added
+        .keys()
+        .chain(a.changed.keys())
+        .chain(a.removed.iter())
+        .chain(b.added.keys())
+        .chain(b.changed.keys())
+        .chain(b.removed.iter())
+        .collect();
+    let mut out = Vec::new();
+    for key in keys {
+        let path = String::from_utf8_lossy(key).into_owned();
+        let a_action = redis_action(a, key);
+        let b_action = redis_action(b, key);
+        if a_action != b_action {
+            out.push(
+                Difference::new("redis", path, "key changed differently").with_values(
+                    a_action.unwrap_or("absent").to_string(),
+                    b_action.unwrap_or("absent").to_string(),
+                ),
+            );
+            continue;
+        }
+        let (Some(a_entry), Some(b_entry)) = (redis_entry(a, key), redis_entry(b, key)) else {
+            // Both sides removed the key, or both sides left it alone.
+            continue;
+        };
+        let mut differences = Vec::new();
+        if a_entry.kind != b_entry.kind {
+            differences.push(format!(
+                "type differs ({} vs {})",
+                a_entry.kind, b_entry.kind
+            ));
+        }
+        // A pickled value's byte length depends on the *encoding* of its
+        // contents: a generated UUID is pickled as a variable-length integer,
+        // so two structurally equal cache entries can differ by a few bytes.
+        // Compare the length only when the value itself was not compared (too
+        // large for the snapshot caps); a list's element count is always
+        // meaningful.
+        let compare_size =
+            a_entry.kind == "list" || (a_entry.value.is_none() && b_entry.value.is_none());
+        if compare_size && a_entry.size != b_entry.size {
+            differences.push(format!(
+                "size differs ({} vs {})",
+                a_entry.size, b_entry.size
+            ));
+        }
+        if !ttl_matches(a_entry.ttl_ms, b_entry.ttl_ms) {
+            differences.push(format!(
+                "TTL differs beyond {TTL_TOLERANCE_MS} ms ({} ms vs {} ms)",
+                a_entry.ttl_ms, b_entry.ttl_ms
+            ));
+        }
+        if let (Some(a_value), Some(b_value)) = (&a_entry.value, &b_entry.value) {
+            for difference in structural_json_diffs(a_value, b_value) {
+                differences.push(format!("{}: {}", difference.path, difference.message));
+            }
+        } else if a_entry.value.is_some() != b_entry.value.is_some() {
+            differences.push("one side compared the value, the other did not".to_string());
+        }
+        if differences.is_empty() {
+            continue;
+        }
+        out.push(
+            Difference::new(
+                "redis",
+                path,
+                format!(
+                    "{} value difference(s): {}",
+                    differences.len(),
+                    differences.join("; ")
+                ),
+            )
+            .with_values(
+                pretty(&redis_entry_json(a_entry)),
+                pretty(&redis_entry_json(b_entry)),
+            ),
+        );
+    }
+    out
+}
+
+fn ttl_matches(a: i64, b: i64) -> bool {
+    if a < 0 || b < 0 {
+        return a == b;
+    }
+    (a - b).abs() <= TTL_TOLERANCE_MS
+}
+
+fn redis_action<'a>(diff: &'a RedisDiff, key: &Vec<u8>) -> Option<&'a str> {
+    if diff.added.contains_key(key) {
+        Some("added")
+    } else if diff.changed.contains_key(key) {
+        Some("changed")
+    } else if diff.removed.contains(key) {
+        Some("removed")
+    } else {
+        None
+    }
+}
+
+fn redis_entry<'a>(diff: &'a RedisDiff, key: &Vec<u8>) -> Option<&'a RedisEntry> {
+    diff.added.get(key).or_else(|| diff.changed.get(key))
+}
+
+fn redis_entry_json(entry: &RedisEntry) -> Value {
+    let mut map = Map::new();
+    map.insert("type".to_string(), json!(entry.kind));
+    map.insert("size".to_string(), json!(entry.size));
+    map.insert("ttl_ms".to_string(), json!(entry.ttl_ms));
+    if let Some(value) = &entry.value {
+        map.insert("value".to_string(), value.clone());
+    }
+    Value::Object(map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ValueMode;
     use crate::db::TableDiff;
     use crate::normalize::{BodyValue, NormalizedBody};
 
@@ -766,8 +898,109 @@ mod tests {
         assert_eq!(compare_celery(&[a], &[b]).len(), 1);
     }
 
+    // -- Redis -------------------------------------------------------------
+
+    fn redis_entry(kind: &str, size: usize, ttl_ms: i64, value: Value) -> RedisEntry {
+        RedisEntry {
+            kind: kind.to_string(),
+            size,
+            ttl_ms,
+            value: Some(value),
+        }
+    }
+
+    fn redis_diff(added: &[(&str, RedisEntry)]) -> RedisDiff {
+        let mut diff = RedisDiff::default();
+        for (key, entry) in added {
+            diff.added.insert(key.as_bytes().to_vec(), entry.clone());
+        }
+        diff
+    }
+
     #[test]
-    fn value_modes_are_constructible_from_the_config() {
-        assert_eq!(ValueMode::default(), ValueMode::Volatile);
+    fn redis_entries_of_both_sides_are_compared_field_by_field() {
+        let entry = redis_entry("string", 3, 60_000, json!("bar"));
+        let a = redis_diff(&[("k", entry.clone())]);
+        let b = redis_diff(&[("k", entry.clone())]);
+        assert!(compare_redis(&a, &b).is_empty());
+
+        let other = redis_entry("string", 3, 60_000, json!("baz"));
+        assert_eq!(compare_redis(&a, &redis_diff(&[("k", other)])).len(), 1);
+
+        let other = redis_entry("list", 3, 60_000, json!(["bar"]));
+        assert_eq!(compare_redis(&a, &redis_diff(&[("k", other)])).len(), 1);
+
+        // A pickled value's byte length is an encoding detail; only compare it
+        // when the value itself was not compared (too large for the caps).
+        let a_large = RedisEntry {
+            kind: "string".to_string(),
+            size: 5_000,
+            ttl_ms: 60_000,
+            value: None,
+        };
+        let b_large = RedisEntry {
+            size: 5_010,
+            ..a_large.clone()
+        };
+        assert_eq!(
+            compare_redis(
+                &redis_diff(&[("k", a_large.clone())]),
+                &redis_diff(&[("k", b_large)])
+            )
+            .len(),
+            1
+        );
+        let a_large_value = RedisEntry {
+            value: Some(json!({"same": true})),
+            ..a_large.clone()
+        };
+        let b_large_value = RedisEntry {
+            value: Some(json!({"same": true})),
+            ..a_large
+        };
+        assert!(
+            compare_redis(
+                &redis_diff(&[("k", a_large_value)]),
+                &redis_diff(&[("k", b_large_value)])
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn redis_ttls_have_a_tolerance_and_a_floor() {
+        let entry = redis_entry("string", 1, 60_000, json!("x"));
+        let a = redis_diff(&[("k", entry.clone())]);
+        let mut close = entry.clone();
+        close.ttl_ms = 58_900;
+        assert!(compare_redis(&a, &redis_diff(&[("k", close)])).is_empty());
+
+        let mut far = entry.clone();
+        far.ttl_ms = 57_000;
+        assert_eq!(compare_redis(&a, &redis_diff(&[("k", far)])).len(), 1);
+
+        let mut persistent = entry;
+        persistent.ttl_ms = -1;
+        assert_eq!(
+            compare_redis(&a, &redis_diff(&[("k", persistent)])).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn redis_extra_missing_and_removed_keys_are_differences() {
+        let entry = redis_entry("string", 1, -1, json!("x"));
+        let a = redis_diff(&[]);
+        assert_eq!(
+            compare_redis(&a, &redis_diff(&[("k", entry.clone())])).len(),
+            1
+        );
+
+        let mut removed_a = RedisDiff::default();
+        removed_a.removed.insert(b"k".to_vec());
+        let mut removed_b = RedisDiff::default();
+        removed_b.removed.insert(b"k".to_vec());
+        assert!(compare_redis(&removed_a, &removed_b).is_empty());
+        assert_eq!(compare_redis(&removed_a, &a).len(), 1);
     }
 }

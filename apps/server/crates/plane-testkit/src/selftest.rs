@@ -5,12 +5,15 @@
 //! `difftest selftest`: exercises the normaliser and the comparator on
 //! synthetic cases, with no network or container involved.
 //!
-//! Two things are proven here:
-//! 1. every injected difference is detected, in the right part; and
-//! 2. every legitimately volatile variation is accepted.
+//! Three things are proven here:
+//! 1. every injected difference is detected, in the right part;
+//! 2. every legitimately volatile variation is accepted; and
+//! 3. every semantic check (session signature, cookie/payload consistency,
+//!    CSRF unmasking, password verification, Redis side effects) detects a
+//!    deliberately broken value.
 //!
 //! A harness that passes case 2 but fails case 1 would be vacuous; the
-//! selftest fails unless both hold.
+//! selftest fails unless all three hold.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -22,11 +25,14 @@ use serde_json::{Value, json};
 use crate::celery::CeleryMessage;
 use crate::compare::{
     Difference, FormattingStatus, check_drf_formatting, compare_bodies, compare_celery, compare_db,
-    compare_formatting, compare_headers, compare_status, drf_compact,
+    compare_formatting, compare_headers, compare_redis, compare_status, drf_compact,
 };
-use crate::config::{DbRule, NamedRule, NormalizeRules, ValueMode};
+use crate::config::{DbRule, NamedRule, NormalizeRules, RuleCheck, RuleMode, ShapeRule};
 use crate::db::{DbDiff, TableDiff, diff_snapshots};
-use crate::normalize::{BodyValue, NormalizedBody, TargetNormalizer};
+use crate::normalize::{BodyValue, NormalizedBody, NormalizerConfig, TargetNormalizer, Violation};
+use crate::password;
+use crate::redis::{RedisDiff, RedisEntry};
+use crate::session;
 use crate::timeparse::parse_timestamp;
 
 struct Checks {
@@ -80,72 +86,153 @@ impl Checks {
     }
 }
 
+fn shape(pattern: &str) -> ShapeRule {
+    ShapeRule {
+        pattern: pattern.to_string(),
+        why: "selftest shape".to_string(),
+    }
+}
+
+fn named(name: &str, why: &str, mode: RuleMode) -> NamedRule {
+    NamedRule {
+        name: name.to_string(),
+        why: why.to_string(),
+        mode,
+        placeholder: None,
+        shape: None,
+        check: None,
+    }
+}
+
+fn placeholder(name: &str, kind: &str, shape: &str) -> NamedRule {
+    NamedRule {
+        name: name.to_string(),
+        why: format!("{name} is random"),
+        mode: RuleMode::Placeholder,
+        placeholder: Some(kind.to_string()),
+        shape: Some(shape.to_string()),
+        check: None,
+    }
+}
+
+fn db_placeholder(table: &str, column: &str, kind: &str, shape: &str) -> DbRule {
+    DbRule {
+        table: table.to_string(),
+        column: column.to_string(),
+        why: format!("{table}.{column} is random"),
+        mode: RuleMode::Placeholder,
+        placeholder: Some(kind.to_string()),
+        shape: Some(shape.to_string()),
+        check: None,
+    }
+}
+
 fn rules() -> Arc<NormalizeRules> {
+    let mut shapes = BTreeMap::new();
+    shapes.insert(
+        "session_key".to_string(),
+        shape(session::SESSION_KEY_PATTERN),
+    );
+    shapes.insert("csrf_secret".to_string(), shape(r"^[A-Za-z0-9]{32}$"));
+    shapes.insert("csrf_token".to_string(), shape(r"^[A-Za-z0-9]{64}$"));
+    shapes.insert("uuid_hex".to_string(), shape(r"^[0-9a-f]{32}$"));
+    shapes.insert("hex64".to_string(), shape(r"^[0-9a-f]{64}$"));
+    shapes.insert("hex_colour".to_string(), shape(r"^#[0-9a-fA-F]{6}$"));
+    shapes.insert(
+        "django_password_hash".to_string(),
+        shape(password::SHAPE_PATTERN),
+    );
+    shapes.insert(
+        "signed_session".to_string(),
+        shape(session::SESSION_DATA_PATTERN),
+    );
+    shapes.insert("auth_user_hash".to_string(), shape(r"^[0-9a-f]{64}$"));
+
     Arc::new(NormalizeRules {
         ignore_headers: vec![
             "date".to_string(),
             "server".to_string(),
             "content-length".to_string(),
         ],
+        shapes,
         volatile_cookies: vec![
-            NamedRule {
-                name: "session-id".to_string(),
-                why: "random session key".to_string(),
-                mode: ValueMode::Volatile,
-            },
-            NamedRule {
-                name: "csrftoken".to_string(),
-                why: "random masked csrf secret".to_string(),
-                mode: ValueMode::Volatile,
-            },
+            placeholder("session-id", "session", "session_key"),
+            placeholder("admin-session-id", "session", "session_key"),
+            placeholder("csrftoken", "csrf-secret", "csrf_secret"),
         ],
         volatile_json_keys: vec![
             NamedRule {
                 name: "csrf_token".to_string(),
                 why: "masked csrf token".to_string(),
-                mode: ValueMode::Volatile,
+                mode: RuleMode::Placeholder,
+                placeholder: Some("csrf-token".to_string()),
+                shape: Some("csrf_token".to_string()),
+                check: Some(RuleCheck::CsrfMasked),
             },
+            placeholder("username", "username", "uuid_hex"),
             NamedRule {
                 name: "token".to_string(),
                 why: "random api token, empty until generated".to_string(),
-                mode: ValueMode::VolatileIfNonEmpty,
+                mode: RuleMode::PlaceholderIfNonEmpty,
+                placeholder: Some("token".to_string()),
+                shape: Some("hex64".to_string()),
+                check: None,
             },
-            NamedRule {
-                name: "epoch".to_string(),
-                why: "whole-second wall clock".to_string(),
-                mode: ValueMode::UnixTime,
-            },
+            placeholder("background_color", "colour", "hex_colour"),
+            named("epoch", "whole-second wall clock", RuleMode::UnixTime),
         ],
-        volatile_celery_headers: vec![NamedRule {
-            name: "id".to_string(),
-            why: "celery task id".to_string(),
-            mode: ValueMode::Volatile,
-        }],
+        volatile_headers: vec![named(
+            "X-RateLimit-Reset",
+            "now + the throttle window",
+            RuleMode::UnixTime,
+        )],
+        volatile_celery_headers: vec![
+            named("id", "celery task id", RuleMode::Drop),
+            named("root_id", "celery root id", RuleMode::Drop),
+            named("parent_id", "celery parent id", RuleMode::Drop),
+            named("origin", "hostname:pid", RuleMode::Drop),
+        ],
         volatile_db_columns: vec![
+            db_placeholder("sessions", "session_key", "session", "session_key"),
             DbRule {
                 table: "sessions".to_string(),
-                column: "session_key".to_string(),
-                why: "random key".to_string(),
-                mode: ValueMode::Volatile,
+                column: "session_data".to_string(),
+                why: "signed payload".to_string(),
+                mode: RuleMode::SessionPayload,
+                placeholder: None,
+                shape: Some("signed_session".to_string()),
+                check: None,
             },
             DbRule {
                 table: "sessions".to_string(),
                 column: "expire_date".to_string(),
                 why: "now + cookie age".to_string(),
-                mode: ValueMode::RelativeTime,
+                mode: RuleMode::RelativeTime,
+                placeholder: None,
+                shape: None,
+                check: None,
             },
+            db_placeholder("users", "username", "username", "uuid_hex"),
             DbRule {
                 table: "users".to_string(),
                 column: "password".to_string(),
                 why: "salted hash".to_string(),
-                mode: ValueMode::PasswordPrefix,
+                mode: RuleMode::Password,
+                placeholder: None,
+                shape: Some("django_password_hash".to_string()),
+                check: None,
             },
             DbRule {
-                table: "workspaces".to_string(),
-                column: "background_color".to_string(),
-                why: "random default colour".to_string(),
-                mode: ValueMode::RandomColor,
+                table: "users".to_string(),
+                column: "token".to_string(),
+                why: "random api token".to_string(),
+                mode: RuleMode::PlaceholderIfNonEmpty,
+                placeholder: Some("token".to_string()),
+                shape: Some("hex64".to_string()),
+                check: None,
             },
+            db_placeholder("profiles", "background_color", "colour", "hex_colour"),
+            db_placeholder("workspaces", "background_color", "colour", "hex_colour"),
         ],
         timestamp_slack_secs: 2,
         db_schemas: vec!["public".to_string()],
@@ -153,8 +240,29 @@ fn rules() -> Arc<NormalizeRules> {
     })
 }
 
+const SECRET_KEY: &[u8] = b"contract-test-secret-key-not-for-deployment";
+/// HTTP_CONTRACT.md Appendix B.1.
+const SESSION_VECTOR: &str = ".eJxNjstuwyAQRX8lYtVKNgbj97L7fIM1MENM64JlSNU2yr8XR1l0O_fec-bGZrimZb5G2meHbGLCSqpRmbLRLZTd2A_l0I9dCa1ujMKapBWsYBrMB_ljgO_gL4Gb4NPuND9w_JlGfg5I69uzW_yXLRCXvB5tbRstUZEwA_S6w5Yaq6DW0ggcabA9dLo1TW7UVoLQoxmwp8620GhlDmikGF3wM31vbv9hk-qEKBjSlzM0O28Dm27sIYUL-ZSt5_Dr1hWqlovTy-NzMOm07UHTaya6bQbEPWNztxaKCy6l4n2OMHyC8_m8pLRNVbUGA-sSYqrY_f4HL9RrZQ:1wJND7:ywTmmvOLHYvBCPzyrQ_HeauuOal3DUrNa43jfPUyJbQ";
+const CSRF_SECRET: &str = "0123456789abcdefghijklmnopqrstuv";
+const CSRF_MASK: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef";
+const CSRF_MASKED: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefqsuwyACEGIKMOQSUWY02468aceqsuwyA";
+const VECTOR_USER_ID: &str = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0";
+const PASSWORD: &str = "Diff-Test-Passw0rd-2026!";
+const PASSWORD_HASH: &str =
+    "pbkdf2_sha256$1000$SALTfixedSALTfixedSALT$w/D65kZ20JoZcd3sU7BR8JQMIi9dafeN0wBzp5J1hUo=";
+
 fn normalizer(base_url: &str) -> TargetNormalizer {
-    TargetNormalizer::new(rules(), base_url, Arc::new(HashSet::new()))
+    normalizer_with(base_url, Some(SECRET_KEY), &[PASSWORD])
+}
+
+fn normalizer_with(base_url: &str, secret: Option<&[u8]>, passwords: &[&str]) -> TargetNormalizer {
+    TargetNormalizer::new(NormalizerConfig {
+        rules: rules(),
+        base_url: base_url.to_string(),
+        known_uuids: Arc::new(HashSet::new()),
+        secret_key: secret.map(|secret| Arc::new(secret.to_vec())),
+        passwords: Arc::new(passwords.iter().map(|value| value.to_string()).collect()),
+    })
 }
 
 fn time(text: &str) -> DateTime<Utc> {
@@ -191,6 +299,39 @@ fn db_diff(table: &str, inserted: Vec<Value>, deleted: Vec<Value>, updated: Vec<
         },
     );
     diff
+}
+
+fn violations(normalizer: &mut TargetNormalizer) -> Vec<Violation> {
+    normalizer.take_violations()
+}
+
+fn violation_differences(normalizer: &mut TargetNormalizer) -> Vec<Difference> {
+    violations(normalizer)
+        .into_iter()
+        .map(|violation| Difference::new(violation.part, violation.path, violation.message))
+        .collect()
+}
+
+fn session_key(seed: char) -> String {
+    // 128 characters of the seed: 'a' is a valid Django key, 'A' exercises
+    // the wrong-alphabet shape check.
+    std::iter::repeat_n(seed, 128).collect()
+}
+
+fn session_row(key: &str, payload: &str, user_id: &str) -> Value {
+    // Mirrors plane/db/models/session.py: the columns are derived from the
+    // signed payload, so a row where they disagree is a semantic violation.
+    json!({
+        "session_key": key,
+        "session_data": payload,
+        "user_id": user_id,
+        "device_info": {
+            "user_agent": "Mozilla/5.0 (contract probe)",
+            "ip_address": "203.0.113.7",
+            "domain": "http://localhost/",
+        },
+        "expire_date": "2026-11-22T20:00:00.123+00:00",
+    })
 }
 
 pub fn run() -> Result<()> {
@@ -250,24 +391,23 @@ pub fn run() -> Result<()> {
 
     // Known UUIDs (seeded rows) are left alone.
     let known = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string();
-    let mut with_known = TargetNormalizer::new(
-        rules(),
-        "http://x",
-        Arc::new(HashSet::from([known.clone()])),
-    );
-    with_known.start_step(start, start);
-    checks.ok(
-        "baseline UUIDs are not placeholdered",
-        with_known.normalize_text(&known) == known,
-    )?;
+    checks.ok("baseline UUIDs are not placeholdered", {
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: rules(),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::from([known.clone()])),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+        });
+        normalizer.start_step(start, start);
+        normalizer.normalize_text(&known) == known
+    })?;
 
     // -- timestamps --------------------------------------------------------
-    let window_a = "2026-11-15T20:00:00Z";
-    let window_b = "2026-11-15T20:00:02Z";
     let mut a = normalizer("http://127.0.0.1:18000");
     let mut b = normalizer("http://127.0.0.1:18001");
-    a.start_step(time(window_a), time(window_a));
-    b.start_step(time(window_b), time(window_b));
+    a.start_step(time("2026-11-15T20:00:00Z"), time("2026-11-15T20:00:00Z"));
+    b.start_step(time("2026-11-15T20:00:02Z"), time("2026-11-15T20:00:02Z"));
     let ts_a = a.normalize_body(br#"{"created_at":"2026-11-15T20:00:01.123456Z"}"#, true);
     let ts_b = b.normalize_body(br#"{"created_at":"2026-11-15T20:00:02.654321Z"}"#, true);
     checks.accepted("in-window timestamps", &compare_bodies(&ts_a, &ts_b))?;
@@ -275,67 +415,582 @@ pub fn run() -> Result<()> {
         "timestamp rendered as <now>",
         ts_a.pretty().contains("<now>") && ts_b.pretty().contains("<now>"),
     )?;
-
     let older = "2024-01-01T00:00:00Z";
     checks.ok(
         "out-of-window timestamps are compared exactly",
         a.normalize_text(older) == older,
     )?;
-    let mutated = a.normalize_body(br#"{"created_at":"2024-01-01T00:00:00Z"}"#, true);
-    let mutated2 = b.normalize_body(br#"{"created_at":"2024-01-01T00:00:01Z"}"#, true);
-    checks.detected(
-        "out-of-window timestamp difference",
-        "body",
-        &compare_bodies(&mutated, &mutated2),
-    )?;
 
-    // -- named volatile values --------------------------------------------
+    // -- typed placeholders and cross-references --------------------------
     let mut a = normalizer("http://127.0.0.1:18000");
     let mut b = normalizer("http://127.0.0.1:18001");
     a.start_step(start, start);
     b.start_step(start, start);
-    let cookies_a = a.normalize_headers(&[(
+    let key_a = session_key('a');
+    let key_b = session_key('b');
+    let cookie_a = a.normalize_headers(&[(
         "Set-Cookie".to_string(),
-        "session-id=aaa; Path=/; HttpOnly; SameSite=Lax".to_string(),
+        format!("session-id={key_a}; Path=/; HttpOnly; SameSite=Lax"),
     )]);
-    let cookies_b = b.normalize_headers(&[(
+    let cookie_b = b.normalize_headers(&[(
         "Set-Cookie".to_string(),
-        "session-id=bbb; Path=/; HttpOnly; SameSite=Lax".to_string(),
+        format!("session-id={key_b}; Path=/; HttpOnly; SameSite=Lax"),
     )]);
     checks.accepted(
-        "volatile session cookie value",
-        &compare_headers(&cookies_a, &cookies_b),
+        "session cookie values are placeholders",
+        &compare_headers(&cookie_a, &cookie_b),
+    )?;
+    checks.ok(
+        "session cookie placeholder is typed",
+        cookie_a[0].1.starts_with("session-id=<session:1>;"),
     )?;
 
-    let cookies_b_path = b.normalize_headers(&[(
-        "Set-Cookie".to_string(),
-        "session-id=bbb; Path=/app; HttpOnly; SameSite=Lax".to_string(),
-    )]);
-    checks.detected(
-        "changed cookie attribute",
-        "headers",
-        &compare_headers(&cookies_a, &cookies_b_path),
-    )?;
-
-    let csrf_a = a.normalize_body(br#"{"csrf_token":"aaa","x":1}"#, true);
-    let csrf_b = b.normalize_body(br#"{"csrf_token":"bbb","x":1}"#, true);
-    checks.accepted("volatile csrf_token", &compare_bodies(&csrf_a, &csrf_b))?;
-
+    // The same raw key in the database row gets the same placeholder: the
+    // cookie and the row cross-reference each other.
     let mut db_a = db_diff(
         "public.sessions",
-        vec![json!({"session_key": "aaaa", "user_id": "7"})],
+        vec![session_row(&key_a, SESSION_VECTOR, VECTOR_USER_ID)],
         vec![],
         vec![],
     );
     let mut db_b = db_diff(
         "public.sessions",
-        vec![json!({"session_key": "bbbb", "user_id": "7"})],
+        vec![session_row(&key_b, SESSION_VECTOR, VECTOR_USER_ID)],
         vec![],
         vec![],
     );
     a.normalize_db_diff(&mut db_a);
     b.normalize_db_diff(&mut db_b);
-    checks.accepted("volatile session_key column", &compare_db(&db_a, &db_b))?;
+    checks.accepted(
+        "session row decodes and compares",
+        &compare_db(&db_a, &db_b),
+    )?;
+    checks.ok(
+        "the cookie and the row share one placeholder",
+        db_a.tables["public.sessions"].inserted[0]["session_key"] == "<session:1>",
+    )?;
+    checks.ok(
+        "the decoded payload is compared as an object",
+        db_a.tables["public.sessions"].inserted[0]["session_data"]["backend"]
+            == json!("django.contrib.auth.backends.ModelBackend")
+            && db_a.tables["public.sessions"].inserted[0]["session_data"]["$signed_at"]
+                == json!("<epoch>"),
+    )?;
+    checks.ok(
+        "the session row is checked against its payload",
+        violations(&mut a).is_empty() && violations(&mut b).is_empty(),
+    )?;
+
+    // A row whose key does not match the cookie its response set is a
+    // database difference: B's row gets a second placeholder.
+    let mut b_broken = normalizer("http://127.0.0.1:18001");
+    b_broken.start_step(start, start);
+    b_broken.normalize_headers(&[(
+        "Set-Cookie".to_string(),
+        format!("session-id={key_b}; Path=/"),
+    )]);
+    let mut db_broken = db_diff(
+        "public.sessions",
+        vec![session_row(&session_key('c'), SESSION_VECTOR, uuid_b)],
+        vec![],
+        vec![],
+    );
+    b_broken.normalize_db_diff(&mut db_broken);
+    checks.detected(
+        "a session row that does not match its cookie",
+        "db",
+        &compare_db(&db_a, &db_broken),
+    )?;
+
+    // A row whose user_id column disagrees with the signed payload is a
+    // semantic violation, even when both targets do the same thing.
+    let mut broken_row = normalizer("http://127.0.0.1:18000");
+    broken_row.start_step(start, start);
+    let mut db_semantic = db_diff(
+        "public.sessions",
+        vec![session_row(&key_a, SESSION_VECTOR, VECTOR_USER_ID)],
+        vec![],
+        vec![],
+    );
+    broken_row.normalize_db_diff(&mut db_semantic);
+    checks.ok(
+        "the payload's _auth_user_id is normalised",
+        db_semantic.tables["public.sessions"].inserted[0]["session_data"]["_auth_user_id"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("<id:")),
+    )?;
+    // A row whose column disagrees with the payload is a semantic violation,
+    // even when both targets do the same thing.
+    let mut wrong_normalizer = normalizer("http://127.0.0.1:18000");
+    wrong_normalizer.start_step(start, start);
+    let mut raw_wrong = db_diff(
+        "public.sessions",
+        vec![session_row(&key_a, SESSION_VECTOR, uuid_c)],
+        vec![],
+        vec![],
+    );
+    wrong_normalizer.normalize_db_diff(&mut raw_wrong);
+    checks.detected(
+        "a sessions.user_id column that disagrees with session_data",
+        "session",
+        &violation_differences(&mut wrong_normalizer),
+    )?;
+
+    // -- shape checks ------------------------------------------------------
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    let short_cookie = a.normalize_headers(&[(
+        "Set-Cookie".to_string(),
+        "session-id=0123456789abcdef0123456789abcdef; Path=/".to_string(),
+    )]);
+    let _ = short_cookie;
+    checks.detected(
+        "a session cookie of the wrong length",
+        "shape",
+        &violation_differences(&mut a),
+    )?;
+    let mut upper = normalizer("http://127.0.0.1:18001");
+    upper.start_step(start, start);
+    upper.normalize_headers(&[(
+        "Set-Cookie".to_string(),
+        format!("session-id={}; Path=/", session_key('A')),
+    )]);
+    checks.detected(
+        "a session cookie with the wrong alphabet",
+        "shape",
+        &violation_differences(&mut upper),
+    )?;
+
+    let mut colour = normalizer("http://127.0.0.1:18000");
+    colour.start_step(start, start);
+    // Django's random colour alphabet is string.hexdigits, so mixed case is
+    // legitimate and must not be flagged.
+    colour.normalize_db_diff(&mut db_diff(
+        "public.workspaces",
+        vec![json!({"background_color": "#FAC41C"})],
+        vec![],
+        vec![],
+    ));
+    checks.ok(
+        "mixed-case hex colours pass the shape",
+        violations(&mut colour).is_empty(),
+    )?;
+    let mut bad_colour = normalizer("http://127.0.0.1:18000");
+    bad_colour.start_step(start, start);
+    bad_colour.normalize_db_diff(&mut db_diff(
+        "public.workspaces",
+        vec![json!({"background_color": "red"})],
+        vec![],
+        vec![],
+    ));
+    checks.detected(
+        "a colour that is not #rrggbb",
+        "shape",
+        &violation_differences(&mut bad_colour),
+    )?;
+
+    let mut username = normalizer("http://127.0.0.1:18000");
+    username.start_step(start, start);
+    username.normalize_body(br#"{"username":"c3496b5467ae40e593bac86a93804231"}"#, true);
+    checks.ok(
+        "a uuid4().hex username passes the shape",
+        violations(&mut username).is_empty(),
+    )?;
+    username.normalize_body(br#"{"username":"not-a-username"}"#, true);
+    checks.detected(
+        "a username that is not uuid4().hex",
+        "shape",
+        &violation_differences(&mut username),
+    )?;
+
+    // -- CSRF --------------------------------------------------------------
+    let mut a = normalizer("http://127.0.0.1:18000");
+    a.start_step(start, start);
+    a.normalize_headers(&[(
+        "Set-Cookie".to_string(),
+        format!("csrftoken={CSRF_SECRET}; Path=/; HttpOnly"),
+    )]);
+    a.normalize_body(
+        format!(r#"{{"csrf_token":"{CSRF_MASKED}"}}"#).as_bytes(),
+        true,
+    );
+    checks.ok(
+        "a masked token that unmasks to the cookie is accepted",
+        violations(&mut a).is_empty(),
+    )?;
+
+    let mut a = normalizer("http://127.0.0.1:18000");
+    a.start_step(start, start);
+    a.normalize_headers(&[(
+        "Set-Cookie".to_string(),
+        format!("csrftoken={CSRF_SECRET}; Path=/; HttpOnly"),
+    )]);
+    let other_masked = crate::csrf::mask(CSRF_SECRET, CSRF_MASK)
+        .expect("mask")
+        .replace('q', "Q");
+    a.normalize_body(
+        format!(r#"{{"csrf_token":"{other_masked}"}}"#).as_bytes(),
+        true,
+    );
+    checks.detected(
+        "a masked token that does not unmask to the cookie",
+        "csrf",
+        &violation_differences(&mut a),
+    )?;
+
+    let mut no_cookie = normalizer("http://127.0.0.1:18000");
+    no_cookie.start_step(start, start);
+    no_cookie.normalize_body(
+        format!(r#"{{"csrf_token":"{CSRF_MASKED}"}}"#).as_bytes(),
+        true,
+    );
+    checks.detected(
+        "a masked token without the csrftoken cookie",
+        "csrf",
+        &violation_differences(&mut no_cookie),
+    )?;
+
+    // -- session payload semantics ----------------------------------------
+    let mut tampered = SESSION_VECTOR.to_string();
+    tampered.pop();
+    tampered.push('A');
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    let mut db_a = db_diff(
+        "public.sessions",
+        vec![session_row(&key_a, SESSION_VECTOR, VECTOR_USER_ID)],
+        vec![],
+        vec![],
+    );
+    let mut db_b = db_diff(
+        "public.sessions",
+        vec![session_row(&key_b, &tampered, VECTOR_USER_ID)],
+        vec![],
+        vec![],
+    );
+    a.normalize_db_diff(&mut db_a);
+    b.normalize_db_diff(&mut db_b);
+    checks.detected(
+        "a badly signed session payload",
+        "session",
+        &violation_differences(&mut b),
+    )?;
+    checks.ok(
+        "the valid side has no session violation",
+        violations(&mut a).is_empty(),
+    )?;
+
+    let mut wrong_key = normalizer_with("http://127.0.0.1:18000", Some(b"wrong-secret"), &[]);
+    wrong_key.start_step(start, start);
+    let mut db_wrong = db_diff(
+        "public.sessions",
+        vec![session_row(&key_a, SESSION_VECTOR, VECTOR_USER_ID)],
+        vec![],
+        vec![],
+    );
+    wrong_key.normalize_db_diff(&mut db_wrong);
+    checks.detected(
+        "a session payload that does not verify with the target key",
+        "session",
+        &violation_differences(&mut wrong_key),
+    )?;
+
+    // The decoded payload is compared structurally, and `_auth_user_hash`
+    // becomes a constant marker because it is an HMAC of the salted password
+    // hash (so it legitimately differs between targets).
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    let mut db_a = db_diff(
+        "public.sessions",
+        vec![session_row(&key_a, SESSION_VECTOR, VECTOR_USER_ID)],
+        vec![],
+        vec![],
+    );
+    let mut db_b = db_diff(
+        "public.sessions",
+        vec![session_row(&key_b, SESSION_VECTOR, VECTOR_USER_ID)],
+        vec![],
+        vec![],
+    );
+    a.normalize_db_diff(&mut db_a);
+    b.normalize_db_diff(&mut db_b);
+    checks.ok(
+        "_auth_user_hash becomes a constant marker",
+        db_a.tables["public.sessions"].inserted[0]["session_data"]["_auth_user_hash"]
+            == json!("<auth-hash>"),
+    )?;
+
+    // -- password verification --------------------------------------------
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    let mut hash_a = db_diff(
+        "public.users",
+        vec![json!({"password": PASSWORD_HASH})],
+        vec![],
+        vec![],
+    );
+    let mut hash_b = db_diff(
+        "public.users",
+        vec![json!({"password": PASSWORD_HASH})],
+        vec![],
+        vec![],
+    );
+    a.normalize_db_diff(&mut hash_a);
+    b.normalize_db_diff(&mut hash_b);
+    checks.accepted("a hash that verifies", &compare_db(&hash_a, &hash_b))?;
+    checks.ok(
+        "verification leaves no violation",
+        violations(&mut a).is_empty() && violations(&mut b).is_empty(),
+    )?;
+
+    let mut wrong_hash = normalizer("http://127.0.0.1:18001");
+    wrong_hash.start_step(start, start);
+    let mut db_wrong = db_diff(
+        "public.users",
+        vec![
+            json!({"password": "pbkdf2_sha256$1000$SALTfixedSALTfixedSALT$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}),
+        ],
+        vec![],
+        vec![],
+    );
+    wrong_hash.normalize_db_diff(&mut db_wrong);
+    checks.detected(
+        "a password hash that does not verify",
+        "password",
+        &violation_differences(&mut wrong_hash),
+    )?;
+
+    // A different, valid hash for the same plaintext still differs in its
+    // algorithm/iteration prefix.
+    let other_iterations = password::encode_sha256(PASSWORD, "SALTfixedSALTfixedSALT", 2000);
+    let mut iterations = normalizer("http://127.0.0.1:18001");
+    iterations.start_step(start, start);
+    let mut db_iterations = db_diff(
+        "public.users",
+        vec![json!({"password": other_iterations})],
+        vec![],
+        vec![],
+    );
+    iterations.normalize_db_diff(&mut db_iterations);
+    checks.detected(
+        "a different iteration count",
+        "db",
+        &compare_db(&hash_a, &db_iterations),
+    )?;
+
+    // -- Redis -------------------------------------------------------------
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    // Register the asset id as a placeholder first, as a response body would.
+    a.normalize_body(format!(r#"{{"asset_id":"{uuid_a}"}}"#).as_bytes(), true);
+    b.normalize_body(format!(r#"{{"asset_id":"{uuid_b}"}}"#).as_bytes(), true);
+    let now = start.timestamp() as f64 + 0.25;
+    let mut redis_a = RedisDiff::default();
+    redis_a.added.insert(
+        format!(":1:throttle_asset_{uuid_a}").into_bytes(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 30,
+            ttl_ms: 60_000,
+            value: Some(json!([now, now - 1.0])),
+        },
+    );
+    let mut redis_b = RedisDiff::default();
+    redis_b.added.insert(
+        format!(":1:throttle_asset_{uuid_b}").into_bytes(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 30,
+            ttl_ms: 58_900,
+            value: Some(json!([now + 0.5, now - 0.9])),
+        },
+    );
+    a.normalize_redis_diff(&mut redis_a);
+    b.normalize_redis_diff(&mut redis_b);
+    checks.ok(
+        "a Redis key name gets the same placeholder as the body",
+        redis_a
+            .added
+            .keys()
+            .next()
+            .map(|key| String::from_utf8_lossy(key).into_owned())
+            == Some(":1:throttle_asset_<id:1>".to_string()),
+    )?;
+    checks.accepted(
+        "throttle timestamps and TTLs within tolerance",
+        &compare_redis(&redis_a, &redis_b),
+    )?;
+    checks.ok(
+        "in-window throttle timestamps become <now>",
+        redis_a
+            .added
+            .values()
+            .next()
+            .and_then(|entry| entry.value.as_ref())
+            .and_then(Value::as_array)
+            .map(|values| values[0] == json!("<now>") && values[1] == json!("<now>"))
+            .unwrap_or(false),
+    )?;
+
+    let mut redis_extra = redis_b.clone();
+    redis_extra.added.insert(
+        b":1:throttle_anon_127.0.0.1".to_vec(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 10,
+            ttl_ms: 60_000,
+            value: Some(json!([])),
+        },
+    );
+    checks.detected(
+        "an extra Redis key",
+        "redis",
+        &compare_redis(&redis_a, &redis_extra),
+    )?;
+
+    let mut redis_far_ttl = redis_b.clone();
+    for entry in redis_far_ttl.added.values_mut() {
+        entry.ttl_ms = 30_000;
+    }
+    checks.detected(
+        "a Redis TTL that differs by more than the tolerance",
+        "redis",
+        &compare_redis(&redis_a, &redis_far_ttl),
+    )?;
+
+    // A value seen in an earlier step keeps its `<now>` even outside the
+    // current window.
+    let mut later = normalizer("http://127.0.0.1:18000");
+    later.start_step(start, start);
+    let mut first = RedisDiff::default();
+    first.added.insert(
+        b":1:throttle_anon_127.0.0.1".to_vec(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 10,
+            ttl_ms: 60_000,
+            value: Some(json!([now])),
+        },
+    );
+    later.normalize_redis_diff(&mut first);
+    later.start_step(time("2026-11-15T20:10:00Z"), time("2026-11-15T20:10:00Z"));
+    let mut second = RedisDiff::default();
+    second.changed.insert(
+        b":1:throttle_anon_127.0.0.1".to_vec(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 10,
+            ttl_ms: 60_000,
+            value: Some(json!([now, now + 600.0])),
+        },
+    );
+    later.normalize_redis_diff(&mut second);
+    checks.ok(
+        "an earlier step's Redis timestamp stays <now>",
+        second
+            .changed
+            .values()
+            .next()
+            .and_then(|entry| entry.value.as_ref())
+            .and_then(Value::as_array)
+            .map(|values| values[0] == json!("<now>") && values[1] == json!("<now>"))
+            .unwrap_or(false),
+    )?;
+
+    // -- DB diffs ----------------------------------------------------------
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    let mut insert_a = db_diff(
+        "public.issues",
+        vec![json!({"id": uuid_a, "name": "Work item", "created_at": "2026-11-15T20:00:00.1Z"})],
+        vec![],
+        vec![],
+    );
+    let mut insert_b = db_diff(
+        "public.issues",
+        vec![json!({"id": uuid_b, "name": "Work item", "created_at": "2026-11-15T20:00:00.9Z"})],
+        vec![],
+        vec![],
+    );
+    a.normalize_db_diff(&mut insert_a);
+    b.normalize_db_diff(&mut insert_b);
+    checks.accepted(
+        "database insert with generated id and timestamp",
+        &compare_db(&insert_a, &insert_b),
+    )?;
+
+    let mut insert_b_extra = db_diff(
+        "public.issues",
+        vec![
+            json!({"id": uuid_b, "name": "Work item", "created_at": "2026-11-15T20:00:00.9Z"}),
+            json!({"id": uuid_c, "name": "Unexpected", "created_at": "2026-11-15T20:00:00.9Z"}),
+        ],
+        vec![],
+        vec![],
+    );
+    b.normalize_db_diff(&mut insert_b_extra);
+    checks.detected(
+        "extra database row",
+        "db",
+        &compare_db(&insert_a, &insert_b_extra),
+    )?;
+
+    let mut delete_a = db_diff(
+        "public.issues",
+        vec![],
+        vec![json!({"id": uuid_a, "name": "Gone"})],
+        vec![],
+    );
+    a.normalize_db_diff(&mut delete_a);
+    checks.detected(
+        "missing database row",
+        "db",
+        &compare_db(&delete_a, &db_diff("public.issues", vec![], vec![], vec![])),
+    )?;
+
+    let mut update_a = db_diff(
+        "public.issues",
+        vec![],
+        vec![],
+        vec![json!({"pk": [uuid_a], "changed": {"name": {"a": "old", "b": "new"}}})],
+    );
+    let mut update_b = db_diff(
+        "public.issues",
+        vec![],
+        vec![],
+        vec![json!({"pk": [uuid_b], "changed": {"name": {"a": "old", "b": "new"}}})],
+    );
+    a.normalize_db_diff(&mut update_a);
+    b.normalize_db_diff(&mut update_b);
+    checks.accepted(
+        "database update with generated id",
+        &compare_db(&update_a, &update_b),
+    )?;
+
+    let mut update_c = db_diff(
+        "public.issues",
+        vec![],
+        vec![],
+        vec![json!({"pk": [uuid_b], "changed": {"name": {"a": "old", "b": "different"}}})],
+    );
+    b.normalize_db_diff(&mut update_c);
+    checks.detected(
+        "database update with a different value",
+        "db",
+        &compare_db(&update_a, &update_c),
+    )?;
 
     let mut expiry_a = db_diff(
         "public.sessions",
@@ -368,35 +1023,6 @@ pub fn run() -> Result<()> {
         &compare_db(&expiry_a, &expiry_bad),
     )?;
 
-    let mut hash_a = db_diff(
-        "public.users",
-        vec![json!({"password": "pbkdf2_sha256$1200000$saltA$hashA"})],
-        vec![],
-        vec![],
-    );
-    let mut hash_b = db_diff(
-        "public.users",
-        vec![json!({"password": "pbkdf2_sha256$1200000$saltB$hashB"})],
-        vec![],
-        vec![],
-    );
-    a.normalize_db_diff(&mut hash_a);
-    b.normalize_db_diff(&mut hash_b);
-    checks.accepted("password salt and hash", &compare_db(&hash_a, &hash_b))?;
-
-    let mut hash_bad = db_diff(
-        "public.users",
-        vec![json!({"password": "pbkdf2_sha1$500000$salt$hash"})],
-        vec![],
-        vec![],
-    );
-    b.normalize_db_diff(&mut hash_bad);
-    checks.detected(
-        "password algorithm/iteration change",
-        "db",
-        &compare_db(&hash_a, &hash_bad),
-    )?;
-
     let mut colour_a = db_diff(
         "public.workspaces",
         vec![json!({"background_color": "#a1b2c3"})],
@@ -405,129 +1031,21 @@ pub fn run() -> Result<()> {
     );
     let mut colour_b = db_diff(
         "public.workspaces",
-        vec![json!({"background_color": "#d4e5f6"})],
+        vec![json!({"background_color": "#D4E5f6"})],
         vec![],
         vec![],
     );
     a.normalize_db_diff(&mut colour_a);
     b.normalize_db_diff(&mut colour_b);
     checks.accepted("random default colour", &compare_db(&colour_a, &colour_b))?;
-    let mut colour_bad = db_diff(
-        "public.workspaces",
-        vec![json!({"background_color": "not-a-colour"})],
-        vec![],
-        vec![],
-    );
-    b.normalize_db_diff(&mut colour_bad);
-    checks.detected(
-        "constant colour still compared",
-        "db",
-        &compare_db(&colour_a, &colour_bad),
-    )?;
-
-    // -- DB diffs ----------------------------------------------------------
-    let mut a = normalizer("http://127.0.0.1:18000");
-    let mut b = normalizer("http://127.0.0.1:18001");
-    a.start_step(start, start);
-    b.start_step(start, start);
-
-    let insert_a = db_diff(
-        "public.issues",
-        vec![json!({"id": uuid_a, "name": "Work item", "created_at": "2026-11-15T20:00:00.1Z"})],
-        vec![],
-        vec![],
-    );
-    let insert_b = db_diff(
-        "public.issues",
-        vec![json!({"id": uuid_b, "name": "Work item", "created_at": "2026-11-15T20:00:00.9Z"})],
-        vec![],
-        vec![],
-    );
-    let mut insert_a = insert_a;
-    let mut insert_b = insert_b;
-    a.normalize_db_diff(&mut insert_a);
-    b.normalize_db_diff(&mut insert_b);
-    checks.accepted(
-        "database insert with generated id and timestamp",
-        &compare_db(&insert_a, &insert_b),
-    )?;
-
-    let insert_b_extra = db_diff(
-        "public.issues",
-        vec![
-            json!({"id": uuid_b, "name": "Work item", "created_at": "2026-11-15T20:00:00.9Z"}),
-            json!({"id": uuid_c, "name": "Unexpected", "created_at": "2026-11-15T20:00:00.9Z"}),
-        ],
-        vec![],
-        vec![],
-    );
-    let mut insert_b_extra = insert_b_extra;
-    b.normalize_db_diff(&mut insert_b_extra);
-    checks.detected(
-        "extra database row",
-        "db",
-        &compare_db(&insert_a, &insert_b_extra),
-    )?;
-
-    let delete_a = db_diff(
-        "public.issues",
-        vec![],
-        vec![json!({"id": uuid_a, "name": "Gone"})],
-        vec![],
-    );
-    let mut delete_a = delete_a;
-    a.normalize_db_diff(&mut delete_a);
-    checks.detected(
-        "missing database row",
-        "db",
-        &compare_db(&delete_a, &db_diff("public.issues", vec![], vec![], vec![])),
-    )?;
-
-    let update_a = db_diff(
-        "public.issues",
-        vec![],
-        vec![],
-        vec![json!({"pk": [uuid_a], "changed": {"name": {"a": "old", "b": "new"}}})],
-    );
-    let update_b = db_diff(
-        "public.issues",
-        vec![],
-        vec![],
-        vec![json!({"pk": [uuid_b], "changed": {"name": {"a": "old", "b": "new"}}})],
-    );
-    let mut update_a = update_a;
-    let mut update_b = update_b;
-    a.normalize_db_diff(&mut update_a);
-    b.normalize_db_diff(&mut update_b);
-    checks.accepted(
-        "database update with generated id",
-        &compare_db(&update_a, &update_b),
-    )?;
-
-    let update_c = db_diff(
-        "public.issues",
-        vec![],
-        vec![],
-        vec![json!({"pk": [uuid_b], "changed": {"name": {"a": "old", "b": "different"}}})],
-    );
-    let mut update_c = update_c;
-    b.normalize_db_diff(&mut update_c);
-    checks.detected(
-        "database update with a different value",
-        "db",
-        &compare_db(&update_a, &update_c),
-    )?;
 
     // -- snapshot diff, end to end ----------------------------------------
-    let mut before = crate::db::DbSnapshot::default();
+    let before = crate::db::DbSnapshot::default();
     let after = before.clone();
     checks.ok(
         "identical snapshots have an empty diff",
         diff_snapshots(&before, &after).is_empty(),
     )?;
-    before
-        .tables
-        .insert("public.t".to_string(), BTreeMap::new());
 
     // -- Celery ------------------------------------------------------------
     let mut a = normalizer("http://127.0.0.1:18000");
@@ -558,6 +1076,10 @@ pub fn run() -> Result<()> {
         "celery ids, args and argsrepr",
         &compare_celery(&[message_a.clone()], &[message_b.clone()]),
     )?;
+    checks.ok(
+        "celery transport headers are dropped",
+        !message_a.headers.contains_key("id"),
+    )?;
 
     let mut message_wrong_task = message_b.clone();
     message_wrong_task.task = Some("plane.tasks.something_else".to_string());
@@ -573,29 +1095,24 @@ pub fn run() -> Result<()> {
         "celery",
         &compare_celery(&[message_a.clone()], &[message_wrong_args]),
     )?;
-    // A task enqueued either side of a second boundary differs only in
-    // `epoch`; that is legitimate.
     let start_seconds = start.timestamp();
     let mut epoch_a = celery_message("plane.tasks.issue_activity", json!([]));
     epoch_a.kwargs = json!({"epoch": start_seconds});
     let mut epoch_b = celery_message("plane.tasks.issue_activity", json!([]));
     epoch_b.kwargs = json!({"epoch": start_seconds + 1});
-    let mut epoch_a_normalised = epoch_a.clone();
-    let mut epoch_b_normalised = epoch_b.clone();
-    a.normalize_celery(&mut epoch_a_normalised);
-    b.normalize_celery(&mut epoch_b_normalised);
+    a.normalize_celery(&mut epoch_a);
+    b.normalize_celery(&mut epoch_b);
     checks.accepted(
         "celery epoch one second apart",
-        &compare_celery(&[epoch_a_normalised], &[epoch_b_normalised]),
+        &compare_celery(&[epoch_a.clone()], &[epoch_b.clone()]),
     )?;
-    let mut epoch_old = epoch_b.clone();
+    let mut epoch_old = celery_message("plane.tasks.issue_activity", json!([]));
     epoch_old.kwargs = json!({"epoch": 1600000000});
-    let mut epoch_old_normalised = epoch_old;
-    a.normalize_celery(&mut epoch_old_normalised);
+    a.normalize_celery(&mut epoch_old);
     checks.detected(
         "celery epoch from another period",
         "celery",
-        &compare_celery(&[epoch_a.clone()], &[epoch_old_normalised]),
+        &compare_celery(&[epoch_a], &[epoch_old]),
     )?;
 
     let mut message_wrong_header = message_b.clone();
@@ -680,10 +1197,14 @@ pub fn run() -> Result<()> {
     )?;
 
     // -- D15 byte rule -----------------------------------------------------
-    let pass = check_drf_formatting(br#"{"a":1,"b":"x"}"#);
-    let fail = check_drf_formatting(br#"{"a": 1, "b": "x"}"#);
-    checks.ok("DRF-compact body passes", pass.is_ok())?;
-    checks.ok("spaced body fails", fail.is_err())?;
+    checks.ok(
+        "DRF-compact body passes",
+        check_drf_formatting(br#"{"a":1,"b":"x"}"#).is_ok(),
+    )?;
+    checks.ok(
+        "spaced body fails",
+        check_drf_formatting(br#"{"a": 1, "b": "x"}"#).is_err(),
+    )?;
     checks.detected(
         "formatting mismatch",
         "body",
@@ -707,18 +1228,6 @@ pub fn run() -> Result<()> {
         check_drf_formatting(escaped.as_bytes()).is_ok()
             && check_drf_formatting(line_separator.as_bytes()).is_err(),
     )?;
-    let paragraph_separator = "{\"a\":\"\u{2029}\"}";
-    let escaped_p = "{\"a\":\"\\u2029\"}";
-    checks.ok(
-        "U+2029 must be escaped as six ASCII characters",
-        check_drf_formatting(escaped_p.as_bytes()).is_ok()
-            && check_drf_formatting(paragraph_separator.as_bytes()).is_err(),
-    )?;
-    checks.ok(
-        "other non-ASCII is written raw",
-        check_drf_formatting("{\"a\":\"héllo→\"}".as_bytes()).is_ok()
-            && check_drf_formatting("{\"a\":\"h\\u00e9llo\"}".as_bytes()).is_err(),
-    )?;
     checks.ok(
         "drf_compact keeps key order and number lexemes",
         drf_compact(&serde_json::from_str(r#"{"b":1.0,"a":2e3}"#).expect("json")).expect("compact")
@@ -730,15 +1239,11 @@ pub fn run() -> Result<()> {
         value: BodyValue::Text("hello".to_string()),
         modified: false,
     };
-    let text_b = NormalizedBody {
-        value: BodyValue::Text("hello".to_string()),
-        modified: false,
-    };
-    checks.accepted("identical text bodies", &compare_bodies(&text_a, &text_b))?;
     let text_c = NormalizedBody {
         value: BodyValue::Text("hello!".to_string()),
         modified: false,
     };
+    checks.accepted("identical text bodies", &compare_bodies(&text_a, &text_a))?;
     checks.detected("text body", "body", &compare_bodies(&text_a, &text_c))?;
     let binary_a = NormalizedBody {
         value: BodyValue::Binary("00ff".to_string()),

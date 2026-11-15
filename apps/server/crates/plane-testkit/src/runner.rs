@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
@@ -23,17 +23,19 @@ use crate::celery::{
 };
 use crate::compare::{
     Difference, FormattingStatus, check_drf_formatting, compare_bodies, compare_celery, compare_db,
-    compare_formatting, compare_headers, compare_status,
+    compare_formatting, compare_headers, compare_redis, compare_status,
 };
 use crate::config::{CaptureSource, NormalizeRules, Scenario, Step, TargetsFile};
 use crate::db::{DbAdmin, DbDiff, DbSnapshot, DbSnapshotter, diff_snapshots};
 use crate::http::{HttpClient, HttpRequest, HttpResponse};
 use crate::normalize::{
-    BodyValue, GZIP_RANDOM_WHY, NormalizedBody, TargetNormalizer, collect_known_uuids,
-    content_type_is_json,
+    BodyValue, GZIP_RANDOM_WHY, NormalizedBody, NormalizerConfig, TargetNormalizer,
+    collect_known_uuids, content_type_is_json,
 };
 use crate::provision::{PortAllocator, TargetInstance, host_port, wait_tcp};
-use crate::redis::RedisAdmin;
+use crate::redis::{
+    RedisAdmin, RedisDiff, RedisSnapshot, RedisSnapshotter, diff_snapshots as diff_redis_snapshots,
+};
 use crate::report::{RunReport, SideReport, SnapshotStats, StepReport, TargetRules};
 use crate::util::{ellipsize, new_run_id, now_utc, repo_root, validate_identifier};
 
@@ -60,6 +62,8 @@ pub struct RunOptions {
     /// build a deliberately divergent B for the harness self-proof.
     pub a_vars: BTreeMap<String, String>,
     pub b_vars: BTreeMap<String, String>,
+    /// Do not snapshot or compare Redis.
+    pub no_redis: bool,
     pub attach: Option<AttachOptions>,
 }
 
@@ -151,8 +155,11 @@ struct Side {
     normalizer: TargetNormalizer,
     snapshotter: DbSnapshotter,
     last_snapshot: DbSnapshot,
+    redis: Option<RedisSnapshotter>,
+    last_redis: RedisSnapshot,
     celery: Option<CeleryDrain>,
     stats: SnapshotStats,
+    redis_stats: SnapshotStats,
 }
 
 struct SideOutcome {
@@ -160,11 +167,15 @@ struct SideOutcome {
     raw_body: Vec<u8>,
     duration: Duration,
     snapshot_ms: f64,
+    redis_ms: f64,
+    normalise_ms: f64,
     headers: Vec<(String, String)>,
     body: NormalizedBody,
     formatting: FormattingStatus,
     db_diff: DbDiff,
+    redis_diff: RedisDiff,
     messages: Vec<CeleryMessage>,
+    violations: Vec<crate::normalize::Violation>,
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +221,31 @@ async fn run_inner(
         opts.target_b,
         spec_b.kind
     );
+
+    // Session payloads can only be verified with the target's own SECRET_KEY.
+    // Fail before starting anything rather than reporting every session step
+    // as a shape violation.
+    let secret_key_a = spec_a.secret_key(&repo_root())?;
+    let secret_key_b = spec_b.secret_key(&repo_root())?;
+    if rules.requires_secret_key() {
+        for (label, target) in [("A", &opts.target_a), ("B", &opts.target_b)] {
+            let has_key = match label {
+                "A" => secret_key_a.is_some(),
+                _ => secret_key_b.is_some(),
+            };
+            if !has_key {
+                bail!(
+                    "normalize.yaml verifies session payloads, but target {label} ({target}) has no `secret_key_file`; \
+                     add one to targets.yaml (for the dev stack: apps/server/dev/.env.local, variable SECRET_KEY)"
+                );
+            }
+        }
+    }
+
+    let vars_a = side_vars(&scenario, &opts.a_vars);
+    let vars_b = side_vars(&scenario, &opts.b_vars);
+    let passwords_a = Arc::new(resolve_passwords(&scenario, &vars_a)?);
+    let passwords_b = Arc::new(resolve_passwords(&scenario, &vars_b)?);
 
     let (pg_host, pg_port) = host_port(&opts.pg_url, 5432);
     let (redis_host, redis_port) = host_port(&opts.redis_url, 6379);
@@ -347,22 +383,62 @@ async fn run_inner(
     }
     let known_uuids = Arc::new(known_uuids);
 
+    let mut redis_a = if opts.no_redis {
+        None
+    } else {
+        Some(redis.snapshotter(a_redis_db).await?)
+    };
+    let mut redis_b = if opts.no_redis {
+        None
+    } else {
+        Some(redis.snapshotter(b_redis_db).await?)
+    };
+    let (baseline_redis_a, baseline_redis_b) = match (&mut redis_a, &mut redis_b) {
+        (Some(a), Some(b)) => {
+            let (a, b) = tokio::join!(a.snapshot(), b.snapshot());
+            let (a, b) = (a?, b?);
+            println!(
+                "redis baseline: A {} keys ({:.1} ms), B {} keys ({:.1} ms)",
+                a.snapshot.key_count(),
+                a.duration.as_secs_f64() * 1000.0,
+                b.snapshot.key_count(),
+                b.duration.as_secs_f64() * 1000.0
+            );
+            (a, b)
+        }
+        _ => (
+            crate::redis::SnapshotResult {
+                snapshot: RedisSnapshot::default(),
+                duration: Duration::ZERO,
+            },
+            crate::redis::SnapshotResult {
+                snapshot: RedisSnapshot::default(),
+                duration: Duration::ZERO,
+            },
+        ),
+    };
+
     let mut side_a = Side {
         target: spec_a.kind.clone(),
         base_url: a_url.clone(),
         database: a_db.clone(),
         vhost: a_vhost.clone(),
         http: HttpClient::new(&a_url)?,
-        vars: side_vars(&scenario, &opts.a_vars),
-        normalizer: TargetNormalizer::new(
-            Arc::clone(&rules),
-            a_url.clone(),
-            Arc::clone(&known_uuids),
-        ),
+        vars: vars_a,
+        normalizer: TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::clone(&rules),
+            base_url: a_url.clone(),
+            known_uuids: Arc::clone(&known_uuids),
+            secret_key: secret_key_a.map(Arc::new),
+            passwords: passwords_a,
+        }),
         snapshotter: snapshotter_a,
         last_snapshot: baseline_a.snapshot,
+        redis: redis_a,
+        last_redis: baseline_redis_a.snapshot,
         celery: None,
         stats: SnapshotStats::default(),
+        redis_stats: SnapshotStats::default(),
     };
     let mut side_b = Side {
         target: spec_b.kind.clone(),
@@ -370,16 +446,21 @@ async fn run_inner(
         database: b_db.clone(),
         vhost: b_vhost.clone(),
         http: HttpClient::new(&b_url)?,
-        vars: side_vars(&scenario, &opts.b_vars),
-        normalizer: TargetNormalizer::new(
-            Arc::clone(&rules),
-            b_url.clone(),
-            Arc::clone(&known_uuids),
-        ),
+        vars: vars_b,
+        normalizer: TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::clone(&rules),
+            base_url: b_url.clone(),
+            known_uuids: Arc::clone(&known_uuids),
+            secret_key: secret_key_b.map(Arc::new),
+            passwords: passwords_b,
+        }),
         snapshotter: snapshotter_b,
         last_snapshot: baseline_b.snapshot,
+        redis: redis_b,
+        last_redis: baseline_redis_b.snapshot,
         celery: None,
         stats: SnapshotStats::default(),
+        redis_stats: SnapshotStats::default(),
     };
     side_a
         .stats
@@ -387,6 +468,14 @@ async fn run_inner(
     side_b
         .stats
         .record(baseline_b.duration.as_secs_f64() * 1000.0);
+    if !opts.no_redis {
+        side_a
+            .redis_stats
+            .record(baseline_redis_a.duration.as_secs_f64() * 1000.0);
+        side_b
+            .redis_stats
+            .record(baseline_redis_b.duration.as_secs_f64() * 1000.0);
+    }
 
     let celery_enabled = match &opts.attach {
         Some(attach) => attach.celery,
@@ -458,7 +547,20 @@ async fn run_inner(
             &b_outcome.formatting,
         ));
         differences.extend(compare_db(&a_outcome.db_diff, &b_outcome.db_diff));
+        differences.extend(compare_redis(&a_outcome.redis_diff, &b_outcome.redis_diff));
         differences.extend(compare_celery(&a_outcome.messages, &b_outcome.messages));
+        // A violation is a difference on its own: a target that writes an
+        // unverifiable session or password hash cannot be rescued by another
+        // target that does the same thing.
+        for (label, outcome) in [("A", &a_outcome), ("B", &b_outcome)] {
+            for violation in &outcome.violations {
+                differences.push(Difference::new(
+                    violation.part.clone(),
+                    violation.path.clone(),
+                    format!("{label}: {}", violation.message),
+                ));
+            }
+        }
         if let Some(expected) = step.expect_status {
             for (label, outcome) in [("A", &a_outcome), ("B", &b_outcome)] {
                 if outcome.status != expected {
@@ -475,11 +577,13 @@ async fn run_inner(
         all_ok &= ok;
         if ok {
             println!(
-                "  ok   {number:02} {} {} ({:.0} ms, db {:.0} ms)",
+                "  ok   {number:02} {} {} ({:.0} ms, db {:.0} ms, redis {:.1} ms, norm {:.1} ms)",
                 step.method,
                 step.path,
                 a_outcome.duration.as_secs_f64() * 1000.0,
-                a_outcome.snapshot_ms
+                a_outcome.snapshot_ms,
+                a_outcome.redis_ms,
+                a_outcome.normalise_ms
             );
         } else {
             println!(
@@ -503,6 +607,8 @@ async fn run_inner(
             status: outcome.status,
             duration_ms: outcome.duration.as_secs_f64() * 1000.0,
             snapshot_ms: outcome.snapshot_ms,
+            redis_ms: outcome.redis_ms,
+            normalise_ms: outcome.normalise_ms,
             headers: headers_to_map(&filter_headers(&outcome.headers, &rules, true)),
             body: match &outcome.body.value {
                 BodyValue::Json(_) | BodyValue::Text(_) => {
@@ -517,6 +623,7 @@ async fn run_inner(
                 FormattingStatus::Fail(error) => format!("fail: {error}"),
             },
             db: serde_json::to_value(&outcome.db_diff).unwrap_or(Value::Null),
+            redis: outcome.redis_diff.to_json(),
             celery: serde_json::to_value(&outcome.messages).unwrap_or(Value::Null),
         };
 
@@ -536,6 +643,14 @@ async fn run_inner(
     let mut snapshot = BTreeMap::new();
     snapshot.insert("A".to_string(), side_a.stats.clone());
     snapshot.insert("B".to_string(), side_b.stats.clone());
+    let mut redis_snapshot = BTreeMap::new();
+    redis_snapshot.insert("A".to_string(), side_a.redis_stats.clone());
+    redis_snapshot.insert("B".to_string(), side_b.redis_stats.clone());
+    println!(
+        "placeholders: A {} value(s), B {} value(s)",
+        side_a.normalizer.placeholder_count(),
+        side_b.normalizer.placeholder_count()
+    );
     let report = RunReport {
         run_id: run_id.to_string(),
         scenario: scenario.name.clone(),
@@ -557,6 +672,7 @@ async fn run_inner(
         finished_at: finished_at.to_rfc3339(),
         total_secs: (finished_at - started_at).num_milliseconds() as f64 / 1000.0,
         snapshot,
+        redis_snapshot,
         normalisation: vec![
             TargetRules {
                 target: "A".to_string(),
@@ -667,6 +783,7 @@ async fn execute_step(
     rabbit: Option<&RabbitAdmin>,
 ) -> Result<SideOutcome> {
     let before = std::mem::take(&mut side.last_snapshot);
+    let before_redis = std::mem::take(&mut side.last_redis);
     let request = build_request(side, step, scenario)?;
     let started: DateTime<Utc> = now_utc();
     let response = side
@@ -680,6 +797,19 @@ async fn execute_step(
     let snapshot_ms = snapshot.duration.as_secs_f64() * 1000.0;
     side.stats.record(snapshot_ms);
     let after = snapshot.snapshot;
+
+    let (after_redis, redis_ms) = match &mut side.redis {
+        Some(sampler) => {
+            let result = sampler
+                .snapshot()
+                .await
+                .with_context(|| format!("snapshotting Redis db {}", sampler.index))?;
+            let millis = result.duration.as_secs_f64() * 1000.0;
+            side.redis_stats.record(millis);
+            (result.snapshot, millis)
+        }
+        None => (RedisSnapshot::default(), 0.0),
+    };
 
     let mut messages = Vec::new();
     if let (Some(rabbit), Some(drain)) = (rabbit, &side.celery) {
@@ -696,7 +826,8 @@ async fn execute_step(
     let captures = collect_captures(side, step, &response)?;
 
     // Normalisation order is fixed: headers (Location first), body, database,
-    // Celery. Placeholder numbering depends on it.
+    // Celery, Redis. Placeholder numbering depends on it.
+    let normalise_started = Instant::now();
     side.normalizer.start_step(started, ended);
     let headers = side.normalizer.normalize_headers(&response.headers);
     let json = content_type_is_json(&response.headers);
@@ -706,6 +837,10 @@ async fn execute_step(
     for message in &mut messages {
         side.normalizer.normalize_celery(message);
     }
+    let mut redis_diff = diff_redis_snapshots(&before_redis, &after_redis);
+    side.normalizer.normalize_redis_diff(&mut redis_diff);
+    let violations = side.normalizer.take_violations();
+    let normalise_ms = normalise_started.elapsed().as_secs_f64() * 1000.0;
 
     let formatting = if json {
         match check_drf_formatting(&response.body) {
@@ -717,6 +852,7 @@ async fn execute_step(
     };
 
     side.last_snapshot = after;
+    side.last_redis = after_redis;
     for (key, value) in captures {
         side.vars.insert(key, value);
     }
@@ -726,12 +862,28 @@ async fn execute_step(
         raw_body: response.body.clone(),
         duration: (ended - started).to_std().unwrap_or_default(),
         snapshot_ms,
+        redis_ms,
+        normalise_ms,
         headers,
         body,
         formatting,
         db_diff,
+        redis_diff,
         messages,
+        violations,
     })
+}
+
+fn resolve_passwords(scenario: &Scenario, vars: &BTreeMap<String, String>) -> Result<Vec<String>> {
+    scenario
+        .password_vars
+        .iter()
+        .map(|name| {
+            vars.get(name)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("password_vars entry {name:?} has no value"))
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,8 +1217,10 @@ mod tests {
     fn content_length_is_user_controlled() {
         let rules = NormalizeRules {
             ignore_headers: vec!["content-length".to_string(), "date".to_string()],
+            shapes: BTreeMap::new(),
             volatile_cookies: vec![],
             volatile_json_keys: vec![],
+            volatile_headers: vec![],
             volatile_celery_headers: vec![],
             volatile_db_columns: vec![],
             timestamp_slack_secs: 2,
