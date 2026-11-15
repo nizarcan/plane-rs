@@ -16,6 +16,7 @@ chrono = { workspace = true, features = ["serde"] }
 deadpool-postgres.workspace = true
 http.workspace = true
 plane-core = { path = "../plane-core" }
+plane-serde = { path = "../plane-serde" }
 rustls = { workspace = true, default-features = false, features = [
   "aws_lc_rs",
   "std",

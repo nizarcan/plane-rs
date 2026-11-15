@@ -411,6 +411,13 @@ jobs:
             exit 1
           fi
 
+      # apps/server/models.json and crates/plane-db/src/models/** are generated
+      # from Django's own model metadata. A hand edit, a model change without a
+      # regeneration, or a removed generated file fails here.
+      - name: Check the generated model snapshot is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/codegen/models.py --check
+
       - name: Check the generated proxy snippet is current
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/proxy/gen_caddy.py --check

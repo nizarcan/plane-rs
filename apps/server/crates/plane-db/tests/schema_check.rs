@@ -32,7 +32,12 @@ async fn schema_check() {
         Err(message) => panic!("{message}"),
     };
 
-    match plane_db::schema_check::verify_url(&url, ALL_QUERIES).await {
+    // The hand-written statements plus the generated `SELECT … LIMIT 0` for
+    // every model row type.
+    let mut queries: Vec<&plane_db::Query> = ALL_QUERIES.to_vec();
+    queries.extend_from_slice(plane_db::models::catalog::ALL_MODEL_QUERIES);
+
+    match plane_db::schema_check::verify_url(&url, &queries).await {
         Ok(report) => println!(
             "schema_check: {} statements verified against {}",
             report.checked, report.target

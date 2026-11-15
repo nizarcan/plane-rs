@@ -12,12 +12,14 @@
 //! them with [`schema_check::verify`]; see `crate::schema_check`.
 
 pub mod catalog;
+pub mod models;
 pub mod pool;
 pub mod queries;
 pub mod schema_check;
 pub mod tls;
 pub mod url;
 
-pub use catalog::{Column, PgType, Query};
+pub use catalog::{ArrayElement, Column, PgType, Query};
+pub use models::{JsonText, Numeric};
 pub use pool::{DbError, DbPools, PostgresSettings, prepare_cached};
 pub use url::{DatabaseConfig, DatabaseConfigs, DatabaseUrlError, OptionValue};

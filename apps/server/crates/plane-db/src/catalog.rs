@@ -44,6 +44,64 @@ pub enum PgType {
     Inet,
     Cidr,
     Interval,
+    /// A Postgres array of the wrapped element type (`_uuid`, `_varchar`, …).
+    ArrayOf(ArrayElement),
+}
+
+/// The element type of a Postgres array.
+///
+/// Arrays need a separate enum: `PgType` is `Copy` and stored by value in
+/// `static` catalog entries, so it cannot contain itself, and `Box` is not
+/// usable in a `const` initialiser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrayElement {
+    Bool,
+    Int2,
+    Int4,
+    Int8,
+    Float4,
+    Float8,
+    Numeric,
+    Text,
+    Varchar,
+    Uuid,
+    Timestamptz,
+    Date,
+    Time,
+    Json,
+    Jsonb,
+    Bytea,
+    Inet,
+    Cidr,
+    Interval,
+}
+
+impl ArrayElement {
+    /// `pg_type.typname` of an array of this element type: Postgres prefixes
+    /// the element type's name with `_`.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Bool => "_bool",
+            Self::Int2 => "_int2",
+            Self::Int4 => "_int4",
+            Self::Int8 => "_int8",
+            Self::Float4 => "_float4",
+            Self::Float8 => "_float8",
+            Self::Numeric => "_numeric",
+            Self::Text => "_text",
+            Self::Varchar => "_varchar",
+            Self::Uuid => "_uuid",
+            Self::Timestamptz => "_timestamptz",
+            Self::Date => "_date",
+            Self::Time => "_time",
+            Self::Json => "_json",
+            Self::Jsonb => "_jsonb",
+            Self::Bytea => "_bytea",
+            Self::Inet => "_inet",
+            Self::Cidr => "_cidr",
+            Self::Interval => "_interval",
+        }
+    }
 }
 
 impl PgType {
@@ -69,6 +127,7 @@ impl PgType {
             Self::Inet => "inet",
             Self::Cidr => "cidr",
             Self::Interval => "interval",
+            Self::ArrayOf(inner) => inner.name(),
         }
     }
 }
@@ -152,6 +211,8 @@ mod tests {
         assert_eq!(PgType::Timestamptz.name(), "timestamptz");
         assert_eq!(PgType::Jsonb.name(), "jsonb");
         assert_eq!(PgType::Uuid.name(), "uuid");
+        assert_eq!(PgType::ArrayOf(ArrayElement::Uuid).name(), "_uuid");
+        assert_eq!(PgType::ArrayOf(ArrayElement::Varchar).name(), "_varchar");
     }
 
     #[test]
