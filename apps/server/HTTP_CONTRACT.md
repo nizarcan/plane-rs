@@ -496,6 +496,15 @@ Notes that bite:
   `Compression::default()` (level 6) reproduces it; the exact byte equality of the
   compressed stream is *not* required for Django to accept it, only for a
   byte-for-byte differential test of a write.
+* The compress-or-not decision is `len(compressed) < len(data) - 1`
+  (`signing.py:253-258`), so it depends on the compressor's actual output, not on
+  the input length alone. A different zlib implementation (or level) can therefore
+  choose a different branch for a tiny payload whose saving sits exactly on that
+  boundary: both the plain form and the `.`-prefixed compressed form are **valid
+  signed payloads** that Django accepts. `loads` decompresses only when the payload
+  starts with `.` (`signing.py:264-275`), and that dot is covered by the signature.
+  A differential test should compare the decoded session or pin the compressor,
+  rather than require identical bytes for every payload.
 * Base64 is URL-safe with **all trailing `=` stripped**; decoding re-pads with
   `b"=" * (-len(s) % 4)` (`signing.py:89-95`).
 * Splitting is `rsplit(":", 1)` twice (`signing.py:230-237`, `286-292`), so the
@@ -705,8 +714,13 @@ csrftoken=<32>; expires=…; Max-Age=31449600; Path=/; SameSite=Lax        # CSR
    `X-CSRFToken` (`"CSRF token missing."`); length/charset
    (`"CSRF token from the 'X-Csrftoken' HTTP header has incorrect length."` /
    `"… has invalid characters."`); mismatch →
-   `"… is incorrect."`; a malformed cookie →
-   `"CSRF cookie has incorrect length."` / `"… has invalid characters."`.
+   `"CSRF token from the 'X-Csrftoken' HTTP header incorrect."` — **without "is"**,
+   because the reason passed at `csrf.py:394-398` is the bare `"incorrect"` while
+   the other reasons are verb phrases. A malformed cookie →
+   `"CSRF cookie has incorrect length."` / `"… has invalid characters."`. The
+   header form is produced by `_bad_token_message` (`csrf.py:342-348`):
+   `f"CSRF token from {source} {reason}."`, with `HTTP_X_CSRFTOKEN` parsed as
+   `'X-Csrftoken'` and `POST` left unquoted.
 
 All reason strings are in Appendix B.2 verbatim.
 
@@ -1435,9 +1449,21 @@ Which routes get which:
   defaults on two actions: `generate_email_verification_code` →
   `[EmailVerificationThrottle(), AuthenticationThrottle()]`, `update_email` →
   `[AuthenticationThrottle()]`; everything else keeps `AnonRateThrottle`.
-* `/api/v1/`: `BaseAPIView.get_throttles()`/`BaseViewSet.get_throttles()` return
-  `[ApiKeyRateThrottle()]` (`api:plane/api/views/base.py:69-70`), **replacing** the
-  default, so no anon throttle there.
+* `/api/v1/`: the throttle depends on the base class, and only one of the two
+  bases throttles API key callers.
+  `BaseAPIView.get_throttles()` returns `[ApiKeyRateThrottle()]`
+  (`api:plane/api/views/base.py:69-70`), **replacing** the default, so no anon
+  throttle there. `BaseViewSet` (`base.py:162`, e.g. `WorkspaceInvitationsViewset`,
+  `StickyViewSet`) does **not** override `get_throttles`, so its routes run
+  `REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"]`, i.e. `AnonRateThrottle` only.
+  That class returns `None` (no throttling) for authenticated callers
+  (`py:rest_framework/throttling.py:173-180`), so **API-key callers are not throttled
+  at all** on `BaseViewSet` routes. (They also require authentication, and DRF runs
+  `check_permissions` before `check_throttles`, so an anonymous request is rejected
+  before the anon bucket is reached.) `BaseViewSet` also has no `finalize_response`
+  override, so those routes never emit `X-RateLimit-*`; only
+  `BaseAPIView.finalize_response` copies them from `request.META`
+  (`base.py:123-136`, see §12.5).
 * `/auth/`: `AuthenticationThrottle` on the `APIView` endpoints
   (`api:plane/authentication/views/{app,space}/{check,magic,password_management}.py`,
   `common.py:49`) and, for the plain `View` redirect flows, a manual check in the
@@ -1493,6 +1519,15 @@ key)` (`default_key_func`, `base.py:33-42`).
 
 `AssetRateThrottle` and `ApiKeyRateThrottle` bypass `cache_format`; the `api_key` one
 therefore contains a raw API token as part of the Redis key name (`api:plane/api/rate_limit.py:16-23`).
+
+`ApiKeyRateThrottle` also reads a bucket for a request with no `X-Api-Key`.
+`get_cache_key` returns `None` there, so DRF's `SimpleRateThrottle.allow_request`
+sets `self.key = None` and returns `True` without touching the cache
+(`py:rest_framework/throttling.py:119-121`); Plane's override then still calls
+`self.cache.get(self.key, [])` (`api:plane/api/rate_limit.py:31`). django-redis
+renders that key as `:1:None`, so **every keyless request issues a `GET :1:None`**.
+It is a read only: nothing is written, the history stays empty, and the two
+`X-RateLimit-*` values are computed from that empty history (§12.5).
 
 `AuthenticationThrottle.get_cache_key` keys on the client IP **for every caller**,
 signed in or not (`rate_limit.py:32-34`). `EmailVerificationThrottle` extends
@@ -1566,6 +1601,19 @@ The `wait()` formula is
 `(duration - (now - history[-1])) / (num_requests - len(history) + 1)`
 (`throttling.py:149-162`) and returns a float; `Throttled.__init__` stores
 `math.ceil(wait)` and the header is that integer (`'%d' % exc.wait`).
+
+`wait()` returns `None` when `available_requests <= 0`, i.e. when the cached
+history is already longer than the current limit (a rate lowered while a longer
+window is still stored). One endpoint raises the refusal itself instead of
+letting `check_throttles` compute it: `UserEndpoint.generate_email_verification_code`
+calls `self.throttled(request, None)` when the per-address counter passes
+`EMAIL_UPDATE_CODES_PER_TARGET` (`api:plane/app/views/user/base.py:158-162`).
+With `wait=None`, `Throttled.__init__` skips both `math.ceil` and the
+`" Expected available in <n> second(s)."` suffix (`exceptions.py:233-244`), and
+the default handler adds `Retry-After` only when `exc.wait` is truthy
+(`py:rest_framework/views.py:91-92`). That response is therefore a **429 with
+Plane's `RATE_LIMIT_EXCEEDED` body, the default `Request was throttled.` detail
+(which the body replacement discards) and no `Retry-After` header**.
 
 For `/api/v1/` the throttle is the only one, and `BaseAPIView.finalize_response` copies
 `X-RateLimit-Remaining` and `X-RateLimit-Reset` from `request.META` onto **every**

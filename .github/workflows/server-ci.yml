@@ -2,13 +2,16 @@ name: Rust server
 
 # Checks for the Rust rewrite under apps/server (see RUST_REWRITE.md and
 # apps/server/AGENTS.md): the Rust workspaces, the route inventory and proxy
-# config, the Django schema the Rust code has to match, and licence headers.
+# config, the Django schema the Rust code has to match, the differential tests
+# that need a real database or Redis (permission oracle, throttle interop), and
+# licence headers.
 #
 # The Rust crates are being added crate by crate, so the steps that need a
-# crate (the plane-api release build, the plane-db database tests) are guarded
-# by a file-existence check and are skipped, not failed, until the crate lands.
-# The fmt/clippy/test steps of the main workspace are guarded the same way
-# because Cargo errors out on a virtual workspace with no members.
+# crate (the plane-api release build, the database-backed and Redis-backed
+# differential tests) are guarded by a file-existence check and are skipped,
+# not failed, until the crate lands. The fmt/clippy/test steps of the main
+# workspace are guarded the same way because Cargo errors out on a virtual
+# workspace with no members.
 
 on:
   workflow_dispatch:
@@ -153,9 +156,9 @@ jobs:
           --health-retries 20
     env:
       # The minimal Django environment from apps/server/dev/django-env.sh.
-      # There is no MinIO or RabbitMQ service here: `migrate` reads settings
-      # but does not connect to either, and the Rust schema tests only use
-      # Postgres.
+      # There is no MinIO or RabbitMQ service here: `migrate`, the fixture and
+      # oracle builders and the throttle interop only read settings, and none
+      # of them connects to either.
       DJANGO_SETTINGS_MODULE: plane.settings.production
       DEBUG: "0"
       IS_TEST: "0"
@@ -173,10 +176,15 @@ jobs:
       ENABLE_DRF_SPECTACULAR: "0"
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
-      # Read by plane-db's schema tests. XCTEST/REQUIRE makes them fail instead
-      # of skipping when no database is reachable.
+      # Read by plane-db's schema tests and by every crate's `schema_check`.
+      # XCTEST/REQUIRE makes them fail instead of skipping when no database is
+      # reachable.
       PLANE_RS_TEST_DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/plane_ci
       PLANE_RS_REQUIRE_DB_TESTS: "1"
+      # plane-throttle's interop test FLUSHDBs its database, so it only runs
+      # against 9-11 (crates/plane-throttle/tests/interop.rs). This is the
+      # dedicated Valkey service above, not a shared cache.
+      PLANE_RS_TEST_REDIS_URL: redis://localhost:6379/9
     steps:
       - uses: actions/checkout@v6
 
@@ -209,16 +217,151 @@ jobs:
           workspaces: apps/server -> target
           key: schema
 
-      - name: Rust database tests
+      # Every crate that talks to the database carries its own
+      # `tests/schema_check.rs`; a glob finds them so a new crate is checked
+      # without editing this workflow. With PLANE_RS_REQUIRE_DB_TESTS=1 a
+      # missing database is a failure, not a skip.
+      - name: Schema checks (every crate)
         working-directory: apps/server
         run: |
-          # Skip until the crate is complete enough to build. The rust job
-          # reports a broken workspace; this job only adds the database.
-          if [ ! -f crates/plane-db/Cargo.toml ] || [ ! -f crates/plane-db/src/lib.rs ]; then
-            echo "::notice::apps/server/crates/plane-db is not complete yet; skipping database tests."
+          set -euo pipefail
+          shopt -s nullglob
+          targets=(crates/*/tests/schema_check.rs)
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "::notice::no crates/*/tests/schema_check.rs yet; skipping schema checks."
             exit 0
           fi
-          cargo test -p plane-db
+          for target in "${targets[@]}"; do
+            crate_dir="$(dirname "$(dirname "$target")")"
+            if [ ! -f "$crate_dir/Cargo.toml" ]; then
+              echo "::notice::$crate_dir has no manifest yet; skipping its schema check."
+              continue
+            fi
+            echo "::group::schema_check $crate_dir"
+            cargo test --manifest-path "$crate_dir/Cargo.toml" --test schema_check
+            echo "::endgroup::"
+          done
+
+      # The fixture builder refuses a database that is not a `t_*` clone, and
+      # the oracle only reads. Clone the migrated database so the fixture's
+      # writes and the 76k oracle reads stay off plane_ci, which the schema
+      # checks above just used.
+      - name: Clone the migrated database for the permissions fixture
+        if: >-
+          hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
+          hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
+          hashFiles('apps/server/tools/permissions/oracle.py') != ''
+        run: |
+          # `mkdb.sh` clones the local dev template; in CI the migrated
+          # database is the template. `CREATE DATABASE ... TEMPLATE` needs no
+          # session attached to the template, so terminate leftovers and retry
+          # (the postgres service healthcheck connects to plane_ci too).
+          for attempt in 1 2 3 4 5; do
+            docker exec -i "${{ job.services.postgres.id }}" \
+              psql --no-psqlrc -X -q -U plane -d postgres -v ON_ERROR_STOP=1 \
+              -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'plane_ci' AND pid <> pg_backend_pid()" \
+              >/dev/null
+            if docker exec -i "${{ job.services.postgres.id }}" \
+              psql --no-psqlrc -X -q -U plane -d postgres -v ON_ERROR_STOP=1 \
+              -c 'CREATE DATABASE "t_perms_fixture" TEMPLATE "plane_ci"'; then
+              exit 0
+            fi
+            echo "clone attempt $attempt failed; retrying"
+            sleep 2
+          done
+          echo "::error::could not clone plane_ci to t_perms_fixture."
+          exit 1
+
+      # mkdb.sh clones plane_tpl, which bootstrap.sh seeds with exactly one
+      # instance row. CI clones the migrated database instead, so create that
+      # row here; fixture.py refuses zero or two. Directly, not through
+      # `register_instance`: that command queries the GitHub API and publishes
+      # a Celery task, and this job has no broker.
+      - name: Seed the fixture clone with the instance row
+        if: >-
+          hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
+          hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
+          hashFiles('apps/server/tools/permissions/oracle.py') != ''
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/t_perms_fixture
+        run: |
+          uv run --no-sync python manage.py shell <<'PY'
+          from django.utils import timezone
+
+          from plane.license.models import Instance
+
+          Instance.objects.create(
+              instance_name="Plane CI",
+              instance_id="ci-perms-fixture",
+              current_version="v0.1.0",
+              last_checked_at=timezone.now(),
+          )
+          PY
+
+      # tools/permissions/README.md ("Rebuild from scratch"), with the CI
+      # database URL in place of run.sh's dev stack. `run.sh` sources
+      # dev/django-env.sh, which points at 127.0.0.1:55432; CI has no dev
+      # stack, so the job-level environment and the override above are used.
+      - name: Build the permissions fixture
+        if: >-
+          hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
+          hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
+          hashFiles('apps/server/tools/permissions/oracle.py') != ''
+        working-directory: apps/api
+        env:
+          # These scripts live outside the Django project, so `plane` has to be
+          # importable by path (what run.sh sets on PYTHONPATH).
+          PYTHONPATH: ${{ github.workspace }}/apps/api
+          DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/t_perms_fixture
+        run: uv run --no-sync python ../server/tools/permissions/fixture.py
+
+      - name: Run the permission oracle
+        if: >-
+          hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
+          hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
+          hashFiles('apps/server/tools/permissions/oracle.py') != ''
+        working-directory: apps/api
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/api
+          DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/t_perms_fixture
+        run: uv run --no-sync python ../server/tools/permissions/oracle.py
+
+      # The database name is fixed to t_perms_fixture so the `database` field
+      # in both golden files is the one committed; no field is filtered out.
+      - name: Fail on a stale permission golden
+        if: >-
+          hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
+          hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
+          hashFiles('apps/server/tools/permissions/oracle.py') != ''
+        run: |
+          set -e
+          if ! git diff --exit-code -- apps/server/crates/plane-permissions/tests/golden/; then
+            echo "::error::the permission golden matrix is stale. Rebuild it as tools/permissions/README.md documents and commit the result."
+            exit 1
+          fi
+
+      # Both tests: `golden` replays the matrix against the fixture database,
+      # `schema_check` re-verifies that database's schema.
+      - name: Permission tests against the fixture database
+        if: hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != ''
+        working-directory: apps/server
+        env:
+          PLANE_RS_TEST_DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/t_perms_fixture
+        run: cargo test -p plane-permissions
+
+      # Runs the real DRF throttle classes through Django against the Valkey
+      # service, then the same steps through plane-throttle, and compares the
+      # decision, key, raw pickle bytes and TTLs. Needs apps/api/.venv (the
+      # test spawns apps/api/.venv/bin/python) and DB 9, which it FLUSHDBs.
+      - name: Throttle interop against Valkey
+        if: >-
+          hashFiles('apps/server/crates/plane-throttle/Cargo.toml') != '' &&
+          hashFiles('apps/server/crates/plane-throttle/tests/interop.rs') != ''
+        working-directory: apps/server
+        env:
+          PLANE_RS_TEST_REDIS_URL: redis://localhost:6379/9
+        run: cargo test -p plane-throttle
 
   inventory:
     name: Route inventory and proxy config
