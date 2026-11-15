@@ -31,9 +31,10 @@ chrono = { version = "0.4.42", features = ["serde"] }
 clap = { version = "4.6.7", features = ["derive"] }
 flate2 = "1.1.11"
 futures-util = "0.3.31"
+hdrhistogram = "7.6.0"
 hmac = "0.12.1"
 http-body-util = "0.1.5"
-hyper = { version = "1.12.0", features = ["http1", "server"] }
+hyper = { version = "1.12.0", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1.21", features = ["http1", "server", "tokio"] }
 lapin = "4.12.3"
 pbkdf2 = "0.12.2"

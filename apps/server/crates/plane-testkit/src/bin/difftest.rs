@@ -12,6 +12,7 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
+use plane_testkit::bench::{AttachTarget, BenchOptions, parse_concurrencies};
 use plane_testkit::config::Scenario;
 use plane_testkit::db::{DbAdmin, measure_snapshot};
 use plane_testkit::record::{RecordOptions, run as run_record};
@@ -38,6 +39,8 @@ struct Cli {
 enum Command {
     /// Replay a scenario against two targets and compare every step.
     Run(Box<RunArgs>),
+    /// Measure throughput, latency, memory and CPU of one target under load.
+    Bench(Box<BenchArgs>),
     /// Record a browser session through a forwarding proxy into a scenario.
     Record(RecordArgs),
     /// Exercise the normaliser and comparator on built-in synthetic cases.
@@ -113,6 +116,80 @@ struct RunArgs {
     /// Override a scenario variable for target B only (`name=value`).
     #[arg(long = "b-var", value_parser = parse_assignment)]
     b_vars: Vec<(String, String)>,
+}
+
+#[derive(Debug, Args)]
+struct BenchArgs {
+    /// Bench scenario file (`scenarios/bench/*.yaml`).
+    #[arg(long)]
+    scenario: PathBuf,
+    /// Target name from targets.yaml (`django`, `rust`, ...).
+    #[arg(long)]
+    target: String,
+    /// Concurrency levels to measure, for example `1,8,64`.
+    #[arg(long, default_value = "1,8,64")]
+    concurrency: String,
+    /// Seconds each concurrency level is measured for.
+    #[arg(long, default_value_t = 20.0)]
+    duration: f64,
+    /// Seconds of discarded warm-up before each measured window.
+    #[arg(long, default_value_t = 5.0)]
+    warmup: f64,
+    /// Seconds to settle between starting the target and sampling its idle RSS.
+    #[arg(long, default_value_t = 10.0)]
+    settle: f64,
+    /// How many independent repetitions to run; the report shows medians.
+    #[arg(long, default_value_t = 3)]
+    repetitions: u32,
+    /// Use the release build of a managed target: rewrites `target/debug/` to
+    /// `target/release/` in its command. A command with no debug path (a shell
+    /// script, or a target already pointed at the release binary) is unchanged.
+    #[arg(long)]
+    release: bool,
+    /// `GUNICORN_WORKERS` for the managed target (`targets.yaml` defaults it to 1).
+    #[arg(long)]
+    django_workers: Option<u32>,
+    /// `PLANE_RS_WORKER_THREADS` for the managed target; omit for tokio's default.
+    #[arg(long)]
+    rust_threads: Option<u32>,
+    /// Redis logical database to flush (default: the scenario's, else 3).
+    #[arg(long)]
+    redis_db: Option<i64>,
+    /// Measure the client's own throughput too, this many seconds per level.
+    #[arg(long, default_value_t = 5.0)]
+    headroom_duration: f64,
+    /// Keep the database, RabbitMQ vhost and target logs after the run.
+    #[arg(long)]
+    keep: bool,
+    /// Write the JSON report to this file.
+    #[arg(long)]
+    report: Option<PathBuf>,
+    /// Write the Markdown table to this file.
+    #[arg(long)]
+    markdown: Option<PathBuf>,
+    /// Targets definition file.
+    #[arg(long, default_value = "scenarios/targets.yaml")]
+    targets: PathBuf,
+    /// Attach to an already-running target at this base URL instead of
+    /// starting one (requires --db).
+    #[arg(long)]
+    url: Option<String>,
+    /// Database the attached target serves (no clone, no drop).
+    #[arg(long)]
+    db: Option<String>,
+    /// Process group of the attached target, for RSS/CPU measurement.
+    #[arg(long)]
+    pgid: Option<u32>,
+    #[arg(long, default_value = DEFAULT_PG_URL)]
+    pg_url: String,
+    #[arg(long, default_value = DEFAULT_REDIS_URL)]
+    redis_url: String,
+    #[arg(long, default_value = DEFAULT_RABBIT_HTTP)]
+    rabbit_http: String,
+    #[arg(long, default_value = "plane")]
+    rabbit_user: String,
+    #[arg(long, default_value = "plane")]
+    rabbit_password: String,
 }
 
 #[derive(Debug, Args)]
@@ -198,6 +275,68 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
     match cli.command {
         Command::Selftest => {
             selftest::run()?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Bench(args) => {
+            let concurrencies = parse_concurrencies(&args.concurrency)?;
+            if !(args.duration.is_finite() && args.duration > 0.0) {
+                bail!("--duration must be a positive number of seconds");
+            }
+            if !(args.warmup.is_finite() && args.warmup >= 0.0) {
+                bail!("--warmup must be zero or more seconds");
+            }
+            if !(args.settle.is_finite() && args.settle >= 0.0) {
+                bail!("--settle must be zero or more seconds");
+            }
+            if !(args.headroom_duration.is_finite() && args.headroom_duration >= 0.0) {
+                bail!("--headroom-duration must be zero or more seconds");
+            }
+            let attach = match (&args.url, &args.db) {
+                (Some(url), Some(db)) => Some(AttachTarget {
+                    url: url.clone(),
+                    database: db.clone(),
+                    pgid: args.pgid,
+                }),
+                (None, None) => {
+                    if args.pgid.is_some() {
+                        bail!("--pgid only applies together with --url and --db");
+                    }
+                    if args.keep {
+                        bail!("--keep only applies to a managed target");
+                    }
+                    None
+                }
+                _ => bail!("attach mode needs --url and --db together"),
+            };
+            let options = BenchOptions {
+                scenario_path: resolve_input(&args.scenario),
+                targets_path: resolve_input(&args.targets),
+                target: args.target.clone(),
+                concurrencies,
+                duration: std::time::Duration::from_secs_f64(args.duration),
+                warmup: std::time::Duration::from_secs_f64(args.warmup),
+                settle: std::time::Duration::from_secs_f64(args.settle),
+                repetitions: args.repetitions,
+                release: args.release,
+                django_workers: args.django_workers,
+                rust_threads: args.rust_threads,
+                redis_db: args.redis_db,
+                keep: args.keep,
+                report_path: args.report.clone(),
+                markdown_path: args.markdown.clone(),
+                headroom_duration: if args.headroom_duration > 0.0 {
+                    Some(std::time::Duration::from_secs_f64(args.headroom_duration))
+                } else {
+                    None
+                },
+                pg_url: args.pg_url.clone(),
+                redis_url: args.redis_url.clone(),
+                rabbit_http: args.rabbit_http.clone(),
+                rabbit_user: args.rabbit_user.clone(),
+                rabbit_password: args.rabbit_password.clone(),
+                attach,
+            };
+            plane_testkit::bench::run(options).await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Record(args) => {

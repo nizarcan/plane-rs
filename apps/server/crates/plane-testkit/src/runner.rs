@@ -36,7 +36,7 @@ use crate::provision::{PortAllocator, TargetInstance, host_port, wait_tcp};
 use crate::redis::{
     RedisAdmin, RedisDiff, RedisSnapshot, RedisSnapshotter, diff_snapshots as diff_redis_snapshots,
 };
-use crate::report::{RunReport, SideReport, SnapshotStats, StepReport, TargetRules};
+use crate::report::{ProbeReport, RunReport, SideReport, SnapshotStats, StepReport, TargetRules};
 use crate::util::{ellipsize, new_run_id, now_utc, repo_root, validate_identifier};
 
 // ---------------------------------------------------------------------------
@@ -364,6 +364,26 @@ async fn run_inner(
         println!("target {label}: {database} (redis db {index})");
     }
 
+    // The scenario's fixture, if any, is applied to both clones before the
+    // baseline snapshot, so the fixture rows are part of the baseline and never
+    // appear in a step diff. `/auth/` and `/api/` are not ported yet, so a
+    // scenario that needs users, sessions or objects cannot create them over
+    // HTTP; `tools/policy/gen_fixture.py` writes the deterministic SQL.
+    if let Some(path) = scenario.fixture_sql() {
+        let sql = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading the fixture {}", path.display()))?;
+        for (label, database) in [("A", &a_db), ("B", &b_db)] {
+            let client = db_admin.connect(database).await?;
+            client.batch_execute(&sql).await.with_context(|| {
+                format!(
+                    "applying the fixture {} to target {label} ({database})",
+                    path.display()
+                )
+            })?;
+            println!("fixture: applied {} to target {label}", path.display());
+        }
+    }
+
     let (catalog_a, catalog_b) = tokio::try_join!(
         db_admin.load_catalog(&a_db, &rules.db_schemas, &rules.db_exclude_tables),
         db_admin.load_catalog(&b_db, &rules.db_schemas, &rules.db_exclude_tables),
@@ -506,15 +526,24 @@ async fn run_inner(
 
     let mut step_reports = Vec::with_capacity(scenario.steps.len());
     let mut all_ok = true;
+    let mut probe_compared_denials = 0usize;
+    let mut probe_reached_handler = 0usize;
+    let mut probe_mismatches = 0usize;
+    // Redis keys introduced by a reached-handler step, per target. See the
+    // pass-through branch below.
+    let mut ignored_redis_a: std::collections::BTreeSet<Vec<u8>> =
+        std::collections::BTreeSet::new();
+    let mut ignored_redis_b: std::collections::BTreeSet<Vec<u8>> =
+        std::collections::BTreeSet::new();
     for (index, step) in scenario.steps.iter().enumerate() {
         let number = index + 1;
         let (a_result, b_result) = tokio::join!(
             execute_step(&mut side_a, step, &scenario, Some(rabbit.as_ref())),
             execute_step(&mut side_b, step, &scenario, Some(rabbit.as_ref()))
         );
-        let a_outcome =
+        let mut a_outcome =
             a_result.with_context(|| format!("step {number} ({}) on target A", step.name))?;
-        let b_outcome =
+        let mut b_outcome =
             b_result.with_context(|| format!("step {number} ({}) on target B", step.name))?;
 
         // gzip output length depends on the random filename Django adds and on
@@ -544,30 +573,98 @@ async fn run_inner(
         let a_headers = filter_headers(&a_headers, &rules, keep_content_length);
         let b_headers = filter_headers(&b_headers, &rules, keep_content_length);
 
+        // The policy probe's pass-through rule. A B response carrying
+        // `X-Plane-RS-Probe: handler` means the Rust runtime ran the full
+        // policy and then answered 501 without running the ported handler.
+        // * If A denied the request (401/403/405/406/415/429) the step is a
+        //   DIFF: Rust let through what Django refused.
+        // * Otherwise the step is `reached-handler`: the response and the
+        //   DB/Redis/Celery side effects are not compared, because B has no
+        //   handler while A's real view may write. Semantic violations are
+        //   still reported (they are never about the probe).
+        // * Every other step is compared exactly as usual.
+        let probe_reached_b = has_probe_header(&b_outcome.headers);
+        let django_denied = is_policy_denial(a_outcome.status, &a_outcome.raw_body);
+        let probe = if probe_reached_b {
+            Some(ProbeReport {
+                reached_handler: !django_denied,
+                django_denied,
+            })
+        } else {
+            None
+        };
+
         let mut differences = Vec::new();
-        differences.extend(compare_status(a_outcome.status, b_outcome.status));
-        differences.extend(compare_headers(&a_headers, &b_headers));
-        differences.extend(compare_bodies(&a_outcome.body, &b_outcome.body));
-        differences.extend(compare_formatting(
-            &a_outcome.formatting,
-            &b_outcome.formatting,
-        ));
-        differences.extend(compare_db(&a_outcome.db_diff, &b_outcome.db_diff));
-        differences.extend(compare_redis(&a_outcome.redis_diff, &b_outcome.redis_diff));
-        differences.extend(compare_celery(&a_outcome.messages, &b_outcome.messages));
+        if probe_reached_b && django_denied {
+            probe_mismatches += 1;
+            differences.push(Difference::new(
+                "probe",
+                "B",
+                format!(
+                    "A denied with {} ({}) but B reached the probe handler; Rust let \
+                     through a request Django refused",
+                    a_outcome.status,
+                    body_excerpt(&a_outcome.raw_body)
+                ),
+            ));
+        } else if probe_reached_b {
+            probe_reached_handler += 1;
+            // A ran its real handler (B did not), so any Redis key it wrote or
+            // re-wrote is a side effect of an ignored step. Remember those keys
+            // and drop them from later steps: their TTL keeps decreasing, so
+            // every later snapshot would report them as "changed" on A alone.
+            for key in a_outcome
+                .redis_diff
+                .added
+                .keys()
+                .chain(a_outcome.redis_diff.changed.keys())
+            {
+                ignored_redis_a.insert(key.clone());
+            }
+            for key in b_outcome
+                .redis_diff
+                .added
+                .keys()
+                .chain(b_outcome.redis_diff.changed.keys())
+            {
+                ignored_redis_b.insert(key.clone());
+            }
+        } else {
+            filter_ignored_redis(&mut a_outcome.redis_diff, &ignored_redis_a);
+            filter_ignored_redis(&mut b_outcome.redis_diff, &ignored_redis_b);
+            if django_denied {
+                probe_compared_denials += 1;
+            }
+            differences.extend(compare_status(a_outcome.status, b_outcome.status));
+            differences.extend(compare_headers(&a_headers, &b_headers));
+            differences.extend(compare_bodies(&a_outcome.body, &b_outcome.body));
+            differences.extend(compare_formatting(
+                &a_outcome.formatting,
+                &b_outcome.formatting,
+            ));
+            differences.extend(compare_db(&a_outcome.db_diff, &b_outcome.db_diff));
+            differences.extend(compare_redis(&a_outcome.redis_diff, &b_outcome.redis_diff));
+            differences.extend(compare_celery(&a_outcome.messages, &b_outcome.messages));
+        }
         // A violation is a difference on its own: a target that writes an
         // unverifiable session or password hash cannot be rescued by another
-        // target that does the same thing.
-        for (label, outcome) in [("A", &a_outcome), ("B", &b_outcome)] {
-            for violation in &outcome.violations {
-                differences.push(Difference::new(
-                    violation.part.clone(),
-                    violation.path.clone(),
-                    format!("{label}: {}", violation.message),
-                ));
+        // target that does the same thing. A reached-handler step is exempt:
+        // its violation can only be about the output of A's real handler
+        // (a new API token's shape, a response body), which B's probe never
+        // produces. Every fixture user's session is exercised by compared
+        // steps too, so nothing is left unchecked.
+        if !probe_reached_b || django_denied {
+            for (label, outcome) in [("A", &a_outcome), ("B", &b_outcome)] {
+                for violation in &outcome.violations {
+                    differences.push(Difference::new(
+                        violation.part.clone(),
+                        violation.path.clone(),
+                        format!("{label}: {}", violation.message),
+                    ));
+                }
             }
         }
-        if let Some(expected) = step.expect_status {
+        if let (Some(expected), None) = (step.expect_status, &probe) {
             for (label, outcome) in [("A", &a_outcome), ("B", &b_outcome)] {
                 if outcome.status != expected {
                     differences.push(Difference::new(
@@ -581,7 +678,12 @@ async fn run_inner(
 
         let ok = differences.is_empty();
         all_ok &= ok;
-        if ok {
+        if ok && probe.as_ref().is_some_and(|probe| probe.reached_handler) {
+            println!(
+                "  pass {number:02} {} {} (reached-handler, not compared; db {:.0} ms)",
+                step.method, step.path, a_outcome.snapshot_ms
+            );
+        } else if ok {
             println!(
                 "  ok   {number:02} {} {} ({:.0} ms, db {:.0} ms, redis {:.1} ms, norm {:.1} ms)",
                 step.method,
@@ -642,6 +744,7 @@ async fn run_inner(
             b: side_report(&side_b, &b_outcome),
             differences,
             ok,
+            probe,
         });
     }
 
@@ -652,6 +755,12 @@ async fn run_inner(
     let mut redis_snapshot = BTreeMap::new();
     redis_snapshot.insert("A".to_string(), side_a.redis_stats.clone());
     redis_snapshot.insert("B".to_string(), side_b.redis_stats.clone());
+    println!(
+        "probe: {probe_compared_denials} denial(s) compared, \
+         {probe_reached_handler} reached-handler, {probe_mismatches} mismatch(es), \
+         {} step(s) total",
+        step_reports.len()
+    );
     println!(
         "placeholders: A {} value(s), B {} value(s)",
         side_a.normalizer.placeholder_count(),
@@ -690,6 +799,9 @@ async fn run_inner(
             },
         ],
         steps: step_reports,
+        probe_compared_denials,
+        probe_reached_handler,
+        probe_mismatches,
         ok: all_ok,
     };
     Ok(report)
@@ -776,6 +888,88 @@ fn filter_headers(
         })
         .cloned()
         .collect()
+}
+
+/// Drop Redis diff entries whose key was written by an ignored (reached-handler)
+/// step earlier in the run.
+fn filter_ignored_redis(
+    diff: &mut crate::redis::RedisDiff,
+    ignored: &std::collections::BTreeSet<Vec<u8>>,
+) {
+    if ignored.is_empty() {
+        return;
+    }
+    diff.added.retain(|key, _| !ignored.contains(key));
+    diff.changed.retain(|key, _| !ignored.contains(key));
+    diff.removed.retain(|key| !ignored.contains(key));
+}
+
+/// A short, printable excerpt of a response body for a difference message.
+fn body_excerpt(body: &[u8]) -> String {
+    let text = String::from_utf8_lossy(body);
+    let trimmed = text.trim();
+    if trimmed.chars().count() > 120 {
+        let mut excerpt: String = trimmed.chars().take(120).collect();
+        excerpt.push('…');
+        excerpt
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// `X-Plane-RS-Probe: handler`, set by the `policy-probe` feature's handler.
+fn has_probe_header(headers: &[(String, String)]) -> bool {
+    headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("x-plane-rs-probe") && value == "handler")
+}
+
+/// Whether A's response is a **policy** denial, i.e. produced before the view
+/// body ran.
+///
+/// 401 is only produced by authentication. 405 is the `BaseViewSet` guard and
+/// method dispatch, 406 content negotiation, 415 a parser, 429 a throttle.
+///
+/// 403 is ambiguous: permission classes, the CSRF/origin checks and
+/// `allow_permission` produce a small set of exact bodies, but a handler may
+/// also answer 403 itself (`plane/app/views/asset/v2.py` does, for an asset the
+/// caller cannot see). Treating every 403 as policy would turn Django's own
+/// handler response into a false DIFF, so the known policy bodies are matched
+/// exactly and anything else is a handler answer. This narrows the check to
+/// what it claims to test — it never lets a policy difference through, because
+/// a Rust policy that allows what Django's policy denied produces one of the
+/// policy bodies.
+fn is_policy_denial(status: u16, body: &[u8]) -> bool {
+    match status {
+        401 | 405 | 406 | 415 | 429 => true,
+        403 => {
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
+                return false;
+            };
+            // `allow_permission` returns exactly this body. The policy probe
+            // does not send requests to routes whose *handler* can return it
+            // too (see `gen_policy_scenario.py`), so seeing it here means the
+            // policy denied.
+            if value.get("error").and_then(|value| value.as_str())
+                == Some("You don't have the required permissions.")
+            {
+                return true;
+            }
+            let Some(detail) = value.get("detail").and_then(|value| value.as_str()) else {
+                return false;
+            };
+            matches!(
+                detail,
+                "You do not have permission to perform this action."
+                    | "Authentication credentials were not provided."
+                    | "CSRF Failed: origin not allowed"
+                    | "You are not allowed to view this issue"
+            ) || detail.starts_with("CSRF ")
+                || detail.starts_with("Origin checking failed")
+                || detail.starts_with("Referer checking failed")
+        }
+        _ => false,
+    }
 }
 
 // ---------------------------------------------------------------------------

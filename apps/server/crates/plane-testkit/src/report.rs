@@ -51,6 +51,17 @@ pub struct SideReport {
     pub celery: serde_json::Value,
 }
 
+/// What a `policy-probe` step was: the probe header is the only marker.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProbeReport {
+    /// B answered with `X-Plane-RS-Probe: handler` **and** A did not deny, so
+    /// the step is a pass-through and its response and side effects are not
+    /// compared.
+    pub reached_handler: bool,
+    /// A's status is a policy denial (401/403/405/406/415/429).
+    pub django_denied: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct StepReport {
     pub index: usize,
@@ -61,6 +72,8 @@ pub struct StepReport {
     pub b: SideReport,
     pub differences: Vec<Difference>,
     pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe: Option<ProbeReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,6 +99,15 @@ pub struct RunReport {
     pub redis_snapshot: BTreeMap<String, SnapshotStats>,
     pub normalisation: Vec<TargetRules>,
     pub steps: Vec<StepReport>,
+    /// Steps that were compared normally and whose A response was a policy
+    /// denial. This is the number the probe exists to produce.
+    pub probe_compared_denials: usize,
+    /// Steps where Rust's full policy let the request through to the probe
+    /// handler and Django's did not deny it; not compared.
+    pub probe_reached_handler: usize,
+    /// Steps where Rust reached the handler but Django denied the request.
+    /// Always a failure.
+    pub probe_mismatches: usize,
     pub ok: bool,
 }
 

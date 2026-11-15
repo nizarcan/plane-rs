@@ -9,6 +9,7 @@
 //! thin command-line shell around it.
 
 pub mod b64;
+pub mod bench;
 pub mod celery;
 pub mod compare;
 pub mod config;

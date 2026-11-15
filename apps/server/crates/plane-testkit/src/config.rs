@@ -21,6 +21,10 @@ use crate::util::read_yaml;
 
 pub const DEFAULT_TEMPLATE_DB: &str = "plane_tpl";
 
+/// The reserved scenario variable naming a SQL fixture (see
+/// [`Scenario::fixture_sql`]).
+pub const FIXTURE_SQL_VAR: &str = "fixture_sql";
+
 fn default_template_db() -> String {
     DEFAULT_TEMPLATE_DB.to_string()
 }
@@ -345,6 +349,27 @@ pub enum CaptureSource {
 }
 
 impl Scenario {
+    /// A SQL fixture applied to both databases before the baseline snapshot.
+    ///
+    /// This is a **reserved scenario variable**, not a request variable:
+    /// `vars: { fixture_sql: "{repo}/scenarios/policy-fixture.sql" }`. The
+    /// policy probe needs users, sessions and one object per URL kwarg, and
+    /// `/auth/` and `/api/` are not ported, so it cannot create them over
+    /// HTTP. `tools/policy/gen_fixture.py` writes the deterministic SQL (fixed
+    /// UUIDs, `ON CONFLICT DO NOTHING` so replaying against attached databases
+    /// is idempotent); it is applied to both clones and is part of the
+    /// baseline, never a step diff.
+    ///
+    /// It is a variable rather than a new `Scenario` field so that recording
+    /// and benchmarking scenarios do not have to grow a field they never use.
+    pub fn fixture_sql(&self) -> Option<std::path::PathBuf> {
+        self.vars.get(FIXTURE_SQL_VAR).map(|path| {
+            std::path::PathBuf::from(
+                path.replace("{repo}", &crate::util::repo_root().display().to_string()),
+            )
+        })
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let scenario: Self = read_yaml(path)?;
         scenario.validate()?;
@@ -375,6 +400,11 @@ impl Scenario {
                     self.name
                 );
             }
+        }
+        if let Some(path) = self.fixture_sql()
+            && !path.is_file()
+        {
+            bail!("scenario {}: FIXTURE_SQL {path:?} is not a file", self.name);
         }
         for variable in &self.password_vars {
             if !self.vars.contains_key(variable) {
