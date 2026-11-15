@@ -1,0 +1,45 @@
+# Bench scenario: the static responses plane-api serves today, mixed the way a
+# browser session hits them.
+#
+#   4/10  GET /                     health check (Django JsonResponse)
+#   3/10  GET /robots.txt           plain HttpResponse, no middleware work
+#   2/10  GET /bench-no-such-route  Django's custom 404 JSON body
+#   1/10  OPTIONS /api/workspaces/  a CORS preflight, short-circuited by
+#                                  CorsMiddleware before routing or a session
+#
+# The 404 is deliberate: it exercises the resolver and the error path, and a
+# 404 is the expected status, so it is not counted as an error. The preflight
+# exercises the CORS request/response phases without touching the database.
+#
+# Weights are relative shares: the client picks a slot from a schedule of ten
+# slots, so the mix is exact over a long run.
+name: static-responses
+
+requests:
+  - name: health
+    method: GET
+    path: /
+    weight: 4
+    expect_status: 200
+
+  - name: robots
+    method: GET
+    path: /robots.txt
+    weight: 3
+    expect_status: 200
+
+  - name: missing
+    method: GET
+    path: /bench-no-such-route
+    weight: 2
+    expect_status: 404
+
+  - name: cors-preflight
+    method: OPTIONS
+    path: /api/workspaces/
+    weight: 1
+    headers:
+      Origin: "http://localhost:3000"
+      Access-Control-Request-Method: "GET"
+      Access-Control-Request-Headers: "content-type"
+    expect_status: 200

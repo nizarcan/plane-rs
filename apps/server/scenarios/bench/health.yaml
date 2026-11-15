@@ -1,0 +1,17 @@
+# Bench scenario: the health endpoint only.
+#
+# `GET /` is plane/web/views.py:health_check, a JsonResponse with no database,
+# cache or broker access. On Django it still runs the whole middleware stack
+# (CORS, security, WhiteNoise, session, auth, CSRF, crum, gzip, body limit,
+# request logging), so it is the cheapest honest thing to compare: a route both
+# backends own, with identical bytes and no per-request state.
+#
+# See BENCH.md ("Bench scenario format") for every field.
+name: health
+
+requests:
+  - name: health
+    method: GET
+    path: /
+    weight: 1
+    expect_status: 200
