@@ -1,0 +1,102 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# GENERATED FILE -- DO NOT EDIT.
+#
+# Written by apps/server/tools/proxy/gen_caddy.py from
+#   apps/server/routes.json            (path templates and converters)
+#   apps/server/ROUTES.md              (Owner column)
+#   apps/server/deploy/route-groups.yaml (group membership)
+# Route inventory generated from commit 208e993fd3c741e6ac2556af834583d0b482782a.
+#
+# What this file is
+# ----------------
+# A Caddyfile fragment, imported inside the site block by
+# deploy/caddy/Caddyfile.coexist and by dev/Caddyfile.dev. For every route
+# group that has at least one Rust-owned route it defines
+#
+#   @plane_rs_<group>  a named matcher: exact path(s) and exact method(s)
+#   handle @plane_rs_<group> { reverse_proxy <Rust upstream> }
+#
+# `handle` is used instead of a bare `reverse_proxy` because handle blocks
+# are mutually exclusive and are not reordered by the Caddyfile adapter.
+# Both Caddyfiles that import this fragment wrap their production routing in
+# one fallback `handle`, in the same mutually-exclusive group, so a Rust
+# handle that matches ends routing there: the fallback is skipped and the
+# request is proxied exactly once. A bare `reverse_proxy` with a named
+# matcher would be sorted after the single-path directives (Caddy sorts
+# same-named directives by path-matcher specificity) and would let the
+# request continue down the chain, reaching Django as well.
+#
+# Path matching
+# -------------
+# Patterns are anchored ^...$ RE2 regexes built from the Django converter
+# regexes (see DJANGO_CONVERTERS in gen_caddy.py; uuid is lowercase-only),
+# DRF's `.format` suffix regex, and DRF's optional trailing slash. Caddy's
+# path_regexp matches the URI-decoded, cleaned path (it runs against
+# r.URL.Path and merges doubled slashes / resolves dot segments); Django's
+# resolver also works on the decoded PATH_INFO, so the two agree. The
+# cleaning means a request like /api//instances/ is matched here as
+# /api/instances/ where Django would 404; Rust must 404 such paths itself
+# (its router will not have them).
+#
+# Method matching
+# ---------------
+# A whole-row `rust` includes the implicit HEAD Django answers for a GET
+# and the OPTIONS DRF answers for every DRF view; `rust(GET,HEAD)` moves
+# only the listed methods and leaves the rest of the row on Django.
+# Clusters are OR-ed as (method(...) && path_regexp(...)), so a path that is
+# Rust-owned for GET and Django-owned for POST is split correctly even when
+# other routes in the same group have a different method set.
+#
+# Flags
+# -----
+# Each group is controlled by PLANE_RS_GROUP_<NAME>. The value is read per
+# request with the {env.*} placeholder, not substituted at config load with
+# {$...}: the generated file is therefore identical in every environment,
+# and a deployment flips a group by setting the variable and restarting (or
+# reloading) the proxy. `rust` -- or unset -- sends the group to Rust;
+# `django` (or any other value) sends every method back to Django. A group
+# with no Rust-owned route has no matcher, so its flag has no effect until
+# a route in it is marked rust.
+#
+# Rust upstream: {$PLANE_RS_API_UPSTREAM:plane-api:8000} (env PLANE_RS_API_UPSTREAM,
+# overridden by Caddyfile.dev to reach the host).
+#
+# Groups
+# ------
+# | Group | Flag | Routes | Methods | Emitted |
+# | --- | --- | ---: | ---: | --- |
+# | health | `PLANE_RS_GROUP_HEALTH` | 1 | 8 | no |
+# | meta | `PLANE_RS_GROUP_META` | 2 | 6 | no |
+# | users-me | `PLANE_RS_GROUP_USERS_ME` | 22 | 75 | no |
+# | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | no |
+# | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | no |
+# | analytics | `PLANE_RS_GROUP_ANALYTICS` | 13 | 41 | no |
+# | projects | `PLANE_RS_GROUP_PROJECTS` | 17 | 65 | no |
+# | states | `PLANE_RS_GROUP_STATES` | 4 | 14 | no |
+# | labels | `PLANE_RS_GROUP_LABELS` | 4 | 15 | no |
+# | estimates | `PLANE_RS_GROUP_ESTIMATES` | 6 | 20 | no |
+# | issues | `PLANE_RS_GROUP_ISSUES` | 41 | 144 | no |
+# | cycles | `PLANE_RS_GROUP_CYCLES` | 15 | 58 | no |
+# | modules | `PLANE_RS_GROUP_MODULES` | 13 | 58 | no |
+# | views | `PLANE_RS_GROUP_VIEWS` | 8 | 30 | no |
+# | pages | `PLANE_RS_GROUP_PAGES` | 12 | 38 | no |
+# | intake | `PLANE_RS_GROUP_INTAKE` | 11 | 45 | no |
+# | notifications | `PLANE_RS_GROUP_NOTIFICATIONS` | 7 | 23 | no |
+# | search | `PLANE_RS_GROUP_SEARCH` | 3 | 9 | no |
+# | stickies | `PLANE_RS_GROUP_STICKIES` | 2 | 9 | no |
+# | webhooks | `PLANE_RS_GROUP_WEBHOOKS` | 4 | 17 | no |
+# | ai | `PLANE_RS_GROUP_AI` | 2 | 4 | no |
+# | auth-session | `PLANE_RS_GROUP_AUTH_SESSION` | 15 | 31 | no |
+# | auth-magic | `PLANE_RS_GROUP_AUTH_MAGIC` | 6 | 12 | no |
+# | auth-oauth | `PLANE_RS_GROUP_AUTH_OAUTH` | 16 | 48 | no |
+# | v1 | `PLANE_RS_GROUP_V1` | 79 | 297 | no |
+# | public | `PLANE_RS_GROUP_PUBLIC` | 25 | 88 | no |
+# | instances | `PLANE_RS_GROUP_INSTANCES` | 14 | 43 | no |
+# | web | `PLANE_RS_GROUP_WEB` | 1 | 8 | no |
+
+# No group has a Rust-owned route yet: every Owner cell in ROUTES.md is
+# `django`, so this fragment adds no matcher and the site block routes
+# exactly as apps/proxy/Caddyfile.ce does.

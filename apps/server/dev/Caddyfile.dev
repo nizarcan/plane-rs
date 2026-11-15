@@ -1,0 +1,62 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Local dev proxy for the Rust rewrite, run by apps/server/dev/proxy.sh.
+#
+# It listens on 127.0.0.1:18080 and mirrors the production routing shape so the
+# frontends and the differential harness see one URL regardless of which
+# backend answers:
+#
+#   Rust-owned routes          -> host.docker.internal:18100 (plane-api, 18100-18199)
+#   /api/*, /auth/*, /static/* -> host.docker.internal:18000 (Django, 18000-18099)
+#   /uploads/*                 -> host.docker.internal:59000 (MinIO)
+#   /spaces/*                  -> host.docker.internal:3002  (apps/space)
+#   /god-mode/*                -> host.docker.internal:3001  (apps/admin)
+#   /live/*                    -> host.docker.internal:3100  (apps/live)
+#   everything else            -> host.docker.internal:3000  (apps/web)
+#
+# The frontends may be down: Caddy then answers 502, which is fine.
+#
+# Rust-owned routes come from the generated fragment, exactly as in
+# deploy/caddy/Caddyfile.coexist. Every `handle` here (the generated ones and
+# the fallback below) is in one mutually exclusive group, so a request is
+# proxied once: to Rust when a group matcher matches and its
+# PLANE_RS_GROUP_<NAME> flag is `rust` (or unset), to the fallback otherwise.
+# While every Owner cell in ROUTES.md is `django` the fragment adds no matcher
+# and every request takes the fallback handle.
+#
+# The flag values and PLANE_RS_API_UPSTREAM are passed to the container by
+# apps/server/dev/proxy.sh (compose env_file dev/run/proxy.env), and the proxy
+# image is caddy:2.11.4-alpine.
+
+{
+	# Admin API stays on the container's loopback; proxy.sh reload uses
+	# `docker exec ... caddy reload`, so it never needs to be published.
+	admin localhost:2019
+	auto_https off
+}
+
+:18080 {
+	import ../deploy/caddy/rust-routes.caddy
+
+	handle {
+  redir /spaces /spaces/ permanent
+	reverse_proxy /spaces/* host.docker.internal:3002
+
+  redir /god-mode /god-mode/ permanent
+	reverse_proxy /god-mode/* host.docker.internal:3001
+
+	reverse_proxy /live/* host.docker.internal:3100
+
+	reverse_proxy /api/* host.docker.internal:18000
+
+	reverse_proxy /auth/* host.docker.internal:18000
+
+	reverse_proxy /static/* host.docker.internal:18000
+
+	reverse_proxy /uploads/* host.docker.internal:59000
+
+	reverse_proxy /* host.docker.internal:3000
+	}
+}

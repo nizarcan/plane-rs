@@ -1,0 +1,306 @@
+name: Rust server
+
+# Checks for the Rust rewrite under apps/server (see RUST_REWRITE.md and
+# apps/server/AGENTS.md): the Rust workspaces, the route inventory and proxy
+# config, the Django schema the Rust code has to match, and licence headers.
+#
+# The Rust crates are being added crate by crate, so the steps that need a
+# crate (the plane-api release build, the plane-db database tests) are guarded
+# by a file-existence check and are skipped, not failed, until the crate lands.
+# The fmt/clippy/test steps of the main workspace are guarded the same way
+# because Cargo errors out on a virtual workspace with no members.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - "preview"
+    types:
+      - "opened"
+      - "synchronize"
+      - "ready_for_review"
+      - "review_requested"
+      - "reopened"
+    paths:
+      - "apps/server/**"
+      - ".github/workflows/server-ci.yml"
+  push:
+    branches:
+      - "preview"
+    paths:
+      - "apps/server/**"
+      - ".github/workflows/server-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust fmt, clippy and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Both workspaces in one step: `workspaces` takes newline-separated
+      # `$workspace -> $target` entries. plane-testkit is a separate Cargo
+      # workspace on purpose (see apps/server/Cargo.toml), so it has its own
+      # target directory and lockfile.
+      - name: Cache Rust build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/server -> target
+            apps/server/crates/plane-testkit -> target
+
+      - name: Detect server workspace members
+        id: server-workspace
+        working-directory: apps/server
+        run: |
+          if cargo metadata --no-deps --format-version 1 | grep -q '"workspace_members":\[\]'; then
+            echo "has-members=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::apps/server has no member crates yet; skipping fmt, clippy and test."
+          else
+            echo "has-members=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # AGENTS.md requires `cargo clippy --workspace --all-targets` from
+      # apps/server, so it is run with --all-targets here as well as for the
+      # testkit workspace.
+      - name: Format (server)
+        if: steps.server-workspace.outputs.has-members == 'true'
+        working-directory: apps/server
+        run: cargo fmt --all --check
+
+      - name: Clippy (server)
+        if: steps.server-workspace.outputs.has-members == 'true'
+        working-directory: apps/server
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test (server)
+        if: steps.server-workspace.outputs.has-members == 'true'
+        working-directory: apps/server
+        run: cargo test --workspace
+
+      # The release profile is what ships: fat LTO, one codegen unit, panic
+      # abort. Building it catches profile-only breakage (for example a panic
+      # strategy incompatible with a dependency).
+      - name: Build plane-api (release)
+        # Two file checks, not one: a crate is "there" only once its manifest
+        # and its entry point are. The manifest alone exists while a crate is
+        # being written and Cargo would fail on it.
+        if: >-
+          hashFiles('apps/server/bins/plane-api/Cargo.toml') != '' &&
+          hashFiles('apps/server/bins/plane-api/src/main.rs') != ''
+        working-directory: apps/server
+        run: cargo build --release -p plane-api
+
+      # plane-testkit has its own manifest; --manifest-path keeps cargo from
+      # walking up into the server workspace, which excludes it.
+      - name: Format (plane-testkit)
+        working-directory: apps/server
+        run: cargo fmt --all --check --manifest-path crates/plane-testkit/Cargo.toml
+
+      - name: Clippy (plane-testkit)
+        working-directory: apps/server
+        run: cargo clippy --workspace --all-targets --manifest-path crates/plane-testkit/Cargo.toml -- -D warnings
+
+      - name: Test (plane-testkit)
+        working-directory: apps/server
+        run: cargo test --workspace --manifest-path crates/plane-testkit/Cargo.toml
+
+  schema:
+    name: Django schema and Rust DB tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    services:
+      # Same versions as docker-compose-test.yml and apps/server/dev/compose.yml.
+      postgres:
+        image: postgres:15.7-alpine
+        env:
+          POSTGRES_USER: plane
+          POSTGRES_PASSWORD: plane
+          POSTGRES_DB: plane_ci
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U plane -d plane_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      valkey:
+        image: valkey/valkey:7.2.11-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      # The minimal Django environment from apps/server/dev/django-env.sh.
+      # There is no MinIO or RabbitMQ service here: `migrate` reads settings
+      # but does not connect to either, and the Rust schema tests only use
+      # Postgres.
+      DJANGO_SETTINGS_MODULE: plane.settings.production
+      DEBUG: "0"
+      IS_TEST: "0"
+      SECRET_KEY: ci-server-schema
+      DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/plane_ci
+      ENABLE_READ_REPLICA: "0"
+      REDIS_URL: redis://127.0.0.1:6379/0
+      RABBITMQ_HOST: 127.0.0.1
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: plane
+      RABBITMQ_PASSWORD: plane
+      RABBITMQ_VHOST: plane
+      WEB_URL: http://127.0.0.1:18080
+      ALLOWED_HOSTS: "*"
+      ENABLE_DRF_SPECTACULAR: "0"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      # Read by plane-db's schema tests. XCTEST/REQUIRE makes them fail instead
+      # of skipping when no database is reachable.
+      PLANE_RS_TEST_DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/plane_ci
+      PLANE_RS_REQUIRE_DB_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          # uv version comes from [tool.uv] required-version.
+          version-file: "apps/api/pyproject.toml"
+          # Same patch release as the production image (python:3.12.12-alpine).
+          python-version: "3.12.12"
+          enable-cache: true
+          cache-dependency-glob: "apps/api/uv.lock"
+
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: uv sync --locked
+
+      # Django owns migrations until cutover; the Rust crates adapt to the
+      # schema this produces.
+      - name: Migrate the CI database
+        working-directory: apps/api
+        run: uv run --no-sync python manage.py migrate --noinput
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/server -> target
+          key: schema
+
+      - name: Rust database tests
+        working-directory: apps/server
+        run: |
+          # Skip until the crate is complete enough to build. The rust job
+          # reports a broken workspace; this job only adds the database.
+          if [ ! -f crates/plane-db/Cargo.toml ] || [ ! -f crates/plane-db/src/lib.rs ]; then
+            echo "::notice::apps/server/crates/plane-db is not complete yet; skipping database tests."
+            exit 0
+          fi
+          cargo test -p plane-db
+
+  inventory:
+    name: Route inventory and proxy config
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      # Same environment as the regeneration command in ROUTES.md. The script
+      # sets these itself if they are absent; being explicit keeps CI immune to
+      # a change in those defaults. No database or Redis connection is opened.
+      DJANGO_SETTINGS_MODULE: plane.settings.production
+      SECRET_KEY: inventory
+      DATABASE_URL: postgresql://x:x@127.0.0.1:1/x
+      REDIS_URL: redis://127.0.0.1:1/0
+      ENABLE_DRF_SPECTACULAR: "0"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "apps/api/pyproject.toml"
+          python-version: "3.12.12"
+          enable-cache: true
+          cache-dependency-glob: "apps/api/uv.lock"
+
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: uv sync --locked
+
+      # The committed commit field is the pin: passing it back means the run is
+      # reproducible on a branch where HEAD has moved, so any diff below is a
+      # real staleness, not a newer commit hash.
+      - name: Regenerate routes.json and ROUTES.md
+        working-directory: apps/api
+        run: |
+          PINNED="$(uv run --no-sync python -c 'import json; print(json.load(open("../server/routes.json"))["generated_from"]["commit"])')"
+          echo "Pinned commit: $PINNED"
+          uv run --no-sync python ../server/tools/inventory/routes.py --commit "$PINNED"
+
+      - name: Fail on a stale inventory
+        run: |
+          set -e
+          if ! git diff --exit-code -- apps/server/routes.json apps/server/ROUTES.md; then
+            echo "::error::apps/server/routes.json or ROUTES.md is stale. Run routes.py with the pinned commit and commit the result."
+            echo "The Owner and Status columns are preserved from the committed ROUTES.md; editing them here is not a fix."
+            exit 1
+          fi
+
+      - name: Check the generated proxy snippet is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/proxy/gen_caddy.py --check
+
+      - name: Proxy generator tests
+        working-directory: apps/api
+        run: uv run --no-sync python -m pytest ../server/tools/proxy/test_gen_caddy.py -q
+
+  license:
+    name: Licence headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.22"
+
+      - name: Install addlicense
+        run: |
+          go install github.com/google/addlicense@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Check apps/server sources
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(git ls-files 'apps/server/**/*.rs' 'apps/server/**/*.py' 'apps/server/**/*.sh')
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No apps/server .rs, .py or .sh files to check."
+            exit 0
+          fi
+          echo "Checking ${#FILES[@]} file(s)."
+          addlicense -check -f COPYRIGHT.txt "${FILES[@]}"

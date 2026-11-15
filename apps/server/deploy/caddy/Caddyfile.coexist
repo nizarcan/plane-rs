@@ -1,0 +1,84 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Coexistence variant of apps/proxy/Caddyfile.ce.
+#
+# The diff against the production file is exactly two things, both marked
+# below: the `import rust-routes.caddy` line and the `handle { ... }` wrapper
+# around the unchanged production routing. deploy/caddy/rust-routes.caddy is
+# generated from ROUTES.md ownership by tools/proxy/gen_caddy.py. It contains
+# one `handle` block per route group with at least one Rust-owned route, each
+# gated by PLANE_RS_GROUP_<NAME> and proxied to
+# {$PLANE_RS_API_UPSTREAM:plane-api:8000}.
+#
+# Why the wrapper: `handle` blocks are mutually exclusive and are not reordered
+# by the Caddyfile adapter, so the Rust handles are evaluated first. A matching
+# Rust handle satisfies the `handle` group, which makes the adapter skip this
+# fallback handle entirely: the request is proxied once, to Rust, and never
+# reaches the `/api/*`, `/auth/*` or `/*` rules below. Without the fallback
+# (for example a bare `reverse_proxy @matcher`) Caddy would run the route and
+# then continue down the chain, sending the same request to Django as well.
+# The fallback also keeps the production routing untouched and in its original
+# order: /spaces, /god-mode, /live, /static, /uploads (the bucket name), /api,
+# /auth and the catch-all to web:3000, so `/` and `/robots.txt` still go to
+# `web`. While every Owner cell is `django` the fragment emits no matcher at
+# all and this file routes exactly like Caddyfile.ce.
+#
+# The body of the fallback is intentionally left at the production file's
+# indentation so `diff apps/proxy/Caddyfile.ce deploy/caddy/Caddyfile.coexist`
+# shows only the two structural changes.
+#
+# Production deployments keep using apps/proxy/Caddyfile.ce until cutover; this
+# file is the drop-in replacement for the transition and is what the CI
+# `caddy validate` step checks.
+#
+# Rust upstream override: PLANE_RS_API_UPSTREAM (default plane-api:8000, the
+# service name in docker-compose.yml and the CE Helm chart). See
+# deploy/caddy/README.md for the group flags.
+
+(plane_proxy) {
+	request_body {
+		max_size {$FILE_SIZE_LIMIT}
+	}
+
+	# CHANGE 1/2: Rust-owned routes, generated. No-op while all owners are django.
+	import rust-routes.caddy
+
+	# CHANGE 2/2: fallback handle for the unchanged production routing.
+	handle {
+  redir /spaces /spaces/ permanent
+	reverse_proxy /spaces/* space:3000
+
+  redir /god-mode /god-mode/ permanent
+	reverse_proxy /god-mode/* admin:3000
+	
+	reverse_proxy /live/* live:3000
+
+	reverse_proxy /api/* api:8000
+
+	reverse_proxy /auth/* api:8000
+
+	reverse_proxy /static/* api:8000
+
+	reverse_proxy /{$BUCKET_NAME}/* plane-minio:9000
+	reverse_proxy /{$BUCKET_NAME} plane-minio:9000
+
+	reverse_proxy /* web:3000
+	}
+}
+
+{
+	{$CERT_EMAIL}
+	acme_ca {$CERT_ACME_CA:https://acme-v02.api.letsencrypt.org/directory} 
+	{$CERT_ACME_DNS}
+	servers {
+		max_header_size 25MB
+		client_ip_headers X-Forwarded-For X-Real-IP
+		trusted_proxies static {$TRUSTED_PROXIES:0.0.0.0/0}
+	}
+}
+
+{$SITE_ADDRESS} {
+	import plane_proxy
+}

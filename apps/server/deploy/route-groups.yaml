@@ -1,0 +1,299 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Route groups for the Rust/Django coexistence proxy.
+#
+# This file is the hand-written half of the split. ROUTES.md says which methods
+# of a route belong to Rust; this file says which routes belong together as a
+# group, so one group can be moved to Rust (or sent back to Django) with one
+# proxy environment variable: PLANE_RS_GROUP_<NAME>.
+#
+# Selection language
+# ------------------
+# A group has two optional selectors:
+#
+#   routes:  exact `group` + `path` pairs from apps/server/routes.json. Paths
+#            use the same `{name}` template as routes.json. An exact selector
+#            always wins over a glob.
+#   match:   path globs over the route template. A pattern is split on `/` and
+#            must match the whole path:
+#              *    exactly one path segment (a `{name}` in a route template is
+#                   one segment, as is a literal like `projects`)
+#              **   zero or more trailing segments; only allowed as the last
+#                   segment
+#            Everything else is a literal segment. `{name}` has no special
+#            meaning here; `*` is used so a pattern survives a parameter rename
+#            in routes.json.
+#
+# Assignment is by specificity, not by file order: the route goes to the group
+# whose matching selector has the most literal segments, then the fewest `**`,
+# then the fewest `*`, then the longest pattern. An exact selector always wins.
+# A route with no matching selector is an error, and so is a route matched
+# equally well by selectors in two different groups: every route in
+# routes.json must belong to exactly one group, and gen_caddy.py refuses to
+# write anything otherwise.
+#
+# File order is the porting order from RUST_REWRITE.md and is used for the
+# generated summary and for the flag names; it is not a tie-breaker.
+#
+# Adding a group
+# --------------
+# Give it a name (lowercase letters, digits and hyphens), a one-line
+# description, and selectors. The flag is derived as
+# PLANE_RS_GROUP_<NAME> with `-` replaced by `_` and upper-cased (for example
+# `users-me` -> PLANE_RS_GROUP_USERS_ME). A group with no Rust-owned route in
+# ROUTES.md is listed but emits no matcher.
+
+version: 1
+
+groups:
+  # --- Phase 1: skeleton -----------------------------------------------------
+  - name: health
+    description: The health check at `/` served by plane.web.
+    routes:
+      - { group: web, path: "/" }
+
+  # --- Phase 3/5: read and write paths, in the brief's order -----------------
+  - name: meta
+    description: Static reference data (timezones, Unsplash proxy).
+    match:
+      - "/api/timezones/"
+      - "/api/unsplash/"
+
+  - name: users-me
+    description: The signed-in user's own profile, settings, sessions and tokens.
+    match:
+      - "/api/users/**"
+
+  - name: assets
+    description: Direct file uploads and downloads, v1-style and v2-style.
+    match:
+      - "/api/assets/**"
+      - "/api/workspaces/*/file-assets/**"
+      - "/api/workspaces/file-assets/**"
+      - "/api/users/file-assets/**"
+
+  - name: workspaces
+    description: Workspaces, members, invitations, themes and workspace-level preferences.
+    match:
+      - "/api/workspaces/"
+      - "/api/workspaces/{slug}/"
+      - "/api/workspace-slug-check/"
+      - "/api/workspaces/*/members/**"
+      - "/api/workspaces/*/project-members/"
+      - "/api/workspaces/*/workspace-members/**"
+      - "/api/workspaces/*/invitations/**"
+      - "/api/workspaces/*/workspace-themes/**"
+      - "/api/workspaces/*/user-stats/**"
+      - "/api/workspaces/*/user-activity/**"
+      - "/api/workspaces/*/user-profile/**"
+      - "/api/workspaces/*/user-issues/**"
+      - "/api/workspaces/*/user-properties/"
+      - "/api/workspaces/*/user-favorites/**"
+      - "/api/workspaces/*/quick-links/**"
+      - "/api/workspaces/*/home-preferences/**"
+      - "/api/workspaces/*/recent-visits/"
+      - "/api/workspaces/*/sidebar-preferences/"
+
+  - name: analytics
+    description: Workspace and project analytics endpoints.
+    match:
+      - "/api/workspaces/*/analytics/"
+      - "/api/workspaces/*/analytic-view/**"
+      - "/api/workspaces/*/saved-analytic-view/**"
+      - "/api/workspaces/*/export-analytics/"
+      - "/api/workspaces/*/default-analytics/"
+      - "/api/workspaces/*/project-stats/"
+      - "/api/workspaces/*/advance-analytics/"
+      - "/api/workspaces/*/advance-analytics-stats/"
+      - "/api/workspaces/*/advance-analytics-charts/"
+      - "/api/workspaces/*/projects/*/advance-analytics/"
+      - "/api/workspaces/*/projects/*/advance-analytics-stats/"
+      - "/api/workspaces/*/projects/*/advance-analytics-charts/"
+
+  - name: projects
+    description: Projects, project members, invitations, favourites and settings.
+    match:
+      - "/api/workspaces/*/projects/**"
+      - "/api/workspaces/*/project-identifiers/"
+      - "/api/workspaces/*/user-favorite-projects/**"
+
+  - name: states
+    description: Project states and the default-state action.
+    match:
+      - "/api/workspaces/*/states/**"
+      - "/api/workspaces/*/projects/*/states/**"
+
+  - name: labels
+    description: Workspace and project labels, issue labels.
+    match:
+      - "/api/workspaces/*/labels/"
+      - "/api/workspaces/*/projects/*/labels/**"
+      - "/api/workspaces/*/projects/*/issue-labels/**"
+      - "/api/workspaces/*/projects/*/bulk-create-labels/"
+
+  - name: estimates
+    description: Estimates and estimate points.
+    match:
+      - "/api/workspaces/*/estimates/"
+      - "/api/workspaces/*/projects/*/project-estimates/"
+      - "/api/workspaces/*/projects/*/estimates/**"
+
+  - name: issues
+    description: Work items (issues), drafts, comments, links, attachments and reactions.
+    match:
+      - "/api/workspaces/*/issues/"
+      - "/api/workspaces/*/work-items/**"
+      - "/api/workspaces/*/draft-issues/**"
+      - "/api/workspaces/*/draft-to-issue/**"
+      - "/api/workspaces/*/export-issues/"
+      - "/api/workspaces/*/projects/*/issues/"
+      - "/api/workspaces/*/projects/*/issues/**"
+      - "/api/workspaces/*/projects/*/issues-detail/"
+      - "/api/workspaces/*/projects/*/v2/issues/**"
+      - "/api/workspaces/*/projects/*/work-items/**"
+      - "/api/workspaces/*/projects/*/archived-issues/"
+      - "/api/workspaces/*/projects/*/deleted-issues/"
+      - "/api/workspaces/*/projects/*/issue-dates/"
+      - "/api/workspaces/*/projects/*/bulk-delete-issues/"
+      - "/api/workspaces/*/projects/*/bulk-archive-issues/"
+      - "/api/workspaces/*/projects/*/comments/*/reactions/**"
+      - "/api/workspaces/*/projects/*/user-properties/"
+
+  - name: cycles
+    description: Cycles and cycle issues.
+    match:
+      - "/api/workspaces/*/cycles/"
+      - "/api/workspaces/*/projects/*/cycles/**"
+      - "/api/workspaces/*/projects/*/archived-cycles/**"
+      - "/api/workspaces/*/projects/*/user-favorite-cycles/**"
+
+  - name: modules
+    description: Modules, module links and module issues.
+    match:
+      - "/api/workspaces/*/modules/"
+      - "/api/workspaces/*/projects/*/modules/**"
+      - "/api/workspaces/*/projects/*/archived-modules/**"
+      - "/api/workspaces/*/projects/*/user-favorite-modules/**"
+
+  - name: views
+    description: Saved workspace and project views.
+    match:
+      - "/api/workspaces/*/views/**"
+      - "/api/workspaces/*/workspace-views/**"
+      - "/api/workspaces/*/projects/*/views/**"
+      - "/api/workspaces/*/projects/*/project-views/**"
+      - "/api/workspaces/*/projects/*/user-favorite-views/**"
+
+  - name: pages
+    description: Pages, page versions and page lock/access actions.
+    match:
+      - "/api/workspaces/*/pages/**"
+      - "/api/workspaces/*/projects/*/pages/**"
+      - "/api/workspaces/*/projects/*/pages-summary/"
+      - "/api/workspaces/*/projects/*/favorite-pages/**"
+
+  - name: intake
+    description: Intake, inboxes and their issues.
+    match:
+      - "/api/workspaces/*/projects/*/intakes/**"
+      - "/api/workspaces/*/projects/*/intake-issues/**"
+      - "/api/workspaces/*/projects/*/inboxes/**"
+      - "/api/workspaces/*/projects/*/inbox-issues/**"
+      - "/api/workspaces/*/projects/*/intake-work-items/**"
+      - "/api/workspaces/*/projects/*/intake-state/"
+
+  - name: notifications
+    description: In-app notifications and notification preferences.
+    match:
+      - "/api/workspaces/*/users/notifications/**"
+      - "/api/users/me/notification-preferences/"
+
+  - name: search
+    description: Workspace search, entity search and issue search.
+    match:
+      - "/api/workspaces/*/search/"
+      - "/api/workspaces/*/entity-search/"
+      - "/api/workspaces/*/projects/*/search-issues/"
+
+  - name: stickies
+    description: Workspace stickies.
+    match:
+      - "/api/workspaces/*/stickies/**"
+
+  - name: webhooks
+    description: Workspace webhooks and webhook delivery logs.
+    match:
+      - "/api/workspaces/*/webhooks/**"
+      - "/api/workspaces/*/webhook-logs/**"
+
+  - name: ai
+    description: The LLM assistant endpoint, workspace and project scoped.
+    match:
+      - "/api/workspaces/*/ai-assistant/"
+      - "/api/workspaces/*/projects/*/ai-assistant/"
+
+  # --- Phase 6: auth flows ----------------------------------------------------
+  - name: auth-session
+    description: Sign in, sign up, sign out, CSRF, email check and password management.
+    match:
+      - "/auth/sign-in/"
+      - "/auth/sign-up/"
+      - "/auth/sign-out/"
+      - "/auth/get-csrf-token/"
+      - "/auth/email-check/"
+      - "/auth/change-password/"
+      - "/auth/set-password/"
+      - "/auth/forgot-password/"
+      - "/auth/reset-password/**"
+      - "/auth/spaces/sign-in/"
+      - "/auth/spaces/sign-up/"
+      - "/auth/spaces/sign-out/"
+      - "/auth/spaces/email-check/"
+      - "/auth/spaces/forgot-password/"
+      - "/auth/spaces/reset-password/**"
+
+  - name: auth-magic
+    description: Magic-link sign in, sign up and link generation, app and space.
+    match:
+      - "/auth/magic-generate/"
+      - "/auth/magic-sign-in/"
+      - "/auth/magic-sign-up/"
+      - "/auth/spaces/magic-generate/"
+      - "/auth/spaces/magic-sign-in/"
+      - "/auth/spaces/magic-sign-up/"
+
+  - name: auth-oauth
+    description: OAuth and OIDC sign in for Google, GitHub, GitLab and Gitea.
+    match:
+      - "/auth/google/**"
+      - "/auth/github/**"
+      - "/auth/gitlab/**"
+      - "/auth/gitea/**"
+      - "/auth/spaces/google/**"
+      - "/auth/spaces/github/**"
+      - "/auth/spaces/gitlab/**"
+      - "/auth/spaces/gitea/**"
+
+  # --- Phase 7: remaining surfaces -------------------------------------------
+  - name: v1
+    description: The public API at /api/v1/.
+    match:
+      - "/api/v1/**"
+
+  - name: public
+    description: The public "space" API at /api/public/.
+    match:
+      - "/api/public/**"
+
+  - name: instances
+    description: Instance administration at /api/instances/.
+    match:
+      - "/api/instances/**"
+
+  # --- Last: the web app's own routes ----------------------------------------
+  - name: web
+    description: Root-level web routes (robots.txt).
+    routes:
+      - { group: web, path: "/robots.txt" }

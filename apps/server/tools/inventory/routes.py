@@ -32,6 +32,20 @@ connection: URL resolution only imports modules and reads settings.
 ``ROUTES.md`` may be hand-edited in exactly two columns, ``Owner`` and
 ``Status``. Regeneration keeps those values for every route it already knows,
 keyed on ``(group, path, view)``. Everything else is overwritten.
+
+The ``Owner`` cell syntax is:
+
+* ``django`` -- every method of the row is served by Django.
+* ``rust`` -- every method of the row is served by Rust. That includes the
+  implicit ``HEAD`` (for a ``GET``) and ``OPTIONS`` (for any DRF view) that
+  Django answers without an explicitly registered handler.
+* ``rust(GET,HEAD)`` -- only the listed methods are served by Rust; the rest of
+  the row stays with Django. Methods are uppercase, comma separated, and must
+  be methods the row has (``routes.json`` ``methods`` plus ``implicit_methods``).
+
+Anything else is rejected, both here (before writing either artefact) and by
+``apps/server/tools/proxy/gen_caddy.py``, which turns these cells into the
+coexistence proxy configuration.
 """
 
 from __future__ import annotations
@@ -55,6 +69,14 @@ REPO_ROOT = SCRIPT_PATH.parents[4]
 API_DIR = REPO_ROOT / "apps" / "api"
 
 HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options", "trace")
+HTTP_METHODS_UPPER = tuple(method.upper() for method in HTTP_METHODS)
+
+# Owner cell grammar, see the module docstring. ``rust(GET,HEAD)`` is the only
+# form that carries a method list; ``django(GET)`` is not a thing.
+OWNER_ENGINES = ("django", "rust")
+OWNER_CELL_RE = re.compile(
+    r"^(?P<engine>[a-z]+)(?:\((?P<methods>[^()]*)\))?$"
+)
 
 # Numbers quoted in RUST_REWRITE.md ("What exists today").
 BRIEF_COUNTS = {
@@ -859,6 +881,115 @@ def markdown_escape(value: str) -> str:
     return value.replace("|", "\\|")
 
 
+class OwnerCellError(ValueError):
+    """An Owner cell does not follow the documented syntax or the route."""
+
+
+def parse_owner_cell(cell: str) -> tuple[str, tuple[str, ...] | None]:
+    """Parse an Owner cell into ``(engine, methods)``.
+
+    ``methods`` is ``None`` for a whole-row owner and a tuple of uppercase
+    method names for a ``rust(GET,HEAD)`` split. Raises :class:`OwnerCellError`
+    on anything else.
+    """
+    text = cell.strip()
+    if not text:
+        raise OwnerCellError("owner cell is empty")
+
+    match = OWNER_CELL_RE.match(text)
+    if match is None:
+        raise OwnerCellError(
+            f"unknown owner syntax {cell!r}; expected django, rust or rust(GET,HEAD)"
+        )
+
+    engine = match.group("engine")
+    if engine not in OWNER_ENGINES:
+        raise OwnerCellError(
+            f"unknown owner {engine!r}; expected one of {', '.join(OWNER_ENGINES)}"
+        )
+
+    method_list = match.group("methods")
+    if engine == "django":
+        if method_list is not None:
+            raise OwnerCellError(
+                "django cannot carry a method list; use rust(GET,HEAD) to move a "
+                "subset to Rust"
+            )
+        return ("django", None)
+    if method_list is None:
+        return ("rust", None)
+
+    names = [name.strip() for name in method_list.split(",")]
+    if not names or any(not name for name in names):
+        raise OwnerCellError(
+            f"malformed method list in {cell!r}; expected rust(GET,HEAD)"
+        )
+
+    methods: list[str] = []
+    for name in names:
+        if name not in HTTP_METHODS_UPPER:
+            raise OwnerCellError(
+                f"unknown method {name!r} in {cell!r}; expected uppercase "
+                f"methods from {', '.join(HTTP_METHODS_UPPER)}"
+            )
+        if name in methods:
+            raise OwnerCellError(f"method {name!r} is listed twice in {cell!r}")
+        methods.append(name)
+    return ("rust", tuple(methods))
+
+
+def route_methods(route: dict[str, Any]) -> set[str]:
+    """Every method the route answers, as lowercase names.
+
+    ``methods`` holds the explicitly registered handlers; ``implicit_methods``
+    holds the ``HEAD`` Django copies from a ``GET`` and the ``OPTIONS`` DRF
+    answers for every DRF view.
+    """
+    methods = {str(method).lower() for method in route.get("methods", {})}
+    methods |= {str(method).lower() for method in route.get("implicit_methods", [])}
+    return methods
+
+
+def validate_owner_cell(cell: str, route: dict[str, Any]) -> tuple[str, tuple[str, ...] | None]:
+    """Parse ``cell`` and check its methods against ``route``."""
+    engine, methods = parse_owner_cell(cell)
+    if engine == "django" or methods is None:
+        if engine == "rust" and not route_methods(route):
+            raise OwnerCellError(
+                "route registers no methods, so a whole-row rust owner would "
+                "produce no proxy rule"
+            )
+        return (engine, methods)
+
+    available = route_methods(route)
+    missing = [name for name in methods if name.lower() not in available]
+    if missing:
+        raise OwnerCellError(
+            f"method(s) {', '.join(missing)} are not registered for this route "
+            f"(it answers {', '.join(sorted(m.upper() for m in available)) or 'nothing'})"
+        )
+    return (engine, methods)
+
+
+def validate_ownership(
+    routes: list[dict[str, Any]],
+    ownership: dict[tuple[str, str, str], tuple[str, str]],
+) -> list[str]:
+    """Return one message per route whose preserved Owner cell is invalid."""
+    errors: list[str] = []
+    for route in routes:
+        key = (route["group"], route["path"], route["view"])
+        entry = ownership.get(key)
+        if entry is None:
+            continue
+        owner, _status = entry
+        try:
+            validate_owner_cell(owner, route)
+        except OwnerCellError as exc:
+            errors.append(f"{route['path']} ({route['view']}): {exc}")
+    return errors
+
+
 def code(value: str) -> str:
     return "`" + markdown_escape(value) + "`"
 
@@ -1639,8 +1770,21 @@ def render_markdown(payload: dict[str, Any], ownership: dict[tuple[str, str, str
         "`apps/server/tools/inventory/routes.py`. Do not edit anything except the "
         "**Owner** and **Status** columns; regeneration preserves those two values for "
         "every route it already knows, keyed on `(group, path, view)`, and overwrites "
-        "everything else. Owner is `django` or `rust`. Status starts at `not-started`; "
-        "use values such as `in-progress`, `verified` or `blocked` by hand."
+        "everything else. Status starts at `not-started`; use values such as "
+        "`in-progress`, `verified` or `blocked` by hand."
+    )
+    lines.append("")
+    lines.append(
+        "Owner cells use one of three forms. `django` keeps every method of the row on "
+        "Django. `rust` moves every method of the row to Rust, including the implicit "
+        "`HEAD` Django answers for a `GET` and the `OPTIONS` DRF answers for any DRF "
+        "view. `rust(GET,HEAD)` moves only the listed methods; the other methods of the "
+        "same path stay on Django. Method names are uppercase and must be methods the "
+        "row answers. Anything else is rejected by this generator and by "
+        "`apps/server/tools/proxy/gen_caddy.py`, which turns these cells into "
+        "`apps/server/deploy/caddy/rust-routes.caddy`: one named matcher and one "
+        "`handle` block per route group, gated by `PLANE_RS_GROUP_<NAME>` (`rust` by "
+        "default, `django` to send the group back)."
     )
     lines.append("")
     lines.append("Regenerate:")
@@ -1806,6 +1950,15 @@ def main(argv: list[str] | None = None) -> int:
     ownership: dict[tuple[str, str, str], tuple[str, str]] = {}
     if markdown_path.exists():
         ownership = parse_ownership(markdown_path.read_text(encoding="utf-8"))
+        errors = validate_ownership(routes, ownership)
+        if errors:
+            for error in errors:
+                print(f"error: invalid Owner cell: {error}", file=sys.stderr)
+            print(
+                f"refusing to write {json_path.name} or {markdown_path.name}",
+                file=sys.stderr,
+            )
+            return 2
 
     write_json(payload, json_path)
     # Render from the JSON we just wrote: ROUTES.md is derived from routes.json.

@@ -1,6 +1,8 @@
 # Route inventory
 
-Generated from Django's URL resolver by `apps/server/tools/inventory/routes.py`. Do not edit anything except the **Owner** and **Status** columns; regeneration preserves those two values for every route it already knows, keyed on `(group, path, view)`, and overwrites everything else. Owner is `django` or `rust`. Status starts at `not-started`; use values such as `in-progress`, `verified` or `blocked` by hand.
+Generated from Django's URL resolver by `apps/server/tools/inventory/routes.py`. Do not edit anything except the **Owner** and **Status** columns; regeneration preserves those two values for every route it already knows, keyed on `(group, path, view)`, and overwrites everything else. Status starts at `not-started`; use values such as `in-progress`, `verified` or `blocked` by hand.
+
+Owner cells use one of three forms. `django` keeps every method of the row on Django. `rust` moves every method of the row to Rust, including the implicit `HEAD` Django answers for a `GET` and the `OPTIONS` DRF answers for any DRF view. `rust(GET,HEAD)` moves only the listed methods; the other methods of the same path stay on Django. Method names are uppercase and must be methods the row answers. Anything else is rejected by this generator and by `apps/server/tools/proxy/gen_caddy.py`, which turns these cells into `apps/server/deploy/caddy/rust-routes.caddy`: one named matcher and one `handle` block per route group, gated by `PLANE_RS_GROUP_<NAME>` (`rust` by default, `django` to send the group back).
 
 Regenerate:
 

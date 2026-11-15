@@ -150,6 +150,50 @@ services:
         limits:
           memory: 256M
 
+  proxy:
+    # Dev proxy for the Rust rewrite (see dev/Caddyfile.dev and proxy.sh).
+    #
+    # It lives in the "proxy" profile on purpose: up.sh runs
+    # `docker compose up -d --wait` without --profile, so the infrastructure
+    # stack never waits for a Caddy that may have no Rust server behind it.
+    # proxy.sh starts, reloads and stops it explicitly.
+    #
+    # Memory is capped like every other service: Caddy's idle RSS is a few
+    # megabytes and 64 MB leaves room for a burst of proxied bodies.
+    profiles: ["proxy"]
+    image: caddy:2.11.4-alpine
+    container_name: plane-rs-dev-proxy
+    ports:
+      - "127.0.0.1:18080:18080"
+    volumes:
+      # The whole apps/server tree, read only, so the relative import in
+      # Caddyfile.dev (../deploy/caddy/rust-routes.caddy) resolves exactly as
+      # it does in the repository. `proxy.sh reload` only has to rewrite the
+      # generated file on the host; the next reload reads it.
+      - ..:/srv/plane:ro
+    # proxy.sh writes the PLANE_RS_GROUP_* values exported in the caller's
+    # shell (and PLANE_RS_API_UPSTREAM) to this gitignored file before `up`.
+    # `required: false` keeps compose happy when the service is inspected
+    # before the first `proxy.sh up`.
+    env_file:
+      - path: run/proxy.env
+        required: false
+    command:
+      - caddy
+      - run
+      - --config
+      - /srv/plane/dev/Caddyfile.dev
+      - --adapter
+      - caddyfile
+    extra_hosts:
+      # Colima and Docker Desktop both provide host.docker.internal; asking
+      # for the gateway explicitly makes it work on either.
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
 volumes:
   pgdata:
   minio-data:

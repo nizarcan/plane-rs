@@ -17,6 +17,7 @@ lean: Postgres 384 MB, RabbitMQ 320 MB, MinIO 256 MB, Valkey 64 MB. Never start
 | Valkey | `valkey/valkey:7.2.11-alpine` | `127.0.0.1:56379` | 64 MB |
 | RabbitMQ | `rabbitmq:3.13.6-management-alpine` | `127.0.0.1:55672` AMQP, `127.0.0.1:55673` management | 320 MB |
 | MinIO (Silo) | `docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z` | `127.0.0.1:59000` S3, `127.0.0.1:59090` console | 256 MB |
+| Dev proxy (Caddy) | `caddy:2.11.4-alpine` | `127.0.0.1:18080` | 64 MB |
 
 Postgres runs as `plane`/`plane` with database `plane`, `max_connections=500`
 and the usual dev-speed settings (`fsync`, `synchronous_commit` and
@@ -26,9 +27,9 @@ databases cloned from it survive `down.sh` and restarts. RabbitMQ has user
 creates the `uploads` bucket on every start.
 
 Other port ranges are reserved and must not be used by these scripts: Django
-instances 18000-18099, Rust `plane-api` instances 18100-18199, the future Caddy
-dev proxy 18080. `django-env.sh` points `WEB_URL` at `http://127.0.0.1:18080`
-even before Caddy exists, because that is the URL the frontends will use.
+instances 18000-18099, Rust `plane-api` instances 18100-18199, the Caddy dev
+proxy 18080. `django-env.sh` points `WEB_URL` at `http://127.0.0.1:18080`,
+the URL the frontends use whether Django or Rust answers.
 
 ## Scripts
 
@@ -45,6 +46,7 @@ executed.
 | `django-env.sh` | Prints (when executed) or exports (when sourced) the environment Django needs. See the table below. |
 | `django.sh <args>` | Runs `apps/api/.venv/bin/python manage.py <args>` from `apps/api` with that environment. |
 | `django-serve.sh <port>` | Serves Django in the foreground exactly as `apps/api/bin/docker-entrypoint-api.sh` does after its setup steps: gunicorn 23 with one `uvicorn.workers.UvicornWorker`, `plane.asgi:application`, bound to `127.0.0.1:<port>`, access log on stderr. No `--max-requests`, no registration/collectstatic. |
+| `proxy.sh up\|down\|reload\|status` | Runs the coexistence proxy in a `caddy:2.11.4-alpine` container named `plane-rs-dev-proxy` on `127.0.0.1:18080`. Rust-owned routes go to `host.docker.internal:18100`, `/api/*`, `/auth/*` and `/static/*` to Django on 18000, `/uploads/*` to MinIO on 59000, `/spaces/*`, `/god-mode/*`, `/live/*` and everything else to the frontend dev servers. It lives in the compose `proxy` profile, so `up.sh`/`down.sh` leave it alone. `reload` regenerates `deploy/caddy/rust-routes.caddy` and reloads Caddy in place. |
 | `mq-vhost.sh <vhost>` | Creates a RabbitMQ vhost and grants `plane` configure/write/read on it. Idempotent. `--delete [--force]` removes it; the shared `plane` vhost needs `--force`. |
 | `bootstrap.sh [--force]` | Builds the `plane_tpl` template database. Does nothing if it already exists, unless `--force` drops and rebuilds it. |
 | `mkdb.sh <name> [--replace]` | Clones `plane_tpl` as `<name>`. Refuses an existing name unless `--replace` (which drops it first). |
@@ -75,15 +77,21 @@ apps/server/dev/mkdb.sh t_mytask_1
 # 4. Serve Django against the clone. Foreground; Ctrl-C stops it.
 PLANE_DB=t_mytask_1 apps/server/dev/django-serve.sh 18000
 
-# 5. In another shell: a smoke request.
-curl -si http://127.0.0.1:18000/api/instances/
+# 5. Optionally put the coexistence proxy in front (it also needs a Rust
+#    plane-api on 18100 for the routes marked rust; without one those return
+#    502 and everything else keeps working).
+apps/server/dev/proxy.sh up
 
-# 6. Management commands against the clone.
+# 6. In another shell: a smoke request through the proxy.
+curl -si http://127.0.0.1:18080/api/instances/
+
+# 7. Management commands against the clone.
 PLANE_DB=t_mytask_1 apps/server/dev/django.sh showmigrations --plan
 PLANE_DB=t_mytask_1 apps/server/dev/django.sh shell
 
-# 7. Clean up your database when done.
+# 8. Clean up your database when done (and stop the proxy if you started it).
 apps/server/dev/dropdb.sh t_mytask_1
+apps/server/dev/proxy.sh down
 ```
 
 To use the environment in your own shell or from a non-bash tool:
@@ -164,6 +172,53 @@ environment):
 ```bash
 cd apps/api
 uvx --from 'uv==0.12.21' uv pip install --python .venv/bin/python 'gunicorn==23.0.0'
+```
+
+## Coexistence proxy
+
+`proxy.sh` runs Caddy on `127.0.0.1:18080` so the frontends and the
+differential harness can use one base URL while Django and Rust each answer
+part of the API. It is a separate compose service in the `proxy` profile:
+`up.sh` and `down.sh` never start or stop it, so agents that do not need it pay
+nothing for it. Only one proxy can run at a time (fixed container name and
+port); concurrent agents that need different routing take turns or run their
+own container on another port.
+
+Routing mirrors `deploy/caddy/Caddyfile.coexist`:
+
+| Path | Upstream |
+| --- | --- |
+| Rust-owned routes | `host.docker.internal:18100` (`plane-api`) |
+| `/api/*`, `/auth/*`, `/static/*` | `host.docker.internal:18000` (Django) |
+| `/uploads/*` | `host.docker.internal:59000` (MinIO) |
+| `/spaces/*` | `host.docker.internal:3002` (`apps/space`) |
+| `/god-mode/*` | `host.docker.internal:3001` (`apps/admin`) |
+| `/live/*` | `host.docker.internal:3100` (`apps/live`) |
+| everything else | `host.docker.internal:3000` (`apps/web`) |
+
+The frontends may be down; Caddy answers 502 for their routes and keeps
+serving the backend ones. `host.docker.internal` is provided by the compose
+`extra_hosts` entry, which works on Colima and Docker Desktop.
+
+Ownership comes from `ROUTES.md` + `deploy/route-groups.yaml`; the generated
+fragment is `deploy/caddy/rust-routes.caddy`. `proxy.sh reload` regenerates it
+and reloads Caddy without recreating the container. While every Owner cell is
+`django` the fragment has no matchers and the proxy is a plain pass-through.
+
+Each group is flipped with `PLANE_RS_GROUP_<NAME>` (for example
+`PLANE_RS_GROUP_META`, `PLANE_RS_GROUP_USERS_ME`); unset or `rust` sends the
+group to `plane-api`, `django` sends it back. The value is read per request
+from the container environment, so export the variable and run `proxy.sh up`
+again — `reload` alone cannot change a process's environment. `proxy.sh up`
+copies every exported `PLANE_RS_GROUP_*` variable into the gitignored
+`dev/run/proxy.env`, which compose passes to the container. See
+`deploy/caddy/README.md` for the full ownership workflow.
+
+For a local experiment without touching the committed `ROUTES.md`, point the
+generator at a copy:
+
+```sh
+PLANE_RS_OWNERS_FILE=/tmp/ROUTES.md apps/server/dev/proxy.sh reload
 ```
 
 ## Isolation for concurrent agents
