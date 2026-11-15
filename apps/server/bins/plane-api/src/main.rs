@@ -20,6 +20,8 @@ mod logging;
 mod middleware;
 mod response;
 mod routes;
+#[cfg(feature = "test-endpoints")]
+mod test_endpoints;
 
 use std::net::SocketAddr;
 use std::process::ExitCode;

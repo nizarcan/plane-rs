@@ -7,10 +7,14 @@
 //! Read `crate::catalog` for why static SQL is declared with its result shape,
 //! and `crate::pool` for the read/write routing rule
 //! (`plane/middleware/db_routing.py`).
+//!
+//! Every crate declares its own statements with [`plane_query!`] and checks
+//! them with [`schema_check::verify`]; see `crate::schema_check`.
 
 pub mod catalog;
 pub mod pool;
 pub mod queries;
+pub mod schema_check;
 pub mod tls;
 pub mod url;
 

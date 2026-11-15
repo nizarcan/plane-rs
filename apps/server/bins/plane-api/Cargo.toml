@@ -15,15 +15,23 @@ repository.workspace = true
 name = "plane-api"
 path = "src/main.rs"
 
+[features]
+default = []
+# Test-only `/_plane_rs/test/` endpoints. Off by default; the release binary
+# must not contain them (Phase 2 exit check).
+test-endpoints = []
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
+deadpool-postgres.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
 http.workspace = true
 mimalloc.workspace = true
 percent-encoding.workspace = true
+plane-auth = { path = "../../crates/plane-auth" }
 plane-core = { path = "../../crates/plane-core" }
 plane-db = { path = "../../crates/plane-db" }
 plane-serde = { path = "../../crates/plane-serde" }
@@ -44,6 +52,7 @@ tracing-subscriber = { workspace = true, features = [
   "fmt",
   "json",
 ] }
+tokio-postgres.workspace = true
 uuid.workspace = true
 
 [lints]

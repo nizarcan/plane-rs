@@ -31,12 +31,6 @@ use plane_core::context::RequestContext;
 
 use crate::response::Resp;
 
-/// Layer 6: `AuthenticationMiddleware.process_request`
-/// (`django/contrib/auth/middleware.py:30-41`). Reads the session's
-/// `_auth_user_id`/`backend`/`_auth_user_hash`, loads the user and verifies the
-/// session auth hash; a miss yields `AnonymousUser`.
-pub fn authentication_request(_ctx: &mut RequestContext) {}
-
 /// Layer 8: `crum.CurrentRequestUserMiddleware`
 /// (`crum/__init__.py:86-111`). Exposes the current user to model saves so
 /// `created_by`/`updated_by` are filled. In Rust this becomes a request-scoped

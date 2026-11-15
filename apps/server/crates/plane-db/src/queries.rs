@@ -55,55 +55,6 @@ plane_query! {
 }
 
 plane_query! {
-    /// Django's `SessionStore.load`: `SELECT … WHERE session_key = %s AND
-    /// expire_date > now()` (`django/contrib/sessions/backends/db.py`).
-    LOAD_SESSION_BY_KEY = "load_session_by_key",
-    "SELECT session_key, session_data, expire_date, user_id, device_info \
-     FROM sessions \
-     WHERE session_key = $1 AND expire_date > now()",
-    [
-        ("session_key", Varchar),
-        ("session_data", Text),
-        ("expire_date", Timestamptz),
-        ("user_id", Varchar),
-        ("device_info", Jsonb),
-    ]
-}
-
-plane_query! {
-    /// `AuthenticationMiddleware`'s `get_user` reads the user by id
-    /// (`django/contrib/auth/__init__.py`). The model does not use `BaseModel`,
-    /// so there is no `deleted_at` column (verified against the template DB).
-    LOAD_USER_BY_ID = "load_user_by_id",
-    "SELECT id, created_at, updated_at, last_login, username, email, display_name, \
-     first_name, last_name, avatar, avatar_asset_id, is_active, is_staff, is_superuser, \
-     is_email_verified, is_bot, user_timezone, last_login_time, date_joined \
-     FROM users \
-     WHERE id = $1",
-    [
-        ("id", Uuid),
-        ("created_at", Timestamptz),
-        ("updated_at", Timestamptz),
-        ("last_login", Timestamptz),
-        ("username", Varchar),
-        ("email", Varchar),
-        ("display_name", Varchar),
-        ("first_name", Varchar),
-        ("last_name", Varchar),
-        ("avatar", Text),
-        ("avatar_asset_id", Uuid),
-        ("is_active", Bool),
-        ("is_staff", Bool),
-        ("is_superuser", Bool),
-        ("is_email_verified", Bool),
-        ("is_bot", Bool),
-        ("user_timezone", Varchar),
-        ("last_login_time", Timestamptz),
-        ("date_joined", Timestamptz),
-    ]
-}
-
-plane_query! {
     /// `get_configuration_value` reads the whole table once
     /// (`plane/license/utils/instance_value.py:17`); soft-deleted rows are
     /// invisible.
@@ -122,12 +73,11 @@ plane_query! {
 }
 
 /// Every catalogued statement, in declaration order.
-pub static ALL_QUERIES: &[&Query] = &[
-    &LOAD_INSTANCE,
-    &LOAD_SESSION_BY_KEY,
-    &LOAD_USER_BY_ID,
-    &LOAD_INSTANCE_CONFIGURATIONS,
-];
+///
+/// Statements that belong to one library crate (`sessions` and `users` in
+/// `plane-auth`, for example) are declared in that crate's own catalog and
+/// checked by its own `tests/schema_check.rs`; they are not repeated here.
+pub static ALL_QUERIES: &[&Query] = &[&LOAD_INSTANCE, &LOAD_INSTANCE_CONFIGURATIONS];
 
 #[cfg(test)]
 mod tests {

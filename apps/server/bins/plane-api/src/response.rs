@@ -123,6 +123,19 @@ impl Resp {
         self.set_header("Content-Length", self.body.len().to_string());
     }
 
+    /// Append a header value without replacing existing ones. `Set-Cookie` is
+    /// the reason this exists: Django emits one header line per cookie, in the
+    /// order the cookies were set (response phase 5 before 3, so `csrftoken`
+    /// precedes `session-id`).
+    pub fn append_header(&mut self, name: &'static str, value: impl AsRef<str>) {
+        if let (Ok(name), Ok(value)) = (
+            axum::http::HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(value.as_ref()),
+        ) {
+            self.headers.append(name, value);
+        }
+    }
+
     /// Turn the response into an axum response.
     ///
     /// Two details matter for byte-compatibility with uvicorn:

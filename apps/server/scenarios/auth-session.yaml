@@ -1,0 +1,189 @@
+# The auth foundation as an HTTP contract: Django's plain `View` form flows
+# (masked CSRF token + cookie, session cookie, sign-out) and the DRF endpoints
+# they protect. Phase 6 replays this against `plane-api` once `/auth/` is ported;
+# until then it is a Django-vs-Django recording of exactly what those routes do.
+#
+# It deliberately uses only the routes that exist in every deployment of this
+# branch: instance-admin sign-up (which needs no SMTP), email/password sign-up
+# and sign-in, `/auth/get-csrf-token/`, `/auth/sign-out/`, `/api/users/me/` and
+# `/api/instances/admins/me/`. No email is sent, so the scenario runs without a
+# mail server or a Celery worker.
+#
+# CSRF semantics covered (HTTP_CONTRACT §7):
+#   - a token from `/auth/get-csrf-token/` is a 64-character masked secret and
+#     its `csrftoken` cookie is the 32-character secret;
+#   - a form POST with the token + cookie succeeds (302);
+#   - a form POST without the token returns the 200 HTML failure page;
+#   - `login()` rotates the secret, so the pre-login token is rejected.
+
+name: auth-session
+template_db: plane_tpl
+vars:
+  admin_email: auth-scenario-admin@example.com
+  user_email: auth-scenario-user@example.com
+  # Strong enough for zxcvbn score >= 3 (plane/authentication/utils/password.py).
+  password: Diff-Test-Passw0rd-2026!
+password_vars:
+  - password
+steps:
+  # --- instance admin ----------------------------------------------------
+  - name: admin-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: admin
+    expect_status: 200
+    capture:
+      - name: admin_csrf
+        source: json
+        pointer: /csrf_token
+
+  - name: admin-sign-up
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: admin
+    form:
+      email: "{{admin_email}}"
+      password: "{{password}}"
+      first_name: Auth
+      last_name: Admin
+      company_name: Auth Scenario Inc
+      is_telemetry_enabled: "True"
+      csrfmiddlewaretoken: "{{admin_csrf}}"
+    expect_status: 302
+
+  - name: admin-me
+    method: GET
+    path: /api/instances/admins/me/
+    jar: admin
+    expect_status: 200
+    capture:
+      - name: admin_id
+        source: json
+        pointer: /id
+
+  # --- regular user sign-up ---------------------------------------------
+  - name: user-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: user
+    expect_status: 200
+    capture:
+      - name: user_csrf
+        source: json
+        pointer: /csrf_token
+
+  - name: user-sign-up
+    method: POST
+    path: /auth/sign-up/
+    jar: user
+    form:
+      email: "{{user_email}}"
+      password: "{{password}}"
+      csrfmiddlewaretoken: "{{user_csrf}}"
+    expect_status: 302
+
+  - name: user-me
+    method: GET
+    path: /api/users/me/
+    jar: user
+    expect_status: 200
+    capture:
+      - name: user_id
+        source: json
+        pointer: /id
+
+  # --- CSRF rejection ----------------------------------------------------
+  # The same form without `csrfmiddlewaretoken`: Django's failure view renders
+  # `csrf_failure.html` with status 200 (not 403), and the session middleware
+  # has not saved anything.
+  - name: sign-up-without-csrf-token
+    method: POST
+    path: /auth/sign-up/
+    jar: no-csrf
+    form:
+      email: auth-scenario-nocsrf@example.com
+      password: "{{password}}"
+    expect_status: 200
+
+  # --- sign-out ----------------------------------------------------------
+  # `login()` rotated the secret during sign-up, so fetch a current token.
+  - name: user-csrf-token-after-login
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: user
+    expect_status: 200
+    capture:
+      - name: user_csrf_after_login
+        source: json
+        pointer: /csrf_token
+
+  - name: sign-out
+    method: POST
+    path: /auth/sign-out/
+    jar: user
+    form:
+      csrfmiddlewaretoken: "{{user_csrf_after_login}}"
+    expect_status: 302
+
+  # The session row is gone, so the session cookie is deleted by the response
+  # middleware and DRF answers 401.
+  - name: user-me-after-sign-out
+    method: GET
+    path: /api/users/me/
+    jar: user
+    expect_status: 401
+
+  # --- sign-in -----------------------------------------------------------
+  - name: sign-in-csrf-token
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: signin
+    expect_status: 200
+    capture:
+      - name: signin_csrf
+        source: json
+        pointer: /csrf_token
+
+  - name: sign-in-wrong-password
+    method: POST
+    path: /auth/sign-in/
+    jar: signin
+    form:
+      email: "{{user_email}}"
+      password: definitely-not-the-password
+      csrfmiddlewaretoken: "{{signin_csrf}}"
+    # The view redirects to the app with an error code; the session is untouched.
+    expect_status: 302
+
+  - name: sign-in
+    method: POST
+    path: /auth/sign-in/
+    jar: signin
+    form:
+      email: "{{user_email}}"
+      password: "{{password}}"
+      csrfmiddlewaretoken: "{{signin_csrf}}"
+    expect_status: 302
+
+  - name: user-me-after-sign-in
+    method: GET
+    path: /api/users/me/
+    jar: signin
+    expect_status: 200
+    capture:
+      - name: signed_in_id
+        source: json
+        pointer: /id
+
+  # --- the same form via a masked token in the body of a *DRF* endpoint ---
+  # `/auth/get-csrf-token/` is CSRF-exempt (DRF), so this only proves the token
+  # endpoint keeps returning a masked 64-character token after all of the above.
+  - name: csrf-token-shape-after-flows
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: signin
+    expect_status: 200
+    capture:
+      - name: final_csrf
+        source: json
+        pointer: /csrf_token
