@@ -38,6 +38,7 @@
 //! assert_eq!(bytes, b"[1.0, 1e-05]");
 //! ```
 
+pub mod pyjson;
 pub mod values;
 
 mod decimal;
@@ -45,6 +46,7 @@ mod float;
 mod formatter;
 mod serializer;
 mod transcode;
+mod wtf8;
 
 pub use decimal::PyDecimal;
 pub use decimal::PyDecimalError;

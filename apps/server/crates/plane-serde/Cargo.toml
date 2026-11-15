@@ -23,5 +23,9 @@ serde_json = { workspace = true }
 name = "render"
 harness = false
 
+[[bench]]
+name = "pyjson"
+harness = false
+
 [lints]
 workspace = true

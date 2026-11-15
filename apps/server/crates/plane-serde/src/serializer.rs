@@ -17,7 +17,11 @@ use std::io;
 use serde::ser::{self, Impossible, Serialize};
 
 use crate::float::PyFloatRepr;
-use crate::formatter::{write_escaped_contents, write_json_string};
+use crate::formatter::{
+    WriteError, write_escaped_contents_counted, write_json_string_counted,
+    write_json_wtf8_string_counted,
+};
+use crate::pyjson::{RAW_NUMBER_TOKEN, WTF8_TOKEN};
 use crate::{Dialect, Error};
 
 /// Writes `value` as JSON in `dialect` to `writer`.
@@ -27,6 +31,12 @@ pub(crate) struct PySerializer<W: io::Write> {
     /// Nesting depth; `Dialect::Drf` renders a top-level `None` as an empty
     /// body, so `null` must know whether it is at the document root.
     depth: u32,
+    /// Characters written so far. Python's renderer ends with
+    /// `str.encode("utf-8")`, whose `UnicodeEncodeError` for a lone surrogate
+    /// carries a character offset into the whole document; tracking it here
+    /// is what makes that message exact. Every raw write is ASCII, so the
+    /// counter only needs the string writers' character counts.
+    chars: usize,
 }
 
 impl<W: io::Write> PySerializer<W> {
@@ -35,6 +45,7 @@ impl<W: io::Write> PySerializer<W> {
             writer,
             dialect,
             depth: 0,
+            chars: 0,
         }
     }
 
@@ -45,11 +56,30 @@ impl<W: io::Write> PySerializer<W> {
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        self.writer.write_all(bytes).map_err(Error::Io)
+        self.writer.write_all(bytes).map_err(Error::Io)?;
+        // Every caller writes ASCII (brackets, separators, keywords, number
+        // texts and escape sequences).
+        self.chars += bytes.len();
+        Ok(())
     }
 
     fn write_str(&mut self, text: &str) -> Result<(), Error> {
-        write_json_string(self.dialect, &mut self.writer, text).map_err(Error::Io)
+        self.chars = write_json_string_counted(self.dialect, &mut self.writer, text, self.chars)
+            .map_err(WriteError::into_crate_error)?;
+        Ok(())
+    }
+
+    fn write_wtf8_str(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        self.chars =
+            write_json_wtf8_string_counted(self.dialect, &mut self.writer, bytes, self.chars)
+                .map_err(WriteError::into_crate_error)?;
+        Ok(())
+    }
+
+    /// Write a number's lexeme without quotes, for an arbitrary-precision
+    /// `int` (the serde_json `arbitrary_precision` protocol).
+    fn write_raw_number(&mut self, text: &str) -> Result<(), Error> {
+        self.write(text.as_bytes())
     }
 
     fn begin_array(&mut self) -> Result<(), Error> {
@@ -260,10 +290,14 @@ impl<'a, W: io::Write> ser::Serializer for &'a mut PySerializer<W> {
         self.serialize_str(variant)
     }
 
-    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<(), Error>
+    fn serialize_newtype_struct<T>(self, name: &'static str, value: &T) -> Result<(), Error>
     where
         T: ?Sized + Serialize,
     {
+        if name == WTF8_TOKEN {
+            let bytes = value.serialize(BytesExtractor)?;
+            return self.write_wtf8_str(&bytes);
+        }
         value.serialize(self)
     }
 
@@ -327,10 +361,15 @@ impl<'a, W: io::Write> ser::Serializer for &'a mut PySerializer<W> {
 
     fn serialize_struct(
         self,
-        _name: &'static str,
-        _len: usize,
+        name: &'static str,
+        len: usize,
     ) -> Result<Self::SerializeStruct, Error> {
-        self.serialize_map(None)
+        if name == RAW_NUMBER_TOKEN {
+            // serde_json's `arbitrary_precision` protocol: a one-field struct
+            // whose field carries the number's lexeme, written without quotes.
+            return Ok(Compound::Number { serializer: self });
+        }
+        self.serialize_map(Some(len))
     }
 
     fn serialize_struct_variant(
@@ -354,19 +393,23 @@ impl<'a, W: io::Write> ser::Serializer for &'a mut PySerializer<W> {
     {
         struct Adapter<'a, W: io::Write> {
             serializer: &'a mut PySerializer<W>,
-            error: Option<io::Error>,
+            error: Option<Error>,
         }
 
         impl<W: io::Write> fmt::Write for Adapter<'_, W> {
             fn write_str(&mut self, text: &str) -> fmt::Result {
-                match write_escaped_contents(
+                match write_escaped_contents_counted(
                     self.serializer.dialect,
                     &mut self.serializer.writer,
                     text,
+                    self.serializer.chars,
                 ) {
-                    Ok(()) => Ok(()),
+                    Ok(chars) => {
+                        self.serializer.chars = chars;
+                        Ok(())
+                    }
                     Err(error) => {
-                        self.error = Some(error);
+                        self.error = Some(error.into_crate_error());
                         Err(fmt::Error)
                     }
                 }
@@ -380,7 +423,7 @@ impl<'a, W: io::Write> ser::Serializer for &'a mut PySerializer<W> {
         };
         let displayed = fmt::write(&mut adapter, format_args!("{value}"));
         if let Some(error) = adapter.error {
-            return Err(Error::Io(error));
+            return Err(error);
         }
         displayed.map_err(|_| Error::Custom("failed to format value".to_owned()))?;
         adapter.serializer.write(b"\"")
@@ -409,6 +452,9 @@ pub(crate) enum Compound<'a, W: io::Write> {
         serializer: &'a mut PySerializer<W>,
         first: bool,
     },
+    /// A serde_json `arbitrary_precision` number: one field whose value is
+    /// written verbatim.
+    Number { serializer: &'a mut PySerializer<W> },
 }
 
 impl<W: io::Write> Compound<'_, W> {
@@ -615,11 +661,23 @@ impl<W: io::Write> ser::SerializeStruct for Compound<'_, W> {
     where
         T: ?Sized + Serialize,
     {
-        self.object_entry(key, value)
+        match self {
+            Compound::Number { serializer } => {
+                if key != RAW_NUMBER_TOKEN {
+                    return Err(Error::Custom("invalid number literal".to_owned()));
+                }
+                let text = value.serialize(NumberTextExtractor)?;
+                serializer.write_raw_number(&text)
+            }
+            _ => self.object_entry(key, value),
+        }
     }
 
     fn end(self) -> Result<(), Error> {
-        self.object_end()
+        match self {
+            Compound::Number { .. } => Ok(()),
+            _ => self.object_end(),
+        }
     }
 }
 
@@ -646,17 +704,6 @@ struct MapKeySerializer<'a, W: io::Write> {
     serializer: &'a mut PySerializer<W>,
 }
 
-impl<W: io::Write> MapKeySerializer<'_, W> {
-    fn quoted_key<F>(self, write: F) -> Result<(), Error>
-    where
-        F: FnOnce(&mut W) -> io::Result<()>,
-    {
-        self.serializer.write(b"\"")?;
-        write(&mut self.serializer.writer).map_err(Error::Io)?;
-        self.serializer.write(b"\"")
-    }
-}
-
 impl<W: io::Write> ser::Serializer for MapKeySerializer<'_, W> {
     type Ok = ();
     type Error = Error;
@@ -679,43 +726,53 @@ impl<W: io::Write> ser::Serializer for MapKeySerializer<'_, W> {
     }
 
     fn serialize_i8(self, value: i8) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_i16(self, value: i16) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_i32(self, value: i32) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_i64(self, value: i64) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_i128(self, value: i128) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_u8(self, value: u8) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_u16(self, value: u16) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_u32(self, value: u32) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_u64(self, value: u64) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_u128(self, value: u128) -> Result<(), Error> {
-        self.quoted_key(|writer| write!(writer, "{value}"))
+        let mut buffer = itoa::Buffer::new();
+        self.serializer.write_str(buffer.format(value))
     }
 
     fn serialize_f32(self, value: f32) -> Result<(), Error> {
@@ -765,10 +822,14 @@ impl<W: io::Write> ser::Serializer for MapKeySerializer<'_, W> {
         self.serialize_str(variant)
     }
 
-    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<(), Error>
+    fn serialize_newtype_struct<T>(self, name: &'static str, value: &T) -> Result<(), Error>
     where
         T: ?Sized + Serialize,
     {
+        if name == WTF8_TOKEN {
+            let bytes = value.serialize(BytesExtractor)?;
+            return self.serializer.write_wtf8_str(&bytes);
+        }
         value.serialize(self)
     }
 
@@ -835,5 +896,364 @@ impl<W: io::Write> ser::Serializer for MapKeySerializer<'_, W> {
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Error> {
         self.serialize_seq(None)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Payload extractors for the private newtype markers
+// ---------------------------------------------------------------------------
+
+/// `serde::Serialize` cannot hand a `&[u8]` to a serialiser without a
+/// newtype, and `serialize_newtype_struct` only sees `&T: Serialize`. This
+/// serialiser accepts the payload's `serialize_str`/`serialize_bytes` and
+/// keeps the bytes.
+struct BytesExtractor;
+
+impl ser::Serializer for BytesExtractor {
+    type Ok = Vec<u8>;
+    type Error = Error;
+
+    type SerializeSeq = Impossible<Vec<u8>, Error>;
+    type SerializeTuple = Impossible<Vec<u8>, Error>;
+    type SerializeTupleStruct = Impossible<Vec<u8>, Error>;
+    type SerializeTupleVariant = Impossible<Vec<u8>, Error>;
+    type SerializeMap = Impossible<Vec<u8>, Error>;
+    type SerializeStruct = Impossible<Vec<u8>, Error>;
+    type SerializeStructVariant = Impossible<Vec<u8>, Error>;
+
+    fn serialize_str(self, value: &str) -> Result<Vec<u8>, Error> {
+        Ok(value.as_bytes().to_vec())
+    }
+
+    fn serialize_bytes(self, value: &[u8]) -> Result<Vec<u8>, Error> {
+        Ok(value.to_vec())
+    }
+
+    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<Vec<u8>, Error>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(self)
+    }
+
+    fn serialize_bool(self, _value: bool) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_i8(self, _value: i8) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_i16(self, _value: i16) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_i32(self, _value: i32) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_i64(self, _value: i64) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_i128(self, _value: i128) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_u8(self, _value: u8) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_u16(self, _value: u16) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_u32(self, _value: u32) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_u64(self, _value: u64) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_u128(self, _value: u128) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_f32(self, _value: f32) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_f64(self, _value: f64) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_char(self, _value: char) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_none(self) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_some<T>(self, _value: &T) -> Result<Vec<u8>, Error>
+    where
+        T: ?Sized + Serialize,
+    {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_unit(self) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_unit_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+    ) -> Result<Vec<u8>, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_newtype_variant<T>(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _value: &T,
+    ) -> Result<Vec<u8>, Error>
+    where
+        T: ?Sized + Serialize,
+    {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_tuple_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleStruct, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_tuple_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleVariant, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStruct, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+
+    fn serialize_struct_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStructVariant, Error> {
+        Err(Error::Custom("expected a string payload".to_owned()))
+    }
+}
+
+/// Extracts the lexeme of a serde_json `arbitrary_precision` number.
+struct NumberTextExtractor;
+
+impl ser::Serializer for NumberTextExtractor {
+    type Ok = String;
+    type Error = Error;
+
+    type SerializeSeq = Impossible<String, Error>;
+    type SerializeTuple = Impossible<String, Error>;
+    type SerializeTupleStruct = Impossible<String, Error>;
+    type SerializeTupleVariant = Impossible<String, Error>;
+    type SerializeMap = Impossible<String, Error>;
+    type SerializeStruct = Impossible<String, Error>;
+    type SerializeStructVariant = Impossible<String, Error>;
+
+    fn serialize_str(self, value: &str) -> Result<String, Error> {
+        Ok(value.to_owned())
+    }
+
+    fn serialize_newtype_struct<T>(self, _name: &'static str, value: &T) -> Result<String, Error>
+    where
+        T: ?Sized + Serialize,
+    {
+        value.serialize(self)
+    }
+
+    fn serialize_bool(self, _value: bool) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_i8(self, _value: i8) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_i16(self, _value: i16) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_i32(self, _value: i32) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_i64(self, _value: i64) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_i128(self, _value: i128) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_u8(self, _value: u8) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_u16(self, _value: u16) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_u32(self, _value: u32) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_u64(self, _value: u64) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_u128(self, _value: u128) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_f32(self, _value: f32) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_f64(self, _value: f64) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_char(self, _value: char) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_bytes(self, _value: &[u8]) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_none(self) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_some<T>(self, _value: &T) -> Result<String, Error>
+    where
+        T: ?Sized + Serialize,
+    {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_unit(self) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_unit_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+    ) -> Result<String, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_newtype_variant<T>(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _value: &T,
+    ) -> Result<String, Error>
+    where
+        T: ?Sized + Serialize,
+    {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_tuple_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleStruct, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_tuple_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeTupleVariant, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_struct(
+        self,
+        _name: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStruct, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
+    }
+
+    fn serialize_struct_variant(
+        self,
+        _name: &'static str,
+        _variant_index: u32,
+        _variant: &'static str,
+        _len: usize,
+    ) -> Result<Self::SerializeStructVariant, Error> {
+        Err(Error::Custom("invalid number literal".to_owned()))
     }
 }
