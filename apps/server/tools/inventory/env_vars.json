@@ -1,0 +1,2537 @@
+{
+  "generated_by": "apps/server/tools/inventory/env_vars.py",
+  "scanned": {
+    "python_root": "apps/api/plane",
+    "python_files": 455,
+    "shell_globs": [
+      "apps/api/bin/*.sh"
+    ],
+    "dockerfiles": [
+      "apps/api/Dockerfile.api"
+    ],
+    "excluded_dirs": [
+      "__pycache__",
+      "migrations",
+      "node_modules",
+      "tests"
+    ]
+  },
+  "counts": {
+    "distinct_names": 131,
+    "occurrences": 221,
+    "dynamic_reads": 4
+  },
+  "variables": {
+    "ADMIN_BASE_PATH": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 447,
+        "kind": "os.environ.get",
+        "name": "ADMIN_BASE_PATH",
+        "key_expr": "\"ADMIN_BASE_PATH\"",
+        "has_default": true,
+        "default": "\"/god-mode/\"",
+        "dynamic": false
+      }
+    ],
+    "ADMIN_BASE_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 444,
+        "kind": "os.environ.get",
+        "name": "ADMIN_BASE_URL",
+        "key_expr": "\"ADMIN_BASE_URL\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      }
+    ],
+    "ADMIN_SESSION_COOKIE_AGE": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 432,
+        "kind": "os.environ.get",
+        "name": "ADMIN_SESSION_COOKIE_AGE",
+        "key_expr": "\"ADMIN_SESSION_COOKIE_AGE\"",
+        "has_default": true,
+        "default": "3600",
+        "dynamic": false
+      }
+    ],
+    "ALLOWED_HOSTS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 95,
+        "kind": "os.environ.get",
+        "name": "ALLOWED_HOSTS",
+        "key_expr": "\"ALLOWED_HOSTS\"",
+        "has_default": true,
+        "default": "\"*\"",
+        "dynamic": false
+      }
+    ],
+    "AMQP_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 360,
+        "kind": "os.environ.get",
+        "name": "AMQP_URL",
+        "key_expr": "\"AMQP_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "ANALYTICS_BASE_API": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 398,
+        "kind": "os.environ.get",
+        "name": "ANALYTICS_BASE_API",
+        "key_expr": "\"ANALYTICS_BASE_API\"",
+        "has_default": true,
+        "default": "False",
+        "dynamic": false
+      }
+    ],
+    "ANALYTICS_SECRET_KEY": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 397,
+        "kind": "os.environ.get",
+        "name": "ANALYTICS_SECRET_KEY",
+        "key_expr": "\"ANALYTICS_SECRET_KEY\"",
+        "has_default": true,
+        "default": "False",
+        "dynamic": false
+      }
+    ],
+    "API_KEY_RATE_LIMIT": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 163,
+        "kind": "os.environ.get",
+        "name": "API_KEY_RATE_LIMIT",
+        "key_expr": "\"API_KEY_RATE_LIMIT\"",
+        "has_default": true,
+        "default": "\"60/minute\"",
+        "dynamic": false
+      }
+    ],
+    "APK_SECURITY_PATCH": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 24,
+        "kind": "ARG",
+        "name": "APK_SECURITY_PATCH",
+        "key_expr": "ARG APK_SECURITY_PATCH=2026-10-26",
+        "has_default": true,
+        "default": "2026-10-26",
+        "dynamic": false
+      }
+    ],
+    "APP_BASE_PATH": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 459,
+        "kind": "os.environ.get",
+        "name": "APP_BASE_PATH",
+        "key_expr": "\"APP_BASE_PATH\"",
+        "has_default": true,
+        "default": "\"/\"",
+        "dynamic": false
+      }
+    ],
+    "APP_BASE_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 421,
+        "kind": "os.environ.get",
+        "name": "APP_BASE_URL",
+        "key_expr": "\"APP_BASE_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 456,
+        "kind": "os.environ.get",
+        "name": "APP_BASE_URL",
+        "key_expr": "\"APP_BASE_URL\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      }
+    ],
+    "APP_VERSION": [
+      {
+        "file": "apps/api/plane/license/management/commands/register_instance.py",
+        "line": 29,
+        "kind": "os.environ.get",
+        "name": "APP_VERSION",
+        "key_expr": "\"APP_VERSION\"",
+        "has_default": true,
+        "default": "False",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/management/commands/register_instance.py",
+        "line": 30,
+        "kind": "os.environ.get",
+        "name": "APP_VERSION",
+        "key_expr": "\"APP_VERSION\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "AUTHENTICATION_RATE_LIMIT": [
+      {
+        "file": "apps/api/plane/authentication/rate_limit.py",
+        "line": 29,
+        "kind": "os.environ.get",
+        "name": "AUTHENTICATION_RATE_LIMIT",
+        "key_expr": "\"AUTHENTICATION_RATE_LIMIT\"",
+        "has_default": true,
+        "default": "\"10/minute\"",
+        "dynamic": false
+      }
+    ],
+    "AWS_ACCESS_KEY_ID": [
+      {
+        "file": "apps/api/plane/db/management/commands/create_bucket.py",
+        "line": 23,
+        "kind": "os.environ.get",
+        "name": "AWS_ACCESS_KEY_ID",
+        "key_expr": "\"AWS_ACCESS_KEY_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/db/management/commands/update_bucket.py",
+        "line": 22,
+        "kind": "os.environ.get",
+        "name": "AWS_ACCESS_KEY_ID",
+        "key_expr": "\"AWS_ACCESS_KEY_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 334,
+        "kind": "os.environ.get",
+        "name": "AWS_ACCESS_KEY_ID",
+        "key_expr": "\"AWS_ACCESS_KEY_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 30,
+        "kind": "os.environ.get",
+        "name": "AWS_ACCESS_KEY_ID",
+        "key_expr": "\"AWS_ACCESS_KEY_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "AWS_REGION": [
+      {
+        "file": "apps/api/plane/db/management/commands/create_bucket.py",
+        "line": 25,
+        "kind": "os.environ.get",
+        "name": "AWS_REGION",
+        "key_expr": "\"AWS_REGION\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/db/management/commands/update_bucket.py",
+        "line": 24,
+        "kind": "os.environ.get",
+        "name": "AWS_REGION",
+        "key_expr": "\"AWS_REGION\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 344,
+        "kind": "os.environ.get",
+        "name": "AWS_REGION",
+        "key_expr": "\"AWS_REGION\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 36,
+        "kind": "os.environ.get",
+        "name": "AWS_REGION",
+        "key_expr": "\"AWS_REGION\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "AWS_S3_BUCKET_NAME": [
+      {
+        "file": "apps/api/plane/db/management/commands/create_bucket.py",
+        "line": 29,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_BUCKET_NAME",
+        "key_expr": "\"AWS_S3_BUCKET_NAME\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/db/management/commands/create_bucket.py",
+        "line": 38,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_BUCKET_NAME",
+        "key_expr": "\"AWS_S3_BUCKET_NAME\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/db/management/commands/update_bucket.py",
+        "line": 140,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_BUCKET_NAME",
+        "key_expr": "\"AWS_S3_BUCKET_NAME\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 343,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_BUCKET_NAME",
+        "key_expr": "\"AWS_S3_BUCKET_NAME\"",
+        "has_default": true,
+        "default": "\"uploads\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 34,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_BUCKET_NAME",
+        "key_expr": "\"AWS_S3_BUCKET_NAME\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "AWS_S3_ENDPOINT_URL": [
+      {
+        "file": "apps/api/plane/db/management/commands/create_bucket.py",
+        "line": 22,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_ENDPOINT_URL",
+        "key_expr": "\"AWS_S3_ENDPOINT_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/db/management/commands/update_bucket.py",
+        "line": 21,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_ENDPOINT_URL",
+        "key_expr": "\"AWS_S3_ENDPOINT_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 348,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_ENDPOINT_URL",
+        "key_expr": "\"AWS_S3_ENDPOINT_URL\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 38,
+        "kind": "os.environ.get",
+        "name": "AWS_S3_ENDPOINT_URL",
+        "key_expr": "\"AWS_S3_ENDPOINT_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "AWS_SECRET_ACCESS_KEY": [
+      {
+        "file": "apps/api/plane/db/management/commands/create_bucket.py",
+        "line": 24,
+        "kind": "os.environ.get",
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "key_expr": "\"AWS_SECRET_ACCESS_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/db/management/commands/update_bucket.py",
+        "line": 23,
+        "kind": "os.environ.get",
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "key_expr": "\"AWS_SECRET_ACCESS_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 335,
+        "kind": "os.environ.get",
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "key_expr": "\"AWS_SECRET_ACCESS_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 32,
+        "kind": "os.environ.get",
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "key_expr": "\"AWS_SECRET_ACCESS_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "COOKIE_DOMAIN": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 427,
+        "kind": "os.environ.get",
+        "name": "COOKIE_DOMAIN",
+        "key_expr": "\"COOKIE_DOMAIN\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 438,
+        "kind": "os.environ.get",
+        "name": "COOKIE_DOMAIN",
+        "key_expr": "\"COOKIE_DOMAIN\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      }
+    ],
+    "CORS_ALLOWED_ORIGINS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 191,
+        "kind": "os.environ.get",
+        "name": "CORS_ALLOWED_ORIGINS",
+        "key_expr": "\"CORS_ALLOWED_ORIGINS\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "CPU_INFO": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api-local.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "CPU_INFO",
+        "key_expr": "$CPU_INFO",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "CPU_INFO",
+        "key_expr": "$CPU_INFO",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "DATABASE_READ_REPLICA_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 229,
+        "kind": "os.environ.get",
+        "name": "DATABASE_READ_REPLICA_URL",
+        "key_expr": "\"DATABASE_READ_REPLICA_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 231,
+        "kind": "os.environ.get",
+        "name": "DATABASE_READ_REPLICA_URL",
+        "key_expr": "\"DATABASE_READ_REPLICA_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "DATABASE_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 212,
+        "kind": "os.environ.get",
+        "name": "DATABASE_URL",
+        "key_expr": "\"DATABASE_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "DEBUG": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 52,
+        "kind": "os.environ.get",
+        "name": "DEBUG",
+        "key_expr": "\"DEBUG\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/local.py",
+        "line": 11,
+        "kind": "os.environ.get",
+        "name": "DEBUG",
+        "key_expr": "\"DEBUG\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/production.py",
+        "line": 12,
+        "kind": "os.environ.get",
+        "name": "DEBUG",
+        "key_expr": "\"DEBUG\"",
+        "has_default": true,
+        "default": "0",
+        "dynamic": false
+      }
+    ],
+    "DISABLE_WORKSPACE_CREATION": [
+      {
+        "file": "apps/api/plane/app/views/workspace/base.py",
+        "line": 88,
+        "kind": "os.environ.get",
+        "name": "DISABLE_WORKSPACE_CREATION",
+        "key_expr": "\"DISABLE_WORKSPACE_CREATION\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 72,
+        "kind": "os.environ.get",
+        "name": "DISABLE_WORKSPACE_CREATION",
+        "key_expr": "\"DISABLE_WORKSPACE_CREATION\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 32,
+        "kind": "os.environ.get",
+        "name": "DISABLE_WORKSPACE_CREATION",
+        "key_expr": "\"DISABLE_WORKSPACE_CREATION\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "DISK_INFO": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api-local.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "DISK_INFO",
+        "key_expr": "$DISK_INFO",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "DISK_INFO",
+        "key_expr": "$DISK_INFO",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "DJANGO_SETTINGS_MODULE": [
+      {
+        "file": "apps/api/plane/asgi.py",
+        "line": 13,
+        "kind": "os.environ.setdefault",
+        "name": "DJANGO_SETTINGS_MODULE",
+        "key_expr": "\"DJANGO_SETTINGS_MODULE\"",
+        "has_default": true,
+        "default": "\"plane.settings.production\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/celery.py",
+        "line": 20,
+        "kind": "os.environ.setdefault",
+        "name": "DJANGO_SETTINGS_MODULE",
+        "key_expr": "\"DJANGO_SETTINGS_MODULE\"",
+        "has_default": true,
+        "default": "\"plane.settings.production\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/wsgi.py",
+        "line": 16,
+        "kind": "os.environ.setdefault",
+        "name": "DJANGO_SETTINGS_MODULE",
+        "key_expr": "\"DJANGO_SETTINGS_MODULE\"",
+        "has_default": true,
+        "default": "\"plane.settings.production\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_BACKEND": [
+      {
+        "file": "apps/api/plane/settings/local.py",
+        "line": 21,
+        "kind": "os.environ.get",
+        "name": "EMAIL_BACKEND",
+        "key_expr": "\"EMAIL_BACKEND\"",
+        "has_default": true,
+        "default": "\"django.core.mail.backends.console.EmailBackend\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_FROM": [
+      {
+        "file": "apps/api/plane/license/utils/instance_value.py",
+        "line": 56,
+        "kind": "os.environ.get",
+        "name": "EMAIL_FROM",
+        "key_expr": "\"EMAIL_FROM\"",
+        "has_default": true,
+        "default": "\"Team Plane <team@mailer.plane.so>\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 198,
+        "kind": "os.environ.get",
+        "name": "EMAIL_FROM",
+        "key_expr": "\"EMAIL_FROM\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_HOST": [
+      {
+        "file": "apps/api/plane/authentication/provider/credentials/magic_code.py",
+        "line": 59,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/authentication/views/app/check.py",
+        "line": 46,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/authentication/views/app/password_management.py",
+        "line": 62,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/authentication/views/space/check.py",
+        "line": 46,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/authentication/views/space/password_management.py",
+        "line": 64,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 94,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/utils/instance_value.py",
+        "line": 45,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 174,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST",
+        "key_expr": "\"EMAIL_HOST\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_HOST_PASSWORD": [
+      {
+        "file": "apps/api/plane/authentication/views/space/password_management.py",
+        "line": 71,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST_PASSWORD",
+        "key_expr": "\"EMAIL_HOST_PASSWORD\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/utils/instance_value.py",
+        "line": 49,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST_PASSWORD",
+        "key_expr": "\"EMAIL_HOST_PASSWORD\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 186,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST_PASSWORD",
+        "key_expr": "\"EMAIL_HOST_PASSWORD\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_HOST_USER": [
+      {
+        "file": "apps/api/plane/authentication/views/space/password_management.py",
+        "line": 67,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST_USER",
+        "key_expr": "\"EMAIL_HOST_USER\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/utils/instance_value.py",
+        "line": 46,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST_USER",
+        "key_expr": "\"EMAIL_HOST_USER\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 180,
+        "kind": "os.environ.get",
+        "name": "EMAIL_HOST_USER",
+        "key_expr": "\"EMAIL_HOST_USER\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_PORT": [
+      {
+        "file": "apps/api/plane/license/utils/instance_value.py",
+        "line": 51,
+        "kind": "os.environ.get",
+        "name": "EMAIL_PORT",
+        "key_expr": "\"EMAIL_PORT\"",
+        "has_default": true,
+        "default": "587",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 192,
+        "kind": "os.environ.get",
+        "name": "EMAIL_PORT",
+        "key_expr": "\"EMAIL_PORT\"",
+        "has_default": true,
+        "default": "\"587\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_USE_SSL": [
+      {
+        "file": "apps/api/plane/license/utils/instance_value.py",
+        "line": 53,
+        "kind": "os.environ.get",
+        "name": "EMAIL_USE_SSL",
+        "key_expr": "\"EMAIL_USE_SSL\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 210,
+        "kind": "os.environ.get",
+        "name": "EMAIL_USE_SSL",
+        "key_expr": "\"EMAIL_USE_SSL\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "EMAIL_USE_TLS": [
+      {
+        "file": "apps/api/plane/license/utils/instance_value.py",
+        "line": 52,
+        "kind": "os.environ.get",
+        "name": "EMAIL_USE_TLS",
+        "key_expr": "\"EMAIL_USE_TLS\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 204,
+        "kind": "os.environ.get",
+        "name": "EMAIL_USE_TLS",
+        "key_expr": "\"EMAIL_USE_TLS\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_DRF_SPECTACULAR": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 602,
+        "kind": "os.environ.get",
+        "name": "ENABLE_DRF_SPECTACULAR",
+        "key_expr": "\"ENABLE_DRF_SPECTACULAR\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_EMAIL_PASSWORD": [
+      {
+        "file": "apps/api/plane/authentication/provider/credentials/email.py",
+        "line": 30,
+        "kind": "os.environ.get",
+        "name": "ENABLE_EMAIL_PASSWORD",
+        "key_expr": "\"ENABLE_EMAIL_PASSWORD\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 101,
+        "kind": "os.environ.get",
+        "name": "ENABLE_EMAIL_PASSWORD",
+        "key_expr": "\"ENABLE_EMAIL_PASSWORD\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 17,
+        "kind": "os.environ.get",
+        "name": "ENABLE_EMAIL_PASSWORD",
+        "key_expr": "\"ENABLE_EMAIL_PASSWORD\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_GITEA_SYNC": [
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 159,
+        "kind": "os.environ.get",
+        "name": "ENABLE_GITEA_SYNC",
+        "key_expr": "\"ENABLE_GITEA_SYNC\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_GITHUB_SYNC": [
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 92,
+        "kind": "os.environ.get",
+        "name": "ENABLE_GITHUB_SYNC",
+        "key_expr": "\"ENABLE_GITHUB_SYNC\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_GITLAB_SYNC": [
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 126,
+        "kind": "os.environ.get",
+        "name": "ENABLE_GITLAB_SYNC",
+        "key_expr": "\"ENABLE_GITLAB_SYNC\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_GOOGLE_SYNC": [
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 59,
+        "kind": "os.environ.get",
+        "name": "ENABLE_GOOGLE_SYNC",
+        "key_expr": "\"ENABLE_GOOGLE_SYNC\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_MAGIC_LINK_LOGIN": [
+      {
+        "file": "apps/api/plane/authentication/provider/credentials/magic_code.py",
+        "line": 62,
+        "kind": "os.environ.get",
+        "name": "ENABLE_MAGIC_LINK_LOGIN",
+        "key_expr": "\"ENABLE_MAGIC_LINK_LOGIN\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/authentication/views/app/check.py",
+        "line": 49,
+        "kind": "os.environ.get",
+        "name": "ENABLE_MAGIC_LINK_LOGIN",
+        "key_expr": "\"ENABLE_MAGIC_LINK_LOGIN\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/authentication/views/space/check.py",
+        "line": 49,
+        "kind": "os.environ.get",
+        "name": "ENABLE_MAGIC_LINK_LOGIN",
+        "key_expr": "\"ENABLE_MAGIC_LINK_LOGIN\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 97,
+        "kind": "os.environ.get",
+        "name": "ENABLE_MAGIC_LINK_LOGIN",
+        "key_expr": "\"ENABLE_MAGIC_LINK_LOGIN\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 23,
+        "kind": "os.environ.get",
+        "name": "ENABLE_MAGIC_LINK_LOGIN",
+        "key_expr": "\"ENABLE_MAGIC_LINK_LOGIN\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_READ_REPLICA": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 228,
+        "kind": "os.environ.get",
+        "name": "ENABLE_READ_REPLICA",
+        "key_expr": "\"ENABLE_READ_REPLICA\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_SIGNUP": [
+      {
+        "file": "apps/api/plane/authentication/adapter/base.py",
+        "line": 104,
+        "kind": "os.environ.get",
+        "name": "ENABLE_SIGNUP",
+        "key_expr": "\"ENABLE_SIGNUP\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 68,
+        "kind": "os.environ.get",
+        "name": "ENABLE_SIGNUP",
+        "key_expr": "\"ENABLE_SIGNUP\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 11,
+        "kind": "os.environ.get",
+        "name": "ENABLE_SIGNUP",
+        "key_expr": "\"ENABLE_SIGNUP\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      }
+    ],
+    "ENABLE_SMTP": [
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 168,
+        "kind": "os.environ.get",
+        "name": "ENABLE_SMTP",
+        "key_expr": "\"ENABLE_SMTP\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "FILE_SIZE_LIMIT": [
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 142,
+        "kind": "os.environ.get",
+        "name": "FILE_SIZE_LIMIT",
+        "key_expr": "\"FILE_SIZE_LIMIT\"",
+        "has_default": true,
+        "default": "5242880",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 389,
+        "kind": "os.environ.get",
+        "name": "FILE_SIZE_LIMIT",
+        "key_expr": "\"FILE_SIZE_LIMIT\"",
+        "has_default": true,
+        "default": "5242880",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 403,
+        "kind": "os.environ.get",
+        "name": "FILE_SIZE_LIMIT",
+        "key_expr": "\"FILE_SIZE_LIMIT\"",
+        "has_default": true,
+        "default": "5242880",
+        "dynamic": false
+      }
+    ],
+    "GITEA_CLIENT_ID": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/gitea.py",
+        "line": 29,
+        "kind": "os.environ.get",
+        "name": "GITEA_CLIENT_ID",
+        "key_expr": "\"GITEA_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 147,
+        "kind": "os.environ.get",
+        "name": "GITEA_CLIENT_ID",
+        "key_expr": "\"GITEA_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITEA_CLIENT_SECRET": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/gitea.py",
+        "line": 33,
+        "kind": "os.environ.get",
+        "name": "GITEA_CLIENT_SECRET",
+        "key_expr": "\"GITEA_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 153,
+        "kind": "os.environ.get",
+        "name": "GITEA_CLIENT_SECRET",
+        "key_expr": "\"GITEA_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITEA_HOST": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/gitea.py",
+        "line": 37,
+        "kind": "os.environ.get",
+        "name": "GITEA_HOST",
+        "key_expr": "\"GITEA_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 141,
+        "kind": "os.environ.get",
+        "name": "GITEA_HOST",
+        "key_expr": "\"GITEA_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITHUB_ACCESS_TOKEN": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 394,
+        "kind": "os.environ.get",
+        "name": "GITHUB_ACCESS_TOKEN",
+        "key_expr": "\"GITHUB_ACCESS_TOKEN\"",
+        "has_default": true,
+        "default": "False",
+        "dynamic": false
+      }
+    ],
+    "GITHUB_APP_NAME": [
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 84,
+        "kind": "os.environ.get",
+        "name": "GITHUB_APP_NAME",
+        "key_expr": "\"GITHUB_APP_NAME\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "GITHUB_CLIENT_ID": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/github.py",
+        "line": 37,
+        "kind": "os.environ.get",
+        "name": "GITHUB_CLIENT_ID",
+        "key_expr": "\"GITHUB_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 74,
+        "kind": "os.environ.get",
+        "name": "GITHUB_CLIENT_ID",
+        "key_expr": "\"GITHUB_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITHUB_CLIENT_SECRET": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/github.py",
+        "line": 41,
+        "kind": "os.environ.get",
+        "name": "GITHUB_CLIENT_SECRET",
+        "key_expr": "\"GITHUB_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 80,
+        "kind": "os.environ.get",
+        "name": "GITHUB_CLIENT_SECRET",
+        "key_expr": "\"GITHUB_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITHUB_ORGANIZATION_ID": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/github.py",
+        "line": 45,
+        "kind": "os.environ.get",
+        "name": "GITHUB_ORGANIZATION_ID",
+        "key_expr": "\"GITHUB_ORGANIZATION_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 86,
+        "kind": "os.environ.get",
+        "name": "GITHUB_ORGANIZATION_ID",
+        "key_expr": "\"GITHUB_ORGANIZATION_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITLAB_CLIENT_ID": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/gitlab.py",
+        "line": 30,
+        "kind": "os.environ.get",
+        "name": "GITLAB_CLIENT_ID",
+        "key_expr": "\"GITLAB_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 114,
+        "kind": "os.environ.get",
+        "name": "GITLAB_CLIENT_ID",
+        "key_expr": "\"GITLAB_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITLAB_CLIENT_SECRET": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/gitlab.py",
+        "line": 34,
+        "kind": "os.environ.get",
+        "name": "GITLAB_CLIENT_SECRET",
+        "key_expr": "\"GITLAB_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 120,
+        "kind": "os.environ.get",
+        "name": "GITLAB_CLIENT_SECRET",
+        "key_expr": "\"GITLAB_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GITLAB_HOST": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/gitlab.py",
+        "line": 38,
+        "kind": "os.environ.get",
+        "name": "GITLAB_HOST",
+        "key_expr": "\"GITLAB_HOST\"",
+        "has_default": true,
+        "default": "\"https://gitlab.com\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 108,
+        "kind": "os.environ.get",
+        "name": "GITLAB_HOST",
+        "key_expr": "\"GITLAB_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GOOGLE_CLIENT_ID": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/google.py",
+        "line": 32,
+        "kind": "os.environ.get",
+        "name": "GOOGLE_CLIENT_ID",
+        "key_expr": "\"GOOGLE_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 47,
+        "kind": "os.environ.get",
+        "name": "GOOGLE_CLIENT_ID",
+        "key_expr": "\"GOOGLE_CLIENT_ID\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GOOGLE_CLIENT_SECRET": [
+      {
+        "file": "apps/api/plane/authentication/provider/oauth/google.py",
+        "line": 36,
+        "kind": "os.environ.get",
+        "name": "GOOGLE_CLIENT_SECRET",
+        "key_expr": "\"GOOGLE_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 53,
+        "kind": "os.environ.get",
+        "name": "GOOGLE_CLIENT_SECRET",
+        "key_expr": "\"GOOGLE_CLIENT_SECRET\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "GPT_ENGINE": [
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 238,
+        "kind": "os.environ.get",
+        "name": "GPT_ENGINE",
+        "key_expr": "\"GPT_ENGINE\"",
+        "has_default": true,
+        "default": "\"gpt-3.5-turbo\"",
+        "dynamic": false
+      }
+    ],
+    "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 19,
+        "kind": "ENV",
+        "name": "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH",
+        "key_expr": "ENV GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt",
+        "has_default": true,
+        "default": "/etc/ssl/certs/ca-certificates.crt",
+        "dynamic": false
+      }
+    ],
+    "GUNICORN_WORKERS": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 38,
+        "kind": "$VAR",
+        "name": "GUNICORN_WORKERS",
+        "key_expr": "$GUNICORN_WORKERS",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "HARD_DELETE_AFTER_DAYS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 472,
+        "kind": "os.environ.get",
+        "name": "HARD_DELETE_AFTER_DAYS",
+        "key_expr": "\"HARD_DELETE_AFTER_DAYS\"",
+        "has_default": true,
+        "default": "60",
+        "dynamic": false
+      }
+    ],
+    "HOSTNAME": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api-local.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "HOSTNAME",
+        "key_expr": "$HOSTNAME",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "HOSTNAME",
+        "key_expr": "$HOSTNAME",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "INSTANCE_CHANGELOG_URL": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 10,
+        "kind": "ENV",
+        "name": "INSTANCE_CHANGELOG_URL",
+        "key_expr": "ENV INSTANCE_CHANGELOG_URL=https://sites.plane.so/pages/691ef037bcfe416a902e48cb55f59891/",
+        "has_default": true,
+        "default": "https://sites.plane.so/pages/691ef037bcfe416a902e48cb55f59891/",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 503,
+        "kind": "os.environ.get",
+        "name": "INSTANCE_CHANGELOG_URL",
+        "key_expr": "\"INSTANCE_CHANGELOG_URL\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "IS_GITEA_ENABLED": [
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 92,
+        "kind": "os.environ.get",
+        "name": "IS_GITEA_ENABLED",
+        "key_expr": "\"IS_GITEA_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 135,
+        "kind": "os.environ.get",
+        "name": "IS_GITEA_ENABLED",
+        "key_expr": "\"IS_GITEA_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "IS_GITHUB_ENABLED": [
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 80,
+        "kind": "os.environ.get",
+        "name": "IS_GITHUB_ENABLED",
+        "key_expr": "\"IS_GITHUB_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 68,
+        "kind": "os.environ.get",
+        "name": "IS_GITHUB_ENABLED",
+        "key_expr": "\"IS_GITHUB_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "IS_GITLAB_ENABLED": [
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 88,
+        "kind": "os.environ.get",
+        "name": "IS_GITLAB_ENABLED",
+        "key_expr": "\"IS_GITLAB_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 102,
+        "kind": "os.environ.get",
+        "name": "IS_GITLAB_ENABLED",
+        "key_expr": "\"IS_GITLAB_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "IS_GOOGLE_ENABLED": [
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 76,
+        "kind": "os.environ.get",
+        "name": "IS_GOOGLE_ENABLED",
+        "key_expr": "\"IS_GOOGLE_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 41,
+        "kind": "os.environ.get",
+        "name": "IS_GOOGLE_ENABLED",
+        "key_expr": "\"IS_GOOGLE_ENABLED\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "IS_TEST": [
+      {
+        "file": "apps/api/plane/license/management/commands/register_instance.py",
+        "line": 73,
+        "kind": "os.environ.get",
+        "name": "IS_TEST",
+        "key_expr": "\"IS_TEST\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/management/commands/register_instance.py",
+        "line": 85,
+        "kind": "os.environ.get",
+        "name": "IS_TEST",
+        "key_expr": "\"IS_TEST\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "LIVE_BASE_PATH": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 465,
+        "kind": "os.environ.get",
+        "name": "LIVE_BASE_PATH",
+        "key_expr": "\"LIVE_BASE_PATH\"",
+        "has_default": true,
+        "default": "\"/live/\"",
+        "dynamic": false
+      }
+    ],
+    "LIVE_BASE_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 462,
+        "kind": "os.environ.get",
+        "name": "LIVE_BASE_URL",
+        "key_expr": "\"LIVE_BASE_URL\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      }
+    ],
+    "LLM_API_KEY": [
+      {
+        "file": "apps/api/plane/app/views/external/base.py",
+        "line": 85,
+        "kind": "os.environ.get",
+        "name": "LLM_API_KEY",
+        "key_expr": "\"LLM_API_KEY\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 113,
+        "kind": "os.environ.get",
+        "name": "LLM_API_KEY",
+        "key_expr": "\"LLM_API_KEY\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 219,
+        "kind": "os.environ.get",
+        "name": "LLM_API_KEY",
+        "key_expr": "\"LLM_API_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "LLM_MODEL": [
+      {
+        "file": "apps/api/plane/app/views/external/base.py",
+        "line": 93,
+        "kind": "os.environ.get",
+        "name": "LLM_MODEL",
+        "key_expr": "\"LLM_MODEL\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 231,
+        "kind": "os.environ.get",
+        "name": "LLM_MODEL",
+        "key_expr": "\"LLM_MODEL\"",
+        "has_default": true,
+        "default": "\"gpt-4o-mini\"",
+        "dynamic": false
+      }
+    ],
+    "LLM_PROVIDER": [
+      {
+        "file": "apps/api/plane/app/views/external/base.py",
+        "line": 89,
+        "kind": "os.environ.get",
+        "name": "LLM_PROVIDER",
+        "key_expr": "\"LLM_PROVIDER\"",
+        "has_default": true,
+        "default": "\"openai\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 225,
+        "kind": "os.environ.get",
+        "name": "LLM_PROVIDER",
+        "key_expr": "\"LLM_PROVIDER\"",
+        "has_default": true,
+        "default": "\"openai\"",
+        "dynamic": false
+      }
+    ],
+    "MACHINE_SIGNATURE": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api-local.sh",
+        "line": 24,
+        "kind": "$VAR",
+        "name": "MACHINE_SIGNATURE",
+        "key_expr": "$MACHINE_SIGNATURE",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 24,
+        "kind": "$VAR",
+        "name": "MACHINE_SIGNATURE",
+        "key_expr": "$MACHINE_SIGNATURE",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "MAC_ADDRESS": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api-local.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "MAC_ADDRESS",
+        "key_expr": "$MAC_ADDRESS",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "MAC_ADDRESS",
+        "key_expr": "$MAC_ADDRESS",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "MEMORY_INFO": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api-local.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "MEMORY_INFO",
+        "key_expr": "$MEMORY_INFO",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 18,
+        "kind": "$VAR",
+        "name": "MEMORY_INFO",
+        "key_expr": "$MEMORY_INFO",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "METRICS_PUSH_INTERVAL_MINUTES": [
+      {
+        "file": "apps/api/plane/celery.py",
+        "line": 28,
+        "kind": "os.environ.get",
+        "name": "METRICS_PUSH_INTERVAL_MINUTES",
+        "key_expr": "\"METRICS_PUSH_INTERVAL_MINUTES\"",
+        "has_default": true,
+        "default": "\"360\"",
+        "dynamic": false
+      }
+    ],
+    "MINIO_ENDPOINT_SSL": [
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 44,
+        "kind": "os.environ.get",
+        "name": "MINIO_ENDPOINT_SSL",
+        "key_expr": "\"MINIO_ENDPOINT_SSL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "MINIO_ENDPOINT_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 348,
+        "kind": "os.environ.get",
+        "name": "MINIO_ENDPOINT_URL",
+        "key_expr": "\"MINIO_ENDPOINT_URL\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 38,
+        "kind": "os.environ.get",
+        "name": "MINIO_ENDPOINT_URL",
+        "key_expr": "\"MINIO_ENDPOINT_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "NUM_PROXIES": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 156,
+        "kind": "os.environ.get",
+        "name": "NUM_PROXIES",
+        "key_expr": "\"NUM_PROXIES\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "OTEL_EXPORTER_OTLP_METRICS_INSECURE": [
+      {
+        "file": "apps/api/plane/license/bgtasks/telemetry_metrics.py",
+        "line": 55,
+        "kind": "os.environ.get",
+        "name": "OTEL_EXPORTER_OTLP_METRICS_INSECURE",
+        "key_expr": "\"OTEL_EXPORTER_OTLP_METRICS_INSECURE\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "OTLP_ENDPOINT": [
+      {
+        "file": "apps/api/plane/utils/otlp_endpoints.py",
+        "line": 52,
+        "kind": "os.environ.get",
+        "name": "OTLP_ENDPOINT",
+        "key_expr": "\"OTLP_ENDPOINT\"",
+        "has_default": true,
+        "default": "_DEFAULT_OTLP_ENDPOINT",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/otlp_endpoints.py",
+        "line": 58,
+        "kind": "os.environ.get",
+        "name": "OTLP_ENDPOINT",
+        "key_expr": "\"OTLP_ENDPOINT\"",
+        "has_default": true,
+        "default": "_DEFAULT_OTLP_ENDPOINT",
+        "dynamic": false
+      }
+    ],
+    "OTLP_METRICS_PROTOCOL": [
+      {
+        "file": "apps/api/plane/license/bgtasks/telemetry_metrics.py",
+        "line": 47,
+        "kind": "os.environ.get",
+        "name": "OTLP_METRICS_PROTOCOL",
+        "key_expr": "\"OTLP_METRICS_PROTOCOL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/bgtasks/telemetry_metrics.py",
+        "line": 85,
+        "kind": "os.environ.get",
+        "name": "OTLP_METRICS_PROTOCOL",
+        "key_expr": "\"OTLP_METRICS_PROTOCOL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "PIP_DISABLE_PIP_VERSION_CHECK": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 9,
+        "kind": "ENV",
+        "name": "PIP_DISABLE_PIP_VERSION_CHECK",
+        "key_expr": "ENV PIP_DISABLE_PIP_VERSION_CHECK=1",
+        "has_default": true,
+        "default": "1",
+        "dynamic": false
+      }
+    ],
+    "PORT": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 38,
+        "kind": "${...}",
+        "name": "PORT",
+        "key_expr": "${PORT:-8000}",
+        "has_default": true,
+        "default": "8000",
+        "dynamic": false,
+        "expansion_op": ":-"
+      }
+    ],
+    "POSTGRES_DB": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 219,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_DB",
+        "key_expr": "\"POSTGRES_DB\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_HOST": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 222,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_HOST",
+        "key_expr": "\"POSTGRES_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_PASSWORD": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 221,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_PASSWORD",
+        "key_expr": "\"POSTGRES_PASSWORD\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_PORT": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 223,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_PORT",
+        "key_expr": "\"POSTGRES_PORT\"",
+        "has_default": true,
+        "default": "\"5432\"",
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_READ_REPLICA_DB": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 235,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_READ_REPLICA_DB",
+        "key_expr": "\"POSTGRES_READ_REPLICA_DB\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_READ_REPLICA_HOST": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 238,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_READ_REPLICA_HOST",
+        "key_expr": "\"POSTGRES_READ_REPLICA_HOST\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_READ_REPLICA_PASSWORD": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 237,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_READ_REPLICA_PASSWORD",
+        "key_expr": "\"POSTGRES_READ_REPLICA_PASSWORD\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_READ_REPLICA_PORT": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 239,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_READ_REPLICA_PORT",
+        "key_expr": "\"POSTGRES_READ_REPLICA_PORT\"",
+        "has_default": true,
+        "default": "\"5432\"",
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_READ_REPLICA_USER": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 236,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_READ_REPLICA_USER",
+        "key_expr": "\"POSTGRES_READ_REPLICA_USER\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "POSTGRES_USER": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 220,
+        "kind": "os.environ.get",
+        "name": "POSTGRES_USER",
+        "key_expr": "\"POSTGRES_USER\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "PYTHONDONTWRITEBYTECODE": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 7,
+        "kind": "ENV",
+        "name": "PYTHONDONTWRITEBYTECODE",
+        "key_expr": "ENV PYTHONDONTWRITEBYTECODE=1",
+        "has_default": true,
+        "default": "1",
+        "dynamic": false
+      }
+    ],
+    "PYTHONUNBUFFERED": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 8,
+        "kind": "ENV",
+        "name": "PYTHONUNBUFFERED",
+        "key_expr": "ENV PYTHONUNBUFFERED=1",
+        "has_default": true,
+        "default": "1",
+        "dynamic": false
+      }
+    ],
+    "RABBITMQ_HOST": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 355,
+        "kind": "os.environ.get",
+        "name": "RABBITMQ_HOST",
+        "key_expr": "\"RABBITMQ_HOST\"",
+        "has_default": true,
+        "default": "\"localhost\"",
+        "dynamic": false
+      }
+    ],
+    "RABBITMQ_PASSWORD": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 358,
+        "kind": "os.environ.get",
+        "name": "RABBITMQ_PASSWORD",
+        "key_expr": "\"RABBITMQ_PASSWORD\"",
+        "has_default": true,
+        "default": "\"guest\"",
+        "dynamic": false
+      }
+    ],
+    "RABBITMQ_PORT": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 356,
+        "kind": "os.environ.get",
+        "name": "RABBITMQ_PORT",
+        "key_expr": "\"RABBITMQ_PORT\"",
+        "has_default": true,
+        "default": "\"5672\"",
+        "dynamic": false
+      }
+    ],
+    "RABBITMQ_USER": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 357,
+        "kind": "os.environ.get",
+        "name": "RABBITMQ_USER",
+        "key_expr": "\"RABBITMQ_USER\"",
+        "has_default": true,
+        "default": "\"guest\"",
+        "dynamic": false
+      }
+    ],
+    "RABBITMQ_VHOST": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 359,
+        "kind": "os.environ.get",
+        "name": "RABBITMQ_VHOST",
+        "key_expr": "\"RABBITMQ_VHOST\"",
+        "has_default": true,
+        "default": "\"/\"",
+        "dynamic": false
+      }
+    ],
+    "REDIS_SSL_CA_CERTS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 266,
+        "kind": "os.environ.get",
+        "name": "REDIS_SSL_CA_CERTS",
+        "key_expr": "\"REDIS_SSL_CA_CERTS\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 267,
+        "kind": "os.environ[...]",
+        "name": "REDIS_SSL_CA_CERTS",
+        "key_expr": "\"REDIS_SSL_CA_CERTS\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "REDIS_SSL_CERT_REQS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 264,
+        "kind": "os.environ.get",
+        "name": "REDIS_SSL_CERT_REQS",
+        "key_expr": "\"REDIS_SSL_CERT_REQS\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "REDIS_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 249,
+        "kind": "os.environ.get",
+        "name": "REDIS_URL",
+        "key_expr": "\"REDIS_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "SCOUT_KEY": [
+      {
+        "file": "apps/api/plane/settings/production.py",
+        "line": 22,
+        "kind": "os.environ.get",
+        "name": "SCOUT_KEY",
+        "key_expr": "\"SCOUT_KEY\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "SCOUT_MONITOR": [
+      {
+        "file": "apps/api/plane/settings/production.py",
+        "line": 21,
+        "kind": "os.environ.get",
+        "name": "SCOUT_MONITOR",
+        "key_expr": "\"SCOUT_MONITOR\"",
+        "has_default": true,
+        "default": "False",
+        "dynamic": false
+      }
+    ],
+    "SECRET_KEY": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 33,
+        "kind": "os.environ.get",
+        "name": "SECRET_KEY",
+        "key_expr": "\"SECRET_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "SERVICE_NAME": [
+      {
+        "file": "apps/api/plane/license/bgtasks/telemetry_metrics.py",
+        "line": 88,
+        "kind": "os.environ.get",
+        "name": "SERVICE_NAME",
+        "key_expr": "\"SERVICE_NAME\"",
+        "has_default": true,
+        "default": "\"plane-ce-api\"",
+        "dynamic": false
+      }
+    ],
+    "SESSION_COOKIE_AGE": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 425,
+        "kind": "os.environ.get",
+        "name": "SESSION_COOKIE_AGE",
+        "key_expr": "\"SESSION_COOKIE_AGE\"",
+        "has_default": true,
+        "default": "604800",
+        "dynamic": false
+      }
+    ],
+    "SESSION_COOKIE_NAME": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 426,
+        "kind": "os.environ.get",
+        "name": "SESSION_COOKIE_NAME",
+        "key_expr": "\"SESSION_COOKIE_NAME\"",
+        "has_default": true,
+        "default": "\"session-id\"",
+        "dynamic": false
+      }
+    ],
+    "SESSION_SAVE_EVERY_REQUEST": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 428,
+        "kind": "os.environ.get",
+        "name": "SESSION_SAVE_EVERY_REQUEST",
+        "key_expr": "\"SESSION_SAVE_EVERY_REQUEST\"",
+        "has_default": true,
+        "default": "\"0\"",
+        "dynamic": false
+      }
+    ],
+    "SIGNATURE": [
+      {
+        "file": "apps/api/bin/docker-entrypoint-api-local.sh",
+        "line": 21,
+        "kind": "$VAR",
+        "name": "SIGNATURE",
+        "key_expr": "$SIGNATURE",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/bin/docker-entrypoint-api.sh",
+        "line": 21,
+        "kind": "$VAR",
+        "name": "SIGNATURE",
+        "key_expr": "$SIGNATURE",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "SIGNED_URL_EXPIRATION": [
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 40,
+        "kind": "os.environ.get",
+        "name": "SIGNED_URL_EXPIRATION",
+        "key_expr": "\"SIGNED_URL_EXPIRATION\"",
+        "has_default": true,
+        "default": "\"3600\"",
+        "dynamic": false
+      }
+    ],
+    "SKIP_ENV_VAR": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 401,
+        "kind": "os.environ.get",
+        "name": "SKIP_ENV_VAR",
+        "key_expr": "\"SKIP_ENV_VAR\"",
+        "has_default": true,
+        "default": "\"1\"",
+        "dynamic": false
+      }
+    ],
+    "SLACK_CLIENT_ID": [
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 105,
+        "kind": "os.environ.get",
+        "name": "SLACK_CLIENT_ID",
+        "key_expr": "\"SLACK_CLIENT_ID\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      }
+    ],
+    "SPACE_BASE_PATH": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 453,
+        "kind": "os.environ.get",
+        "name": "SPACE_BASE_PATH",
+        "key_expr": "\"SPACE_BASE_PATH\"",
+        "has_default": true,
+        "default": "\"/spaces/\"",
+        "dynamic": false
+      }
+    ],
+    "SPACE_BASE_URL": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 450,
+        "kind": "os.environ.get",
+        "name": "SPACE_BASE_URL",
+        "key_expr": "\"SPACE_BASE_URL\"",
+        "has_default": true,
+        "default": "None",
+        "dynamic": false
+      }
+    ],
+    "UNSPLASH_ACCESS_KEY": [
+      {
+        "file": "apps/api/plane/app/views/external/base.py",
+        "line": 221,
+        "kind": "os.environ.get",
+        "name": "UNSPLASH_ACCESS_KEY",
+        "key_expr": "\"UNSPLASH_ACCESS_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/license/api/views/instance.py",
+        "line": 109,
+        "kind": "os.environ.get",
+        "name": "UNSPLASH_ACCESS_KEY",
+        "key_expr": "\"UNSPLASH_ACCESS_KEY\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 392,
+        "kind": "os.environ.get",
+        "name": "UNSPLASH_ACCESS_KEY",
+        "key_expr": "\"UNSPLASH_ACCESS_KEY\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/utils/instance_config_variables/core.py",
+        "line": 247,
+        "kind": "os.environ.get",
+        "name": "UNSPLASH_ACCESS_KEY",
+        "key_expr": "\"UNSPLASH_ACCESS_KEY\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "UNUPLOADED_ASSET_DELETE_DAYS": [
+      {
+        "file": "apps/api/plane/bgtasks/file_asset_task.py",
+        "line": 24,
+        "kind": "os.environ.get",
+        "name": "UNUPLOADED_ASSET_DELETE_DAYS",
+        "key_expr": "\"UNUPLOADED_ASSET_DELETE_DAYS\"",
+        "has_default": true,
+        "default": "\"7\"",
+        "dynamic": false
+      }
+    ],
+    "USE_MINIO": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 329,
+        "kind": "os.environ.get",
+        "name": "USE_MINIO",
+        "key_expr": "\"USE_MINIO\"",
+        "has_default": true,
+        "default": "0",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/storage.py",
+        "line": 42,
+        "kind": "os.environ.get",
+        "name": "USE_MINIO",
+        "key_expr": "\"USE_MINIO\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ],
+    "UV_COMPILE_BYTECODE": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 15,
+        "kind": "ENV",
+        "name": "UV_COMPILE_BYTECODE",
+        "key_expr": "ENV UV_COMPILE_BYTECODE=1",
+        "has_default": true,
+        "default": "1",
+        "dynamic": false
+      }
+    ],
+    "UV_NO_CACHE": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 16,
+        "kind": "ENV",
+        "name": "UV_NO_CACHE",
+        "key_expr": "ENV UV_NO_CACHE=1",
+        "has_default": true,
+        "default": "1",
+        "dynamic": false
+      }
+    ],
+    "UV_PROJECT_ENVIRONMENT": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 13,
+        "kind": "ENV",
+        "name": "UV_PROJECT_ENVIRONMENT",
+        "key_expr": "ENV UV_PROJECT_ENVIRONMENT=/usr/local",
+        "has_default": true,
+        "default": "/usr/local",
+        "dynamic": false
+      }
+    ],
+    "UV_PYTHON_DOWNLOADS": [
+      {
+        "file": "apps/api/Dockerfile.api",
+        "line": 14,
+        "kind": "ENV",
+        "name": "UV_PYTHON_DOWNLOADS",
+        "key_expr": "ENV UV_PYTHON_DOWNLOADS=never",
+        "has_default": true,
+        "default": "never",
+        "dynamic": false
+      }
+    ],
+    "WEBHOOK_ALLOWED_HOSTS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 76,
+        "kind": "os.environ.get",
+        "name": "WEBHOOK_ALLOWED_HOSTS",
+        "key_expr": "\"WEBHOOK_ALLOWED_HOSTS\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "WEBHOOK_ALLOWED_IPS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 60,
+        "kind": "os.environ.get",
+        "name": "WEBHOOK_ALLOWED_IPS",
+        "key_expr": "\"WEBHOOK_ALLOWED_IPS\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "WEBHOOK_DISALLOWED_DOMAINS": [
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 87,
+        "kind": "os.environ.get",
+        "name": "WEBHOOK_DISALLOWED_DOMAINS",
+        "key_expr": "\"WEBHOOK_DISALLOWED_DOMAINS\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      }
+    ],
+    "WEB_URL": [
+      {
+        "file": "apps/api/plane/license/bgtasks/telemetry_metrics.py",
+        "line": 128,
+        "kind": "os.environ.get",
+        "name": "WEB_URL",
+        "key_expr": "\"WEB_URL\"",
+        "has_default": true,
+        "default": "\"\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 350,
+        "kind": "os.environ.get",
+        "name": "WEB_URL",
+        "key_expr": "\"WEB_URL\"",
+        "has_default": true,
+        "default": "\"http://localhost\"",
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 421,
+        "kind": "os.environ.get",
+        "name": "WEB_URL",
+        "key_expr": "\"WEB_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      },
+      {
+        "file": "apps/api/plane/settings/common.py",
+        "line": 470,
+        "kind": "os.environ.get",
+        "name": "WEB_URL",
+        "key_expr": "\"WEB_URL\"",
+        "has_default": false,
+        "default": null,
+        "dynamic": false
+      }
+    ]
+  },
+  "dynamic_reads": [
+    {
+      "file": "apps/api/plane/authentication/adapter/base.py",
+      "line": 132,
+      "kind": "os.environ.get",
+      "key_expr": "config_key",
+      "has_default": true,
+      "default": "\"0\"",
+      "dynamic": true
+    },
+    {
+      "file": "apps/api/plane/license/management/commands/configure_instance.py",
+      "line": 25,
+      "kind": "os.environ.get",
+      "key_expr": "item",
+      "has_default": false,
+      "default": null,
+      "dynamic": true
+    },
+    {
+      "file": "apps/api/plane/license/utils/instance_value.py",
+      "line": 37,
+      "kind": "os.environ.get",
+      "key_expr": "key.get(\"key\")",
+      "has_default": true,
+      "default": "key.get(\"default\")",
+      "dynamic": true
+    },
+    {
+      "file": "apps/api/plane/settings/common.py",
+      "line": 481,
+      "kind": "os.environ.get",
+      "key_expr": "env_var",
+      "has_default": false,
+      "default": null,
+      "dynamic": true
+    }
+  ]
+}
