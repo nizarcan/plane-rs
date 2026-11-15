@@ -1,0 +1,87 @@
+{
+  "counts": {
+    "issues": 4,
+    "pages": 7,
+    "project_members": 12,
+    "users": 15,
+    "workspace_members": 13
+  },
+  "database": "t_perms_fixture",
+  "projects": {
+    "p1": "00000000-0000-0000-0000-000000000bb9",
+    "p2": "00000000-0000-0000-0000-000000000bba",
+    "p3": "00000000-0000-0000-0000-000000000bbb",
+    "p_other": "00000000-0000-0000-0000-000000000bbc"
+  },
+  "users": {
+    "anonymous": {
+      "anonymous": true,
+      "id": null
+    },
+    "user_admin": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003e9"
+    },
+    "user_deleted_member": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003f0"
+    },
+    "user_guest": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003eb"
+    },
+    "user_guest_all": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003ec"
+    },
+    "user_inactive": {
+      "anonymous": true,
+      "id": "00000000-0000-0000-0000-0000000003f5"
+    },
+    "user_inactive_member": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003ef"
+    },
+    "user_instance_admin": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003f3"
+    },
+    "user_instance_admin_low": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003f4"
+    },
+    "user_instance_admin_mid": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003f7"
+    },
+    "user_member": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003ea"
+    },
+    "user_nonmember": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003f2"
+    },
+    "user_project_deleted_member": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003f1"
+    },
+    "user_w2_admin": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003f6"
+    },
+    "user_ws_admin_no_project": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003ed"
+    },
+    "user_ws_member_no_project": {
+      "anonymous": false,
+      "id": "00000000-0000-0000-0000-0000000003ee"
+    }
+  },
+  "workspaces": {
+    "w1": "00000000-0000-0000-0000-0000000007d1",
+    "w2": "00000000-0000-0000-0000-0000000007d2",
+    "w3": "00000000-0000-0000-0000-0000000007d3"
+  }
+}
