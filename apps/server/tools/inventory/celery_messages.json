@@ -1,0 +1,489 @@
+{
+  "generated_by": "apps/server/tools/inventory/celery_capture.py",
+  "generated_at": "2026-11-15T17:46:07.866164+00:00",
+  "celery_version": "5.5.3",
+  "kombu_version": "5.5.4",
+  "transport": "memory (kombu in-process)",
+  "app_main": "plane",
+  "task_protocol": 2,
+  "task_serializer": "json",
+  "accept_content": [
+    "application/json"
+  ],
+  "timezone": "UTC",
+  "enable_utc": true,
+  "default_queue": "celery",
+  "default_exchange": "celery",
+  "default_exchange_type": "direct",
+  "default_routing_key": "celery",
+  "delivery_mode": 2,
+  "body_encoding": "base64",
+  "messages": [
+    {
+      "case": "workspace_invitation positional arguments",
+      "call_site": "plane/app/views/workspace/invite.py:120",
+      "task": "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+      "task_id": "1b8f6940-13a5-431a-81af-a1c159b1eaa2",
+      "content_type": "application/json",
+      "content_encoding": "utf-8",
+      "properties": {
+        "correlation_id": "1b8f6940-13a5-431a-81af-a1c159b1eaa2",
+        "reply_to": "fd7f3cec-1cb9-3cad-aed4-6d390aa6356c",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "body_encoding": "base64"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+        "id": "1b8f6940-13a5-431a-81af-a1c159b1eaa2",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "1b8f6940-13a5-431a-81af-a1c159b1eaa2",
+        "parent_id": null,
+        "argsrepr": "('invitee@example.com', UUID('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60'), 'eyJhbGciOiJIUzI1NiJ9.invitation-token.signature', 'http://localhost:3000', 'admin@example.com')",
+        "kwargsrepr": "{}",
+        "origin": "gen26400@MacBook-Pro.local",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_raw_base64": "W1siaW52aXRlZUBleGFtcGxlLmNvbSIsIHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICI2YTFiNmYwZTBmOWE0YjYyOWEzOTFiMmMzZDRlNWY2MCJ9fSwgImV5SmhiR2NpT2lKSVV6STFOaUo5Lmludml0YXRpb24tdG9rZW4uc2lnbmF0dXJlIiwgImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsICJhZG1pbkBleGFtcGxlLmNvbSJdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 275,
+      "body_json": [
+        [
+          "invitee@example.com",
+          {
+            "__type__": "uuid",
+            "__value__": {
+              "hex": "6a1b6f0e0f9a4b629a391b2c3d4e5f60"
+            }
+          },
+          "eyJhbGciOiJIUzI1NiJ9.invitation-token.signature",
+          "http://localhost:3000",
+          "admin@example.com"
+        ],
+        {},
+        {
+          "callbacks": null,
+          "errbacks": null,
+          "chain": null,
+          "chord": null
+        }
+      ]
+    },
+    {
+      "case": "get_asset_object_metadata kwargs",
+      "call_site": "plane/app/views/asset/v2.py:219",
+      "task": "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+      "task_id": "30d73ce8-3bf2-47e4-8428-ca5d500218c5",
+      "content_type": "application/json",
+      "content_encoding": "utf-8",
+      "properties": {
+        "correlation_id": "30d73ce8-3bf2-47e4-8428-ca5d500218c5",
+        "reply_to": "fd7f3cec-1cb9-3cad-aed4-6d390aa6356c",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "body_encoding": "base64"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+        "id": "30d73ce8-3bf2-47e4-8428-ca5d500218c5",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "30d73ce8-3bf2-47e4-8428-ca5d500218c5",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'asset_id': '99999999-8888-7777-6666-555555555555'}",
+        "origin": "gen26400@MacBook-Pro.local",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_raw_base64": "W1tdLCB7ImFzc2V0X2lkIjogIjk5OTk5OTk5LTg4ODgtNzc3Ny02NjY2LTU1NTU1NTU1NTU1NSJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 127,
+      "body_json": [
+        [],
+        {
+          "asset_id": "99999999-8888-7777-6666-555555555555"
+        },
+        {
+          "callbacks": null,
+          "errbacks": null,
+          "chain": null,
+          "chord": null
+        }
+      ]
+    },
+    {
+      "case": "issue_activity with JSON-string payloads",
+      "call_site": "plane/app/views/issue/base.py:689",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "86d90e12-de11-464b-b58a-4dd166844c4a",
+      "content_type": "application/json",
+      "content_encoding": "utf-8",
+      "properties": {
+        "correlation_id": "86d90e12-de11-464b-b58a-4dd166844c4a",
+        "reply_to": "fd7f3cec-1cb9-3cad-aed4-6d390aa6356c",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "body_encoding": "base64"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "86d90e12-de11-464b-b58a-4dd166844c4a",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "86d90e12-de11-464b-b58a-4dd166844c4a",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.updated', 'requested_data': '{\"name\": \"Fix the login redirect loop\", \"priority\": \"high\", \"assignees\": [\"0d1e2f30-4456-4789-9abc-def012345678\"], \"target_date\": \"2026-11-20\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': '{\"name\": \"Fix login redirect\", \"priority\": \"medium\", \"assignees\": [], \"target_date\": null}', 'epoch': 1794764767, 'notification': True, 'origin': 'http://localhost:3000'}",
+        "origin": "gen26400@MacBook-Pro.local",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_raw_base64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkudXBkYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJuYW1lXCI6IFwiRml4IHRoZSBsb2dpbiByZWRpcmVjdCBsb29wXCIsIFwicHJpb3JpdHlcIjogXCJoaWdoXCIsIFwiYXNzaWduZWVzXCI6IFtcIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OFwiXSwgXCJ0YXJnZXRfZGF0ZVwiOiBcIjIwMjYtMTEtMjBcIn0iLCAiYWN0b3JfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgImlzc3VlX2lkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJwcm9qZWN0X2lkIjogImFhYWFhYWFhLWJiYmItY2NjYy1kZGRkLWVlZWVlZWVlZWVlZSIsICJjdXJyZW50X2luc3RhbmNlIjogIntcIm5hbWVcIjogXCJGaXggbG9naW4gcmVkaXJlY3RcIiwgXCJwcmlvcml0eVwiOiBcIm1lZGl1bVwiLCBcImFzc2lnbmVlc1wiOiBbXSwgXCJ0YXJnZXRfZGF0ZVwiOiBudWxsfSIsICJlcG9jaCI6IDE3OTQ3NjQ3NjcsICJub3RpZmljYXRpb24iOiB0cnVlLCAib3JpZ2luIjogImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 652,
+      "body_json": [
+        [],
+        {
+          "type": "issue.activity.updated",
+          "requested_data": "{\"name\": \"Fix the login redirect loop\", \"priority\": \"high\", \"assignees\": [\"0d1e2f30-4456-4789-9abc-def012345678\"], \"target_date\": \"2026-11-20\"}",
+          "actor_id": "0d1e2f30-4456-4789-9abc-def012345678",
+          "issue_id": "11111111-2222-3333-4444-555555555555",
+          "project_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "current_instance": "{\"name\": \"Fix login redirect\", \"priority\": \"medium\", \"assignees\": [], \"target_date\": null}",
+          "epoch": 1794764767,
+          "notification": true,
+          "origin": "http://localhost:3000"
+        },
+        {
+          "callbacks": null,
+          "errbacks": null,
+          "chain": null,
+          "chord": null
+        }
+      ]
+    },
+    {
+      "case": "sync_issue_version apply_async with countdown",
+      "call_site": "plane/bgtasks/issue_version_sync.py:218",
+      "task": "plane.bgtasks.issue_version_sync.sync_issue_version",
+      "task_id": "da45bade-124c-4128-984b-ed110e451dfa",
+      "content_type": "application/json",
+      "content_encoding": "utf-8",
+      "properties": {
+        "correlation_id": "da45bade-124c-4128-984b-ed110e451dfa",
+        "reply_to": "fd7f3cec-1cb9-3cad-aed4-6d390aa6356c",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "body_encoding": "base64"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_version_sync.sync_issue_version",
+        "id": "da45bade-124c-4128-984b-ed110e451dfa",
+        "shadow": null,
+        "eta": "2026-11-15T17:51:07.865485+00:00",
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "da45bade-124c-4128-984b-ed110e451dfa",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'batch_size': 5000, 'offset': 5000, 'countdown': 300}",
+        "origin": "gen26400@MacBook-Pro.local",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_raw_base64": "W1tdLCB7ImJhdGNoX3NpemUiOiA1MDAwLCAib2Zmc2V0IjogNTAwMCwgImNvdW50ZG93biI6IDMwMH0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 129,
+      "body_json": [
+        [],
+        {
+          "batch_size": 5000,
+          "offset": 5000,
+          "countdown": 300
+        },
+        {
+          "callbacks": null,
+          "errbacks": null,
+          "chain": null,
+          "chord": null
+        }
+      ]
+    },
+    {
+      "case": "send_email_notification nested dict arguments",
+      "call_site": "plane/bgtasks/email_notification_task.py:76",
+      "task": "plane.bgtasks.email_notification_task.send_email_notification",
+      "task_id": "f4567a2d-a970-496f-89dd-e5449dafdadb",
+      "content_type": "application/json",
+      "content_encoding": "utf-8",
+      "properties": {
+        "correlation_id": "f4567a2d-a970-496f-89dd-e5449dafdadb",
+        "reply_to": "fd7f3cec-1cb9-3cad-aed4-6d390aa6356c",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "body_encoding": "base64"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.email_notification_task.send_email_notification",
+        "id": "f4567a2d-a970-496f-89dd-e5449dafdadb",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "f4567a2d-a970-496f-89dd-e5449dafdadb",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'issue_id': '11111111-2222-3333-4444-555555555555', 'notification_data': {'0d1e2f30-4456-4789-9abc-def012345678': [{...}]}, 'receiver_id': '0d1e2f30-4456-4789-9abc-def012345678', 'email_notification_ids': [UUID('aaaaaaaa-0000-0000-0000-000000000001')]}",
+        "origin": "gen26400@MacBook-Pro.local",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_raw_base64": "W1tdLCB7Imlzc3VlX2lkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJub3RpZmljYXRpb25fZGF0YSI6IHsiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IjogW3siaXNzdWVfYWN0aXZpdHkiOiB7ImlkIjogIjEyMzQ1Njc4LTEyMzQtNTY3OC0xMjM0LTU2NzgxMjM0NTY3OCIsICJ2ZXJiIjogInVwZGF0ZWQiLCAiZmllbGQiOiAicHJpb3JpdHkiLCAiYWN0b3IiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgIm5ld192YWx1ZSI6ICJoaWdoIiwgIm9sZF92YWx1ZSI6ICJtZWRpdW0iLCAib2xkX2lkZW50aWZpZXIiOiBudWxsLCAibmV3X2lkZW50aWZpZXIiOiBudWxsLCAiYWN0aXZpdHlfdGltZSI6ICIyMDI2LTExLTE1VDE3OjQ2OjA3Ljg0MzE2MSswMDowMCJ9LCAiaXNzdWUiOiB7ImlkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJuYW1lIjogIkZpeCB0aGUgbG9naW4gcmVkaXJlY3QgbG9vcCJ9fV19LCAicmVjZWl2ZXJfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgImVtYWlsX25vdGlmaWNhdGlvbl9pZHMiOiBbeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogImFhYWFhYWFhMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAxIn19XX0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 753,
+      "body_json": [
+        [],
+        {
+          "issue_id": "11111111-2222-3333-4444-555555555555",
+          "notification_data": {
+            "0d1e2f30-4456-4789-9abc-def012345678": [
+              {
+                "issue_activity": {
+                  "id": "12345678-1234-5678-1234-567812345678",
+                  "verb": "updated",
+                  "field": "priority",
+                  "actor": "0d1e2f30-4456-4789-9abc-def012345678",
+                  "new_value": "high",
+                  "old_value": "medium",
+                  "old_identifier": null,
+                  "new_identifier": null,
+                  "activity_time": "2026-11-15T17:46:07.843161+00:00"
+                },
+                "issue": {
+                  "id": "11111111-2222-3333-4444-555555555555",
+                  "name": "Fix the login redirect loop"
+                }
+              }
+            ]
+          },
+          "receiver_id": "0d1e2f30-4456-4789-9abc-def012345678",
+          "email_notification_ids": [
+            {
+              "__type__": "uuid",
+              "__value__": {
+                "hex": "aaaaaaaa000000000000000000000001"
+              }
+            }
+          ]
+        },
+        {
+          "callbacks": null,
+          "errbacks": null,
+          "chain": null,
+          "chord": null
+        }
+      ]
+    },
+    {
+      "case": "webhook_activity project deleted",
+      "call_site": "plane/app/views/project/base.py:401",
+      "task": "plane.bgtasks.webhook_task.webhook_activity",
+      "task_id": "04235486-8d26-4553-aa41-745948a855ef",
+      "content_type": "application/json",
+      "content_encoding": "utf-8",
+      "properties": {
+        "correlation_id": "04235486-8d26-4553-aa41-745948a855ef",
+        "reply_to": "fd7f3cec-1cb9-3cad-aed4-6d390aa6356c",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "body_encoding": "base64"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.webhook_activity",
+        "id": "04235486-8d26-4553-aa41-745948a855ef",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "04235486-8d26-4553-aa41-745948a855ef",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'event': 'project', 'verb': 'deleted', 'field': None, 'old_value': None, 'new_value': None, 'actor_id': UUID('0d1e2f30-4456-4789-9abc-def012345678'), 'slug': 'acme', 'current_site': 'http://localhost:3000', 'event_id': UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'old_identifier': None, 'new_identifier': None}",
+        "origin": "gen26400@MacBook-Pro.local",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_raw_base64": "W1tdLCB7ImV2ZW50IjogInByb2plY3QiLCAidmVyYiI6ICJkZWxldGVkIiwgImZpZWxkIjogbnVsbCwgIm9sZF92YWx1ZSI6IG51bGwsICJuZXdfdmFsdWUiOiBudWxsLCAiYWN0b3JfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX0sICJzbHVnIjogImFjbWUiLCAiY3VycmVudF9zaXRlIjogImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsICJldmVudF9pZCI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICJhYWFhYWFhYWJiYmJjY2NjZGRkZGVlZWVlZWVlZWVlZSJ9fSwgIm9sZF9pZGVudGlmaWVyIjogbnVsbCwgIm5ld19pZGVudGlmaWVyIjogbnVsbH0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 456,
+      "body_json": [
+        [],
+        {
+          "event": "project",
+          "verb": "deleted",
+          "field": null,
+          "old_value": null,
+          "new_value": null,
+          "actor_id": {
+            "__type__": "uuid",
+            "__value__": {
+              "hex": "0d1e2f30445647899abcdef012345678"
+            }
+          },
+          "slug": "acme",
+          "current_site": "http://localhost:3000",
+          "event_id": {
+            "__type__": "uuid",
+            "__value__": {
+              "hex": "aaaaaaaabbbbccccddddeeeeeeeeeeee"
+            }
+          },
+          "old_identifier": null,
+          "new_identifier": null
+        },
+        {
+          "callbacks": null,
+          "errbacks": null,
+          "chain": null,
+          "chord": null
+        }
+      ]
+    },
+    {
+      "case": "delete_api_logs no arguments",
+      "call_site": "plane/celery.py:78 (beat_schedule)",
+      "task": "plane.bgtasks.cleanup_task.delete_api_logs",
+      "task_id": "ecbbe3d6-046c-4820-a32a-5962c120746d",
+      "content_type": "application/json",
+      "content_encoding": "utf-8",
+      "properties": {
+        "correlation_id": "ecbbe3d6-046c-4820-a32a-5962c120746d",
+        "reply_to": "fd7f3cec-1cb9-3cad-aed4-6d390aa6356c",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "body_encoding": "base64"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.cleanup_task.delete_api_logs",
+        "id": "ecbbe3d6-046c-4820-a32a-5962c120746d",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "ecbbe3d6-046c-4820-a32a-5962c120746d",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen26400@MacBook-Pro.local",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_raw_base64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77,
+      "body_json": [
+        [],
+        {},
+        {
+          "callbacks": null,
+          "errbacks": null,
+          "chain": null,
+          "chord": null
+        }
+      ]
+    }
+  ]
+}
