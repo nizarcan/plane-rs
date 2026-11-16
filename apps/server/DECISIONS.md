@@ -364,6 +364,23 @@ workspace `Cargo.toml` and upgrade deliberately.
   and its own RabbitMQ vhost. Enqueued Celery messages are drained and compared as part
   of the side effects.
 
+## D16. Output derived from iterating a Python `set` of strings is compared as unordered (decided 2026-11-16)
+
+- Some Django responses contain lists built with `list(some_set)` where the set holds
+  `str` values, for example the group id arrays of multi-value grouped issue pages
+  (`plane/utils/paginator.py:347,352,579-602`: `result_group_mapping[...].add(str(group_id))`)
+  and the `counts` keys of the v1 project summary (`plane/api/views/project.py:733-739`).
+  CPython randomises `str` hashing per process (`PYTHONHASHSEED` is not set by the
+  production image or entrypoints), so Django's order for these values changes on every
+  restart. It is not a contract any client can rely on.
+- Rust emits these values in ascending order (stable and cheap) and does not try to
+  reproduce one particular seed's order. The differential harness compares exactly these
+  fields as multisets, through path-scoped rules that still fail on a missing, extra or
+  duplicated element. Everything else, including group key order where Django builds it
+  from an ordered dict or a queryset, stays an exact comparison.
+- The scenarios keep `PYTHONHASHSEED=0` for Django so Django-vs-Django runs stay
+  reproducible; Rust never depends on it.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
