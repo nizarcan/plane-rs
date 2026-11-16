@@ -278,10 +278,9 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
-    // TODO(list): module_ids
-    // TODO(list): label_ids
-    // TODO(list): assignee_ids
-    let _ = s; // every writable field is a TODO(kind)
+    let _ = s.uuid_list_field("module_ids");
+    let _ = s.uuid_list_field("label_ids");
+    let _ = s.uuid_list_field("assignee_ids");
     let _ = client; // no field validates against a table
     Ok(())
 }

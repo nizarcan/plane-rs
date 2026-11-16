@@ -1964,6 +1964,8 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.module.ModuleIssueSerializer",
     "plane.app.serializers.view.IssueViewSerializer",
     "plane.app.serializers.page.PageBinaryUpdateSerializer",
+    "plane.app.serializers.page.PageSerializer",
+    "plane.app.serializers.page.PageDetailSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is
@@ -2360,7 +2362,12 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
         elif kind == "list":
             child = field.get("child") or {}
             table = child.get("related_table") if child.get("kind") == "primary_key" else None
-            if table:
+            if child.get("kind") == "uuid":
+                # `ListField(child=UUIDField())` — DRF's UUIDField semantics,
+                # including its own "Must be a valid UUID." message.
+                has_statement = True
+                lines.append(f"    let _ = s.uuid_list_field({name});")
+            elif table:
                 has_statement = True
                 uses_client = True
                 lines.append(

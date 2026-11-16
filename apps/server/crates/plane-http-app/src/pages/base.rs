@@ -225,8 +225,8 @@ pub(crate) struct PageDetailBody<'a> {
     issue_ids: FieldValue<IssueIds<'a>>,
 }
 
-// The read route uses `retrieve`; `duplicated` is set D's write shape, and the
-// two set-A constructors land after this branch.
+// The read route uses `retrieve`; create uses `created`, PATCH uses
+// `updated`/`updated_with`, duplicate uses `duplicated`.
 impl<'a> PageDetailBody<'a> {
     /// `PageViewSet.retrieve` (`page/base.py:227-230`): a `get_queryset()` row
     /// (all three annotations) plus the appended `issue_ids`.
@@ -243,7 +243,6 @@ impl<'a> PageDetailBody<'a> {
     /// `PageViewSet.create` (`page/base.py:158-166`): the response is a
     /// re-fetch through `get_queryset()`, so all three annotations are present
     /// and the view does not append `issue_ids`. 19 keys.
-    #[allow(dead_code, reason = "set A's create handler lands after this branch")]
     pub(crate) fn created(page: &'a PageRow) -> Self {
         Self {
             page,
@@ -257,13 +256,34 @@ impl<'a> PageDetailBody<'a> {
     /// `PageViewSet.partial_update` (`page/base.py:201-212`): the serializer
     /// wraps a plain `Page.objects.get()` instance, so all three annotation
     /// fields raise `SkipField`. 16 keys.
-    #[allow(dead_code, reason = "set A's PATCH handler lands after this branch")]
     pub(crate) fn updated(page: &'a PageRow) -> Self {
+        Self::updated_with(page, None, None)
+    }
+
+    /// [`Self::updated`] with the body's `label_ids`/`project_ids`.
+    ///
+    /// `PageDetailSerializer` declares both as writable `ListField`s
+    /// (`serializers/page.py:33-34`) and no code pops them, so PATCH's
+    /// `ModelSerializer.update` runs `setattr(instance, "label_ids", value)` on
+    /// the instance. It writes nothing (the names are not model fields) but
+    /// DRF's `get_attribute` then finds the attribute, so `serializer.data`
+    /// carries the key after all (`rest_framework/serializers.py:530-546`).
+    pub(crate) fn updated_with(
+        page: &'a PageRow,
+        label_ids: Option<&'a [Uuid]>,
+        project_ids: Option<&'a [Uuid]>,
+    ) -> Self {
         Self {
             page,
             is_favorite: FieldValue::absent(),
-            label_ids: FieldValue::absent(),
-            project_ids: FieldValue::absent(),
+            label_ids: match label_ids {
+                Some(ids) => FieldValue::value(ids),
+                None => FieldValue::absent(),
+            },
+            project_ids: match project_ids {
+                Some(ids) => FieldValue::value(ids),
+                None => FieldValue::absent(),
+            },
             issue_ids: FieldValue::absent(),
         }
     }

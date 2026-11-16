@@ -44,6 +44,8 @@ pub mod write_description;
 pub mod write_duplicate;
 pub mod write_duplicate_queries;
 mod write_favorite;
+pub mod write_page;
+pub mod write_page_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -59,7 +61,15 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         // Routes 128 (`lock`/`unlock`) and 129 (`access`).
         .action("lock", write_action::lock)?
         .action("unlock", write_action::unlock)?
-        .action("access", write_action::access)?;
+        .action("access", write_action::access)?
+        // Set A: create (124), PATCH/DELETE (125) and archive/unarchive (127).
+        // No `PUT` is routed, so there is no guard action to register
+        // (`plane/app/urls/page.py:29-31`).
+        .action("create", write_page::create)?
+        .action("partial_update", write_page::partial_update)?
+        .action("destroy", write_page::destroy)?
+        .action("archive", write_page::archive)?
+        .action("unarchive", write_page::unarchive)?;
     registry
         .viewset("plane.app.views.page.base.PagesDescriptionViewSet")?
         .action("retrieve", base::description)?

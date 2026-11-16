@@ -92,6 +92,8 @@ pub mod module_link_serializer;
 pub mod module_user_properties_serializer;
 pub mod module_write_serializer;
 pub mod page_binary_update_serializer;
+pub mod page_detail_serializer;
+pub mod page_serializer;
 pub mod project_member_serializer;
 pub mod project_serializer;
 pub mod project_user_property_serializer;

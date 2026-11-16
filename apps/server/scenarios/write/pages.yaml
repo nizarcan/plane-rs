@@ -1,0 +1,1040 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Pages set A (page core) write scenario:
+#
+#   POST    /api/workspaces/{slug}/projects/{project_id}/pages/              (124)
+#   PATCH   /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/    (125)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/    (125)
+#   POST    /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/archive/    (127)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/archive/    (127)
+#
+# Covers the quirks the plan records:
+#
+#   * create's post-write 404 — a `parent` (the re-fetch filters
+#     `parent__isnull=True`) and a `?search=` the page does not match — with
+#     the page, its project link, its labels and the `page_transaction`
+#     message still written;
+#   * `description_html: null` and `description_json: null` → the 400
+#     `The payload is not valid` that the NOT NULL columns raise, and a string
+#     `description_binary` → the 500 psycopg's bytea dumper raises;
+#   * `label_ids`/`project_ids`: 500 on create (Django's `Model.__init__`
+#     rejects the unknown kwargs) and rendered-but-unwritten on PATCH;
+#   * PATCH's `is_locked` 400 first, its `Access cannot be updated …` body for a
+#     bad `parent`, the writable `created_by`, the `access` comparison that
+#     treats a form string or `null` as "changed", and `description_html`
+#     written unsanitised;
+#   * `labels` accepting a label from another workspace;
+#   * destroy's archived-first 400, its children detach (only children linked
+#     to the URL project) and the manager predicates on the favourites (H04,
+#     every user) and recent-visit (hard, live only) deletes;
+#   * archive's recursive CTE (a soft-deleted descendant included, neither
+#     `updated_at` nor any audit column touched), its every-user favourite
+#     delete, and the 400 for a member who is not the owner;
+#   * unarchive's detached archived parent (`update_fields=["parent"]`, no
+#     `updated_at` bump) and the subtree NULL.
+#
+# Rows no route can create are seeded by `pages-fixture.sql`.
+#
+# The permission class resolves the same page (with the same predicates) before
+# every `{page_id}` route runs, so a page the view cannot see — a missing id, a
+# page linked to another project, a soft-deleted link — is always the
+# permission's 403, never the view's own 400/404 body. The steps below expect
+# 403 for those.
+
+name: write-pages
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/pages-fixture.sql"
+  ws: "fix-workspace"
+  ws_second: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  label_design: "3be976f6-630e-4a7e-829c-66cb027c2696"
+  label_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  label_foreign: "bb000000-0000-4000-8000-000000000001"
+  page_archive_root: "aa000000-0000-4000-8000-000000000001"
+  page_archive_child: "aa000000-0000-4000-8000-000000000002"
+  page_archive_grandchild: "aa000000-0000-4000-8000-000000000003"
+  page_archived_parent: "aa000000-0000-4000-8000-000000000020"
+  page_unarchive_child: "aa000000-0000-4000-8000-000000000021"
+  page_unarchive_grandchild: "aa000000-0000-4000-8000-000000000022"
+  page_live_parent: "aa000000-0000-4000-8000-000000000024"
+  page_unarchive_live_child: "aa000000-0000-4000-8000-000000000023"
+  page_locked: "aa000000-0000-4000-8000-000000000030"
+  page_member_public: "aa000000-0000-4000-8000-000000000031"
+  page_member_private: "aa000000-0000-4000-8000-000000000032"
+  page_labels: "aa000000-0000-4000-8000-000000000033"
+  page_links_two: "aa000000-0000-4000-8000-000000000060"
+  page_destroy_parent: "aa000000-0000-4000-8000-000000000040"
+  page_destroy_alpha_child: "aa000000-0000-4000-8000-000000000041"
+  page_destroy_beta_child: "aa000000-0000-4000-8000-000000000042"
+  page_destroy_member_owned: "aa000000-0000-4000-8000-000000000050"
+  page_destroy_admin_role: "aa000000-0000-4000-8000-000000000051"
+  page_destroy_denied: "aa000000-0000-4000-8000-000000000052"
+  page_destroy_unarchived: "aa000000-0000-4000-8000-000000000053"
+  page_beta_only: "aa000000-0000-4000-8000-000000000054"
+  page_archive_nonowner: "aa000000-0000-4000-8000-000000000070"
+  page_archive_admin_ok: "aa000000-0000-4000-8000-000000000071"
+  page_unarchive_nonowner: "aa000000-0000-4000-8000-000000000072"
+  page_patch: "aa000000-0000-4000-8000-000000000080"
+  page_patch_html: "aa000000-0000-4000-8000-000000000081"
+  page_patch_created_by: "aa000000-0000-4000-8000-000000000082"
+  page_patch_parent: "aa000000-0000-4000-8000-000000000083"
+  page_patch_lists: "aa000000-0000-4000-8000-000000000084"
+  missing: "00000000-0000-4000-8000-000000000123"
+  missing_project: "00000000-0000-4000-8000-000000000456"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- 124 create: the shapes that succeed -------------------------------
+  - name: pg-01-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness minimal"
+    capture:
+      - name: page_min
+        source: db
+        table: pages
+        column: id
+    expect_status: 201
+
+  # Every writable field plus every read-only key, which Django ignores. The
+  # three description columns come from `request.data` raw, so they are not
+  # serializer fields at all.
+  - name: pg-02-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness full"
+      access: 1
+      color: "#abcdef"
+      labels: ["{{label_design}}", "{{label_bug}}"]
+      parent: null
+      is_locked: false
+      archived_at: "2026-02-01"
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      view_props: {"full_width": true, "nested": {"b": 1, "a": 2}}
+      logo_props: {"in_use": "emoji", "emoji": {"value": "🚀"}}
+      description_json: {"type": "doc", "content": [{"type": "paragraph"}]}
+      description_html: "<p>full <b>body</b></p>"
+      # read-only on the serializer: every one of these is ignored
+      id: "11111111-1111-4111-8111-111111111111"
+      owned_by: "{{member_id}}"
+      workspace: "{{project_beta}}"
+      is_favorite: true
+    capture:
+      - name: page_full
+        source: db
+        table: pages
+        column: id
+    expect_status: 201
+
+  # `labels: []` runs `bulk_create([])`, which writes nothing.
+  - name: pg-03-create-empty-labels
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness empty labels"
+      labels: []
+    expect_status: 201
+
+  # A label from another workspace: `Label.objects.all()` accepts it and the
+  # row is written into the page's workspace.
+  - name: pg-04-create-foreign-label
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness foreign label"
+      labels: ["{{label_foreign}}"]
+    capture:
+      - name: page_foreign_label
+        source: db
+        table: pages
+        column: id
+    expect_status: 201
+
+  # A `parent` makes the post-write re-fetch miss (`parent__isnull=True`), but
+  # the page, its project link, its labels and the task are all written.
+  - name: pg-05-create-with-parent-404
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness nested"
+      parent: "{{page_live_parent}}"
+      labels: ["{{label_design}}"]
+      description_html: "<p>nested body</p>"
+    capture:
+      - name: page_nested
+        source: db
+        table: pages
+        column: id
+    expect_status: 404
+
+  # The same page through a `?search=` that does not match it.
+  - name: pg-06-create-search-miss-404
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      search: "zzz-no-such-page"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness search miss"
+    capture:
+      - name: page_search_miss
+        source: db
+        table: pages
+        column: id
+    expect_status: 404
+
+  - name: pg-07-create-search-hit
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      search: "search hit"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness search hit"
+    capture:
+      - name: page_search_hit
+        source: db
+        table: pages
+        column: id
+    expect_status: 201
+
+  # The re-fetch proves the page really exists after the 404.
+  - name: pg-08-get-created-search-hit
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_search_hit}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- 124 create: the error branches ------------------------------------
+  # `description_html: null` hits the NOT NULL column: IntegrityError → 400.
+  - name: pg-10-create-null-html
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness null html"
+      description_html: null
+    expect_status: 400
+
+  # `description_json: null` is `JSONField.get_prep_value(None)` → SQL NULL →
+  # the same NOT NULL IntegrityError.
+  - name: pg-11-create-null-json
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness null json"
+      description_json: null
+    expect_status: 400
+
+  # A string `description_binary` reaches psycopg's `bytea` dumper, which
+  # raises `TypeError: bytes or buffer expected`: a family 500 before the
+  # INSERT runs.
+  - name: pg-11a-create-binary-string-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness binary string"
+      description_binary: "aGVsbG8="
+    expect_status: 500
+
+  # Both bad description columns at once: psycopg adapts the parameters in
+  # column order and the binary dumper raises before the INSERT, so the 500
+  # wins over the NOT NULL of `description_json`.
+  - name: pg-11b-create-binary-and-null-json-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness both bad"
+      description_json: null
+      description_binary: "aGVsbG8="
+    expect_status: 500
+
+  # `label_ids`/`project_ids` survive validation and reach `Page()`, which
+  # rejects the unknown keyword: a family 500. Nothing is written.
+  - name: pg-12-create-label-ids-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness label ids"
+      label_ids: ["{{label_design}}"]
+    expect_status: 500
+
+  - name: pg-13-create-project-ids-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project ids"
+      project_ids: ["{{project_alpha}}"]
+    expect_status: 500
+
+  # The membership check precedes everything: a project the caller is not a
+  # member of is the permission class's 403, so the create's own
+  # `Project.DoesNotExist` branch (which precedes the `TypeError`) is
+  # unreachable through HTTP.
+  - name: pg-14-create-both-ids-bad-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{missing_project}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness bad project"
+      label_ids: ["{{label_design}}"]
+    expect_status: 403
+
+  # `Project.objects.get(pk=…)` is not scoped to the URL workspace: the row is
+  # written into `fix-second` and the re-fetch (workspace `fix-workspace`)
+  # misses it, so the answer is a 404 after the write.
+  - name: pg-15-create-cross-workspace-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_theta}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness cross workspace"
+    capture:
+      - name: page_cross_workspace
+        source: db
+        table: pages
+        column: id
+    expect_status: 404
+
+  # Serializer validation, one field per step.
+  - name: pg-16-create-name-not-a-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: ["nope"]
+    expect_status: 400
+
+  - name: pg-17-create-access-invalid-choice
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness bad access"
+      access: 2
+    expect_status: 400
+
+  - name: pg-18-create-color-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness long colour"
+      color: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    expect_status: 400
+
+  - name: pg-19-create-labels-not-a-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness labels shape"
+      labels: "{{label_design}}"
+    expect_status: 400
+
+  - name: pg-20-create-label-unknown
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness label unknown"
+      labels: ["{{missing}}"]
+    expect_status: 400
+
+  - name: pg-21-create-parent-unknown
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness parent unknown"
+      parent: "{{missing}}"
+    expect_status: 400
+
+  - name: pg-22-create-view-props-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness view props null"
+      view_props: null
+    expect_status: 400
+
+  - name: pg-23-create-label-ids-invalid-uuid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness label ids invalid"
+      label_ids: ["not-a-uuid"]
+    expect_status: 400
+
+  - name: pg-24-create-empty-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  # --- 124 create: permissions ------------------------------------------
+  - name: pg-30-create-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Harness guest"
+    expect_status: 403
+
+  - name: pg-31-create-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "Harness nonmember"
+    expect_status: 403
+
+  # --- 125 PATCH: the writable fields ------------------------------------
+  - name: pg-40-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Patched name"
+    expect_status: 200
+
+  # The instance's `label_ids`/`project_ids` are `setattr`-ed, so DRF renders
+  # them even though nothing is written: 17 keys, not 16.
+  - name: pg-41-patch-label-ids
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_lists}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      label_ids: ["{{label_design}}"]
+    expect_status: 200
+
+  - name: pg-42-patch-project-ids
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_lists}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      project_ids: ["{{project_alpha}}", "{{project_beta}}"]
+    expect_status: 200
+
+  - name: pg-43-patch-both-ids
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_lists}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      label_ids: ["{{label_bug}}"]
+      project_ids: ["{{project_alpha}}"]
+    expect_status: 200
+
+  # Labels replace: H04 the two live rows, leave the soft-deleted one, insert
+  # the two requested ones with the page's pre-update audit ids.
+  - name: pg-44-patch-labels-replace
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_labels}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      labels: ["{{label_design}}", "{{label_foreign}}"]
+    expect_status: 200
+
+  # `labels: []` deletes every live row and inserts none.
+  - name: pg-45-patch-labels-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_labels}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      labels: []
+    expect_status: 200
+
+  # `description_html` is written unsanitised and publishes the transaction
+  # task with the old html.
+  - name: pg-46-patch-description-html
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_html}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>new <script>alert(1)</script> body</p>"
+    expect_status: 200
+
+  # `created_by` is writable; H01 overwrites only `updated_by`.
+  - name: pg-47-patch-created-by
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_created_by}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      created_by: "{{member_id}}"
+    expect_status: 200
+
+  # `parent: null` is a real write (the column is nullable).
+  - name: pg-48-patch-parent-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_parent}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: null
+    expect_status: 200
+
+  # Read-only fields and unknown keys are ignored; `archived_at` is writable.
+  - name: pg-49-patch-read-only-and-archived
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      archived_at: "2026-03-01"
+      is_favorite: true
+      owned_by: "{{member_id}}"
+      workspace: "{{project_beta}}"
+      created_at: "2020-01-01T00:00:00Z"
+      updated_at: "2020-01-01T00:00:00Z"
+      id: "22222222-2222-4222-8222-222222222222"
+      not_a_field: 1
+    expect_status: 200
+
+  # --- 125 PATCH: the error branches -------------------------------------
+  - name: pg-50-patch-locked
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_locked}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Should not apply"
+    expect_status: 400
+
+  - name: pg-51-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Should not apply"
+    expect_status: 403
+
+  # Linked to beta only: the permission lookup misses.
+  - name: pg-52-patch-other-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_beta_only}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Should not apply"
+    expect_status: 403
+
+  # A parent that exists but is not linked to the URL project.
+  - name: pg-53-patch-parent-other-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_parent}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "{{page_destroy_beta_child}}"
+    expect_status: 400
+
+  - name: pg-54-patch-parent-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_parent}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "{{missing}}"
+    expect_status: 400
+
+  # A non-UUID parent is Django's `ValidationError` → 400 valid-detail.
+  - name: pg-55-patch-parent-not-a-uuid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_parent}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "not-a-uuid"
+    expect_status: 400
+
+  # `0` is falsy, so the pre-check is skipped and the serializer reports the
+  # nil UUID as a missing pk.
+  - name: pg-56-patch-parent-zero
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_parent}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: 0
+    expect_status: 400
+
+  # A non-owner changing `access` gets the handler's 400 (the page is public,
+  # so the permission class lets the admin through).
+  - name: pg-57-patch-access-non-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 1
+    expect_status: 400
+
+  # The same page and caller, a writable field: allowed.
+  - name: pg-58-patch-name-non-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Renamed by admin"
+    expect_status: 200
+
+  # A form value is a string, and `"0" != 0` is true: the owner guard runs.
+  - name: pg-59-patch-access-form-string
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      access: "0"
+    expect_status: 400
+
+  - name: pg-60-patch-access-null-non-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: null
+    expect_status: 400
+
+  # A private page owned by the member: the permission class answers 403
+  # before the handler's owner guard.
+  - name: pg-61-patch-private-other-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_private}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Should not apply"
+    expect_status: 403
+
+  - name: pg-62-patch-description-html-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_html}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: ""
+    expect_status: 400
+
+  - name: pg-63-patch-description-html-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch_html}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: null
+    expect_status: 400
+
+  - name: pg-64-patch-name-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: null
+    expect_status: 400
+
+  - name: pg-65-patch-labels-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_labels}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      labels: ["{{missing}}"]
+    expect_status: 400
+
+  # --- 125 PATCH: permissions -----------------------------------------------
+  - name: pg-70-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Should not apply"
+    expect_status: 403
+
+  - name: pg-71-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_patch}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "Should not apply"
+    expect_status: 403
+
+  # --- 125 DELETE ------------------------------------------------------------
+  - name: pg-80-destroy-unarchived
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_destroy_unarchived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # The member (role 15) is neither the owner nor an admin: the permission
+  # class's DELETE table refuses before the handler's own 403.
+  - name: pg-81-destroy-member-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_destroy_denied}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  # The owner bypasses the permission class's method table.
+  - name: pg-82-destroy-member-owner
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_destroy_member_owned}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # The admin passes both the permission table and the role-20 probe.
+  - name: pg-83-destroy-admin-role
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_destroy_admin_role}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The children detach reaches only the child linked to the URL project.
+  - name: pg-84-destroy-parent-with-children
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_destroy_parent}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Linked to beta only: the permission lookup misses.
+  - name: pg-85-destroy-other-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_beta_only}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  - name: pg-86-destroy-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  - name: pg-87-destroy-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- 127 archive -----------------------------------------------------------
+  # The CTE archives the root, its child and its soft-deleted grandchild; the
+  # favourites of both users are H04-ed; `updated_at` stays put.
+  - name: pg-90-archive-parent-with-children
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archive_root}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Already archived: no guard, so it answers 200 and rewrites archived_at.
+  - name: pg-91-archive-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archive_root}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A member who is not the owner: 400 owner-or-admin.
+  - name: pg-92-archive-member-non-owner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archive_nonowner}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+
+  # An admin who is not the owner: allowed.
+  - name: pg-93-archive-admin-non-owner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archive_admin_ok}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: pg-94-archive-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{missing}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  - name: pg-95-archive-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archive_nonowner}}/archive/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- 127 unarchive ---------------------------------------------------------
+  # The parent is archived: it is detached with a one-column save (no
+  # `updated_at` bump), then the subtree is NULLed.
+  - name: pg-100-unarchive-with-archived-parent
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_unarchive_child}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # A live parent is kept.
+  - name: pg-101-unarchive-with-live-parent
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_unarchive_live_child}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # `DELETE` is the permission table's admin-only verb, so the member is
+  # refused there rather than by the handler's 400.
+  - name: pg-102-unarchive-member-non-owner
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_unarchive_nonowner}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: pg-103-unarchive-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{missing}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  - name: pg-104-unarchive-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_unarchive_nonowner}}/archive/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- the list still renders the rows the writes left ----------------------
+  - name: pg-110-list-after-writes
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
