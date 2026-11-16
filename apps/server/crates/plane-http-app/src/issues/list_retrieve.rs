@@ -28,6 +28,7 @@ use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::args::TaskArg;
+use plane_query::json::Json;
 use plane_query::sql::{Sql, Value};
 use plane_serializers::fields::{DrfPk, DrfUuid, DrfUuidList, PyDate};
 use plane_serializers::{DrfError, DrfSerialize, DrfWriter, FilterMode, RenderCtx};
@@ -94,14 +95,14 @@ const DETAIL_FIELDS: &[&str] = &[
 /// DRF skips; `Some(None)` means "present and null", which DRF renders as
 /// `null`.
 #[derive(Debug, Clone)]
-struct IssueDetail<'a> {
+pub(crate) struct IssueDetail {
     id: Uuid,
-    name: &'a str,
+    pub(crate) name: String,
     state_id: Option<Uuid>,
     sort_order: f64,
     completed_at: Option<DateTime<Utc>>,
     estimate_point: Option<Uuid>,
-    priority: &'a str,
+    pub(crate) priority: String,
     start_date: Option<NaiveDate>,
     target_date: Option<NaiveDate>,
     sequence_id: i64,
@@ -120,19 +121,19 @@ struct IssueDetail<'a> {
     link_count: Option<Option<i64>>,
     is_draft: bool,
     archived_at: Option<NaiveDate>,
-    description_html: &'a str,
+    pub(crate) description_html: String,
     is_subscribed: Option<bool>,
     is_intake: Option<bool>,
 }
 
-impl DrfSerialize for IssueDetail<'_> {
+impl DrfSerialize for IssueDetail {
     fn drf_write(&self, w: &mut DrfWriter, ctx: &RenderCtx<'_>) -> Result<(), DrfError> {
         let mut obj = w.begin_object();
         if ctx.emits("id", FilterMode::OutputOnly) {
             obj.field_dyn("id", ctx, &DrfUuid(self.id))?;
         }
         if ctx.emits("name", FilterMode::OutputOnly) {
-            obj.field_dyn("name", ctx, &self.name)?;
+            obj.field_dyn("name", ctx, &self.name.as_str())?;
         }
         if ctx.emits("state_id", FilterMode::OutputOnly) {
             obj.field_dyn("state_id", ctx, &self.state_id.map(DrfUuid))?;
@@ -151,7 +152,7 @@ impl DrfSerialize for IssueDetail<'_> {
             obj.field_dyn("estimate_point", ctx, &self.estimate_point.map(DrfUuid))?;
         }
         if ctx.emits("priority", FilterMode::OutputOnly) {
-            obj.field_dyn("priority", ctx, &self.priority)?;
+            obj.field_dyn("priority", ctx, &self.priority.as_str())?;
         }
         if ctx.emits("start_date", FilterMode::OutputOnly) {
             obj.field_dyn("start_date", ctx, &self.start_date.map(PyDate))?;
@@ -234,7 +235,7 @@ impl DrfSerialize for IssueDetail<'_> {
             obj.field_dyn("archived_at", ctx, &self.archived_at.map(PyDate))?;
         }
         if ctx.emits("description_html", FilterMode::OutputOnly) {
-            obj.field_dyn("description_html", ctx, &self.description_html)?;
+            obj.field_dyn("description_html", ctx, &self.description_html.as_str())?;
         }
         if ctx.emits("is_subscribed", FilterMode::OutputOnly)
             && let Some(value) = self.is_subscribed
@@ -251,6 +252,262 @@ impl DrfSerialize for IssueDetail<'_> {
         obj.end();
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Reusable for the write path
+// ---------------------------------------------------------------------------
+
+// The write handlers that call these land in `plans/WORK_ITEMS.md` set A
+// (`issues/write_issue.rs`); until they are registered the items are unused,
+// which is expected rather than a stub — `to_json` is pinned against
+// `drf_write` by the test at the bottom of this module.
+#[allow(dead_code)]
+impl IssueDetail {
+    /// The serializer's `data` as an ordered JSON document: the same fields, in
+    /// the same order, with `SkipField` semantics — a `None` on a *skippable*
+    /// annotation writes no key, a `Some(None)` writes `null`.
+    ///
+    /// The field values are the DRF representations (ISO strings, canonical
+    /// uuids), so rendering this document with
+    /// [`Dialect::Drf`](plane_serde::Dialect::Drf) is byte-identical to
+    /// [`DrfSerialize::drf_write`] — which the unit test at the bottom pins.
+    /// Rendering it with [`Dialect::Django`](plane_serde::Dialect::Django) is
+    /// `json.dumps(serializer.data, cls=DjangoJSONEncoder)`, the
+    /// `current_instance` string a PATCH publishes.
+    ///
+    /// `expand` is not applied: the write paths never pass one
+    /// (`IssueViewSet.partial_update` builds `IssueDetailSerializer(issue)` with
+    /// no `expand=`), and the read handlers keep rendering through
+    /// `drf_write`.
+    pub(crate) fn to_json(&self, ctx: &RenderCtx<'_>) -> Json {
+        let mut entries: Vec<(&str, Json)> = Vec::with_capacity(DETAIL_FIELDS.len());
+        let mut push = |name: &'static str, value: Json| {
+            if ctx.emits(name, FilterMode::OutputOnly) {
+                entries.push((name, value));
+            }
+        };
+        push("id", Json::uuid(self.id));
+        push("name", Json::string(self.name.as_str()));
+        push("state_id", Json::opt_uuid(self.state_id));
+        push("sort_order", Json::Float(self.sort_order));
+        push("completed_at", zoned_opt(self.completed_at, ctx));
+        push("estimate_point", Json::opt_uuid(self.estimate_point));
+        push("priority", Json::string(self.priority.as_str()));
+        push("start_date", Json::opt_date(self.start_date));
+        push("target_date", Json::opt_date(self.target_date));
+        push("sequence_id", Json::Int(self.sequence_id));
+        push("project_id", Json::uuid(self.project_id));
+        push("parent_id", Json::opt_uuid(self.parent_id));
+        if let Some(cycle_id) = self.cycle_id {
+            push("cycle_id", Json::opt_uuid(cycle_id));
+        }
+        if let Some(ids) = &self.module_ids {
+            push("module_ids", uuid_array(ids));
+        }
+        if let Some(ids) = &self.label_ids {
+            push("label_ids", uuid_array(ids));
+        }
+        if let Some(ids) = &self.assignee_ids {
+            push("assignee_ids", uuid_array(ids));
+        }
+        if let Some(count) = self.sub_issues_count {
+            push("sub_issues_count", count.map_or(Json::Null, Json::Int));
+        }
+        push("created_at", zoned(self.created_at, ctx));
+        push("updated_at", zoned(self.updated_at, ctx));
+        push("created_by", Json::opt_uuid(self.created_by));
+        push("updated_by", Json::opt_uuid(self.updated_by));
+        if let Some(count) = self.attachment_count {
+            push("attachment_count", count.map_or(Json::Null, Json::Int));
+        }
+        if let Some(count) = self.link_count {
+            push("link_count", count.map_or(Json::Null, Json::Int));
+        }
+        push("is_draft", Json::Bool(self.is_draft));
+        push("archived_at", Json::opt_date(self.archived_at));
+        push(
+            "description_html",
+            Json::string(self.description_html.as_str()),
+        );
+        if let Some(value) = self.is_subscribed {
+            push("is_subscribed", Json::Bool(value));
+        }
+        if let Some(value) = self.is_intake {
+            push("is_intake", Json::Bool(value));
+        }
+        Json::Object(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value))
+                .collect(),
+        )
+    }
+
+    /// `json.dumps(IssueDetailSerializer(issue).data, cls=DjangoJSONEncoder)` —
+    /// the `current_instance` string `IssueViewSet.partial_update` publishes
+    /// (`plane/app/views/issue/base.py:678,695,704,711`).
+    ///
+    /// The timezone matters: the datetime fields render in the *caller's*
+    /// tz, exactly as `IssueDetailSerializer(issue)` would under
+    /// `TimezoneMixin`. No `fields=`/`expand=` are passed, as at the call site.
+    pub(crate) fn current_instance(&self, ctx: &ViewCtx<'_>) -> Result<String, ViewError> {
+        self.dje_json(ctx.timezone.copied().unwrap_or(chrono_tz::UTC))
+    }
+
+    /// [`Self::current_instance`] with an explicit timezone (the call site's
+    /// is `request.user.user_timezone`).
+    pub(crate) fn dje_json(&self, timezone: chrono_tz::Tz) -> Result<String, ViewError> {
+        let render_ctx = RenderCtx::new(&timezone, None, &[]);
+        let json = self.to_json(&render_ctx);
+        let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, &json)
+            .map_err(|error| ViewError::Unknown(error.to_string()))?;
+        String::from_utf8(bytes).map_err(|error| ViewError::Unknown(error.to_string()))
+    }
+}
+
+#[allow(dead_code)]
+/// `DateTimeField.to_representation` in the active timezone
+/// (`drf_datetime(value, ctx.tz())`).
+fn zoned(value: DateTime<Utc>, ctx: &RenderCtx<'_>) -> Json {
+    Json::DateTimeZoned(value.with_timezone(ctx.tz()).fixed_offset())
+}
+
+fn zoned_opt(value: Option<DateTime<Utc>>, ctx: &RenderCtx<'_>) -> Json {
+    value.map_or(Json::Null, |value| zoned(value, ctx))
+}
+
+#[allow(dead_code)]
+fn uuid_array(ids: &[Uuid]) -> Json {
+    Json::Array(ids.iter().map(|id| Json::uuid(*id)).collect())
+}
+
+/// The `IssueViewSet.partial_update` pre-image
+/// (`plane/app/views/issue/base.py:640-678`): the issue with the PATCH path's
+/// own annotations, from which `current_instance` is rendered.
+///
+/// The queryset is `get_queryset()` (project + workspace + `issue_objects`)
+/// with `apply_annotations`, plus the three `ArrayAgg` annotations with their
+/// *filters* — which is why this is a separate statement from
+/// [`retrieve`]'s: `assignee_ids` here joins `project_members` without
+/// `deleted_at IS NULL`, and the arrays are aggregated over LEFT JOINs with a
+/// `FILTER (WHERE …)` instead of correlated subqueries.
+#[allow(dead_code)]
+pub(crate) async fn patch_detail(
+    client: &Client,
+    slug: &str,
+    project_id: Uuid,
+    pk: Uuid,
+) -> Result<Option<IssueDetail>, ViewError> {
+    let sql = format!(
+        "SELECT {ISSUE_COLUMNS}, {PATCH_ANNOTATIONS} \
+         FROM issues \
+         LEFT OUTER JOIN states ON issues.state_id = states.id \
+         INNER JOIN projects ON issues.project_id = projects.id \
+         INNER JOIN workspaces ON issues.workspace_id = workspaces.id \
+         LEFT OUTER JOIN issue_labels ON issues.id = issue_labels.issue_id \
+         LEFT OUTER JOIN issue_assignees ON issues.id = issue_assignees.issue_id \
+         LEFT OUTER JOIN users ON issue_assignees.assignee_id = users.id \
+         LEFT OUTER JOIN project_members ON users.id = project_members.member_id \
+         LEFT OUTER JOIN module_issues ON issues.id = module_issues.issue_id \
+         LEFT OUTER JOIN modules ON module_issues.module_id = modules.id \
+         WHERE issues.deleted_at IS NULL \
+           AND (states.group IS NULL OR states.group <> 'triage') \
+           AND issues.archived_at IS NULL AND projects.archived_at IS NULL \
+           AND NOT issues.is_draft \
+           AND issues.project_id = $1 AND workspaces.slug = $2 AND issues.id = $3 \
+         GROUP BY issues.id"
+    );
+    let query = Sql {
+        text: sql,
+        params: vec![
+            Value::Uuid(project_id),
+            Value::Text(slug.to_owned()),
+            Value::Uuid(pk),
+        ],
+    };
+    let Some(row) = fetch_one(client, &query).await? else {
+        return Ok(None);
+    };
+    Ok(Some(patch_row(&row)?))
+}
+
+/// The PATCH pre-image's annotations, in [`detail_response`]'s column order.
+///
+/// `labels__id`/`assignees__id`/`issue_module__module_id` become
+/// `ARRAY_AGG(DISTINCT …) FILTER (WHERE …)` over the joins the view adds
+/// (`plane/app/views/issue/base.py:646-676`); the four subqueries are
+/// `apply_annotations` (`:239-283`).
+#[allow(dead_code)]
+const PATCH_ANNOTATIONS: &str = "\
+ (SELECT cycle_issues.cycle_id FROM cycle_issues \
+   WHERE cycle_issues.issue_id = issues.id AND cycle_issues.deleted_at IS NULL \
+   ORDER BY cycle_issues.created_at DESC LIMIT 1) AS cycle_id, \
+ (SELECT COUNT(issue_links.id) FROM issue_links \
+   WHERE issue_links.deleted_at IS NULL AND issue_links.issue_id = issues.id \
+   GROUP BY issue_links.issue_id) AS link_count, \
+ (SELECT COUNT(file_assets.id) FROM file_assets \
+   WHERE file_assets.deleted_at IS NULL AND file_assets.entity_type = 'ISSUE_ATTACHMENT' \
+     AND file_assets.issue_id = issues.id \
+   GROUP BY file_assets.issue_id) AS attachment_count, \
+ (SELECT COUNT(sub_issues.id) FROM issues sub_issues \
+   LEFT OUTER JOIN states sub_states ON sub_issues.state_id = sub_states.id \
+   INNER JOIN projects sub_projects ON sub_issues.project_id = sub_projects.id \
+   WHERE sub_issues.deleted_at IS NULL \
+     AND (sub_states.group IS NULL OR sub_states.group <> 'triage') \
+     AND sub_issues.archived_at IS NULL AND sub_projects.archived_at IS NULL \
+     AND NOT sub_issues.is_draft AND sub_issues.parent_id = issues.id \
+   GROUP BY sub_issues.parent_id) AS sub_issues_count, \
+ COALESCE(ARRAY_AGG(DISTINCT issue_labels.label_id) \
+   FILTER (WHERE issue_labels.label_id IS NOT NULL AND issue_labels.deleted_at IS NULL), \
+   ARRAY[]::uuid[]) AS label_ids, \
+ COALESCE(ARRAY_AGG(DISTINCT issue_assignees.assignee_id) \
+   FILTER (WHERE issue_assignees.assignee_id IS NOT NULL \
+     AND project_members.is_active AND issue_assignees.deleted_at IS NULL), \
+   ARRAY[]::uuid[]) AS assignee_ids, \
+ COALESCE(ARRAY_AGG(DISTINCT module_issues.module_id) \
+   FILTER (WHERE module_issues.module_id IS NOT NULL \
+     AND modules.archived_at IS NULL AND module_issues.deleted_at IS NULL), \
+   ARRAY[]::uuid[]) AS module_ids";
+
+/// Decode a [`patch_detail`] row; `is_subscribed`/`is_intake` are absent (the
+/// PATCH queryset does not annotate them), so `SkipField` drops them.
+#[allow(dead_code)]
+fn patch_row(row: &tokio_postgres::Row) -> Result<IssueDetail, ViewError> {
+    let name: String = row.get(12);
+    let description_html: String = row.get(14);
+    let priority: String = row.get(17);
+    let cycle_id: Option<Uuid> = row.get(28);
+    Ok(IssueDetail {
+        id: row.get(5),
+        name,
+        state_id: row.get(9),
+        sort_order: row.get(21),
+        completed_at: row.get(22),
+        estimate_point: row.get(11),
+        priority,
+        start_date: row.get(18),
+        target_date: row.get(19),
+        sequence_id: i64::from(row.get::<_, i32>(20)),
+        project_id: row.get(6),
+        parent_id: row.get(8),
+        cycle_id: Some(cycle_id),
+        module_ids: Some(row.get::<_, Option<Vec<Uuid>>>(34).unwrap_or_default()),
+        label_ids: Some(row.get::<_, Option<Vec<Uuid>>>(32).unwrap_or_default()),
+        assignee_ids: Some(row.get::<_, Option<Vec<Uuid>>>(33).unwrap_or_default()),
+        sub_issues_count: Some(row.get(31)),
+        created_at: row.get(0),
+        updated_at: row.get(1),
+        created_by: row.get(2),
+        updated_by: row.get(3),
+        attachment_count: Some(row.get(30)),
+        link_count: Some(row.get(29)),
+        is_draft: row.get(24),
+        archived_at: row.get(23),
+        description_html,
+        is_subscribed: None,
+        is_intake: None,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -578,12 +835,12 @@ fn detail_response(
     let module_ids: Option<Vec<Uuid>> = row.get(34);
     let detail = IssueDetail {
         id: row.get(5),
-        name: &name,
+        name,
         state_id: row.get(9),
         sort_order: row.get(21),
         completed_at: row.get(22),
         estimate_point: row.get(11),
-        priority: &priority,
+        priority,
         start_date: row.get(18),
         target_date: row.get(19),
         sequence_id: i64::from(row.get::<_, i32>(20)),
@@ -602,7 +859,7 @@ fn detail_response(
         link_count: Some(row.get(29)),
         is_draft: row.get(24),
         archived_at: row.get(23),
-        description_html: &description_html,
+        description_html,
         is_subscribed: Some(row.get(35)),
         is_intake: if is_intake { Some(row.get(36)) } else { None },
     };
@@ -626,12 +883,12 @@ fn archived_response(
     let priority: String = row.get(6);
     let detail = IssueDetail {
         id: row.get(0),
-        name: &name,
+        name,
         state_id: row.get(2),
         sort_order: row.get(3),
         completed_at: row.get(4),
         estimate_point: row.get(5),
-        priority: &priority,
+        priority,
         start_date: row.get(7),
         target_date: row.get(8),
         sequence_id: i64::from(row.get::<_, i32>(9)),
@@ -650,7 +907,7 @@ fn archived_response(
         link_count: None,
         is_draft: row.get(16),
         archived_at: row.get(17),
-        description_html: &description_html,
+        description_html,
         is_subscribed: Some(row.get(19)),
         is_intake: None,
     };
@@ -660,4 +917,151 @@ fn archived_response(
         APPLICATION_JSON,
         plane_serializers::render(&detail, &context)?,
     ))
+}
+
+#[cfg(test)]
+mod write_path_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    /// The fixture's `issue_alpha_completed` as `IssueViewSet.partial_update`
+    /// materialises it, with the DJE string recorded from Django.
+    fn sample() -> IssueDetail {
+        IssueDetail {
+            id: Uuid::parse_str("b5ca265c-52ee-4ee7-bfbd-c7b546fa4065").expect("uuid"),
+            name: "Handle duplicate webhook delivery (ALPHA-003)".to_owned(),
+            state_id: Some(Uuid::parse_str("940cca1a-bc0d-45c5-8f23-d2e3cc73ba30").expect("uuid")),
+            sort_order: 65535.0,
+            completed_at: Some(
+                Utc.with_ymd_and_hms(2026, 4, 16, 2, 52, 12)
+                    .single()
+                    .expect("instant"),
+            ),
+            estimate_point: None,
+            priority: "low".to_owned(),
+            start_date: None,
+            target_date: None,
+            sequence_id: 4,
+            project_id: Uuid::parse_str("b0063033-54f9-49d8-b5f3-6b7a1551c6a6").expect("uuid"),
+            parent_id: None,
+            cycle_id: Some(Some(
+                Uuid::parse_str("9a27989a-e695-46c7-a9a9-0497f31e7d16").expect("uuid"),
+            )),
+            module_ids: Some(Vec::new()),
+            label_ids: Some(vec![
+                Uuid::parse_str("3e6f9c26-e729-4009-ab69-974b067075aa").expect("uuid"),
+            ]),
+            assignee_ids: Some(vec![
+                Uuid::parse_str("2439a238-465d-452a-8136-f5e5840414cb").expect("uuid"),
+                Uuid::parse_str("f1d4b6e4-0f7b-4fec-8130-208fa8cecc93").expect("uuid"),
+            ]),
+            sub_issues_count: Some(None),
+            created_at: Utc
+                .with_ymd_and_hms(2026, 10, 6, 23, 51, 0)
+                .single()
+                .expect("instant"),
+            updated_at: Utc
+                .with_ymd_and_hms(2026, 10, 7, 0, 6, 0)
+                .single()
+                .expect("instant"),
+            created_by: Some(
+                Uuid::parse_str("d44ae570-3de4-4413-af08-f686bf5b7235").expect("uuid"),
+            ),
+            updated_by: None,
+            attachment_count: Some(None),
+            link_count: Some(None),
+            is_draft: false,
+            archived_at: None,
+            description_html: "<p>Handle duplicate webhook delivery (ALPHA-003) needs work.</p>"
+                .to_owned(),
+            is_subscribed: None,
+            is_intake: None,
+        }
+    }
+
+    /// `json.dumps(IssueDetailSerializer(issue).data, cls=DjangoJSONEncoder)`
+    /// recorded from the fixture's `issue_alpha_completed` with the PATCH
+    /// queryset (`plane/app/views/issue/base.py:640-678`).
+    #[test]
+    fn current_instance_is_django_json_dumps() {
+        let expected = concat!(
+            r#"{"id": "b5ca265c-52ee-4ee7-bfbd-c7b546fa4065", "#,
+            r#""name": "Handle duplicate webhook delivery (ALPHA-003)", "#,
+            r#""state_id": "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30", "#,
+            r#""sort_order": 65535.0, "#,
+            r#""completed_at": "2026-04-16T02:52:12Z", "#,
+            r#""estimate_point": null, "priority": "low", "start_date": null, "#,
+            r#""target_date": null, "sequence_id": 4, "#,
+            r#""project_id": "b0063033-54f9-49d8-b5f3-6b7a1551c6a6", "parent_id": null, "#,
+            r#""cycle_id": "9a27989a-e695-46c7-a9a9-0497f31e7d16", "module_ids": [], "#,
+            r#""label_ids": ["3e6f9c26-e729-4009-ab69-974b067075aa"], "#,
+            r#""assignee_ids": ["2439a238-465d-452a-8136-f5e5840414cb", "f1d4b6e4-0f7b-4fec-8130-208fa8cecc93"], "#,
+            r#""sub_issues_count": null, "#,
+            r#""created_at": "2026-10-06T23:51:00Z", "updated_at": "2026-10-07T00:06:00Z", "#,
+            r#""created_by": "d44ae570-3de4-4413-af08-f686bf5b7235", "updated_by": null, "#,
+            r#""attachment_count": null, "link_count": null, "is_draft": false, "#,
+            r#""archived_at": null, "#,
+            r#""description_html": "<p>Handle duplicate webhook delivery (ALPHA-003) needs work.</p>"}"#,
+        );
+        assert_eq!(sample().dje_json(chrono_tz::UTC).expect("json"), expected);
+    }
+
+    /// The JSON builder is the serializer: rendering it with the DRF dialect is
+    /// byte-identical to `drf_write`, for every shape and timezone.
+    #[test]
+    fn to_json_renders_like_the_serializer() {
+        let mut variants = vec![sample()];
+        let mut patch = sample();
+        patch.cycle_id = Some(None);
+        patch.module_ids = None;
+        patch.label_ids = None;
+        patch.assignee_ids = None;
+        patch.sub_issues_count = None;
+        patch.attachment_count = None;
+        patch.link_count = None;
+        variants.push(patch);
+        let mut subscribed = sample();
+        subscribed.is_subscribed = Some(true);
+        subscribed.is_intake = Some(false);
+        variants.push(subscribed);
+
+        for timezone in [chrono_tz::UTC, chrono_tz::Asia::Kolkata] {
+            let render_ctx = RenderCtx::new(&timezone, None, &[]);
+            for detail in &variants {
+                let from_serializer =
+                    plane_serializers::render(detail, &render_ctx).expect("render");
+                let from_json =
+                    plane_serde::to_vec(plane_serde::Dialect::Drf, &detail.to_json(&render_ctx))
+                        .expect("json");
+                assert_eq!(
+                    String::from_utf8(from_json).expect("utf8"),
+                    String::from_utf8(from_serializer).expect("utf8"),
+                    "timezone {timezone}"
+                );
+            }
+        }
+    }
+
+    /// The PATCH annotations keep the retrieve column order, so `patch_row`
+    /// can decode with the same indices.
+    #[test]
+    fn the_patch_annotations_keep_the_column_order() {
+        let names: Vec<&str> = PATCH_ANNOTATIONS
+            .split(") AS ")
+            .skip(1)
+            .map(|rest| rest.split([',', '\n']).next().unwrap_or("").trim())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "cycle_id",
+                "link_count",
+                "attachment_count",
+                "sub_issues_count",
+                "label_ids",
+                "assignee_ids",
+                "module_ids",
+            ]
+        );
+    }
 }

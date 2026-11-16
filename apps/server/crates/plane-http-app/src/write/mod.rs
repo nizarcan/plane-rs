@@ -55,6 +55,7 @@
 //! // … run the model hook, INSERT, render the read serializer from `values`.
 //! ```
 
+pub mod description;
 pub mod fields;
 pub mod generated;
 pub mod html;

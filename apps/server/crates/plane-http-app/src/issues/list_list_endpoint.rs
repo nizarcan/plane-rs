@@ -32,9 +32,7 @@ use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::args::TaskArg;
-use plane_query::issue::model::ValueField;
 use plane_query::issue::query::IssueScope;
-use plane_query::issue::values;
 use plane_query::json::Json;
 use plane_query::sql::{Frag, Select};
 use plane_serializers::FieldValue;
@@ -47,82 +45,7 @@ use crate::issues::lists::list_common::{
     self, ListRequest, client, error_body, kwarg_text, kwarg_uuid, prevalidate_list_filters,
     query_error, query_error_response, rendered, user_id, user_timezone,
 };
-
-/// `IssueListEndpoint`'s `.values(...)` list, in Python's order
-/// (`plane/app/views/issue/base.py:174-201`). `deleted_at` is the last entry and
-/// has no `ValueField`; every other field does.
-const LIST_FIELDS: [ListField; 26] = [
-    ListField::Value(ValueField::Id),
-    ListField::Value(ValueField::Name),
-    ListField::Value(ValueField::StateId),
-    ListField::Value(ValueField::SortOrder),
-    ListField::Value(ValueField::CompletedAt),
-    ListField::Value(ValueField::EstimatePoint),
-    ListField::Value(ValueField::Priority),
-    ListField::Value(ValueField::StartDate),
-    ListField::Value(ValueField::TargetDate),
-    ListField::Value(ValueField::SequenceId),
-    ListField::Value(ValueField::ProjectId),
-    ListField::Value(ValueField::ParentId),
-    ListField::Value(ValueField::CycleId),
-    ListField::Value(ValueField::ModuleIds),
-    ListField::Value(ValueField::LabelIds),
-    ListField::Value(ValueField::AssigneeIds),
-    ListField::SubIssuesCount,
-    ListField::Value(ValueField::CreatedAt),
-    ListField::Value(ValueField::UpdatedAt),
-    ListField::Value(ValueField::CreatedBy),
-    ListField::Value(ValueField::UpdatedBy),
-    ListField::AttachmentCount,
-    ListField::LinkCount,
-    ListField::Value(ValueField::IsDraft),
-    ListField::Value(ValueField::ArchivedAt),
-    ListField::DeletedAt,
-];
-
-#[derive(Clone, Copy)]
-enum ListField {
-    Value(ValueField),
-    /// The three counts are aggregate subqueries **without** a `GROUP BY`
-    /// here (`:118-147`), so an issue with no children/links/attachments gets
-    /// `0`, not `null` like `issue_on_results`' grouped variant.
-    SubIssuesCount,
-    AttachmentCount,
-    LinkCount,
-    DeletedAt,
-}
-
-impl ListField {
-    fn projection(self) -> Frag {
-        match self {
-            Self::Value(field) => values::projection(&[field])
-                .pop()
-                .unwrap_or_else(Frag::empty),
-            Self::SubIssuesCount => Frag::raw(concat!(
-                "(SELECT COUNT(sub_issues.id) FROM issues sub_issues ",
-                "LEFT OUTER JOIN states sub_states ON sub_issues.state_id = sub_states.id ",
-                "INNER JOIN projects sub_projects ON sub_issues.project_id = sub_projects.id ",
-                "WHERE sub_issues.deleted_at IS NULL ",
-                "AND (sub_states.group IS NULL OR sub_states.group <> 'triage') ",
-                "AND sub_issues.archived_at IS NULL AND sub_projects.archived_at IS NULL ",
-                "AND NOT sub_issues.is_draft AND sub_issues.parent_id = issues.id) ",
-                "AS \"sub_issues_count\""
-            )),
-            Self::AttachmentCount => Frag::raw(concat!(
-                "(SELECT COUNT(file_assets.id) FROM file_assets ",
-                "WHERE file_assets.deleted_at IS NULL ",
-                "AND file_assets.entity_type = 'ISSUE_ATTACHMENT' ",
-                "AND file_assets.issue_id = issues.id) AS \"attachment_count\""
-            )),
-            Self::LinkCount => Frag::raw(concat!(
-                "(SELECT COUNT(issue_links.id) FROM issue_links ",
-                "WHERE issue_links.deleted_at IS NULL ",
-                "AND issue_links.issue_id = issues.id) AS \"link_count\""
-            )),
-            Self::DeletedAt => Frag::raw("issues.deleted_at AS \"deleted_at\""),
-        }
-    }
-}
+use crate::issues::row;
 
 plane_query! {
     /// `ProjectMember.objects.filter(workspace__slug=…, project_id=…,
@@ -252,9 +175,9 @@ fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError
             Err(error) => return map_error(error),
         };
 
-        let fields = value_fields();
+        let fields = row::value_fields();
         let mut select = query.filtered_select();
-        select.projection = LIST_FIELDS.iter().map(|field| field.projection()).collect();
+        select.projection = row::projection();
         if select.distinct {
             query.ordering.apply_own_order(&mut select, &fields);
         } else {
@@ -270,7 +193,7 @@ fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError
         let rows = fetch(client, &select).await?;
         let mut body: Vec<Json> = Vec::with_capacity(rows.len());
         for row in &rows {
-            body.push(shift_timezone(decode_row(row)?, timezone));
+            body.push(row::shift_timezone(row::decode_row(row)?, timezone));
         }
 
         Ok(rendered(200, &Json::Array(body)))
@@ -302,12 +225,12 @@ async fn serialized<'a>(
     let query = list_common::build_issue_query(&request)
         .map_err(|error| ViewError::Unknown(error.message()))?;
 
-    let fields = value_fields();
+    let fields = row::value_fields();
     let mut select = query.filtered_select();
     // The full 26-column projection: `decode_row` reads `LIST_FIELDS` by
     // position, so the statement and the decoder must agree even though the
     // serializer only consumes the model columns.
-    select.projection = LIST_FIELDS.iter().map(|field| field.projection()).collect();
+    select.projection = row::projection();
     if select.distinct {
         query.ordering.apply_own_order(&mut select, &fields);
     } else {
@@ -323,7 +246,7 @@ async fn serialized<'a>(
     let mut body = Vec::with_capacity(rows.len() * 512 + 2);
     body.push(b'[');
     for (index, row) in rows.iter().enumerate() {
-        let value = decode_row(row)?;
+        let value = row::decode_row(row)?;
         let Json::Object(entries) = &value else {
             return Err(ViewError::Unknown("unexpected projection shape".to_owned()));
         };
@@ -380,90 +303,6 @@ async fn serialized<'a>(
     }
     body.push(b']');
     Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
-}
-
-/// One `ValueField` per projection column, in projection order.
-///
-/// `Ordering::apply_own_order` looks the ordering key up by position in this
-/// list, so it must be as long as the projection and in the same order. The
-/// count and `deleted_at` columns have no `ValueField`; `Id` is a placeholder
-/// that no ordering key maps to.
-fn value_fields() -> Vec<ValueField> {
-    LIST_FIELDS
-        .iter()
-        .map(|field| match field {
-            ListField::Value(field) => *field,
-            _ => ValueField::Id,
-        })
-        .collect()
-}
-
-/// Decode one projection row into the response object, in `LIST_FIELDS` order.
-fn decode_row(row: &tokio_postgres::Row) -> Result<Json, ViewError> {
-    use chrono::{DateTime, NaiveDate, Utc};
-
-    let mut entries: Vec<(&str, Json)> = Vec::with_capacity(LIST_FIELDS.len());
-    for (index, field) in LIST_FIELDS.iter().enumerate() {
-        let value = match field {
-            ListField::DeletedAt => Json::opt_datetime(row.get::<_, Option<DateTime<Utc>>>(index)),
-            ListField::SubIssuesCount | ListField::AttachmentCount | ListField::LinkCount => {
-                Json::Int(row.get::<_, i64>(index))
-            }
-            ListField::Value(field) => match field {
-                ValueField::Id | ValueField::ProjectId => Json::uuid(row.get(index)),
-                ValueField::Name | ValueField::Priority => {
-                    Json::string(row.get::<_, String>(index))
-                }
-                ValueField::StateId
-                | ValueField::ParentId
-                | ValueField::CycleId
-                | ValueField::EstimatePoint
-                | ValueField::CreatedBy
-                | ValueField::UpdatedBy => Json::opt_uuid(row.get::<_, Option<Uuid>>(index)),
-                ValueField::SortOrder => Json::Float(row.get::<_, f64>(index)),
-                ValueField::CompletedAt => {
-                    Json::opt_datetime(row.get::<_, Option<DateTime<Utc>>>(index))
-                }
-                ValueField::CreatedAt | ValueField::UpdatedAt => {
-                    Json::DateTime(row.get::<_, DateTime<Utc>>(index))
-                }
-                ValueField::StartDate | ValueField::TargetDate | ValueField::ArchivedAt => {
-                    Json::opt_date(row.get::<_, Option<NaiveDate>>(index))
-                }
-                ValueField::SequenceId => Json::Int(i64::from(row.get::<_, i32>(index))),
-                ValueField::IsDraft => Json::Bool(row.get(index)),
-                ValueField::AssigneeIds | ValueField::LabelIds | ValueField::ModuleIds => {
-                    let mut ids: Vec<Uuid> =
-                        row.get::<_, Option<Vec<Uuid>>>(index).unwrap_or_default();
-                    ids.sort();
-                    Json::Array(ids.into_iter().map(Json::uuid).collect())
-                }
-                other => {
-                    return Err(ViewError::Unknown(format!(
-                        "unexpected projection field {:?}",
-                        other.key()
-                    )));
-                }
-            },
-        };
-        entries.push((field_key(*field), value));
-    }
-    Ok(Json::Object(
-        entries
-            .into_iter()
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect(),
-    ))
-}
-
-fn field_key(field: ListField) -> &'static str {
-    match field {
-        ListField::Value(field) => field.key(),
-        ListField::SubIssuesCount => "sub_issues_count",
-        ListField::AttachmentCount => "attachment_count",
-        ListField::LinkCount => "link_count",
-        ListField::DeletedAt => "deleted_at",
-    }
 }
 
 fn map_error(error: plane_query::QueryError) -> Result<ViewResponse, ViewError> {
@@ -564,26 +403,4 @@ async fn fetch(
 ) -> Result<Vec<tokio_postgres::Row>, ViewError> {
     let sql = select.clone().into_sql();
     sql.query(client).await.map_err(ViewError::from)
-}
-
-/// `user_timezone_converter(issues, ["created_at", "updated_at"], tz)`:
-/// `astimezone()` before DRF renders, so the offsets are local ones.
-fn shift_timezone(value: Json, timezone: Tz) -> Json {
-    let Json::Object(entries) = value else {
-        return value;
-    };
-    Json::Object(
-        entries
-            .into_iter()
-            .map(|(key, value)| {
-                if (key == "created_at" || key == "updated_at")
-                    && let Json::DateTime(value) = value
-                {
-                    let zoned = value.with_timezone(&timezone);
-                    return (key, Json::DateTimeZoned(zoned.fixed_offset()));
-                }
-                (key, value)
-            })
-            .collect(),
-    )
 }

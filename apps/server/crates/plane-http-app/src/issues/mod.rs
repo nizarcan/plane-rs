@@ -35,6 +35,7 @@ use plane_drf::registry::{Registry, RegistryError};
 
 pub mod lists;
 pub mod queries;
+pub mod row;
 mod sub_resources;
 
 /// Register this group's handlers, in the order they were ported.
