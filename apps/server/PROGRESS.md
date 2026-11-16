@@ -159,6 +159,13 @@ invariants (each domain registers only its group's actions; every `rust` row in
 
 ## In flight
 
+- **Environment change to revert at the end:** the Colima VM was resized from 2 CPUs / 2 GiB
+  to 6 CPUs / 10 GiB (owner-approved, for benchmarks and parallel agents). Original
+  profile saved at `apps/server/target/orch/colima.yaml.orig` (cpu 2, memory 2, disk 100).
+  Revert with `colima stop && colima start --cpu 2 --memory 2`, then `docker start vmif`
+  (its restart policy is `no`); the owner's `cc-cost` containers restart on their own.
+  The dev Postgres limit (2 GiB in `dev/compose.yml`) must go back to 640M at the same time.
+
 - Wave 2 GET ports (one worktree each): views/stickies/search/webhooks; pages;
   intake/notifications; analytics; assets + `/api/unsplash/`.
 - `plane-query` batch: filter-backend selection, `issue_group_values` key order and
