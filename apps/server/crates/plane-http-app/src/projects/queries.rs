@@ -1142,10 +1142,12 @@ plane_query! {
 plane_query! {
     /// `project.delete()` → `SoftDeleteModel.delete` (`plane/db/mixins.py:65-77`):
     /// `deleted_at`, a full save (H09 identifier + H01 `updated_by`/`updated_at`).
+    /// An **instance** save, so the soft-deletion manager's predicate is not part
+    /// of the SQL: the row is addressed by its primary key only.
     PROJECT_SOFT_DELETE = "projects_soft_delete",
     "UPDATE projects SET deleted_at = $1, updated_at = $1, updated_by_id = $2, \
      identifier = $3 \
-     WHERE id = $4 AND deleted_at IS NULL",
+     WHERE id = $4",
     []
 }
 

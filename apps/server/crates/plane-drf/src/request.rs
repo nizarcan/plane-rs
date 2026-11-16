@@ -59,6 +59,10 @@ pub struct QueryDict {
     /// serialisable. This port skips file parts (see `parsers.rs`); the flag
     /// is what lets a handler reproduce the encoder failure.
     files: bool,
+    /// The file parts' field names, in body order. `request.data` carries those
+    /// keys too (`_full_data.update(self._files)`), with the file object in
+    /// place of the field's values.
+    file_keys: Vec<String>,
 }
 
 impl QueryDict {
@@ -92,6 +96,7 @@ impl QueryDict {
         Ok(Self {
             pairs,
             files: false,
+            file_keys: Vec::new(),
         })
     }
 
@@ -108,9 +113,24 @@ impl QueryDict {
         self.files
     }
 
-    /// Record that a multipart body carried a file part.
-    pub fn mark_files(&mut self) {
+    /// Record a multipart file part and its field name.
+    pub fn mark_file(&mut self, name: Option<&str>) {
         self.files = true;
+        if let Some(name) = name {
+            self.file_keys.push(name.to_owned());
+        }
+    }
+
+    /// Whether `key` was a file part (`key in request.FILES`).
+    #[must_use]
+    pub fn is_file(&self, key: &str) -> bool {
+        self.file_keys.iter().any(|name| name == key)
+    }
+
+    /// The file parts' field names, in body order.
+    #[must_use]
+    pub fn file_keys(&self) -> &[String] {
+        &self.file_keys
     }
 
     /// `QueryDict.get(key)` / `__getitem__`: the last value for `key`.

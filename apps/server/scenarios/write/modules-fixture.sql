@@ -16,8 +16,10 @@
 --   * `module_alpha_completed` — one favourite for the admin and one for the
 --     member: the archive POST's H04 removes **both**.
 --   * `module_alpha_planned` — one favourite for the admin and one for the
---     member, plus a recent visit for each: destroy removes only the caller's
---     (admin's) favourite and hard-deletes **every** recent visit.
+--     member, plus a recent visit for each and one that is **already
+--     soft-deleted**: destroy removes only the caller's (admin's) favourite,
+--     hard-deletes every *live* recent visit (`UserRecentVisit.objects` is a
+--     `SoftDeletionManager`) and leaves the soft-deleted row alone.
 
 INSERT INTO user_favorites
   (created_at, updated_at, id, entity_type, entity_identifier, name, is_folder,
@@ -70,4 +72,13 @@ VALUES
    '2026-01-01 00:00:00+00', '78100240-9cfd-4782-8627-25ab039c6e9a',
    'b0063033-54f9-49d8-b5f3-6b7a1551c6a6', NULL,
    '78100240-9cfd-4782-8627-25ab039c6e9a',
-   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', NULL);
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', NULL),
+  -- Already soft-deleted: the manager's predicate keeps it out of the hard
+  -- delete the destroy issues.
+  ('2026-01-01 00:00:00+00', '2026-01-02 00:00:00+00',
+   'f0000000-0000-4000-8000-000000000013',
+   'cac530e3-b832-4ca9-aef9-f4427b1a8f86', 'module',
+   '2026-01-01 00:00:00+00', 'd44ae570-3de4-4413-af08-f686bf5b7235',
+   'b0063033-54f9-49d8-b5f3-6b7a1551c6a6', NULL,
+   'd44ae570-3de4-4413-af08-f686bf5b7235',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', '2026-01-02 00:00:00+00');

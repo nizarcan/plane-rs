@@ -158,6 +158,65 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 400
+  # DRF hands a non-scalar to `queryset.get(pk=…)`; Django's `UUIDField`
+  # answers `“<str(value)>” is not a valid UUID.`, while a bool is DRF's
+  # `incorrect_type` and an in-range int reaches the lookup.
+  - name: write-stickies-04c2-create-created-by-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by list"
+      created_by: ["{{user_member_id}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04c3-create-created-by-dict
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by dict"
+      created_by: {"id": "{{user_member_id}}"}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04c4-create-created-by-float
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by float"
+      created_by: 1.5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04c5-create-created-by-bool
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by bool"
+      created_by: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04c6-create-created-by-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by int"
+      created_by: 123
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
   - name: write-stickies-04d-create-description-html-null
     method: POST
     path: "/api/workspaces/{{ws}}/stickies/"

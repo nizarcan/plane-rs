@@ -118,8 +118,13 @@ pub fn primary_key(raw: Raw<'_>) -> Result<Uuid, Detail> {
             .map_err(|_| invalid_pk_uuid(&value.to_decimal_string())),
         Raw::Json(Json::Int(value)) => Err(invalid_pk_uuid(&value.to_decimal_string())),
         Raw::Json(Json::Float(value)) => Err(invalid_pk_uuid(&plane_query::pyfloat::repr(*value))),
-        Raw::Json(Json::List(_)) => Err(incorrect_pk_type("list")),
-        Raw::Json(Json::Dict(_)) => Err(incorrect_pk_type("dict")),
+        // DRF hands a list or dict to `queryset.get(pk=…)`, and Django's
+        // `UUIDField.to_python` then fails with the same
+        // `“<str(value)>” is not a valid UUID.` a malformed string gets
+        // (`django/db/models/fields/__init__.py`, `UUIDField.to_python`).
+        Raw::Json(value @ (Json::List(_) | Json::Dict(_))) => {
+            Err(invalid_pk_uuid(&python_str(Raw::Json(value))))
+        }
         // `field_value` turns JSON null into `Value::Null` before parsing.
         Raw::Json(Json::Null) => Err(invalid_pk_uuid("None")),
     }
@@ -476,22 +481,13 @@ fn strip_decimal(text: &str) -> String {
     trimmed.to_owned()
 }
 
-/// `PrimaryKeyRelatedField`'s UUID coercion
-/// (`rest_framework/relations.py:250-290`): a malformed value is
-/// `Incorrect type. Expected pk value, received str.` in DRF 3.18
-/// (`PKOnlyObject`/`to_internal_value` catches `TypeError`/`ValueError`).
+/// `PrimaryKeyRelatedField`'s UUID coercion (`rest_framework/relations.py:
+/// 250-290`): exactly [`primary_key`] without the `queryset.get(pk=…)` that
+/// follows it. A caller that runs its own lookup (the project serializers'
+/// `project_lead`/`default_assignee`) uses this and then rejects a miss with
+/// DRF's `Invalid pk "…" - object does not exist.`.
 pub fn uuid(raw: Raw<'_>) -> Result<uuid::Uuid, Detail> {
-    let invalid = || Detail::new("Incorrect type. Expected pk value.", "incorrect_type");
-    let text = match raw {
-        Raw::Json(Json::Str(value)) => value.as_str().map(str::to_owned),
-        Raw::Json(Json::Int(value)) => value.as_i64().map(|value| value.to_string()),
-        Raw::Text(text) => Some(text.to_owned()),
-        _ => None,
-    };
-    let Some(text) = text else {
-        return Err(invalid());
-    };
-    uuid::Uuid::parse_str(&text).map_err(|_| invalid())
+    primary_key(raw)
 }
 
 /// `FloatField.to_internal_value` (`rest_framework/fields.py:964-982`).
@@ -1038,7 +1034,27 @@ mod tests {
         let value = parse("\"not-a-uuid\"");
         assert_eq!(
             uuid(Raw::Json(&value)).expect_err("uuid"),
-            Detail::new("Incorrect type. Expected pk value.", "incorrect_type")
+            Detail::new("“not-a-uuid” is not a valid UUID.", "invalid")
+        );
+        // DRF hands a non-scalar to `queryset.get(pk=…)`, so Django's
+        // `UUIDField` answers with `str(value)` inside its own message.
+        let value = parse("[\"x\"]");
+        assert_eq!(
+            uuid(Raw::Json(&value)).expect_err("list"),
+            Detail::new("“['x']” is not a valid UUID.", "invalid")
+        );
+        let value = parse("{\"a\": 1}");
+        assert_eq!(
+            uuid(Raw::Json(&value)).expect_err("dict"),
+            Detail::new("“{'a': 1}” is not a valid UUID.", "invalid")
+        );
+        let value = parse("true");
+        assert_eq!(
+            uuid(Raw::Json(&value)).expect_err("bool"),
+            Detail::new(
+                "Incorrect type. Expected pk value, received bool.",
+                "incorrect_type"
+            )
         );
         let value = parse("\"0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f\"");
         assert!(uuid(Raw::Json(&value)).is_ok());

@@ -27,7 +27,8 @@
 # the caller's favourite, hard-deleted recent visits). The favourite and recent
 # visit rows the deletes act on are seeded by `modules-fixture.sql`, because the
 # route that creates favourites (110) belongs to set B and still answers 501 on
-# the Rust target of this scenario.
+# the Rust target of this scenario. One seeded visit is already soft-deleted:
+# the hard delete runs through `UserRecentVisit.objects`, so it must survive.
 
 name: write-modules
 template_db: plane_fix_tpl
@@ -211,6 +212,18 @@ steps:
     json:
       name: "Harness bad member"
       member_ids: ["{{admin_id}}", "{{missing}}"]
+    expect_status: 400
+
+  - name: mo-10b-create-null-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness null member"
+      member_ids: [null]
     expect_status: 400
 
   - name: mo-11-create-name-too-long

@@ -32,6 +32,7 @@ redis_db: [10, 11]
 target_env:
   PYTHONHASHSEED: "0"
 vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/cycles-fixture.sql"
   ws: "fix-workspace"
   project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
   project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
@@ -787,3 +788,17 @@ steps:
       Cookie: "session-id={{session_admin}}"
     jar: admin
     expect_status: 500
+
+  # --- DELETE: the hard-deleted recent visits keep the manager's filter ----
+  # `UserRecentVisit.objects.filter(...).delete(soft=False)` runs
+  # `DELETE … WHERE <filters> AND deleted_at IS NULL`; `cycles-fixture.sql`
+  # seeds two live visits and one already soft-deleted row for this cycle, so
+  # the step must remove exactly the two live ones.
+  - name: cy-64-delete-beta-cycle
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/{{cycle_beta_current}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204

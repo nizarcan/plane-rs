@@ -371,7 +371,7 @@ fn parse_multipart(
             is_file = disposition.contains_key("filename");
         }
         if is_file {
-            query.mark_files();
+            query.mark_file(name.as_deref());
             continue;
         }
         let Some(name) = name else {
@@ -435,6 +435,9 @@ mod tests {
             Data::Form(query) => {
                 assert_eq!(query.get("name"), Some("hello"), "parsed {query:?}");
                 assert!(query.has_files(), "the file part must be recorded");
+                assert!(query.is_file("file"), "the file part's name is kept");
+                assert_eq!(query.file_keys(), ["file".to_string()]);
+                assert!(!query.is_file("name"));
             }
             other => panic!("expected a form body, got {other:?}"),
         }
