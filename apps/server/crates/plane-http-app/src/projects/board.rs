@@ -128,8 +128,11 @@ async fn render_board(
         )?;
     }
     if let Some(workspace) = &mut workspace {
-        workspace.logo_url =
-            lite::asset_or_text(workspace.logo_asset_id, workspace.logo.clone(), &urls)?;
+        workspace.logo_url = lite::asset_or_text(
+            workspace.logo_asset_id,
+            workspace.logo.clone().unwrap_or_default(),
+            &urls,
+        )?;
     }
 
     let project_lite = project.as_ref().map(lite::LiteProject::lite);

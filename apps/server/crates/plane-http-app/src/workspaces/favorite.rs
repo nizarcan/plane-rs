@@ -365,10 +365,13 @@ async fn entity_data(
         return Ok(None);
     };
     let mut select = Select::new(table);
-    let projection: &[&str] = if table == "projects" {
-        &["id", "name", "logo_props"]
-    } else {
-        &["id", "name", "logo_props", "project_id"]
+    // `projects` has no `project_id` and `pages` links to projects through
+    // `project_pages`; only cycles, modules and issue views carry the column.
+    // The `Page` variant below takes the project from the favourite itself,
+    // which is what `get_entity_data` passes in its serializer context.
+    let projection: &[&str] = match table {
+        "projects" | "pages" => &["id", "name", "logo_props"],
+        _ => &["id", "name", "logo_props", "project_id"],
     };
     for column in projection {
         select = select.project(format!("{table}.{column}"));

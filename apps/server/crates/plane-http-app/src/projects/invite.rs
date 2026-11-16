@@ -77,8 +77,11 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
             )?;
         }
         for workspace in &mut workspaces {
-            workspace.logo_url =
-                lite::asset_or_text(workspace.logo_asset_id, workspace.logo.clone(), &urls)?;
+            workspace.logo_url = lite::asset_or_text(
+                workspace.logo_asset_id,
+                workspace.logo.clone().unwrap_or_default(),
+                &urls,
+            )?;
         }
 
         let project_lites: Vec<ProjectLiteSerializer<'_>> =
@@ -144,8 +147,11 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
             project.cover_image.clone().unwrap_or_default(),
             &urls,
         )?;
-        workspace.logo_url =
-            lite::asset_or_text(workspace.logo_asset_id, workspace.logo.clone(), &urls)?;
+        workspace.logo_url = lite::asset_or_text(
+            workspace.logo_asset_id,
+            workspace.logo.clone().unwrap_or_default(),
+            &urls,
+        )?;
 
         let project_lite = project.lite();
         let workspace_lite = workspace.lite();
@@ -200,8 +206,11 @@ pub fn join<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
             project.cover_image.clone().unwrap_or_default(),
             &urls,
         )?;
-        workspace.logo_url =
-            lite::asset_or_text(workspace.logo_asset_id, workspace.logo.clone(), &urls)?;
+        workspace.logo_url = lite::asset_or_text(
+            workspace.logo_asset_id,
+            workspace.logo.clone().unwrap_or_default(),
+            &urls,
+        )?;
 
         let project_lite = project.lite();
         let workspace_lite = workspace.lite();
