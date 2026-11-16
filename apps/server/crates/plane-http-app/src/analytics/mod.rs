@@ -19,22 +19,92 @@
 //! * `/api/workspaces/*/projects/*/advance-analytics-stats/`
 //! * `/api/workspaces/*/projects/*/advance-analytics-charts/`
 //!
-//! Nothing is registered yet: every route of this group still answers Django,
-//! so `register` is empty. It stops being empty one route at a time, each one
-//! only after its `scenarios/read/` (and, for a write, its write) scenario is
-//! clean against Django — `apps/server/HANDLERS.md` is the procedure. Once a
-//! group is fully ported, the orchestrator flips its `Owner` column in
-//! `ROUTES.md`; a domain agent never edits that file.
+//! ## Layout
+//!
+//! One file per Python module under `plane/app/views/analytic/`, plus the two
+//! helpers the views import:
+//!
+//! | File | Python |
+//! | --- | --- |
+//! | [`base`] | `base.py` — `AnalyticsEndpoint`, `AnalyticViewViewset`, `SavedAnalyticEndpoint` |
+//! | [`default`] | `base.py` — `DefaultAnalyticsEndpoint`, `ProjectStatsEndpoint` |
+//! | [`advance`] | `advance.py`, `plane/utils/date_utils.py` |
+//! | [`project`] | `project_analytics.py` |
+//! | [`plot`] | `plane/utils/analytics_plot.py` — `build_graph_plot` |
+//! | [`chart`] | `plane/utils/build_chart.py` — `build_analytics_chart` |
+//! | [`sql`] | the `Issue` querysets the views build, as composable SQL |
+//! | [`stored`] | the stored `analytic_views.query` dictionary |
+//! | [`pyset`] | CPython's `set` iteration order, which `project-stats` writes its row keys in |
+//! | [`queries`] | the static catalog |
+//!
+//! ## What is ported
+//!
+//! Every `GET` of the group. `POST …/export-analytics/` is **not** ported: it
+//! enqueues `analytic_export_task` and has no read part.
+//!
+//! ## Side effects
+//!
+//! None of the ported routes writes, invalidates or enqueues: they are pure
+//! reads over `issues`, `projects`, `analytic_views` and the m2m through
+//! tables. That is why no `cache`/`jobs` handle appears here.
 
+use http::Method;
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod advance;
+pub mod base;
+pub mod chart;
+pub mod default;
+pub mod plot;
+pub mod project;
+pub mod pyset;
 pub mod queries;
+pub mod sql;
+pub mod stored;
 
 /// Register this group's handlers, in the order they were ported.
 ///
 /// `apps/server/HANDLERS.md` has the step list. Return the first
 /// [`RegistryError`]: a route that cannot be registered must fail startup
 /// rather than fall back to a 501 nobody notices.
-pub fn register(_registry: &mut Registry) -> Result<(), RegistryError> {
+pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    registry
+        .api_view("plane.app.views.analytic.base.AnalyticsEndpoint")?
+        .method(Method::GET, base::analytics)?;
+    registry
+        .viewset("plane.app.views.analytic.base.AnalyticViewViewset")?
+        .action("list", base::list)?
+        .action("retrieve", base::retrieve)?;
+    registry
+        .api_view("plane.app.views.analytic.base.SavedAnalyticEndpoint")?
+        .method(Method::GET, base::saved_analytic)?;
+    registry
+        .api_view("plane.app.views.analytic.base.DefaultAnalyticsEndpoint")?
+        .method(Method::GET, default::default_analytics)?;
+    registry
+        .api_view("plane.app.views.analytic.base.ProjectStatsEndpoint")?
+        .method(Method::GET, default::project_stats)?;
+    registry
+        .api_view("plane.app.views.analytic.advance.AdvanceAnalyticsEndpoint")?
+        .method(Method::GET, advance::advance_analytics)?;
+    registry
+        .api_view("plane.app.views.analytic.advance.AdvanceAnalyticsStatsEndpoint")?
+        .method(Method::GET, advance::advance_analytics_stats)?;
+    registry
+        .api_view("plane.app.views.analytic.advance.AdvanceAnalyticsChartEndpoint")?
+        .method(Method::GET, advance::advance_analytics_chart)?;
+    registry
+        .api_view("plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsEndpoint")?
+        .method(Method::GET, project::advance_analytics)?;
+    registry
+        .api_view(
+            "plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsStatsEndpoint",
+        )?
+        .method(Method::GET, project::advance_analytics_stats)?;
+    registry
+        .api_view(
+            "plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsChartEndpoint",
+        )?
+        .method(Method::GET, project::advance_analytics_chart)?;
     Ok(())
 }
