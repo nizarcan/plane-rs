@@ -229,7 +229,10 @@ handle @plane_rs_states {
 	expression <<CEL
 		({env.PLANE_RS_GROUP_LABELS} == "" ? "rust" : {env.PLANE_RS_GROUP_LABELS}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issue-labels/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issue-labels/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/labels/$")))
+			(method("GET", "POST") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issue-labels/$")))
+			|| 			(method("GET", "PUT", "PATCH", "DELETE") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issue-labels/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("POST") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/bulk-create-labels/$")))
+			|| 			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/labels/$")))
 		)
 	CEL
 }
