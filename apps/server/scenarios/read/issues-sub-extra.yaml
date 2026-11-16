@@ -1,0 +1,745 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra differential cases for the issue *sub-resource* routes ported under
+# `crates/plane-http-app/src/issues/sub_*.rs` (routes 74-77, 80-83, 85, 86, 88,
+# 93, 97-100). The generated `issues.yaml` covers one step per route/session;
+# this file adds the shapes it misses:
+#
+#   * every relation type, from both sides of the pair (each fixture relation
+#     uses a different issue, so one call per issue is needed);
+#   * version and description-version detail for every fixture row;
+#   * an issue/comment with zero rows of the sub-resource, and an unknown id;
+#   * `activity_type=issue-property` / `issue-comment` and the
+#     `created_at__gt` filter forms (date-only, offset, invalid, empty);
+#   * the `django-filter` parameters of the comments list;
+#   * guests (restricted in ALP/BET, unrestricted in EPS) and every timezone
+#     fixture user, so `DateTimeField` rendering and the `last_saved_at`
+#     exception of `global_paginator` are exercised;
+#   * the paginator's malformed, zero-size and negative cursors.
+#
+# All steps are GETs: nothing here writes, so the order is irrelevant.
+#
+#   ./target/debug/difftest run --scenario scenarios/read/issues-sub-extra.yaml \
+#     --a django --b rust
+
+name: read-issues-sub-extra
+template_db: plane_fix_tpl
+# Own Redis DBs: the harness only writes page-cache keys here, but two agents
+# sharing an index is the one way a clean scenario can flake.
+redis_db: [10, 11]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws_id: "a91c3d80-5ed0-40f3-92a8-a28c015f4388"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+
+  # ALP issues used by the relation matrix (each fixture relation touches a
+  # different pair) and by the version/description-version rows.
+  issue_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_0053b148: "0053b148-8115-4446-a6dd-811f2583eaf1"
+  issue_duplicate_from: "2dcd903d-4321-4295-91b0-5e2371f5451f"
+  issue_duplicate_to: "0861bafd-e553-4436-8c86-00e5324a5448"
+  issue_relates_to_from: "e93447dc-5684-47ca-8cfa-354c503f6065"
+  issue_relates_to_to: "bebe549d-bbb4-4d7a-a371-98464fa65eec"
+  issue_start_before_from: "c56d5aa6-8d76-4683-a97d-f32c8dbe3a52"
+  issue_start_before_to: "88a2167d-d9af-4775-b2b0-227286106baa"
+  issue_finish_before_from: "e4b423d9-ed63-449f-b48e-913afa08c765"
+  issue_finish_before_to: "fbe366de-d1da-46e1-8f4b-d22280b94953"
+  issue_beta_relation: "06438502-cbaf-4e9a-9f92-93dff8daac99"
+  issue_beta_relation_to: "ba19305e-7102-447f-9944-acffb8679008"
+
+  issue_parent: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_completed: "b5ca265c-52ee-4ee7-bfbd-c7b546fa4065"
+  issue_relation_two: "d66a8985-46ce-446d-a4c1-fc0828d1b575"
+  issue_desc_version_only: "8204824b-2ac8-4af9-abd6-a0e3d663add0"
+  issue_epsilon: "643eae10-3112-4c2f-aab2-f6d4aaaf4dd3"
+  issue_beta_commented: "2039d0ab-2732-436d-8b51-eecfa854c8fe"
+
+  relation_duplicate_row: "9c71ee0d-f377-402e-b1c0-9f2b371f512e"
+  comment_alpha: "d8fa6287-ddd7-4303-b743-02986ecbac94"
+  comment_alpha_second: "0552f5e2-5ff9-4783-b680-82217bd66b61"
+  comment_reply: "2ae9869b-6925-4521-9807-834d714eaef4"
+  comment_beta: "6e0476ed-f1d8-476d-befb-5aec3d3c55ea"
+
+  link_design: "20c1f9af-641b-44b2-b819-dabe6123bad1"
+  attachment_id: "80bc6632-0e4a-4d3e-9c8f-ec0b9bf351e9"
+
+  issue_version_0: "d14f0864-ed2d-49dc-aa7f-ac646db0d998"
+  issue_version_1: "a0b90d77-c766-43a2-88aa-0be32796f7e4"
+  issue_version_2: "89987e26-635a-4769-bba5-0352410d8f19"
+  issue_version_3: "895015e7-463b-4198-88d2-143d2def9998"
+  issue_version_4: "6e2810d2-7896-491d-b907-55f4f8a5d2bf"
+
+  desc_version_parent: "a0d9b61e-f096-42d5-8f07-b7b02853f9b2"
+  desc_version_0053b148: "a0d9b61e-f096-42d5-8f07-b7b02853f9b2"
+  desc_version_8204824b: "08077c1d-78c4-4412-9a71-81251ad3bf09"
+  desc_version_commented: "b68cf3eb-2684-4439-bb1a-914a1ff597e9"
+
+  unknown_id: "11111111-1111-4111-8111-111111111111"
+  unknown_uuid_text: "not-a-uuid"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # ------------------------------------------------------------------
+  # 74/75 issue-links
+  # ------------------------------------------------------------------
+  - name: sub-links-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_0053b148}}/issue-links/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-link-detail-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/issue-links/{{unknown_id}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-links-tz-newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/issue-links/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+
+  # ------------------------------------------------------------------
+  # 76/77 issue-attachments
+  # ------------------------------------------------------------------
+  - name: sub-attachments-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_parent}}/issue-attachments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-attachments-unknown-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_id}}/issue-attachments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-attachments-cross-project-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_beta_commented}}/issue-attachments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-attachment-detail-unknown-pk
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/issue-attachments/{{unknown_id}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-attachment-detail-known-pk
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/issue-attachments/{{attachment_id}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # ------------------------------------------------------------------
+  # 80 history
+  # ------------------------------------------------------------------
+  - name: sub-history-property
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    query:
+      activity_type: "issue-property"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-property-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_parent}}/history/"
+    query:
+      activity_type: "issue-property"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-comment-only
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    query:
+      activity_type: "issue-comment"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-created-after-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    query:
+      created_at__gt: "2026-06-01"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-created-after-offset
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    query:
+      created_at__gt: "2026-09-01T00:00:00+05:30"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-created-after-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    query:
+      created_at__gt: "not-a-date"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-created-after-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    query:
+      created_at__gt: ""
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-other-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_0053b148}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-beta-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_relation}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: sub-history-tz-tokyo-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_relation}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: sub-history-unknown-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_id}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-cross-project-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_beta_relation}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # ------------------------------------------------------------------
+  # 81/82 comments
+  # ------------------------------------------------------------------
+  - name: sub-comments-filter-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      issue__id: "{{issue_commented}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-filter-workspace
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      workspace__id: "{{ws_id}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-filter-other-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      issue__id: "{{issue_parent}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-filter-invalid-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      issue__id: "{{unknown_uuid_text}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-single
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_0053b148}}/comments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_parent}}/comments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comment-detail-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{unknown_id}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comment-detail-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_commented}}/comments/{{comment_beta}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: sub-comments-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: sub-comments-filter-empty-value
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      issue__id: ""
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-filter-both-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      issue__id: "{{unknown_uuid_text}}"
+      workspace__id: "{{unknown_uuid_text}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comment-detail-filter-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_alpha}}/"
+    query:
+      issue__id: "{{unknown_uuid_text}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-filter-workspace-mismatch
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_commented}}/comments/"
+    query:
+      workspace__id: "{{ws_id}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `fields=`/`expand=` are inert on these routes (only `IssueSerializer` and
+  # `IssueDetailSerializer` are `DynamicBaseSerializer`s) and `search_fields` is
+  # empty, so all three parameters must change nothing.
+  - name: sub-comments-fields-inert
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      fields: "id"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-history-expand-inert
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    query:
+      expand: "actor"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comments-search-inert
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    query:
+      search: "zzz-no-match"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # ------------------------------------------------------------------
+  # 83/85 subscribers
+  # ------------------------------------------------------------------
+  - name: sub-subscribers-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_relation}}/issue-subscribers/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: sub-subscribers-epsilon-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/issues/{{issue_epsilon}}/issue-subscribers/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: sub-subscribe-status-member2
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/subscribe/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+  - name: sub-subscribe-status-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/subscribe/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-subscribe-status-epsilon-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/issues/{{issue_epsilon}}/subscribe/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+
+  # ------------------------------------------------------------------
+  # 86 issue reactions
+  # ------------------------------------------------------------------
+  - name: sub-reactions-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_relation}}/reactions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-reactions-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_parent}}/reactions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-reactions-epsilon-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/issues/{{issue_epsilon}}/reactions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+
+  # ------------------------------------------------------------------
+  # 88 comment reactions
+  # ------------------------------------------------------------------
+  - name: sub-comment-reactions-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/comments/{{comment_beta}}/reactions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comment-reactions-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reply}}/reactions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comment-reactions-unknown-comment
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{unknown_id}}/reactions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-comment-reactions-first
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_alpha_second}}/reactions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+
+  # ------------------------------------------------------------------
+  # 93 issue relations: every group, from both sides of each fixture pair
+  # ------------------------------------------------------------------
+  - name: sub-relation-blocked-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-blocking
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_0053b148}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-duplicate-from
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_duplicate_from}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-duplicate-to
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_duplicate_to}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-relates-to-from
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_relates_to_from}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-relates-to-to
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_relates_to_to}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-start-before
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_start_before_from}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-start-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_start_before_to}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-finish-before
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_finish_before_from}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-finish-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_finish_before_to}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-beta-blocked-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_relation}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: sub-relation-beta-blocking
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_relation_to}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: sub-relation-unknown-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_id}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-relation-no-relations
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_parent}}/issue-relation/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # ------------------------------------------------------------------
+  # 97/98 issue versions
+  # ------------------------------------------------------------------
+  - name: sub-version-detail-0
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/{{issue_version_0}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-version-detail-1
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_0053b148}}/versions/{{issue_version_1}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-version-detail-2
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_completed}}/versions/{{issue_version_2}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-version-detail-3-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_relation}}/versions/{{issue_version_3}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-version-detail-4
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_relation_two}}/versions/{{issue_version_4}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-version-detail-tz-newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/{{issue_version_0}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  - name: sub-version-detail-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/{{unknown_id}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-version-detail-wrong-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_parent}}/versions/{{issue_version_0}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-versions-list-multiple
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_0053b148}}/versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-versions-list-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_parent}}/versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-versions-list-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: sub-versions-list-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: sub-versions-list-cursor-negative-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/"
+    query:
+      cursor: "1000:-1:0"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-versions-list-cursor-zero-size
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/"
+    query:
+      cursor: "0:0:0"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-versions-list-cursor-malformed
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/versions/"
+    query:
+      cursor: "not-a-cursor"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # ------------------------------------------------------------------
+  # 99/100 work-item description versions
+  # ------------------------------------------------------------------
+  - name: sub-desc-version-parent
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_0053b148}}/description-versions/{{desc_version_parent}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-version-8204824b
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_desc_version_only}}/description-versions/{{desc_version_8204824b}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-version-commented
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_commented}}/description-versions/{{desc_version_commented}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-version-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_commented}}/description-versions/{{unknown_id}}/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-versions-list-parent
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_0053b148}}/description-versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-versions-list-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_parent}}/description-versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-versions-unknown-work-item
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{unknown_id}}/description-versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-versions-cursor-zero-size
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_commented}}/description-versions/"
+    query:
+      cursor: "0:0:0"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: sub-desc-versions-epsilon-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/work-items/{{issue_epsilon}}/description-versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: sub-desc-versions-guest-restricted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_commented}}/description-versions/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+
+  # ------------------------------------------------------------------
+  # Guests and non-members: the same route through every guard
+  # ------------------------------------------------------------------
+  - name: sub-links-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/issue-links/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: sub-history-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: sub-comments-guest-restricted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: sub-history-epsilon-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/issues/{{issue_epsilon}}/history/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: sub-comments-epsilon-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/issues/{{issue_epsilon}}/comments/"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
