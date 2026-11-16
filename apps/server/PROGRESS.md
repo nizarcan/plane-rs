@@ -4,7 +4,8 @@ Read at the start of every session; update at the end.
 
 ## Current phase
 
-Phase 3: Read paths. Phase 2 exit check passed on 2026-11-16 (see below).
+Phase 3: Read paths. Exit check passed on 2026-11-16 (every app-group GET on Rust, see
+below); the Phase 3 benchmark row is still running. Phase 4 (job plumbing) is next.
 
 ## Upstream reference
 
@@ -157,6 +158,31 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
+### Phase 3 exit (2026-11-16)
+
+Exit check passed: every app-group route with a GET is `rust(GET)` / `verified` (187
+routes). Only the later-phase groups (v1, public, instances, auth, web) are left on
+Django. The full read suite on `c48b145a13` has 0 diffs on every ported group:
+`issues` 239, `issues-groups-extra` 176, `issues-list-extra` 102, analytics 340, and so
+on. It differs only on v1/public/instances/auth (501, not ported).
+
+The last batch (`plane-query`): explicit filter backends per view; legacy date errors
+as 400; empty grouped pages; view-level `distinct` in grouped counts; aggregate count
+projections; an issue scope hook; caller-ordered global pages; `OffsetWindow` /
+`offset_page`; `Value::Int8`; Django's LIKE escaping in every `Frag` pattern helper (it
+fixed a real divergence on `name=` filters); D16 path-scoped unordered rules
+(`array`, `object_keys`, `parent_key`, scoped to m2m groupers); the harness port
+allocator fix. It also ported the 6 held routes: `issues/`, the workspace issue list,
+`cycle-issues/`, module `issues/`, `archived-issues/` and `sub-issues/`.
+
+Preamble fix: tokio-postgres prepared a new named statement for every SQL given as a
+string, which is its own round trip and transaction and is never deallocated. Session,
+user and API token lookups, plus 21 handler catalog statements, now use
+`prepare_cached`. Authenticated preamble 4 → 2 transactions (Django 3);
+`/api/users/me/` 5 → 3 (Django 4), p50 3.4 → 1.8 ms (debug). The dynamic-SQL half (one
+exchange via `query_typed_raw`, issue list 10 → 6 transactions) is being redone on the
+new `plane-query`.
+
 ### Phase 3 wave 2 (merged 2026-11-16)
 
 Same process as wave 1: each agent's result was re-run on isolated ports and Redis DBs,
@@ -191,24 +217,22 @@ and only `verified` rows are Rust-owned.
   Revert with `colima stop && colima start --cpu 2 --memory 2`, then `docker start vmif`
   (its restart policy is `no`); the owner's `cc-cost` containers restart on their own.
   The dev Postgres limit (2 GiB in `dev/compose.yml`) must go back to 640M at the same time.
+  The dev RabbitMQ container was also changed live with `docker update` (memory 320M →
+  768M, restart policy `unless-stopped`): it was OOM-killed at 320M with many parallel
+  harness vhosts. `dev/compose.yml` still says 320M, so the next recreate restores it.
 
-- Shared preamble: the intake agent measured 4 transactions per request for Rust vs 3
-  for Django (`xact_commit` deltas on 405 guard routes). Root cause and fix being
-  investigated on `rs/w2-intake`.
-- `plane-query` batch: filter-backend selection, `issue_group_values` key order and
-  empty pages, per-view `distinct`, count projections, scope hook, generic paginator,
-  D16 harness rule; then the six held/unported issue, cycle and module list routes.
-  Added: **`Frag::icontains` doesn't escape `%`/`_`/`\`** like Django's
-  `prep_for_like_query`. This is a correctness bug on merged routes (issue `name=`
-  filter, draft issues, stored analytics filters); four modules carry local escaping
-  copies. Also an unordered-object-key harness rule for `project-stats`.
+- One-exchange dynamic SQL (`query_typed_raw`) plus a sweep removing every string-SQL
+  call, and the `workspaces/user.rs` `/user-activity/` LIKE escape: `rs/w2-intake`.
+- D17 presigned URL comparison, and removing `analytics/pyset.rs` with the `object_keys`
+  rule: `rs/query-batch`.
 
 ## Follow-ups (not blocking)
 
-- Harness, after the `plane-query` batch merges (it is editing the same files):
-  - the D17 `presigned_url` comparison;
-  - the per-side `PortAllocator` collision;
-  - re-run the Django-vs-Django baselines agents took with a second target definition.
+- Re-run the Django-vs-Django baselines that agents took with a second target
+  definition (the port allocator is fixed now).
+- Harness flake: under load, the Celery comparison sometimes sees messages one step late
+  (0 vs N on one step, N vs 0 on the next). Bodies are identical, and a re-run is clean.
+  Consider waiting until queue depth is stable before snapshotting.
 - `analytics/pyset.rs` reproduces CPython's set layout under `PYTHONHASHSEED=0` for the
   `project-stats` key order. Replace it with ascending order once the unordered-key rule
   exists (D16; production order is random per process anyway).
@@ -382,10 +406,12 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. Review and merge wave 2 and the `plane-query` batch; flip verified routes.
-2. Phase 3 exit: every app-group GET verified Django vs Rust (`ROUTES.md` shows no
-   `django` app GET); then the Phase 3 benchmark row in `BENCH.md` on authenticated read
-   scenarios (issue lists, cycles, users/me) for Django vs Rust, and a first Linux
-   container measurement.
-3. Phase 4 (job plumbing): Postgres queue in `plane-jobs`, `plane-worker`, `plane-beat`
-   with advisory locks; the Celery publisher already exists.
+1. Merge the one-exchange dynamic SQL sweep and the D17/pyset follow-ups after
+   re-verifying them. Then add the Phase 3 benchmark row to `BENCH.md` (Linux containers,
+   equal CPU/memory limits, a quiet dev stack), re-measured after those perf changes.
+2. Phase 4 (job plumbing): the Postgres queue in `plane-jobs`, `plane-worker`, and
+   `plane-beat` with advisory locks. The Celery publisher already exists. Inventory
+   `TASKS.md` against what Phase 5 writes will enqueue.
+3. Phase 5 (write paths) planning: the order of the domains, the model hooks
+   (`MODEL_HOOKS.md`), and the write-scenario fixture and harness support for DB diffs on
+   POST/PATCH/DELETE.
