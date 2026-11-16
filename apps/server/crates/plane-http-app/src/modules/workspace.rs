@@ -16,7 +16,7 @@ use plane_serializers::RenderCtx;
 use plane_serializers::generated::app_module::ModuleSerializer;
 
 use crate::common::{client, jobs};
-use crate::modules::base::{decode_workspace_row, fetch};
+use crate::modules::base::{ModuleAnnotations, decode_workspace_row, fetch};
 use crate::modules::queries;
 
 /// `WorkspaceModulesEndpoint.get` (`workspace/module.py:25-129`).
@@ -30,8 +30,10 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
             .iter()
             .map(decode_workspace_row)
             .collect::<Result<Vec<_>, _>>()?;
-        let modules: Vec<ModuleSerializer<'_>> =
-            decoded.iter().map(|row| row.serializer()).collect();
+        let modules: Vec<ModuleSerializer<'_>> = decoded
+            .iter()
+            .map(|row| row.serializer(ModuleAnnotations::Workspace))
+            .collect();
         let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
         let bytes = plane_serializers::render_list(&modules, &RenderCtx::full(&timezone))?;
         Ok(ViewResponse::raw(

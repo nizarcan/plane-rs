@@ -791,11 +791,11 @@ pub struct WorkSpaceSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `total_members`: IntegerField (source `total_members`).
-    pub total_members: Option<i64>,
+    pub total_members: crate::fields::FieldValue<i64>,
     /// `logo_url`: CharField (source `logo_url`).
     pub logo_url: Option<&'a str>,
     /// `role`: IntegerField (source `role`).
-    pub role: Option<i64>,
+    pub role: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -859,18 +859,14 @@ impl<'a> crate::ser::DrfSerialize for WorkSpaceSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("total_members", Self::MODE)
-            && let Some(value) = &self.total_members
-        {
-            obj.field_dyn("total_members", ctx, &value)?;
+        if ctx.emits("total_members", Self::MODE) {
+            obj.field_optional_dyn("total_members", ctx, &self.total_members)?;
         }
         if ctx.emits("logo_url", Self::MODE) {
             obj.field_dyn("logo_url", ctx, &self.logo_url)?;
         }
-        if ctx.emits("role", Self::MODE)
-            && let Some(value) = &self.role
-        {
-            obj.field_dyn("role", ctx, &value)?;
+        if ctx.emits("role", Self::MODE) {
+            obj.field_optional_dyn("role", ctx, &self.role)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -1205,7 +1201,7 @@ pub struct WorkspaceMemberMeSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `draft_issue_count`: IntegerField (source `draft_issue_count`).
-    pub draft_issue_count: Option<i64>,
+    pub draft_issue_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -1276,10 +1272,8 @@ impl<'a> crate::ser::DrfSerialize for WorkspaceMemberMeSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("draft_issue_count", Self::MODE)
-            && let Some(value) = &self.draft_issue_count
-        {
-            obj.field_dyn("draft_issue_count", ctx, &value)?;
+        if ctx.emits("draft_issue_count", Self::MODE) {
+            obj.field_optional_dyn("draft_issue_count", ctx, &self.draft_issue_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

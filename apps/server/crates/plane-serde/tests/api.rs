@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{TimeZone, Utc};
+use chrono::{TimeZone, Timelike, Utc};
 use plane_serde::values::{DrfDateTime, KombuBytes, PyMapKey};
 use plane_serde::{Dialect, Error, PyDecimal, to_vec, to_writer, transcode_json};
 use serde::Serialize;
@@ -90,6 +90,17 @@ fn drf_datetime_renders_like_the_field() {
         to_vec(Dialect::Drf, &DrfDateTime(dt)).unwrap(),
         br#""2026-11-15T12:34:56.120000Z""#
     );
+    // The string form a cached `serializer.data` holds: the same bytes without
+    // the JSON quotes, through both `Display` and `to_drf_string`.
+    let value = DrfDateTime(dt);
+    assert_eq!(value.to_drf_string(), "2026-11-15T12:34:56.120000Z");
+    assert_eq!(value.to_string(), "2026-11-15T12:34:56.120000Z");
+
+    // A non-UTC offset (Kolkata, +05:30) and a whole second (no fractional
+    // part), which is where `isoformat()` and a hand-written format diverge.
+    let offset = dt.with_timezone(&chrono::FixedOffset::east_opt(19_800).expect("offset"));
+    let value = DrfDateTime(offset.with_nanosecond(0).expect("valid"));
+    assert_eq!(value.to_drf_string(), "2026-11-15T18:04:56+05:30");
 }
 
 #[test]

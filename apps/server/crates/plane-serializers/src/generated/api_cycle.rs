@@ -49,7 +49,7 @@ pub struct CycleIssueSerializer {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -99,10 +99,8 @@ impl crate::ser::DrfSerialize for CycleIssueSerializer {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -361,23 +359,23 @@ pub struct CycleSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `total_issues`: IntegerField (source `total_issues`).
-    pub total_issues: Option<i64>,
+    pub total_issues: crate::fields::FieldValue<i64>,
     /// `cancelled_issues`: IntegerField (source `cancelled_issues`).
-    pub cancelled_issues: Option<i64>,
+    pub cancelled_issues: crate::fields::FieldValue<i64>,
     /// `completed_issues`: IntegerField (source `completed_issues`).
-    pub completed_issues: Option<i64>,
+    pub completed_issues: crate::fields::FieldValue<i64>,
     /// `started_issues`: IntegerField (source `started_issues`).
-    pub started_issues: Option<i64>,
+    pub started_issues: crate::fields::FieldValue<i64>,
     /// `unstarted_issues`: IntegerField (source `unstarted_issues`).
-    pub unstarted_issues: Option<i64>,
+    pub unstarted_issues: crate::fields::FieldValue<i64>,
     /// `backlog_issues`: IntegerField (source `backlog_issues`).
-    pub backlog_issues: Option<i64>,
+    pub backlog_issues: crate::fields::FieldValue<i64>,
     /// `total_estimates`: FloatField (source `total_estimates`).
-    pub total_estimates: Option<f64>,
+    pub total_estimates: crate::fields::FieldValue<f64>,
     /// `completed_estimates`: FloatField (source `completed_estimates`).
-    pub completed_estimates: Option<f64>,
+    pub completed_estimates: crate::fields::FieldValue<f64>,
     /// `started_estimates`: FloatField (source `started_estimates`).
-    pub started_estimates: Option<f64>,
+    pub started_estimates: crate::fields::FieldValue<f64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -471,50 +469,32 @@ impl<'a> crate::ser::DrfSerialize for CycleSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("total_issues", Self::MODE)
-            && let Some(value) = &self.total_issues
-        {
-            obj.field_dyn("total_issues", ctx, &value)?;
+        if ctx.emits("total_issues", Self::MODE) {
+            obj.field_optional_dyn("total_issues", ctx, &self.total_issues)?;
         }
-        if ctx.emits("cancelled_issues", Self::MODE)
-            && let Some(value) = &self.cancelled_issues
-        {
-            obj.field_dyn("cancelled_issues", ctx, &value)?;
+        if ctx.emits("cancelled_issues", Self::MODE) {
+            obj.field_optional_dyn("cancelled_issues", ctx, &self.cancelled_issues)?;
         }
-        if ctx.emits("completed_issues", Self::MODE)
-            && let Some(value) = &self.completed_issues
-        {
-            obj.field_dyn("completed_issues", ctx, &value)?;
+        if ctx.emits("completed_issues", Self::MODE) {
+            obj.field_optional_dyn("completed_issues", ctx, &self.completed_issues)?;
         }
-        if ctx.emits("started_issues", Self::MODE)
-            && let Some(value) = &self.started_issues
-        {
-            obj.field_dyn("started_issues", ctx, &value)?;
+        if ctx.emits("started_issues", Self::MODE) {
+            obj.field_optional_dyn("started_issues", ctx, &self.started_issues)?;
         }
-        if ctx.emits("unstarted_issues", Self::MODE)
-            && let Some(value) = &self.unstarted_issues
-        {
-            obj.field_dyn("unstarted_issues", ctx, &value)?;
+        if ctx.emits("unstarted_issues", Self::MODE) {
+            obj.field_optional_dyn("unstarted_issues", ctx, &self.unstarted_issues)?;
         }
-        if ctx.emits("backlog_issues", Self::MODE)
-            && let Some(value) = &self.backlog_issues
-        {
-            obj.field_dyn("backlog_issues", ctx, &value)?;
+        if ctx.emits("backlog_issues", Self::MODE) {
+            obj.field_optional_dyn("backlog_issues", ctx, &self.backlog_issues)?;
         }
-        if ctx.emits("total_estimates", Self::MODE)
-            && let Some(value) = &self.total_estimates
-        {
-            obj.field_dyn("total_estimates", ctx, &value)?;
+        if ctx.emits("total_estimates", Self::MODE) {
+            obj.field_optional_dyn("total_estimates", ctx, &self.total_estimates)?;
         }
-        if ctx.emits("completed_estimates", Self::MODE)
-            && let Some(value) = &self.completed_estimates
-        {
-            obj.field_dyn("completed_estimates", ctx, &value)?;
+        if ctx.emits("completed_estimates", Self::MODE) {
+            obj.field_optional_dyn("completed_estimates", ctx, &self.completed_estimates)?;
         }
-        if ctx.emits("started_estimates", Self::MODE)
-            && let Some(value) = &self.started_estimates
-        {
-            obj.field_dyn("started_estimates", ctx, &value)?;
+        if ctx.emits("started_estimates", Self::MODE) {
+            obj.field_optional_dyn("started_estimates", ctx, &self.started_estimates)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

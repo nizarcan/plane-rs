@@ -47,6 +47,7 @@ use plane_core::error::{APPLICATION_JSON, ApiError};
 use plane_db::models::state::State;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_serializers::FieldValue;
 use plane_serializers::generated::app_state::StateSerializer;
 
 use crate::common::render::RequestRender;
@@ -123,7 +124,11 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
             default: state.default,
             description: &state.description,
             sequence: state.sequence,
-            order: None,
+            // `StateViewSet.retrieve` serialises the model instance with no
+            // `order` attribute (`plane/app/views/state/base.py:44-54`);
+            // `order` is added to the rendered dict by `list` only (`:102-104`),
+            // so DRF raises `SkipField` here.
+            order: FieldValue::absent(),
         };
         let body = crate::common::render(ctx, &serializer)?;
         Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
@@ -210,6 +215,8 @@ fn serializer_for(state: &State, order: Option<f64>) -> StateSerializer<'_> {
         default: state.default,
         description: &state.description,
         sequence: state.sequence,
-        order,
+        // `list` assigns `state["order"] = index / count` for every state
+        // (`plane/app/views/state/base.py:102-104`), so the attribute exists.
+        order: FieldValue::from_attribute(order),
     }
 }

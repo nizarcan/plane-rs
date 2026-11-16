@@ -51,11 +51,13 @@
 //!
 //! # Known limits, all deliberate
 //!
-//! * The pickler's memo is keyed on object identity. A handler that wants
-//!   byte-identical storage for a serializer's `.data` must reproduce DRF's
-//!   sharing: one `str` object per field name across rows (see
-//!   [`value::PyValue`]), and `PyValue::return_list`/`return_dict` for a
-//!   top-level `.data`.
+//! * The pickler's memo is keyed on object identity. [`value::PyInterner`]
+//!   reproduces DRF's sharing: one `str` object per serializer field name
+//!   (shared across rows), one per `ChoiceField` constant, and fresh objects
+//!   for database strings (except the empty string and single Latin-1
+//!   characters, which CPython caches). Use
+//!   `PyValue::return_list`/`return_dict`/`return_mapping` for a top-level
+//!   `.data`.
 //! * A module/class-name string that CPython's `save_global` creates ('datetime',
 //!   'uuid', 'Decimal', …) is interned by the encoder. A payload that happens
 //!   to contain the *same string object* as one of those would memoise
@@ -78,7 +80,7 @@ pub use error::{Error, PickleError};
 pub use page::{CachedPage, PageResponse};
 pub use pyint::PyInt;
 pub use redis::{ParsedUrl, Redis};
-pub use value::{PyDateTime, PyMapping, PyReduce, PyTz, PyValue, ReduceFunc};
+pub use value::{PyDateTime, PyInterner, PyMapping, PyReduce, PyTz, PyValue, ReduceFunc};
 
 /// Lower-case hex, as `binascii.hexlify(...).decode()` renders raw Redis
 /// values in the interop tool and the differential harness.

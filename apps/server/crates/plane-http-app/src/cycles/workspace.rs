@@ -16,7 +16,7 @@ use plane_db::JsonText;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_serializers::generated::app_cycle::CycleSerializer;
-use plane_serializers::{PgJson, RenderCtx};
+use plane_serializers::{FieldValue, PgJson, RenderCtx};
 use uuid::Uuid;
 
 use crate::common::{client, jobs};
@@ -103,15 +103,18 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
                 progress_snapshot: row.progress_snapshot.as_ref().map(PgJson::from),
                 logo_props: row.logo_props.as_ref().map(PgJson::from),
                 // `get_queryset` does not annotate either; `CycleSerializer`
-                // skips a `required=False` field whose attribute is missing.
-                is_favorite: None,
-                total_issues: Some(row.total_issues),
-                cancelled_issues: Some(row.cancelled_issues),
-                completed_issues: Some(row.completed_issues),
-                started_issues: Some(row.started_issues),
-                unstarted_issues: Some(row.unstarted_issues),
-                backlog_issues: Some(row.backlog_issues),
-                status: None,
+                // skips a `required=False` field whose attribute is missing
+                // (`plane/app/views/workspace/cycle.py:22-109`).
+                is_favorite: FieldValue::absent(),
+                // `Count(...)` annotations (`:31-105`): always present, never
+                // NULL.
+                total_issues: FieldValue::value(row.total_issues),
+                cancelled_issues: FieldValue::value(row.cancelled_issues),
+                completed_issues: FieldValue::value(row.completed_issues),
+                started_issues: FieldValue::value(row.started_issues),
+                unstarted_issues: FieldValue::value(row.unstarted_issues),
+                backlog_issues: FieldValue::value(row.backlog_issues),
+                status: FieldValue::absent(),
             })
             .collect();
         let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);

@@ -1,6 +1,6 @@
 {
   "generated_from": {
-    "commit": "4647f18fb7096b6783c1927273a502f74b6312aa",
+    "commit": "101a2f2754af8c604a402cc088de02136f18706c",
     "django_version": "5.2.17",
     "drf_version": "3.18.3",
     "settings_module": "plane.settings.production",
@@ -32671,7 +32671,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "assignee_ids",
@@ -32710,7 +32710,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         }
       ],
       "expansion": {
@@ -33180,7 +33180,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "label_ids",
@@ -33214,7 +33214,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "assignee_ids",
@@ -33248,7 +33248,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "created_at",
@@ -33905,7 +33905,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "label_ids",
@@ -33939,7 +33939,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "assignee_ids",
@@ -33973,7 +33973,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "created_at",
@@ -46782,7 +46782,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "assignee_ids",
@@ -46821,7 +46821,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         }
       ],
       "expansion": {
@@ -48257,7 +48257,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "label_ids",
@@ -48291,7 +48291,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "assignee_ids",
@@ -48325,7 +48325,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "sub_issues_count",
@@ -49295,7 +49295,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "created_by",
@@ -52923,7 +52923,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         }
       ],
       "expansion": {
@@ -53422,7 +53422,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "label_ids",
@@ -53456,7 +53456,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "assignee_ids",
@@ -53490,7 +53490,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "sub_issues_count",
@@ -59169,7 +59169,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         }
       ],
       "expansion": {
@@ -64210,7 +64210,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         }
       ],
       "expansion": {
@@ -66228,7 +66228,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "project_ids",
@@ -66262,7 +66262,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "description_html",
@@ -66943,7 +66943,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "project_ids",
@@ -66977,7 +66977,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         }
       ],
       "write_only_fields": [
@@ -100811,7 +100811,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "created_by",
@@ -100880,7 +100880,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         },
         {
           "name": "assignee_ids",
@@ -100914,7 +100914,7 @@
             "skippable": false
           },
           "python_type": "list<uuid>",
-          "skippable": false
+          "skippable": true
         }
       ],
       "write_only_fields": [],

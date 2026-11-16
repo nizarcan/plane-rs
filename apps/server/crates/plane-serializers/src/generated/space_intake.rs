@@ -274,9 +274,9 @@ pub struct IssueStateIntakeSerializer<'a> {
     /// `assignee_details`: ListSerializer (source `assignees`).
     pub assignee_details: &'a [crate::generated::space_user::UserLiteSerializer<'a>],
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `bridge_id`: UUIDField (source `bridge_id`).
-    pub bridge_id: Option<uuid::Uuid>,
+    pub bridge_id: crate::fields::FieldValue<uuid::Uuid>,
     /// `issue_intake`: ListSerializer (source `issue_intake`).
     pub issue_intake: &'a [crate::generated::space_intake::IntakeIssueLiteSerializer<'a>],
     /// `created_at`: DateTimeField (source `created_at`).
@@ -416,15 +416,11 @@ impl<'a> crate::ser::DrfSerialize for IssueStateIntakeSerializer<'a> {
         if ctx.emits("assignee_details", Self::MODE) {
             obj.field_nested_list_dyn("assignee_details", ctx, self.assignee_details)?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
-        if ctx.emits("bridge_id", Self::MODE)
-            && let Some(value) = &self.bridge_id
-        {
-            obj.field_dyn("bridge_id", ctx, &crate::fields::DrfUuid(*value))?;
+        if ctx.emits("bridge_id", Self::MODE) {
+            obj.field_optional_dyn("bridge_id", ctx, &self.bridge_id)?;
         }
         if ctx.emits("issue_intake", Self::MODE) {
             obj.field_nested_list_dyn("issue_intake", ctx, self.issue_intake)?;

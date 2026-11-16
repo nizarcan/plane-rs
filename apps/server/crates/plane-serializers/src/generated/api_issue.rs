@@ -498,7 +498,7 @@ pub struct IssueCommentSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `is_member`: BooleanField (source `is_member`).
-    pub is_member: Option<bool>,
+    pub is_member: crate::fields::FieldValue<bool>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -572,10 +572,8 @@ impl<'a> crate::ser::DrfSerialize for IssueCommentSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("is_member", Self::MODE)
-            && let Some(value) = &self.is_member
-        {
-            obj.field_dyn("is_member", ctx, &value)?;
+        if ctx.emits("is_member", Self::MODE) {
+            obj.field_optional_dyn("is_member", ctx, &self.is_member)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

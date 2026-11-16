@@ -203,13 +203,13 @@ pub struct ProjectDetailSerializer<'a> {
     /// `project_lead`: UserLiteSerializer (source `project_lead`).
     pub project_lead: Option<&'a crate::generated::app_user::UserLiteSerializer<'a>>,
     /// `is_favorite`: BooleanField (source `is_favorite`).
-    pub is_favorite: Option<bool>,
+    pub is_favorite: crate::fields::FieldValue<bool>,
     /// `sort_order`: FloatField (source `sort_order`).
-    pub sort_order: Option<f64>,
+    pub sort_order: crate::fields::FieldValue<f64>,
     /// `member_role`: IntegerField (source `member_role`).
-    pub member_role: Option<i64>,
+    pub member_role: crate::fields::FieldValue<i64>,
     /// `anchor`: CharField (source `anchor`).
-    pub anchor: Option<&'a str>,
+    pub anchor: crate::fields::FieldValue<&'a str>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -352,25 +352,17 @@ impl<'a> crate::ser::DrfSerialize for ProjectDetailSerializer<'a> {
                     .map(|value| value as &(dyn crate::ser::DrfSerialize + '_)),
             )?;
         }
-        if ctx.emits("is_favorite", Self::MODE)
-            && let Some(value) = &self.is_favorite
-        {
-            obj.field_dyn("is_favorite", ctx, &value)?;
+        if ctx.emits("is_favorite", Self::MODE) {
+            obj.field_optional_dyn("is_favorite", ctx, &self.is_favorite)?;
         }
-        if ctx.emits("sort_order", Self::MODE)
-            && let Some(value) = &self.sort_order
-        {
-            obj.field_dyn("sort_order", ctx, &value)?;
+        if ctx.emits("sort_order", Self::MODE) {
+            obj.field_optional_dyn("sort_order", ctx, &self.sort_order)?;
         }
-        if ctx.emits("member_role", Self::MODE)
-            && let Some(value) = &self.member_role
-        {
-            obj.field_dyn("member_role", ctx, &value)?;
+        if ctx.emits("member_role", Self::MODE) {
+            obj.field_optional_dyn("member_role", ctx, &self.member_role)?;
         }
-        if ctx.emits("anchor", Self::MODE)
-            && let Some(value) = &self.anchor
-        {
-            obj.field_dyn("anchor", ctx, &value)?;
+        if ctx.emits("anchor", Self::MODE) {
+            obj.field_optional_dyn("anchor", ctx, &self.anchor)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -635,13 +627,13 @@ pub struct ProjectListSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `is_favorite`: BooleanField (source `is_favorite`).
-    pub is_favorite: Option<bool>,
+    pub is_favorite: crate::fields::FieldValue<bool>,
     /// `sort_order`: FloatField (source `sort_order`).
-    pub sort_order: Option<f64>,
+    pub sort_order: crate::fields::FieldValue<f64>,
     /// `member_role`: IntegerField (source `member_role`).
-    pub member_role: Option<i64>,
+    pub member_role: crate::fields::FieldValue<i64>,
     /// `anchor`: CharField (source `anchor`).
-    pub anchor: Option<&'a str>,
+    pub anchor: crate::fields::FieldValue<&'a str>,
     /// `members`: SerializerMethodField (source `*`).
     pub members: crate::value::DrfValue<'a>,
     /// `cover_image_url`: CharField (source `cover_image_url`).
@@ -784,25 +776,17 @@ impl<'a> crate::ser::DrfSerialize for ProjectListSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("is_favorite", Self::MODE)
-            && let Some(value) = &self.is_favorite
-        {
-            obj.field_dyn("is_favorite", ctx, &value)?;
+        if ctx.emits("is_favorite", Self::MODE) {
+            obj.field_optional_dyn("is_favorite", ctx, &self.is_favorite)?;
         }
-        if ctx.emits("sort_order", Self::MODE)
-            && let Some(value) = &self.sort_order
-        {
-            obj.field_dyn("sort_order", ctx, &value)?;
+        if ctx.emits("sort_order", Self::MODE) {
+            obj.field_optional_dyn("sort_order", ctx, &self.sort_order)?;
         }
-        if ctx.emits("member_role", Self::MODE)
-            && let Some(value) = &self.member_role
-        {
-            obj.field_dyn("member_role", ctx, &value)?;
+        if ctx.emits("member_role", Self::MODE) {
+            obj.field_optional_dyn("member_role", ctx, &self.member_role)?;
         }
-        if ctx.emits("anchor", Self::MODE)
-            && let Some(value) = &self.anchor
-        {
-            obj.field_dyn("anchor", ctx, &value)?;
+        if ctx.emits("anchor", Self::MODE) {
+            obj.field_optional_dyn("anchor", ctx, &self.anchor)?;
         }
         if ctx.emits("members", Self::MODE) {
             obj.field_value_dyn("members", ctx, &self.members)?;
@@ -1458,7 +1442,7 @@ pub struct ProjectMemberLiteSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `is_subscribed`: BooleanField (source `is_subscribed`).
-    pub is_subscribed: Option<bool>,
+    pub is_subscribed: crate::fields::FieldValue<bool>,
 }
 
 impl<'a> ProjectMemberLiteSerializer<'a> {
@@ -1486,10 +1470,8 @@ impl<'a> crate::ser::DrfSerialize for ProjectMemberLiteSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("is_subscribed", Self::MODE)
-            && let Some(value) = &self.is_subscribed
-        {
-            obj.field_dyn("is_subscribed", ctx, &value)?;
+        if ctx.emits("is_subscribed", Self::MODE) {
+            obj.field_optional_dyn("is_subscribed", ctx, &self.is_subscribed)?;
         }
         ctx.expansions()
             .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;

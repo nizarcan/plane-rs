@@ -15,7 +15,7 @@
 use serde::Serialize;
 
 use crate::DrfError;
-use crate::fields::PgJson;
+use crate::fields::{DrfScalar, FieldValue, PgJson};
 use crate::ser::{DrfSerialize, RenderCtx};
 use crate::value::DrfValue;
 
@@ -206,6 +206,58 @@ impl<'a> ObjectWriter<'a> {
     ) -> Result<(), DrfError> {
         self.key(name)?;
         value.write(self.w, ctx)
+    }
+
+    /// Write a three-state field: nothing for [`FieldValue::Absent`], `null`
+    /// for [`FieldValue::Null`], the value otherwise.
+    ///
+    /// This is DRF's `to_representation` null rule for a skippable field
+    /// (`rest_framework/serializers.py:541-546`). A key is never written for
+    /// `Absent`, because `get_attribute` raised `SkipField` before
+    /// `to_representation` ran.
+    ///
+    /// # Errors
+    ///
+    /// See [`DrfScalar::write_scalar`] and [`ObjectWriter::key`].
+    pub fn field_optional<T: DrfScalar>(
+        &mut self,
+        name: &str,
+        ctx: &RenderCtx<'_>,
+        value: &FieldValue<T>,
+    ) -> Result<(), DrfError> {
+        match value {
+            FieldValue::Absent => Ok(()),
+            FieldValue::Null => self.null_field(name),
+            FieldValue::Value(inner) => {
+                self.key(name)?;
+                inner.write_scalar(self.w, ctx)
+            }
+        }
+    }
+
+    /// [`ObjectWriter::field_optional`], with `expand=` replacement.
+    ///
+    /// An expansion always wins: `DynamicBaseSerializer.to_representation`
+    /// runs the base serialization first (which may skip the key) and then
+    /// assigns `response[expand]` (`plane/app/serializers/base.py:129-168`),
+    /// so the key appears even when the attribute was missing.
+    ///
+    /// # Errors
+    ///
+    /// See [`ObjectWriter::field_optional`] and [`DrfValue::write`].
+    pub fn field_optional_dyn<T: DrfScalar>(
+        &mut self,
+        name: &str,
+        ctx: &RenderCtx<'_>,
+        value: &FieldValue<T>,
+    ) -> Result<(), DrfError> {
+        match ctx.expansions().get(name) {
+            Some(expansion) => {
+                self.key(name)?;
+                expansion.write(self.w, ctx)
+            }
+            None => self.field_optional(name, ctx, value),
+        }
     }
 
     /// Write `name: value` for a nested serializer, `null` for `None`.

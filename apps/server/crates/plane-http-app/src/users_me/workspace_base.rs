@@ -23,6 +23,7 @@ use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_serde::Dialect;
 use plane_serde::values::PyDate;
+use plane_serializers::FieldValue;
 use plane_serializers::fields::DrfUuid;
 use plane_serializers::generated::app_workspace::WorkSpaceSerializer;
 use serde::Serialize;
@@ -180,9 +181,13 @@ fn workspaces<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             .iter()
             .map(|item| WorkSpaceSerializer {
                 id: item.workspace.id,
-                total_members: Some(item.total_members),
+                // `annotate(role=role, total_members=member_count)`
+                // (`plane/app/views/workspace/base.py:199-202`): both
+                // attributes always exist. `role` is a correlated subquery and
+                // can be SQL NULL, which DRF writes as `null`.
+                total_members: FieldValue::from_attribute(Some(item.total_members)),
                 logo_url: logo_urls[item.index].as_deref(),
-                role: item.role.map(i64::from),
+                role: FieldValue::from_attribute(item.role.map(i64::from)),
                 created_at: item.workspace.created_at,
                 updated_at: item.workspace.updated_at,
                 deleted_at: item.workspace.deleted_at,

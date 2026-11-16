@@ -30,7 +30,7 @@ use plane_serializers::generated::app_user::{UserAdminLiteSerializer, UserLiteSe
 use plane_serializers::generated::app_workspace::{
     WorkSpaceMemberSerializer, WorkspaceMemberAdminSerializer, WorkspaceMemberMeSerializer,
 };
-use plane_serializers::{FieldEntry, RenderCtx};
+use plane_serializers::{FieldEntry, FieldValue, RenderCtx};
 use uuid::Uuid;
 
 use crate::common::client;
@@ -279,7 +279,10 @@ fn me<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>
         let draft_issue_count: i64 = row.try_get(17)?;
         let serializer = WorkspaceMemberMeSerializer {
             id: model.id,
-            draft_issue_count: Some(draft_issue_count),
+            // `annotate(draft_issue_count=Subquery(...))` in the viewset's
+            // `queryset` (`plane/app/views/workspace/member.py:237-251`): the
+            // attribute always exists.
+            draft_issue_count: FieldValue::from_attribute(Some(draft_issue_count)),
             created_at: model.created_at,
             updated_at: model.updated_at,
             deleted_at: model.deleted_at,

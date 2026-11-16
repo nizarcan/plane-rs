@@ -550,9 +550,42 @@ def build() -> dict[str, object]:
     # `StateSerializer.order` is a declared FloatField over an annotation that
     # `state/list` adds *after* serialising. The plain instance has no `order`,
     # so DRF's `required=False` + missing attribute skips the key. Keep a copy
-    # with the attribute for the "order present" case.
+    # with the attribute for the "order present" case and one where the
+    # attribute exists and is None: DRF writes `null`, it does not skip.
     state_with_order = State.objects.get(id=STATE_ID)
     state_with_order.order = 0.5
+    state_with_order_none = State.objects.get(id=STATE_ID)
+    state_with_order_none.order = None
+
+    # `ProjectDetailSerializer`'s four annotation-backed fields
+    # (`plane/app/serializers/project.py`). Two instances: the attributes
+    # present with values, and present and None. DRF writes `null` for the
+    # second; only a *missing* attribute is a `SkipField` (the `state1` case
+    # above).
+    project_annotated = Project.objects.get(id=PROJECT_ID)
+    project_annotated.is_favorite = True
+    project_annotated.sort_order = 12.5
+    project_annotated.member_role = 20
+    project_annotated.anchor = "fixture-anchor-alpha"
+    project_null = Project.objects.get(id=PROJECT_ID)
+    project_null.is_favorite = None
+    project_null.sort_order = None
+    project_null.member_role = None
+    project_null.anchor = None
+
+    # `IssueSerializer`'s skippable annotations, present and None. The four
+    # counts are Subqueries with no rows (`NULL`); `cycle_id` is a Subquery with
+    # no matching cycle. The list-valued annotations are `ListField`s
+    # (`allow_null=True`), a separate two-state shape, and are recorded here
+    # too.
+    issue_null = Issue.objects.get(id=ISSUE_ID)
+    issue_null.cycle_id = None
+    issue_null.module_ids = None
+    issue_null.label_ids = None
+    issue_null.assignee_ids = None
+    issue_null.sub_issues_count = None
+    issue_null.attachment_count = None
+    issue_null.link_count = None
 
     return {
         "user1": alice,
@@ -562,11 +595,15 @@ def build() -> dict[str, object]:
         "user_pair": [alice, bob],
         "workspace1": workspace,
         "project1": project,
+        "project_annotated": project_annotated,
+        "project_null": project_null,
         "state1": state,
         "state1_with_order": state_with_order,
+        "state1_with_order_none": state_with_order_none,
         "state_pair": [state, triage],
         "label1": label,
         "issue1": issue,
+        "issue_null_annotations": issue_null,
         "issue_child": child,
         "issue_pair": [issue, child],
         "cycle1": cycle,

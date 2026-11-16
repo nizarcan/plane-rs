@@ -31,13 +31,250 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use chrono_tz::Tz;
 use serde::Serialize;
 use serde::ser::{SerializeSeq, Serializer};
 use uuid::Uuid;
 
 pub use plane_serde::values::{DrfDateTime, DrfDecimal, EncoderDecimal, PyDate, PyTime};
+
+use crate::DrfError;
+use crate::ser::RenderCtx;
+use crate::writer::DrfWriter;
+
+// ---------------------------------------------------------------------------
+// A three-state field
+// ---------------------------------------------------------------------------
+
+/// The value of a field whose Python attribute may not exist.
+///
+/// DRF walks a serializer's readable fields and, for each one, calls
+/// `field.get_attribute(instance)` (`rest_framework/fields.py:421-446`). Three
+/// outcomes are possible and they are *not* interchangeable
+/// (`rest_framework/serializers.py:530-551`):
+///
+/// | `get_attribute` | `check_for_none` | `to_representation` writes |
+/// | --- | --- | --- |
+/// | raises `SkipField` (the attribute is missing) | — | no key at all |
+/// | returns `None` | `None` | `"key": null` |
+/// | returns a value | not `None` | `"key": <value>` |
+///
+/// The middle case is why `Option<T>` cannot model a skippable field: `None`
+/// must mean `null` here, not "omit the key". A generated struct therefore
+/// spells out which case the handler means:
+///
+/// ```ignore
+/// // `is_favorite` is a view annotation the queryset did not add.
+/// is_favorite: FieldValue::absent(),
+/// // `sort_order` was annotated and the annotation is SQL NULL.
+/// sort_order: FieldValue::null(),
+/// // `member_role` was annotated with a value.
+/// member_role: FieldValue::value(20),
+/// ```
+///
+/// `Option<T>` is still the right type for a *nullable model column*, whose
+/// attribute always exists: `None` renders `null` there (the generator uses
+/// `Option` only when `allow_null`/`null=True`, and never mixes the two on one
+/// field). `FieldValue<T>` is used for annotation-backed fields with
+/// `required=False`, the shape that can skip.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FieldValue<T> {
+    /// The attribute does not exist: `getattr` raised `AttributeError`, DRF
+    /// raised `SkipField` and the key is absent from the object.
+    #[default]
+    Absent,
+    /// The attribute exists and is `None`: DRF writes the key with `null`
+    /// without calling the field's `to_representation`.
+    Null,
+    /// The attribute exists and has a value.
+    Value(T),
+}
+
+impl<T> FieldValue<T> {
+    /// The attribute is missing.
+    #[must_use]
+    pub const fn absent() -> Self {
+        Self::Absent
+    }
+
+    /// The attribute exists and is `None`.
+    #[must_use]
+    pub const fn null() -> Self {
+        Self::Null
+    }
+
+    /// The attribute exists with this value.
+    #[must_use]
+    pub const fn value(value: T) -> Self {
+        Self::Value(value)
+    }
+
+    /// `get_attribute` succeeded: `None` is the null case, `Some` the value
+    /// case. Use this when the handler has an `Option` from an annotation
+    /// that is always present (an outer join, `MAX(...)`, …).
+    #[must_use]
+    pub fn from_attribute(value: Option<T>) -> Self {
+        match value {
+            Some(value) => Self::Value(value),
+            None => Self::Null,
+        }
+    }
+
+    /// Whether `get_attribute` would raise `SkipField`.
+    #[must_use]
+    pub const fn is_absent(&self) -> bool {
+        matches!(self, Self::Absent)
+    }
+
+    /// Whether the attribute exists (as `null` or as a value).
+    #[must_use]
+    pub const fn is_present(&self) -> bool {
+        !self.is_absent()
+    }
+}
+
+impl<T> From<T> for FieldValue<T> {
+    fn from(value: T) -> Self {
+        Self::Value(value)
+    }
+}
+
+/// The scalar renderers a [`FieldValue`] can hold.
+///
+/// This is the subset of DRF field classes that can sit on a skippable field
+/// (an annotation-backed declared field): the value itself is already typed by
+/// the generator, so the trait only has to write it the way that field class
+/// does. Every generated `FieldValue<T>` uses one of these impls; handler code
+/// never names the trait.
+pub trait DrfScalar {
+    /// Write the value (not the key).
+    ///
+    /// # Errors
+    ///
+    /// See [`DrfWriter::write_value`] and the wrapper's own rules.
+    fn write_scalar(&self, w: &mut DrfWriter, ctx: &RenderCtx<'_>) -> Result<(), DrfError>;
+}
+
+impl DrfScalar for bool {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for i64 {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for f64 {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for &str {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for String {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for Uuid {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&DrfUuid(*self))
+    }
+}
+
+impl DrfScalar for DrfUuid {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for DrfPk<'_> {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for DrfDecimal {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(self)
+    }
+}
+
+impl DrfScalar for PgJson<'_> {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_json_text(self.0)
+    }
+}
+
+impl DrfScalar for DateTime<Utc> {
+    fn write_scalar(&self, w: &mut DrfWriter, ctx: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&drf_datetime(*self, ctx.tz()))
+    }
+}
+
+impl DrfScalar for NaiveDate {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&PyDate(*self))
+    }
+}
+
+impl DrfScalar for NaiveTime {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&PyTime(*self))
+    }
+}
+
+impl DrfScalar for &[u8] {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&PyBase64(self))
+    }
+}
+
+impl DrfScalar for &[Uuid] {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&DrfUuidList(self))
+    }
+}
+
+impl DrfScalar for &[i64] {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&DrfIntList(self))
+    }
+}
+
+impl DrfScalar for &[f64] {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&DrfFloatList(self))
+    }
+}
+
+impl DrfScalar for &[bool] {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&DrfBoolList(self))
+    }
+}
+
+impl DrfScalar for &[&str] {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        w.write_value(&DrfStrList(self))
+    }
+}
+
+impl DrfScalar for crate::value::DrfValue<'_> {
+    fn write_scalar(&self, w: &mut DrfWriter, ctx: &RenderCtx<'_>) -> Result<(), DrfError> {
+        self.write(w, ctx)
+    }
+}
 
 /// `str(uuid)` — `UUIDField.to_representation`
 /// (`rest_framework/fields.py:847-850`) and the UUID half of
@@ -101,6 +338,20 @@ impl Serialize for DrfIntList<'_> {
 pub struct DrfFloatList<'a>(pub &'a [f64]);
 
 impl Serialize for DrfFloatList<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for value in self.0 {
+            seq.serialize_element(value)?;
+        }
+        seq.end()
+    }
+}
+
+/// A list of booleans (`ListField` of `BooleanField`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DrfBoolList<'a>(pub &'a [bool]);
+
+impl Serialize for DrfBoolList<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for value in self.0 {

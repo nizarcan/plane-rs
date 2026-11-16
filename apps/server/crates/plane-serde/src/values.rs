@@ -159,11 +159,32 @@ impl<Tz: TimeZone> DrfDateTime<Tz> {
             z_for_utc: true,
         }
     }
+
+    /// The exact Python `str` a `DateTimeField` put into `serializer.data`.
+    ///
+    /// `to_representation` returns `value.isoformat()` (with `+00:00` replaced
+    /// by `Z`), so a cached `serializer.data` holds a *string*, not a
+    /// `datetime` (`rest_framework/fields.py:1216-1232`). A handler that builds
+    /// the cache payload by hand has to construct that string; going through
+    /// the JSON encoder and stripping its quotes loses nothing but is
+    /// needlessly indirect, and it fails for any value the encoder would escape
+    /// (a datetime never contains one). This returns the same bytes as the
+    /// `Serialize` impl without the quotes.
+    #[must_use]
+    pub fn to_drf_string(&self) -> String {
+        self.iso().to_string()
+    }
 }
 
 impl<Tz: TimeZone> Serialize for DrfDateTime<Tz> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str(&self.iso())
+    }
+}
+
+impl<Tz: TimeZone> fmt::Display for DrfDateTime<Tz> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.iso(), f)
     }
 }
 

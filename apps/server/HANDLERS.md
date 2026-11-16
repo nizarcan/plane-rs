@@ -14,7 +14,7 @@ The crate is `crates/plane-http-app`, one module per route group of
 | `src/lib.rs` (`register_all`, `AppState`) | orchestrator | a new group, or a deliberate order change |
 | `src/common/**` | orchestrator | a second domain repeats the same helper |
 | `Cargo.toml` | orchestrator | a new shared dependency |
-| `tests/schema_check.rs`, `tests/registry.rs` | orchestrator | a new group |
+| `tests/schema_check.rs`, `tests/registry.rs` | orchestrator | a new group, or a new `*queries.rs` catalog (mechanical: add its `ALL_QUERIES`) |
 | `scenarios/read/<group>.yaml` | the domain agent | add steps for routes you port |
 | `ROUTES.md` | **orchestrator only** | after review |
 
@@ -101,8 +101,13 @@ view, not a nicer query. Two shapes, and the difference is enforced
   ```
 
   Fetch it with `client.prepare_cached(queries::STATES_BY_PROJECT.sql)`.
-  `tests/schema_check.rs` prepares every catalogued statement against a
-  Django-migrated database, so a renamed column or changed type fails in CI.
+  An array result column is declared `("label_ids", ArrayOf(Uuid))` (or
+  `ArrayOf(Varchar)`, …); `plane_query!` maps it to `PgType::ArrayOf(…)`, so a
+  catalog never needs a local macro. `tests/schema_check.rs` prepares every
+  catalogued statement against a Django-migrated database, so a renamed column
+  or changed type fails in CI. It also discovers every `*queries.rs` file under
+  `src/`: a new catalog must be added to its `catalogs()` list, and the test
+  fails until it is, so no domain can go unchecked.
 
 * **Dynamic** — the text depends on request data (`fields=`, filters, ordering,
   grouping). Compose it with `plane-query` (or build the text yourself) and send
@@ -173,6 +178,52 @@ Python exception's shape (`common::view_error` explains why).
   `/api/timezones/`) still goes through `Dialect::Drf`; that formatter is DRF's
   `JSONRenderer` (compact separators, `ensure_ascii=False`, Python float repr).
 
+### Skippable annotations: `FieldValue`
+
+A declared field with `required=False` whose `source` is a *view annotation*
+can be missing from the instance. DRF then raises `SkipField` and writes no key
+(`rest_framework/fields.py:421-446`, `serializers.py:530-551`), but when the
+attribute exists and is `None` it writes `"key": null`. The generated struct
+uses `FieldValue<T>` for those fields, never `Option<T>`:
+
+```rust
+use plane_serializers::FieldValue;
+
+// `is_favorite` is an annotation this queryset does not add: no key.
+is_favorite: FieldValue::absent(),
+// `sort_order` is annotated and the subquery returned NULL: `"sort_order": null`.
+sort_order: FieldValue::null(),
+// `member_role` is annotated with a value.
+member_role: FieldValue::value(20),
+// An outer-join/`MAX(...)` annotation that always exists: Some → value,
+// None → null. This is the common case.
+anchor: FieldValue::from_attribute(row.anchor.as_deref()),
+```
+
+A nullable *model column* is still `Option<T>` (`None` → `null`); it can never
+skip because its attribute always exists. Do not use `FieldValue::null()` for
+a field whose Python attribute is missing and do not use `absent()` for one
+that is `None`: the bytes differ and the golden corpus in
+`crates/plane-serializers/tests/golden.rs` pins both cases per annotation.
+
+### JSON columns on the write path
+
+A generated row's `json`/`jsonb` column is `plane_db::JsonText`. Bind one with
+`ToSql` (it writes the jsonb version byte) and build the value a handler just
+wrote from the same ordered map, so a create/update response renders Django's
+in-memory dict order instead of jsonb's length-then-bytes order:
+
+```rust
+use plane_db::JsonText;
+
+let props = JsonText::from_json_dict(&body)?;   // `json.dumps` order/format
+client.execute(queries::UPDATE_PROJECT, &[&props, &id]).await?;
+let body = render(ctx, &row /* or the same JsonText through PgJson */)?;
+```
+
+`JsonText::from_json(&plane_serde::pyjson::Value)` is the general form;
+`JsonText::new(text)` wraps text from anywhere else.
+
 ## 5. Register
 
 Registration is the only way a route becomes reachable, and it refuses anything
@@ -208,6 +259,8 @@ decides the body (`HTTP_CONTRACT.md` §11):
 | Python | `ViewError` | Response |
 | --- | --- | --- |
 | `Http404`, DRF `NotFound` | `Api(ApiError::NotFound)` | 404 `{"detail": "Not found."}` |
+| `get_object_or_404` (`django/shortcuts.py:76-84`) | `Api(ApiError::not_found_for::<Model>())` | 404 `{"detail": "No <Model> matches the given query."}` |
+| `raise NotFound("<detail>")` | `Api(ApiError::not_found_detail("<detail>"))` | 404 `{"detail": "<detail>"}` |
 | `Model.DoesNotExist` / `get_object_or_404` | `ObjectDoesNotExist` | 404 `{"error": "The required object does not exist."}` |
 | `kwargs["slug"]` missing (`KeyError`) | `Key` | 400 `{"error": "The required key does not exist."}` |
 | `ValidationError` from a UUID/field coercion | `Validation` | 400 `{"error": "Please provide valid detail"}` |
@@ -250,6 +303,40 @@ cache::cache_response(ctx, 60 * 60 * 2, None, true, || async move {
 })
 .await
 ```
+
+The pickler memoises by **object identity**, so an equal-but-distinct string
+produces a second literal where Django emits `BINGET`; above 4 KiB the harness
+only compares size, so this is checked by
+`crates/plane-cache/tests/cache_pickle.rs` against the two real cached
+endpoints. Build the tree with `plane_cache::PyInterner`:
+
+```rust
+use plane_cache::{PyInterner, PyValue};
+
+let mut strings = PyInterner::new();
+let rows = labels.iter().map(|label| {
+    let name = strings.value(&label.name);          // fresh: decoded from a row
+    let kind = strings.choice(&label.r#type);       // shared: a `choices` constant
+    strings.mapping([
+        ("name", name),
+        ("type", kind),
+        ("id", PyValue::uuid(label.id)),
+    ])
+});
+let data = PyValue::return_list(rows.collect());
+```
+
+`value` is for every string read from Postgres (and for `isoformat()`/`str()`
+output): fresh, except the empty string and single Latin-1 characters, which
+CPython caches. `choice` is for a `ChoiceField` value, which DRF returns from
+its class-level choice map — the same interned object as a field name with that
+text. `key` (used by `mapping`) is for dict keys. A `ReturnDict` needs
+`PyValue::return_mapping` with interned keys, not `return_dict`.
+
+A cached `serializer.data` holds the `DateTimeField`'s **string**, not a
+`datetime`: `plane_serde::values::DrfDateTime::to_drf_string()` (or its
+`Display`) returns the exact `isoformat()` text, including the `Z` and the
+request timezone, without going through the JSON encoder.
 
 ```rust
 use plane_http_app::common::cache;
@@ -337,6 +424,11 @@ Rules the harness enforces, so do not fight them:
   `<expires+7200s>` from the step clock, and a cache hit's `Age` with a
   one-second tolerance, so a second boundary cannot flake a run. One side
   sending `Age` and the other not is always a difference.
+* In managed mode A and B each allocate their port from their own target's
+  `port_range` in `targets.yaml` (A from target A's range, B from B's), and the
+  run header prints each target's URL and Redis index. `--a-redis-db` /
+  `--b-redis-db` override the scenario's `redis_db` in managed mode too, so a
+  scenario shared with another agent can use private indexes without a copy.
 
 Then, and only then: report the group, the routes, the scenario, the run result
 and anything you could not port. **The orchestrator flips `ROUTES.md`** (and the

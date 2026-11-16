@@ -37,6 +37,7 @@
 //! to Django; a plain [`PyValue::list`] round-trips to the same value but not
 //! to the same bytes.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -237,7 +238,6 @@ impl PyValue {
     pub const fn none() -> Self {
         PyValue::None
     }
-
     /// `bool`.
     #[must_use]
     pub const fn bool(value: bool) -> Self {
@@ -361,6 +361,20 @@ impl PyValue {
         }))
     }
 
+    /// [`PyValue::return_dict`] with pre-built keys.
+    ///
+    /// A `ReturnDict` from `serializer.data` uses the serializer's field-name
+    /// objects as keys, so a handler that interns them with [`PyInterner`]
+    /// must be able to pass them through instead of having `return_dict`
+    /// create fresh ones.
+    #[must_use]
+    pub fn return_mapping(entries: Vec<(PyValue, PyValue)>) -> Self {
+        PyValue::Reduce(Arc::new(PyReduce {
+            func: ReduceFunc::Dict,
+            value: PyValue::mapping(entries),
+        }))
+    }
+
     /// `dict.get(key)` for a `str` key.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&PyValue> {
@@ -458,6 +472,130 @@ impl PyValue {
             })),
             other => other.clone(),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sharing
+// ---------------------------------------------------------------------------
+
+/// Reproduces CPython's object identity for a DRF `serializer.data` payload.
+///
+/// The pickler memoises by `id(obj)`, so whether two equal strings are written
+/// once (`MEMOIZE` + `BINGET`) or twice (`SHORT_BINUNICODE` twice) changes the
+/// cached bytes even though the decoded value is identical. Django's payload
+/// has three kinds of `str`:
+///
+/// * **dict keys and `ChoiceField` values** — the serializer's field names are
+///   class-level strings reused for every row, and a model `choices` value is a
+///   compiler-interned literal. Both are the same object wherever they occur,
+///   so [`PyInterner::key`] and [`PyInterner::choice`] draw from one pool.
+/// * **database values** (`CharField`/`TextField`/`SlugField` output) — each
+///   column is decoded into a fresh `str`, which is *not* interned even when an
+///   equal interned literal exists. [`PyInterner::value`] returns a fresh
+///   object, except for the two CPython singletons a decode can hit: the empty
+///   string (`unicode_empty`) and a single U+0000..U+00FF character
+///   (`unicode_latin1`). (`Objects/unicodeobject.c`, `PyUnicode_DecodeUTF8`.)
+/// * **derived strings** (`DateTimeField`'s `isoformat()`, `str(uuid)`) — new
+///   objects every time; [`PyInterner::value`] is also right for those.
+///
+/// A value that occurs only once is encoded identically either way, so the
+/// builder only has to be exact about repeats. `null`, `true`/`false`, ints and
+/// floats are never memoised by the pickler, so their identity does not matter.
+///
+/// ```ignore
+/// let mut strings = PyInterner::new();
+/// let name = strings.value(&label.name);
+/// let kind = strings.choice(&estimate.r#type);
+/// let row = strings.mapping([("name", name), ("type", kind)]);
+/// ```
+#[derive(Debug, Default)]
+pub struct PyInterner {
+    strings: HashMap<String, PyValue>,
+}
+
+impl PyInterner {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A dict key (or `.values()` column name): one object per name, shared by
+    /// every row.
+    pub fn key(&mut self, name: &str) -> PyValue {
+        self.interned(name)
+    }
+
+    /// A value a `ChoiceField` produced.
+    ///
+    /// `ChoiceField.to_representation` returns the object stored in its
+    /// `choice_strings_to_values` map (`rest_framework/fields.py:900-911`),
+    /// which is the model's choice constant — a compiler-interned string, i.e.
+    /// the same object as a field name with that text.
+    pub fn choice(&mut self, text: &str) -> PyValue {
+        self.interned(text)
+    }
+
+    /// A string read from the database (or built by a field renderer).
+    ///
+    /// Fresh, except for CPython's empty-string and single-Latin-1 singletons.
+    pub fn value(&mut self, text: &str) -> PyValue {
+        if is_cpython_singleton_string(text) {
+            return self.interned(text);
+        }
+        PyValue::string(text.to_owned())
+    }
+
+    /// Build a row dict, interning every key.
+    pub fn mapping<'a>(
+        &mut self,
+        entries: impl IntoIterator<Item = (&'a str, PyValue)>,
+    ) -> PyValue {
+        PyValue::mapping(
+            entries
+                .into_iter()
+                .map(|(name, value)| (self.key(name), value))
+                .collect(),
+        )
+    }
+
+    /// The shared object for `text`, creating it on first use.
+    fn interned(&mut self, text: &str) -> PyValue {
+        if let Some(existing) = self.strings.get(text) {
+            return existing.clone();
+        }
+        let value = PyValue::string(text.to_owned());
+        self.strings.insert(text.to_owned(), value.clone());
+        value
+    }
+
+    /// The number of interned strings (for tests and diagnostics).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.strings.len()
+    }
+
+    /// Whether nothing has been interned.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.strings.is_empty()
+    }
+}
+
+/// Whether [`PyUnicode_DecodeUTF8`](https://docs.python.org/3/c-api/unicode.html)
+/// returns a singleton for this text.
+///
+/// CPython returns `unicode_empty` for a zero-length decode and the cached
+/// `unicode_latin1` object for a single character below U+0100; every other
+/// length allocates.
+fn is_cpython_singleton_string(text: &str) -> bool {
+    if text.is_empty() {
+        return true;
+    }
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => u32::from(c) <= 0xFF,
+        _ => false,
     }
 }
 
@@ -720,5 +858,65 @@ mod tests {
         assert!(wrapped.reduce().is_some());
         assert_eq!(wrapped.decayed(), PyValue::list(vec![PyValue::int(1)]));
         assert_eq!(render(&wrapped), "[1]");
+    }
+
+    fn arc_of(value: &PyValue) -> usize {
+        match value {
+            PyValue::Str(text) => std::sync::Arc::as_ptr(text) as *const () as usize,
+            other => panic!("not a string: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn interner_shares_keys_and_choices() {
+        let mut strings = PyInterner::new();
+        let first = strings.key("is_favorite");
+        let second = strings.key("is_favorite");
+        assert_eq!(arc_of(&first), arc_of(&second));
+        // A `ChoiceField` returns the compiler-interned literal, which is the
+        // same object as a field name with that text.
+        let choice = strings.choice("is_favorite");
+        assert_eq!(arc_of(&first), arc_of(&choice));
+        assert_eq!(strings.len(), 1);
+        assert!(!strings.is_empty());
+    }
+
+    #[test]
+    fn interner_keeps_database_strings_fresh() {
+        let mut strings = PyInterner::new();
+        // Two equal multi-character DB values are distinct objects in Python,
+        // even when an equal interned key exists (`sys.intern("Bug") is not
+        // label.name` for a decoded value).
+        let key = strings.key("Bug");
+        let first = strings.value("Bug");
+        let second = strings.value("Bug");
+        assert_ne!(arc_of(&first), arc_of(&second));
+        assert_ne!(arc_of(&key), arc_of(&first));
+        // CPython's empty-string and single-Latin-1 singletons are shared by a
+        // decode, including with an equal interned key.
+        let empty = strings.value("");
+        assert_eq!(arc_of(&empty), arc_of(&strings.key("")));
+        let one = strings.value("a");
+        assert_eq!(arc_of(&one), arc_of(&strings.key("a")));
+        let latin1 = strings.value("\u{e9}");
+        assert_eq!(arc_of(&latin1), arc_of(&strings.key("\u{e9}")));
+        // A single astral character has no cached singleton.
+        let astral = strings.value("\u{1f600}");
+        let astral_key = strings.key("\u{1f600}");
+        assert_ne!(arc_of(&astral), arc_of(&astral_key));
+    }
+
+    #[test]
+    fn interner_builds_shared_row_keys() {
+        let mut strings = PyInterner::new();
+        let crash = strings.value("Crash");
+        let api = strings.value("API");
+        let first = strings.mapping([("id", PyValue::none()), ("name", crash)]);
+        let second = strings.mapping([("id", PyValue::none()), ("name", api)]);
+        let first = first.as_mapping().expect("mapping");
+        let second = second.as_mapping().expect("mapping");
+        assert_eq!(arc_of(&first.entries[0].0), arc_of(&second.entries[0].0));
+        assert_eq!(arc_of(&first.entries[1].0), arc_of(&second.entries[1].0));
+        assert_ne!(arc_of(&first.entries[1].1), arc_of(&second.entries[1].1));
     }
 }

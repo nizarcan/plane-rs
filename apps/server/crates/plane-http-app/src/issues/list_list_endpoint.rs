@@ -37,6 +37,7 @@ use plane_query::issue::query::IssueScope;
 use plane_query::issue::values;
 use plane_query::json::Json;
 use plane_query::sql::{Frag, Select};
+use plane_serializers::FieldValue;
 use plane_serializers::generated::app_issue::IssueSerializer;
 use uuid::Uuid;
 
@@ -344,17 +345,24 @@ async fn serialized<'a>(
             sequence_id: as_int(get("sequence_id"))?,
             project_id: required_uuid(get("project_id"))?,
             parent_id: as_opt_uuid(get("parent_id"))?,
-            cycle_id: cycle_id.map(plane_serializers::fields::DrfPk::Uuid),
-            module_ids: Some(module_ids.as_slice()),
-            label_ids: Some(label_ids.as_slice()),
-            assignee_ids: Some(assignee_ids.as_slice()),
-            sub_issues_count: as_opt_int(get("sub_issues_count"))?,
+            // Every annotation below is applied unconditionally
+            // (`plane/app/views/issue/base.py:129-155`) and every projection
+            // key exists in `.values()` (`:174-201`), so the attribute is
+            // never missing. A SQL NULL is DRF's `null`
+            // (`rest_framework/serializers.py:541-546`).
+            cycle_id: FieldValue::from_attribute(
+                cycle_id.map(plane_serializers::fields::DrfPk::Uuid),
+            ),
+            module_ids: FieldValue::value(module_ids.as_slice()),
+            label_ids: FieldValue::value(label_ids.as_slice()),
+            assignee_ids: FieldValue::value(assignee_ids.as_slice()),
+            sub_issues_count: FieldValue::from_attribute(as_opt_int(get("sub_issues_count"))?),
             created_at: required_datetime(get("created_at"))?,
             updated_at: required_datetime(get("updated_at"))?,
             created_by: as_opt_uuid(get("created_by"))?,
             updated_by: as_opt_uuid(get("updated_by"))?,
-            attachment_count: as_opt_int(get("attachment_count"))?,
-            link_count: as_opt_int(get("link_count"))?,
+            attachment_count: FieldValue::from_attribute(as_opt_int(get("attachment_count"))?),
+            link_count: FieldValue::from_attribute(as_opt_int(get("link_count"))?),
             is_draft: as_bool(get("is_draft"))?,
             archived_at: as_opt_date(get("archived_at"))?,
         };

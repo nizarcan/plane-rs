@@ -70,7 +70,7 @@ pub struct PageDetailSerializer<'a> {
     /// `parent`: PrimaryKeyRelatedField (source `parent`).
     pub parent: Option<uuid::Uuid>,
     /// `is_favorite`: BooleanField (source `is_favorite`).
-    pub is_favorite: Option<bool>,
+    pub is_favorite: crate::fields::FieldValue<bool>,
     /// `is_locked`: BooleanField (source `is_locked`).
     pub is_locked: bool,
     /// `archived_at`: DateField (source `archived_at`).
@@ -90,9 +90,9 @@ pub struct PageDetailSerializer<'a> {
     /// `logo_props`: JSONField (source `logo_props`).
     pub logo_props: Option<crate::fields::PgJson<'a>>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `project_ids`: ListField (source `project_ids`).
-    pub project_ids: Option<&'a [uuid::Uuid]>,
+    pub project_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `description_html`: CharField (source `description_html`).
     pub description_html: &'a str,
 }
@@ -149,10 +149,8 @@ impl<'a> crate::ser::DrfSerialize for PageDetailSerializer<'a> {
         if ctx.emits("parent", Self::MODE) {
             obj.field_dyn("parent", ctx, &self.parent.map(crate::fields::DrfUuid))?;
         }
-        if ctx.emits("is_favorite", Self::MODE)
-            && let Some(value) = &self.is_favorite
-        {
-            obj.field_dyn("is_favorite", ctx, &value)?;
+        if ctx.emits("is_favorite", Self::MODE) {
+            obj.field_optional_dyn("is_favorite", ctx, &self.is_favorite)?;
         }
         if ctx.emits("is_locked", Self::MODE) {
             obj.field_dyn("is_locked", ctx, &self.is_locked)?;
@@ -201,15 +199,11 @@ impl<'a> crate::ser::DrfSerialize for PageDetailSerializer<'a> {
         if ctx.emits("logo_props", Self::MODE) {
             obj.field_json_dyn("logo_props", ctx, self.logo_props)?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
-        if ctx.emits("project_ids", Self::MODE)
-            && let Some(value) = &self.project_ids
-        {
-            obj.field_dyn("project_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("project_ids", Self::MODE) {
+            obj.field_optional_dyn("project_ids", ctx, &self.project_ids)?;
         }
         if ctx.emits("description_html", Self::MODE) {
             obj.field_dyn("description_html", ctx, &self.description_html)?;
@@ -240,7 +234,7 @@ pub struct PageSerializer<'a> {
     /// `parent`: PrimaryKeyRelatedField (source `parent`).
     pub parent: Option<uuid::Uuid>,
     /// `is_favorite`: BooleanField (source `is_favorite`).
-    pub is_favorite: Option<bool>,
+    pub is_favorite: crate::fields::FieldValue<bool>,
     /// `is_locked`: BooleanField (source `is_locked`).
     pub is_locked: bool,
     /// `archived_at`: DateField (source `archived_at`).
@@ -260,9 +254,9 @@ pub struct PageSerializer<'a> {
     /// `logo_props`: JSONField (source `logo_props`).
     pub logo_props: Option<crate::fields::PgJson<'a>>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `project_ids`: ListField (source `project_ids`).
-    pub project_ids: Option<&'a [uuid::Uuid]>,
+    pub project_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
 }
 
 impl<'a> PageSerializer<'a> {
@@ -316,10 +310,8 @@ impl<'a> crate::ser::DrfSerialize for PageSerializer<'a> {
         if ctx.emits("parent", Self::MODE) {
             obj.field_dyn("parent", ctx, &self.parent.map(crate::fields::DrfUuid))?;
         }
-        if ctx.emits("is_favorite", Self::MODE)
-            && let Some(value) = &self.is_favorite
-        {
-            obj.field_dyn("is_favorite", ctx, &value)?;
+        if ctx.emits("is_favorite", Self::MODE) {
+            obj.field_optional_dyn("is_favorite", ctx, &self.is_favorite)?;
         }
         if ctx.emits("is_locked", Self::MODE) {
             obj.field_dyn("is_locked", ctx, &self.is_locked)?;
@@ -368,15 +360,11 @@ impl<'a> crate::ser::DrfSerialize for PageSerializer<'a> {
         if ctx.emits("logo_props", Self::MODE) {
             obj.field_json_dyn("logo_props", ctx, self.logo_props)?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
-        if ctx.emits("project_ids", Self::MODE)
-            && let Some(value) = &self.project_ids
-        {
-            obj.field_dyn("project_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("project_ids", Self::MODE) {
+            obj.field_optional_dyn("project_ids", ctx, &self.project_ids)?;
         }
         ctx.expansions()
             .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;

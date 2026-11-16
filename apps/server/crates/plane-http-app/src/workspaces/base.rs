@@ -26,6 +26,7 @@ use plane_db::models::workspace::{Workspace, WorkspaceTheme};
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_serializers::FieldValue;
 use plane_serializers::fields::PgJson;
 use plane_serializers::generated::app_workspace::{WorkSpaceSerializer, WorkspaceThemeSerializer};
 use uuid::Uuid;
@@ -170,13 +171,15 @@ impl WorkspaceRecord {
     fn serializer(&self) -> WorkSpaceSerializer<'_> {
         WorkSpaceSerializer {
             id: self.model.id,
-            total_members: Some(self.total_members),
+            // `annotate(total_members=member_count)`
+            // (`plane/app/views/workspace/base.py:75-80`): always present.
+            total_members: FieldValue::from_attribute(Some(self.total_members)),
             logo_url: self.logo_url.as_deref(),
             // No read path of this viewset adds a `role` annotation, so the
             // field is absent from the instance. `IntegerField(read_only=True)`
             // over a missing attribute is a 500, which no reachable request
             // hits (see the module docs).
-            role: None,
+            role: FieldValue::absent(),
             created_at: self.model.created_at,
             updated_at: self.model.updated_at,
             deleted_at: self.model.deleted_at,

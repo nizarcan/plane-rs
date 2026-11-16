@@ -5,10 +5,11 @@
 //! `schema_check` for every query catalog in this crate.
 //!
 //! Each domain owns `src/<domain>/queries.rs` with its own `ALL_QUERIES`; this
-//! test is the one place that knows the complete list, so a domain agent adds
-//! statements without touching a shared file. The `list_is_complete` test below
-//! fails when a domain is missing here, so the list cannot silently fall behind
-//! `src/lib.rs`.
+//! test is the one place that prepares them all, so a domain agent adds
+//! statements without touching a shared file. `every_query_catalog_is_registered`
+//! walks `src/` and fails when a `*queries.rs` file is missing from [`catalogs`],
+//! so a new domain cannot forget to register its catalog (and a renamed file
+//! cannot leave a stale entry).
 //!
 //! ```sh
 //! apps/server/dev/mkdb.sh t_httpapp_schema
@@ -21,40 +22,158 @@
 //! The skip/require rules live in `plane_db::schema_check`, so every crate
 //! behaves the same.
 
+use std::path::Path;
+
 use plane_db::Query;
 use plane_http_app::common::queries as common;
 
+// `issues::sub_queries` lives under the crate-private `issues::sub_resources`
+// module, so an integration test cannot name it. Compiling the file here gives
+// the test the same catalog values the handlers use; the module path is
+// registered through `source` below like every other catalog.
+#[path = "../src/issues/sub_queries.rs"]
+mod issues_sub_queries;
+
+/// One catalog and the file that declares it.
+struct Catalog {
+    /// Name used in the duplicate check and in a failure message.
+    domain: &'static str,
+    /// Path relative to `src/`, as [`every_query_catalog_is_registered`] sees it.
+    source: &'static str,
+    queries: &'static [&'static Query],
+}
+
 /// Every catalog this crate owns, in `src/lib.rs`'s registration order.
-fn catalogs() -> Vec<(&'static str, &'static [&'static Query])> {
+fn catalogs() -> Vec<Catalog> {
     vec![
-        ("common", common::ALL_QUERIES),
-        ("meta", plane_http_app::meta::queries::ALL_QUERIES),
-        ("users_me", plane_http_app::users_me::queries::ALL_QUERIES),
-        ("assets", plane_http_app::assets::queries::ALL_QUERIES),
-        (
-            "workspaces",
-            plane_http_app::workspaces::queries::ALL_QUERIES,
-        ),
-        ("analytics", plane_http_app::analytics::queries::ALL_QUERIES),
-        ("projects", plane_http_app::projects::queries::ALL_QUERIES),
-        ("states", plane_http_app::states::queries::ALL_QUERIES),
-        ("labels", plane_http_app::labels::queries::ALL_QUERIES),
-        ("estimates", plane_http_app::estimates::queries::ALL_QUERIES),
-        ("issues", plane_http_app::issues::queries::ALL_QUERIES),
-        ("cycles", plane_http_app::cycles::queries::ALL_QUERIES),
-        ("modules", plane_http_app::modules::queries::ALL_QUERIES),
-        ("views", plane_http_app::views::queries::ALL_QUERIES),
-        ("pages", plane_http_app::pages::queries::ALL_QUERIES),
-        ("intake", plane_http_app::intake::queries::ALL_QUERIES),
-        (
-            "notifications",
-            plane_http_app::notifications::queries::ALL_QUERIES,
-        ),
-        ("search", plane_http_app::search::queries::ALL_QUERIES),
-        ("stickies", plane_http_app::stickies::queries::ALL_QUERIES),
-        ("webhooks", plane_http_app::webhooks::queries::ALL_QUERIES),
-        ("ai", plane_http_app::ai::queries::ALL_QUERIES),
+        Catalog {
+            domain: "common",
+            source: "common/queries.rs",
+            queries: common::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "meta",
+            source: "meta/queries.rs",
+            queries: plane_http_app::meta::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "users_me",
+            source: "users_me/queries.rs",
+            queries: plane_http_app::users_me::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "assets",
+            source: "assets/queries.rs",
+            queries: plane_http_app::assets::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "workspaces",
+            source: "workspaces/queries.rs",
+            queries: plane_http_app::workspaces::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "analytics",
+            source: "analytics/queries.rs",
+            queries: plane_http_app::analytics::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "projects",
+            source: "projects/queries.rs",
+            queries: plane_http_app::projects::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "states",
+            source: "states/queries.rs",
+            queries: plane_http_app::states::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "labels",
+            source: "labels/queries.rs",
+            queries: plane_http_app::labels::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "estimates",
+            source: "estimates/queries.rs",
+            queries: plane_http_app::estimates::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "issues",
+            source: "issues/queries.rs",
+            queries: plane_http_app::issues::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "issues_sub",
+            source: "issues/sub_queries.rs",
+            queries: issues_sub_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "cycles",
+            source: "cycles/queries.rs",
+            queries: plane_http_app::cycles::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "modules",
+            source: "modules/queries.rs",
+            queries: plane_http_app::modules::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "views",
+            source: "views/queries.rs",
+            queries: plane_http_app::views::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "pages",
+            source: "pages/queries.rs",
+            queries: plane_http_app::pages::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "intake",
+            source: "intake/queries.rs",
+            queries: plane_http_app::intake::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "notifications",
+            source: "notifications/queries.rs",
+            queries: plane_http_app::notifications::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "search",
+            source: "search/queries.rs",
+            queries: plane_http_app::search::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "stickies",
+            source: "stickies/queries.rs",
+            queries: plane_http_app::stickies::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "webhooks",
+            source: "webhooks/queries.rs",
+            queries: plane_http_app::webhooks::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "ai",
+            source: "ai/queries.rs",
+            queries: plane_http_app::ai::queries::ALL_QUERIES,
+        },
     ]
+}
+
+/// Append every `*queries.rs` file under `root`, as a `/`-separated path
+/// relative to `src/`.
+fn collect_query_files(root: &Path, relative: &Path, out: &mut Vec<String>) {
+    let entries = std::fs::read_dir(root).expect("read_dir under src/");
+    for entry in entries {
+        let entry = entry.expect("directory entry");
+        let name = entry.file_name();
+        let path = entry.path();
+        let relative = relative.join(&name);
+        if path.is_dir() {
+            collect_query_files(&path, &relative, out);
+        } else if name.to_string_lossy().ends_with("queries.rs") {
+            out.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
 }
 
 #[test]
@@ -62,12 +181,12 @@ fn query_names_are_unique_across_the_crate() {
     // The catalog name is what `schema_check` prints and what a handler reads in
     // a stack trace, so two domains must not guess the same one.
     let mut seen: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
-    for (domain, queries) in catalogs() {
-        for query in queries {
-            if let Some(first) = seen.insert(query.name, domain) {
+    for catalog in catalogs() {
+        for query in catalog.queries {
+            if let Some(first) = seen.insert(query.name, catalog.domain) {
                 panic!(
-                    "query name {:?} is declared in both {first} and {domain}",
-                    query.name
+                    "query name {:?} is declared in both {first} and {}",
+                    query.name, catalog.domain
                 );
             }
         }
@@ -75,32 +194,32 @@ fn query_names_are_unique_across_the_crate() {
 }
 
 #[test]
-fn list_is_complete() {
-    // `src/lib.rs` declares one module per `/api/` route group; every one of
-    // them has a `queries` module and has to be listed above. Catch a domain
-    // that was added to the crate but not to this test.
-    let source = include_str!("../src/lib.rs");
-    let declared: Vec<&str> = source
-        .lines()
-        .filter_map(|line| line.strip_prefix("pub mod "))
-        .map(|name| name.trim_end_matches(';'))
-        .filter(|name| !matches!(*name, "common"))
-        .collect();
-    let listed: Vec<&str> = catalogs()
-        .into_iter()
-        .map(|(domain, _)| domain)
-        .filter(|domain| *domain != "common")
-        .collect();
-    for domain in &listed {
+fn every_query_catalog_is_registered() {
+    // A domain's catalog is a file, not a line in this list, so discovery has
+    // to be by file: a new `src/<domain>/queries.rs` (or a second catalog such
+    // as `src/issues/sub_queries.rs`) that is not registered here fails the
+    // test instead of silently going unchecked.
+    let mut discovered = Vec::new();
+    collect_query_files(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        Path::new(""),
+        &mut discovered,
+    );
+    discovered.sort();
+
+    let mut listed: Vec<&str> = catalogs().iter().map(|catalog| catalog.source).collect();
+    listed.sort_unstable();
+
+    for source in &discovered {
         assert!(
-            declared.contains(domain),
-            "{domain} is listed in tests/schema_check.rs but is not a module of src/lib.rs"
+            listed.contains(&source.as_str()),
+            "src/{source} declares a catalog but tests/schema_check.rs does not list it"
         );
     }
-    for domain in &declared {
+    for source in &listed {
         assert!(
-            listed.contains(domain),
-            "src/lib.rs declares {domain} but tests/schema_check.rs does not check its catalog"
+            discovered.iter().any(|discovered| discovered == source),
+            "tests/schema_check.rs lists {source} but no such file exists under src/"
         );
     }
 }
@@ -121,7 +240,7 @@ async fn schema_check() {
 
     let queries: Vec<&Query> = catalogs()
         .into_iter()
-        .flat_map(|(_, queries)| queries.iter().copied())
+        .flat_map(|catalog| catalog.queries.iter().copied())
         .collect();
     if queries.is_empty() {
         println!("schema_check: no statements catalogued yet");

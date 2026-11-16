@@ -398,7 +398,7 @@ pub struct IssueCommentSerializer<'a> {
     /// `comment_reactions`: ListSerializer (source `comment_reactions`).
     pub comment_reactions: &'a [crate::generated::space_issue::CommentReactionLiteSerializer<'a>],
     /// `is_member`: BooleanField (source `is_member`).
-    pub is_member: Option<bool>,
+    pub is_member: crate::fields::FieldValue<bool>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -518,10 +518,8 @@ impl<'a> crate::ser::DrfSerialize for IssueCommentSerializer<'a> {
         if ctx.emits("comment_reactions", Self::MODE) {
             obj.field_nested_list_dyn("comment_reactions", ctx, self.comment_reactions)?;
         }
-        if ctx.emits("is_member", Self::MODE)
-            && let Some(value) = &self.is_member
-        {
-            obj.field_dyn("is_member", ctx, &value)?;
+        if ctx.emits("is_member", Self::MODE) {
+            obj.field_optional_dyn("is_member", ctx, &self.is_member)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -1173,13 +1171,13 @@ pub struct IssuePublicSerializer<'a> {
     /// `votes`: ListSerializer (source `votes`).
     pub votes: &'a [crate::generated::space_issue::IssueVoteSerializer],
     /// `module_ids`: ListField (source `module_ids`).
-    pub module_ids: Option<&'a [uuid::Uuid]>,
+    pub module_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `created_by`: PrimaryKeyRelatedField (source `created_by`).
     pub created_by: Option<uuid::Uuid>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `assignee_ids`: ListField (source `assignee_ids`).
-    pub assignee_ids: Option<&'a [uuid::Uuid]>,
+    pub assignee_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
 }
 
 impl<'a> IssuePublicSerializer<'a> {
@@ -1245,10 +1243,8 @@ impl<'a> crate::ser::DrfSerialize for IssuePublicSerializer<'a> {
         if ctx.emits("votes", Self::MODE) {
             obj.field_nested_list_dyn("votes", ctx, self.votes)?;
         }
-        if ctx.emits("module_ids", Self::MODE)
-            && let Some(value) = &self.module_ids
-        {
-            obj.field_dyn("module_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("module_ids", Self::MODE) {
+            obj.field_optional_dyn("module_ids", ctx, &self.module_ids)?;
         }
         if ctx.emits("created_by", Self::MODE) {
             obj.field_dyn(
@@ -1257,15 +1253,11 @@ impl<'a> crate::ser::DrfSerialize for IssuePublicSerializer<'a> {
                 &self.created_by.map(crate::fields::DrfUuid),
             )?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
-        if ctx.emits("assignee_ids", Self::MODE)
-            && let Some(value) = &self.assignee_ids
-        {
-            obj.field_dyn("assignee_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("assignee_ids", Self::MODE) {
+            obj.field_optional_dyn("assignee_ids", ctx, &self.assignee_ids)?;
         }
         ctx.expansions()
             .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;
@@ -1429,7 +1421,7 @@ pub struct IssueSerializer<'a> {
     /// `issue_attachment`: ListSerializer (source `issue_attachment`).
     pub issue_attachment: &'a [crate::generated::space_issue::IssueAttachmentSerializer<'a>],
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `issue_reactions`: ListSerializer (source `issue_reactions`).
     pub issue_reactions: &'a [crate::generated::space_issue::IssueReactionSerializer<'a>],
     /// `created_at`: DateTimeField (source `created_at`).
@@ -1611,10 +1603,8 @@ impl<'a> crate::ser::DrfSerialize for IssueSerializer<'a> {
         if ctx.emits("issue_attachment", Self::MODE) {
             obj.field_nested_list_dyn("issue_attachment", ctx, self.issue_attachment)?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
         if ctx.emits("issue_reactions", Self::MODE) {
             obj.field_nested_list_dyn("issue_reactions", ctx, self.issue_reactions)?;

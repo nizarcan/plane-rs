@@ -25,6 +25,7 @@ use plane_db::models::project::ProjectMember;
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_serializers::FieldValue;
 use plane_serializers::generated::app_project::ProjectMemberLiteSerializer;
 use plane_serializers::generated::app_user::UserLiteSerializer;
 
@@ -64,7 +65,7 @@ impl<'a> MemberEntry<'a> {
             id: self.member.id,
             // No annotation on the queryset (`subscriber.py:74-82`); DRF skips
             // the field rather than emitting `null`.
-            is_subscribed: None,
+            is_subscribed: FieldValue::absent(),
         }
     }
 }

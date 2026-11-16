@@ -135,7 +135,7 @@ pub struct ModuleIssueSerializer {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -185,10 +185,8 @@ impl crate::ser::DrfSerialize for ModuleIssueSerializer {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

@@ -113,6 +113,7 @@ WORKSPACE_LITE = f"{APP_WORKSPACE}.WorkspaceLiteSerializer"
 WORKSPACE = f"{APP_WORKSPACE}.WorkSpaceSerializer"
 WORKSPACE_MEMBER = f"{APP_WORKSPACE}.WorkSpaceMemberSerializer"
 PROJECT_LITE = f"{APP_PROJECT}.ProjectLiteSerializer"
+PROJECT_DETAIL = f"{APP_PROJECT}.ProjectDetailSerializer"
 STATE = f"{APP_STATE}.StateSerializer"
 STATE_LITE = f"{APP_STATE}.StateLiteSerializer"
 LABEL = f"{APP_ISSUE}.LabelSerializer"
@@ -191,10 +192,17 @@ CASES: list[Case] = [
     ),
     # ProjectLiteSerializer.
     *timezone_cases("project_lite", PROJECT_LITE, "project1"),
+    # ProjectDetailSerializer: the four skippable annotations present with
+    # values, and present and None. `null` is the DRF output for the latter;
+    # only a missing attribute omits the key.
+    Case("project_detail/annotations", PROJECT_DETAIL, "project_annotated"),
+    Case("project_detail/annotations_null", PROJECT_DETAIL, "project_null"),
     # StateSerializer: `order` is required=False over an annotation, so the
-    # plain instance omits it (SkipField).
+    # plain instance omits it (SkipField) and an instance whose attribute is
+    # None writes `"order": null`.
     *timezone_cases("state", STATE, "state1"),
     Case("state/with_order", STATE, "state1_with_order"),
+    Case("state/order_null", STATE, "state1_with_order_none"),
     Case("state/many", STATE, "state_pair", many=True),
     # StateLiteSerializer.
     *timezone_cases("state_lite", STATE_LITE, "state1"),
@@ -270,6 +278,10 @@ CASES: list[Case] = [
         fields=["id", "state_id"],
         expand=["state", "labels"],
     ),
+    # The skippable annotations exist but are None: every one is `null` in the
+    # output, and the two-state `ListField`s with `allow_null=True` are null
+    # too (a nullable value is never a SkipField).
+    Case("issue/annotations_null", ISSUE, "issue_null_annotations"),
     Case("issue/many", ISSUE, "issue_pair", many=True),
     # IssueFlatSerializer.
     *timezone_cases("issue_flat", ISSUE_FLAT, "issue1"),

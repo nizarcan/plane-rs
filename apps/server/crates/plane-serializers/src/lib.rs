@@ -84,8 +84,9 @@ pub use expand::{
     Expansion, Expansions, MANY_EXPANSION_FIELDS, expansion_serializer, is_expansion_name,
 };
 pub use fields::{
-    DrfDateTime, DrfDecimal, DrfFloatList, DrfPk, DrfStrList, DrfUuid, DrfUuidList, EncoderDecimal,
-    PgJson, PyBase64, PyDate, PyTime, drf_datetime, drf_datetime_opt,
+    DrfBoolList, DrfDateTime, DrfDecimal, DrfFloatList, DrfPk, DrfScalar, DrfStrList, DrfUuid,
+    DrfUuidList, EncoderDecimal, FieldValue, PgJson, PyBase64, PyDate, PyTime, drf_datetime,
+    drf_datetime_opt,
 };
 pub use mask::{FieldEntry, FieldMask};
 pub use plane_serde::PyDecimal;

@@ -27,6 +27,7 @@ use plane_query::issue::filter::{FilterParams, LegacyFilters};
 use plane_query::json::Json;
 use plane_query::paginator::{Cursor, MAX_LIMIT, PageQuery};
 use plane_query::sql::{Frag, Join, Select};
+use plane_serializers::FieldValue;
 use plane_serializers::generated::app_draft::DraftIssueSerializer;
 use uuid::Uuid;
 
@@ -421,13 +422,17 @@ impl DraftRow {
             target_date: self.target_date,
             project_id: self.project_id,
             parent_id: self.parent_id,
-            cycle_id: Some(match self.cycle_id {
-                Some(cycle_id) => plane_serializers::fields::DrfPk::Uuid(cycle_id),
-                None => plane_serializers::fields::DrfPk::Null,
-            }),
-            module_ids: Some(&self.module_ids),
-            label_ids: Some(&self.label_ids),
-            assignee_ids: Some(&self.assignee_ids),
+            // The four annotations are in `get_queryset`
+            // (`plane/app/views/workspace/draft.py:70-116`): a correlated
+            // subquery (NULL when there is no cycle) and three `COALESCE(…,
+            // ARRAY[]::uuid[])` aggregates. The attributes always exist, so a
+            // NULL cycle is DRF's `null`, not a missing key.
+            cycle_id: FieldValue::from_attribute(
+                self.cycle_id.map(plane_serializers::fields::DrfPk::Uuid),
+            ),
+            module_ids: FieldValue::value(self.module_ids.as_slice()),
+            label_ids: FieldValue::value(self.label_ids.as_slice()),
+            assignee_ids: FieldValue::value(self.assignee_ids.as_slice()),
             created_at: self.created_at,
             updated_at: self.updated_at,
             created_by: self.created_by,

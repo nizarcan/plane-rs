@@ -80,7 +80,7 @@ pub struct IntakeSerializer<'a> {
     /// `project_detail`: ProjectLiteSerializer (source `project`).
     pub project_detail: Option<&'a crate::generated::app_project::ProjectLiteSerializer<'a>>,
     /// `pending_issue_count`: IntegerField (source `pending_issue_count`).
-    pub pending_issue_count: Option<i64>,
+    pub pending_issue_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -148,10 +148,8 @@ impl<'a> crate::ser::DrfSerialize for IntakeSerializer<'a> {
                     .map(|value| value as &(dyn crate::ser::DrfSerialize + '_)),
             )?;
         }
-        if ctx.emits("pending_issue_count", Self::MODE)
-            && let Some(value) = &self.pending_issue_count
-        {
-            obj.field_dyn("pending_issue_count", ctx, &value)?;
+        if ctx.emits("pending_issue_count", Self::MODE) {
+            obj.field_optional_dyn("pending_issue_count", ctx, &self.pending_issue_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -233,7 +231,7 @@ pub struct IssueStateIntakeSerializer<'a> {
     /// `assignee_details`: ListSerializer (source `assignees`).
     pub assignee_details: &'a [crate::generated::app_user::UserLiteSerializer<'a>],
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `issue_intake`: ListSerializer (source `issue_intake`).
     pub issue_intake: &'a [crate::generated::app_intake::IntakeIssueLiteSerializer<'a>],
     /// `created_at`: DateTimeField (source `created_at`).
@@ -372,10 +370,8 @@ impl<'a> crate::ser::DrfSerialize for IssueStateIntakeSerializer<'a> {
         if ctx.emits("assignee_details", Self::MODE) {
             obj.field_nested_list_dyn("assignee_details", ctx, self.assignee_details)?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
         if ctx.emits("issue_intake", Self::MODE) {
             obj.field_nested_list_dyn("issue_intake", ctx, self.issue_intake)?;

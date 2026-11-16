@@ -19,6 +19,6 @@ pub mod py;
 
 pub use config::{ConfigError, ConfigWarning, Role, Settings};
 pub use context::RequestContext;
-pub use error::{ApiError, ErrorBody, ErrorSurface};
+pub use error::{ApiError, ErrorBody, ErrorSurface, model_object_name};
 pub use ids::{InstanceId, SessionKey, UserId};
 pub use json::Object;

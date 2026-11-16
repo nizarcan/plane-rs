@@ -35,13 +35,13 @@ pub struct DraftIssueDetailSerializer<'a> {
     /// `parent_id`: ReadOnlyField (source `parent_id`).
     pub parent_id: Option<uuid::Uuid>,
     /// `cycle_id`: PrimaryKeyRelatedField (source `cycle_id`).
-    pub cycle_id: Option<crate::fields::DrfPk<'a>>,
+    pub cycle_id: crate::fields::FieldValue<crate::fields::DrfPk<'a>>,
     /// `module_ids`: ListField (source `module_ids`).
-    pub module_ids: Option<&'a [uuid::Uuid]>,
+    pub module_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `assignee_ids`: ListField (source `assignee_ids`).
-    pub assignee_ids: Option<&'a [uuid::Uuid]>,
+    pub assignee_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -149,25 +149,17 @@ impl<'a> crate::ser::DrfSerialize for DraftIssueDetailSerializer<'a> {
                 &self.parent_id.map(crate::fields::DrfUuid),
             )?;
         }
-        if ctx.emits("cycle_id", Self::MODE)
-            && let Some(value) = &self.cycle_id
-        {
-            obj.field_dyn("cycle_id", ctx, value)?;
+        if ctx.emits("cycle_id", Self::MODE) {
+            obj.field_optional_dyn("cycle_id", ctx, &self.cycle_id)?;
         }
-        if ctx.emits("module_ids", Self::MODE)
-            && let Some(value) = &self.module_ids
-        {
-            obj.field_dyn("module_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("module_ids", Self::MODE) {
+            obj.field_optional_dyn("module_ids", ctx, &self.module_ids)?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
-        if ctx.emits("assignee_ids", Self::MODE)
-            && let Some(value) = &self.assignee_ids
-        {
-            obj.field_dyn("assignee_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("assignee_ids", Self::MODE) {
+            obj.field_optional_dyn("assignee_ids", ctx, &self.assignee_ids)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -239,13 +231,13 @@ pub struct DraftIssueSerializer<'a> {
     /// `parent_id`: ReadOnlyField (source `parent_id`).
     pub parent_id: Option<uuid::Uuid>,
     /// `cycle_id`: PrimaryKeyRelatedField (source `cycle_id`).
-    pub cycle_id: Option<crate::fields::DrfPk<'a>>,
+    pub cycle_id: crate::fields::FieldValue<crate::fields::DrfPk<'a>>,
     /// `module_ids`: ListField (source `module_ids`).
-    pub module_ids: Option<&'a [uuid::Uuid]>,
+    pub module_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `assignee_ids`: ListField (source `assignee_ids`).
-    pub assignee_ids: Option<&'a [uuid::Uuid]>,
+    pub assignee_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -353,25 +345,17 @@ impl<'a> crate::ser::DrfSerialize for DraftIssueSerializer<'a> {
                 &self.parent_id.map(crate::fields::DrfUuid),
             )?;
         }
-        if ctx.emits("cycle_id", Self::MODE)
-            && let Some(value) = &self.cycle_id
-        {
-            obj.field_dyn("cycle_id", ctx, value)?;
+        if ctx.emits("cycle_id", Self::MODE) {
+            obj.field_optional_dyn("cycle_id", ctx, &self.cycle_id)?;
         }
-        if ctx.emits("module_ids", Self::MODE)
-            && let Some(value) = &self.module_ids
-        {
-            obj.field_dyn("module_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("module_ids", Self::MODE) {
+            obj.field_optional_dyn("module_ids", ctx, &self.module_ids)?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
-        if ctx.emits("assignee_ids", Self::MODE)
-            && let Some(value) = &self.assignee_ids
-        {
-            obj.field_dyn("assignee_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("assignee_ids", Self::MODE) {
+            obj.field_optional_dyn("assignee_ids", ctx, &self.assignee_ids)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

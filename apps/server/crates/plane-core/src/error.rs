@@ -81,6 +81,12 @@ pub enum ApiError {
     PermissionDenied(String),
     /// DRF `Http404` inside a view: `{"detail":"Not found."}`.
     NotFound,
+    /// DRF `NotFound` carrying `Http404`'s message, which is what
+    /// `get_object_or_404` produces: `{"detail":"No <object_name> matches the
+    /// given query."}` (`django/shortcuts.py:76-84`, DRF
+    /// `exceptions.NotFound`). Use [`ApiError::not_found_for`] to build one
+    /// from a model, or [`ApiError::not_found_detail`] for any other message.
+    NotFoundDetail(String),
     /// `/api/`'s `ObjectDoesNotExist` catch-all (§11.2).
     ObjectDoesNotExist,
     /// `/api/v1/`'s `ObjectDoesNotExist` catch-all (§11.2).
@@ -135,6 +141,37 @@ impl ApiError {
         Self::NotImplemented
     }
 
+    /// DRF `NotFound` with an arbitrary detail: `{"detail": "<detail>"}`.
+    ///
+    /// This is what `raise NotFound(detail)` produces, and what DRF's handler
+    /// builds from an `Http404`'s message (`rest_framework/views.py`
+    /// `exception_handler`).
+    pub fn not_found_detail(detail: impl Into<String>) -> Self {
+        Self::NotFoundDetail(detail.into())
+    }
+
+    /// `get_object_or_404`'s 404 for a Django model.
+    ///
+    /// `django.shortcuts.get_object_or_404` wraps `queryset.get()` and, on
+    /// `DoesNotExist`, raises
+    /// `Http404("No %s matches the given query." % queryset.model._meta.object_name)`
+    /// (`django/shortcuts.py:76-84`). `_meta.object_name` is the model's Python
+    /// class name; every generated `plane_db` model has the same name for its
+    /// struct (`apps/server/models.json` records `django_class` and
+    /// `rust_struct`, which differ only for the two auto-created M2M through
+    /// tables, which no view resolves with `get_object_or_404`).
+    ///
+    /// ```ignore
+    /// let project = client.query_opt(queries::PROJECT, &[&id]).await?
+    ///     .ok_or_else(ApiError::not_found_for::<Project>)?;
+    /// ```
+    pub fn not_found_for<M: ?Sized>() -> Self {
+        Self::NotFoundDetail(format!(
+            "No {} matches the given query.",
+            model_object_name::<M>()
+        ))
+    }
+
     pub fn status(&self) -> u16 {
         match self {
             Self::NotAuthenticated => 401,
@@ -149,7 +186,10 @@ impl ApiError {
                 }
             }
             Self::PermissionDenied(_) => 403,
-            Self::NotFound | Self::ObjectDoesNotExist | Self::ResourceDoesNotExist => 404,
+            Self::NotFound
+            | Self::NotFoundDetail(_)
+            | Self::ObjectDoesNotExist
+            | Self::ResourceDoesNotExist => 404,
             Self::InvalidPayload | Self::InvalidDetail | Self::MissingKey => 400,
             Self::FamilyServerError => 500,
             Self::MethodNotAllowed { .. } => 405,
@@ -192,6 +232,7 @@ impl ApiError {
                 ErrorBody::drf(detail_body(detail))
             }
             Self::NotFound => ErrorBody::drf(detail(NOT_FOUND_DETAIL)),
+            Self::NotFoundDetail(message) => ErrorBody::drf(detail_body(message)),
             Self::ObjectDoesNotExist => {
                 ErrorBody::drf(Object::new().field("error", OBJECT_DOES_NOT_EXIST_DETAIL))
             }
@@ -286,6 +327,22 @@ impl ApiError {
     }
 }
 
+/// Django's `_meta.object_name` for a generated model type.
+///
+/// The generated structs are named after the Django model class
+/// (`apps/server/models.json`'s `rust_struct` equals `django_class` for every
+/// concrete model), so the last segment of [`std::any::type_name`] is the
+/// `object_name` `get_object_or_404` puts in its message. Pass the model type,
+/// not `Option<Model>` or `&Model`.
+#[must_use]
+pub fn model_object_name<M: ?Sized>() -> &'static str {
+    let path = std::any::type_name::<M>();
+    match path.rsplit("::").next() {
+        Some(name) => name,
+        None => path,
+    }
+}
+
 /// A fully rendered error response.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ErrorResponse {
@@ -336,6 +393,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Stands in for `plane_db::models::project::Project`; `not_found_for` only
+    /// reads the type's last path segment.
+    struct Project;
+
     #[test]
     fn error_pages_are_byte_exact() {
         // HTTP_CONTRACT §11.2-§11.4: 145 and 143 bytes (both probed), and 135
@@ -369,6 +430,7 @@ mod tests {
         );
         assert_eq!(ApiError::permission_denied().status(), 403);
         assert_eq!(ApiError::NotFound.status(), 404);
+        assert_eq!(ApiError::not_found_detail("gone").status(), 404);
         assert_eq!(ApiError::PageNotFound.status(), 404);
         assert_eq!(
             ApiError::MethodNotAllowed {
@@ -422,6 +484,10 @@ mod tests {
         assert_eq!(
             ApiError::NotFound.body(),
             ErrorBody::Drf(detail("Not found."))
+        );
+        assert_eq!(
+            ApiError::not_found_for::<Project>().body(),
+            ErrorBody::Drf(detail("No Project matches the given query."))
         );
         assert_eq!(
             ApiError::PageNotFound.body(),
@@ -550,6 +616,38 @@ mod tests {
             .render()
             .expect("render");
         assert_eq!(response.body, b"[\"boom\"]");
+
+        // `get_object_or_404`: DRF `NotFound` with Django's message, 404, the
+        // DRF dialect (no spaces). `django/shortcuts.py:76-84`.
+        let response = ApiError::not_found_for::<Project>()
+            .render()
+            .expect("render");
+        assert_eq!(response.status, 404);
+        assert_eq!(
+            response.body,
+            b"{\"detail\":\"No Project matches the given query.\"}"
+        );
+        assert_eq!(ApiError::not_found_for::<Project>(), {
+            ApiError::NotFoundDetail("No Project matches the given query.".to_string())
+        });
+    }
+
+    #[test]
+    fn model_object_name_is_the_django_class_name() {
+        struct Project;
+        mod db {
+            pub struct Issue;
+            pub struct Workspace;
+        }
+        assert_eq!(model_object_name::<Project>(), "Project");
+        assert_eq!(model_object_name::<db::Issue>(), "Issue");
+        assert_eq!(model_object_name::<db::Workspace>(), "Workspace");
+        // The generated structs are named after the Django model
+        // (`apps/server/models.json` `django_class` == `rust_struct`).
+        assert_eq!(
+            ApiError::not_found_for::<db::Issue>().body(),
+            ErrorBody::Drf(detail("No Issue matches the given query."))
+        );
     }
 
     #[test]

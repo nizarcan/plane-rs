@@ -990,7 +990,7 @@ pub struct IssueCommentSerializer<'a> {
     /// `comment_reactions`: ListSerializer (source `comment_reactions`).
     pub comment_reactions: &'a [crate::generated::app_issue::CommentReactionSerializer<'a>],
     /// `is_member`: BooleanField (source `is_member`).
-    pub is_member: Option<bool>,
+    pub is_member: crate::fields::FieldValue<bool>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -1110,10 +1110,8 @@ impl<'a> crate::ser::DrfSerialize for IssueCommentSerializer<'a> {
         if ctx.emits("comment_reactions", Self::MODE) {
             obj.field_nested_list_dyn("comment_reactions", ctx, self.comment_reactions)?;
         }
-        if ctx.emits("is_member", Self::MODE)
-            && let Some(value) = &self.is_member
-        {
-            obj.field_dyn("is_member", ctx, &value)?;
+        if ctx.emits("is_member", Self::MODE) {
+            obj.field_optional_dyn("is_member", ctx, &self.is_member)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -1501,15 +1499,15 @@ pub struct IssueDetailSerializer<'a> {
     /// `parent_id`: ReadOnlyField (source `parent_id`).
     pub parent_id: Option<uuid::Uuid>,
     /// `cycle_id`: PrimaryKeyRelatedField (source `cycle_id`).
-    pub cycle_id: Option<crate::fields::DrfPk<'a>>,
+    pub cycle_id: crate::fields::FieldValue<crate::fields::DrfPk<'a>>,
     /// `module_ids`: ListField (source `module_ids`).
-    pub module_ids: Option<&'a [uuid::Uuid]>,
+    pub module_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `assignee_ids`: ListField (source `assignee_ids`).
-    pub assignee_ids: Option<&'a [uuid::Uuid]>,
+    pub assignee_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -1519,9 +1517,9 @@ pub struct IssueDetailSerializer<'a> {
     /// `updated_by`: PrimaryKeyRelatedField (source `updated_by`).
     pub updated_by: Option<uuid::Uuid>,
     /// `attachment_count`: IntegerField (source `attachment_count`).
-    pub attachment_count: Option<i64>,
+    pub attachment_count: crate::fields::FieldValue<i64>,
     /// `link_count`: IntegerField (source `link_count`).
-    pub link_count: Option<i64>,
+    pub link_count: crate::fields::FieldValue<i64>,
     /// `is_draft`: BooleanField (source `is_draft`).
     pub is_draft: bool,
     /// `archived_at`: DateField (source `archived_at`).
@@ -1529,9 +1527,9 @@ pub struct IssueDetailSerializer<'a> {
     /// `description_html`: CharField (source `description_html`).
     pub description_html: &'a str,
     /// `is_subscribed`: BooleanField (source `is_subscribed`).
-    pub is_subscribed: Option<bool>,
+    pub is_subscribed: crate::fields::FieldValue<bool>,
     /// `is_intake`: BooleanField (source `is_intake`).
-    pub is_intake: Option<bool>,
+    pub is_intake: crate::fields::FieldValue<bool>,
 }
 
 impl<'a> IssueDetailSerializer<'a> {
@@ -1633,30 +1631,20 @@ impl<'a> crate::ser::DrfSerialize for IssueDetailSerializer<'a> {
                 &self.parent_id.map(crate::fields::DrfUuid),
             )?;
         }
-        if ctx.emits("cycle_id", Self::MODE)
-            && let Some(value) = &self.cycle_id
-        {
-            obj.field_dyn("cycle_id", ctx, value)?;
+        if ctx.emits("cycle_id", Self::MODE) {
+            obj.field_optional_dyn("cycle_id", ctx, &self.cycle_id)?;
         }
-        if ctx.emits("module_ids", Self::MODE)
-            && let Some(value) = &self.module_ids
-        {
-            obj.field_dyn("module_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("module_ids", Self::MODE) {
+            obj.field_optional_dyn("module_ids", ctx, &self.module_ids)?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
-        if ctx.emits("assignee_ids", Self::MODE)
-            && let Some(value) = &self.assignee_ids
-        {
-            obj.field_dyn("assignee_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("assignee_ids", Self::MODE) {
+            obj.field_optional_dyn("assignee_ids", ctx, &self.assignee_ids)?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -1686,15 +1674,11 @@ impl<'a> crate::ser::DrfSerialize for IssueDetailSerializer<'a> {
                 &self.updated_by.map(crate::fields::DrfUuid),
             )?;
         }
-        if ctx.emits("attachment_count", Self::MODE)
-            && let Some(value) = &self.attachment_count
-        {
-            obj.field_dyn("attachment_count", ctx, &value)?;
+        if ctx.emits("attachment_count", Self::MODE) {
+            obj.field_optional_dyn("attachment_count", ctx, &self.attachment_count)?;
         }
-        if ctx.emits("link_count", Self::MODE)
-            && let Some(value) = &self.link_count
-        {
-            obj.field_dyn("link_count", ctx, &value)?;
+        if ctx.emits("link_count", Self::MODE) {
+            obj.field_optional_dyn("link_count", ctx, &self.link_count)?;
         }
         if ctx.emits("is_draft", Self::MODE) {
             obj.field_dyn("is_draft", ctx, &self.is_draft)?;
@@ -1709,15 +1693,11 @@ impl<'a> crate::ser::DrfSerialize for IssueDetailSerializer<'a> {
         if ctx.emits("description_html", Self::MODE) {
             obj.field_dyn("description_html", ctx, &self.description_html)?;
         }
-        if ctx.emits("is_subscribed", Self::MODE)
-            && let Some(value) = &self.is_subscribed
-        {
-            obj.field_dyn("is_subscribed", ctx, &value)?;
+        if ctx.emits("is_subscribed", Self::MODE) {
+            obj.field_optional_dyn("is_subscribed", ctx, &self.is_subscribed)?;
         }
-        if ctx.emits("is_intake", Self::MODE)
-            && let Some(value) = &self.is_intake
-        {
-            obj.field_dyn("is_intake", ctx, &value)?;
+        if ctx.emits("is_intake", Self::MODE) {
+            obj.field_optional_dyn("is_intake", ctx, &self.is_intake)?;
         }
         ctx.expansions()
             .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;
@@ -1843,7 +1823,7 @@ pub struct IssueIntakeSerializer<'a> {
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `created_by`: PrimaryKeyRelatedField (source `created_by`).
     pub created_by: Option<uuid::Uuid>,
 }
@@ -1893,10 +1873,8 @@ impl<'a> crate::ser::DrfSerialize for IssueIntakeSerializer<'a> {
                 &crate::fields::drf_datetime(self.created_at, ctx.tz()),
             )?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
         if ctx.emits("created_by", Self::MODE) {
             obj.field_dyn(
@@ -2901,15 +2879,15 @@ pub struct IssueSerializer<'a> {
     /// `parent_id`: ReadOnlyField (source `parent_id`).
     pub parent_id: Option<uuid::Uuid>,
     /// `cycle_id`: PrimaryKeyRelatedField (source `cycle_id`).
-    pub cycle_id: Option<crate::fields::DrfPk<'a>>,
+    pub cycle_id: crate::fields::FieldValue<crate::fields::DrfPk<'a>>,
     /// `module_ids`: ListField (source `module_ids`).
-    pub module_ids: Option<&'a [uuid::Uuid]>,
+    pub module_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `label_ids`: ListField (source `label_ids`).
-    pub label_ids: Option<&'a [uuid::Uuid]>,
+    pub label_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `assignee_ids`: ListField (source `assignee_ids`).
-    pub assignee_ids: Option<&'a [uuid::Uuid]>,
+    pub assignee_ids: crate::fields::FieldValue<&'a [uuid::Uuid]>,
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -2919,9 +2897,9 @@ pub struct IssueSerializer<'a> {
     /// `updated_by`: PrimaryKeyRelatedField (source `updated_by`).
     pub updated_by: Option<uuid::Uuid>,
     /// `attachment_count`: IntegerField (source `attachment_count`).
-    pub attachment_count: Option<i64>,
+    pub attachment_count: crate::fields::FieldValue<i64>,
     /// `link_count`: IntegerField (source `link_count`).
-    pub link_count: Option<i64>,
+    pub link_count: crate::fields::FieldValue<i64>,
     /// `is_draft`: BooleanField (source `is_draft`).
     pub is_draft: bool,
     /// `archived_at`: DateField (source `archived_at`).
@@ -3024,30 +3002,20 @@ impl<'a> crate::ser::DrfSerialize for IssueSerializer<'a> {
                 &self.parent_id.map(crate::fields::DrfUuid),
             )?;
         }
-        if ctx.emits("cycle_id", Self::MODE)
-            && let Some(value) = &self.cycle_id
-        {
-            obj.field_dyn("cycle_id", ctx, value)?;
+        if ctx.emits("cycle_id", Self::MODE) {
+            obj.field_optional_dyn("cycle_id", ctx, &self.cycle_id)?;
         }
-        if ctx.emits("module_ids", Self::MODE)
-            && let Some(value) = &self.module_ids
-        {
-            obj.field_dyn("module_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("module_ids", Self::MODE) {
+            obj.field_optional_dyn("module_ids", ctx, &self.module_ids)?;
         }
-        if ctx.emits("label_ids", Self::MODE)
-            && let Some(value) = &self.label_ids
-        {
-            obj.field_dyn("label_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("label_ids", Self::MODE) {
+            obj.field_optional_dyn("label_ids", ctx, &self.label_ids)?;
         }
-        if ctx.emits("assignee_ids", Self::MODE)
-            && let Some(value) = &self.assignee_ids
-        {
-            obj.field_dyn("assignee_ids", ctx, &crate::fields::DrfUuidList(value))?;
+        if ctx.emits("assignee_ids", Self::MODE) {
+            obj.field_optional_dyn("assignee_ids", ctx, &self.assignee_ids)?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -3077,15 +3045,11 @@ impl<'a> crate::ser::DrfSerialize for IssueSerializer<'a> {
                 &self.updated_by.map(crate::fields::DrfUuid),
             )?;
         }
-        if ctx.emits("attachment_count", Self::MODE)
-            && let Some(value) = &self.attachment_count
-        {
-            obj.field_dyn("attachment_count", ctx, &value)?;
+        if ctx.emits("attachment_count", Self::MODE) {
+            obj.field_optional_dyn("attachment_count", ctx, &self.attachment_count)?;
         }
-        if ctx.emits("link_count", Self::MODE)
-            && let Some(value) = &self.link_count
-        {
-            obj.field_dyn("link_count", ctx, &value)?;
+        if ctx.emits("link_count", Self::MODE) {
+            obj.field_optional_dyn("link_count", ctx, &self.link_count)?;
         }
         if ctx.emits("is_draft", Self::MODE) {
             obj.field_dyn("is_draft", ctx, &self.is_draft)?;
@@ -3191,11 +3155,11 @@ pub struct IssueStateSerializer<'a> {
     /// `assignee_details`: ListSerializer (source `assignees`).
     pub assignee_details: &'a [crate::generated::app_user::UserLiteSerializer<'a>],
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `attachment_count`: IntegerField (source `attachment_count`).
-    pub attachment_count: Option<i64>,
+    pub attachment_count: crate::fields::FieldValue<i64>,
     /// `link_count`: IntegerField (source `link_count`).
-    pub link_count: Option<i64>,
+    pub link_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -3333,20 +3297,14 @@ impl<'a> crate::ser::DrfSerialize for IssueStateSerializer<'a> {
         if ctx.emits("assignee_details", Self::MODE) {
             obj.field_nested_list_dyn("assignee_details", ctx, self.assignee_details)?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
-        if ctx.emits("attachment_count", Self::MODE)
-            && let Some(value) = &self.attachment_count
-        {
-            obj.field_dyn("attachment_count", ctx, &value)?;
+        if ctx.emits("attachment_count", Self::MODE) {
+            obj.field_optional_dyn("attachment_count", ctx, &self.attachment_count)?;
         }
-        if ctx.emits("link_count", Self::MODE)
-            && let Some(value) = &self.link_count
-        {
-            obj.field_dyn("link_count", ctx, &value)?;
+        if ctx.emits("link_count", Self::MODE) {
+            obj.field_optional_dyn("link_count", ctx, &self.link_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

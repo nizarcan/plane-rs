@@ -174,13 +174,24 @@ impl Query {
 ///     [("id", Uuid)],
 /// }
 /// ```
+///
+/// A column type is a `PgType` variant name, or `ArrayOf(<ArrayElement>)` for
+/// a Postgres array (`PgType` cannot contain itself in a `static`):
+///
+/// ```ignore
+/// plane_query! {
+///     MEMBERS = "members",
+///     "SELECT ARRAY_AGG(id) AS ids FROM project_members",
+///     [("ids", ArrayOf(Uuid))],
+/// }
+/// ```
 #[macro_export]
 macro_rules! plane_query {
     (
         $(#[$meta:meta])*
         $ident:ident = $name:literal,
         $sql:literal,
-        [ $( ($column:literal, $ty:ident) ),* $(,)? ]
+        [ $( ($column:literal, $ty:tt $(($elem:tt))?) ),* $(,)? ]
         $(,)?
     ) => {
         $(#[$meta])*
@@ -191,11 +202,26 @@ macro_rules! plane_query {
                 $(
                     $crate::catalog::Column {
                         name: $column,
-                        pg_type: $crate::catalog::PgType::$ty,
+                        pg_type: $crate::plane_pg_type!($ty $(, $elem)?),
                     },
                 )*
             ],
         };
+    };
+}
+
+/// Map one `plane_query!` column type to a [`PgType`](crate::catalog::PgType).
+///
+/// Split out so the type can be `ArrayOf(Uuid)` (two token trees) without
+/// making `plane_query!` a second grammar. Not part of the public API.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! plane_pg_type {
+    (ArrayOf, $elem:ident) => {
+        $crate::catalog::PgType::ArrayOf($crate::catalog::ArrayElement::$elem)
+    };
+    ($ty:ident) => {
+        $crate::catalog::PgType::$ty
     };
 }
 
@@ -228,5 +254,35 @@ mod tests {
         assert_eq!(TEST_QUERY.columns.len(), 1);
         assert_eq!(TEST_QUERY.columns[0].name, "value");
         assert_eq!(TEST_QUERY.columns[0].pg_type, PgType::Int4);
+    }
+
+    #[test]
+    fn macro_accepts_array_columns() {
+        plane_query! {
+            /// Test-only statement.
+            TEST_ARRAY_QUERY = "test_array_query",
+            "SELECT ARRAY[]::uuid[] AS ids, ARRAY[]::varchar[] AS names",
+            [("ids", ArrayOf(Uuid)), ("names", ArrayOf(Varchar))],
+        }
+        assert_eq!(
+            TEST_ARRAY_QUERY.columns[0].pg_type,
+            PgType::ArrayOf(ArrayElement::Uuid)
+        );
+        assert_eq!(
+            TEST_ARRAY_QUERY.columns[1].pg_type,
+            PgType::ArrayOf(ArrayElement::Varchar)
+        );
+        // Mixed scalar and array columns in one declaration.
+        plane_query! {
+            /// Test-only statement.
+            TEST_MIXED_QUERY = "test_mixed_query",
+            "SELECT true AS present, ARRAY[]::uuid[] AS ids",
+            [("present", Bool), ("ids", ArrayOf(Uuid))],
+        }
+        assert_eq!(TEST_MIXED_QUERY.columns[0].pg_type, PgType::Bool);
+        assert_eq!(
+            TEST_MIXED_QUERY.columns[1].pg_type,
+            PgType::ArrayOf(ArrayElement::Uuid)
+        );
     }
 }

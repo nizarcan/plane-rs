@@ -17,11 +17,11 @@ pub struct NotificationSerializer<'a> {
     /// `triggered_by_details`: UserLiteSerializer (source `triggered_by`).
     pub triggered_by_details: Option<&'a crate::generated::app_user::UserLiteSerializer<'a>>,
     /// `is_inbox_issue`: BooleanField (source `is_inbox_issue`).
-    pub is_inbox_issue: Option<bool>,
+    pub is_inbox_issue: crate::fields::FieldValue<bool>,
     /// `is_intake_issue`: BooleanField (source `is_intake_issue`).
-    pub is_intake_issue: Option<bool>,
+    pub is_intake_issue: crate::fields::FieldValue<bool>,
     /// `is_mentioned_notification`: BooleanField (source `is_mentioned_notification`).
-    pub is_mentioned_notification: Option<bool>,
+    pub is_mentioned_notification: crate::fields::FieldValue<bool>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -115,20 +115,18 @@ impl<'a> crate::ser::DrfSerialize for NotificationSerializer<'a> {
                     .map(|value| value as &(dyn crate::ser::DrfSerialize + '_)),
             )?;
         }
-        if ctx.emits("is_inbox_issue", Self::MODE)
-            && let Some(value) = &self.is_inbox_issue
-        {
-            obj.field_dyn("is_inbox_issue", ctx, &value)?;
+        if ctx.emits("is_inbox_issue", Self::MODE) {
+            obj.field_optional_dyn("is_inbox_issue", ctx, &self.is_inbox_issue)?;
         }
-        if ctx.emits("is_intake_issue", Self::MODE)
-            && let Some(value) = &self.is_intake_issue
-        {
-            obj.field_dyn("is_intake_issue", ctx, &value)?;
+        if ctx.emits("is_intake_issue", Self::MODE) {
+            obj.field_optional_dyn("is_intake_issue", ctx, &self.is_intake_issue)?;
         }
-        if ctx.emits("is_mentioned_notification", Self::MODE)
-            && let Some(value) = &self.is_mentioned_notification
-        {
-            obj.field_dyn("is_mentioned_notification", ctx, &value)?;
+        if ctx.emits("is_mentioned_notification", Self::MODE) {
+            obj.field_optional_dyn(
+                "is_mentioned_notification",
+                ctx,
+                &self.is_mentioned_notification,
+            )?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

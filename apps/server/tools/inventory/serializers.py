@@ -636,7 +636,6 @@ def field_record(
     record["skippable"] = bool(
         not isinstance(field, drf.SerializerMethodField)
         and not record.get("nested")
-        and not record.get("many")
         and not field.required
         and not field.allow_null
         and record.get("attribute") == "annotation"
@@ -1196,13 +1195,17 @@ class RustGenerator:
 
         kind, many = self.element_kind(field)
         many_optional = many and bool(field.get("allow_null"))
+        if self.skippable(field):
+            # A skippable field is three-state (absent / null / value); see
+            # `plane_serializers::fields::FieldValue`.
+            return (
+                f"crate::fields::FieldValue<{self.scalar_type(field, kind, many)}>",
+                True,
+            )
         if kind in ("method", "value"):
             return "crate::value::DrfValue<'a>", True
         if kind == "pk":
-            if self.skippable(field):
-                return "Option<crate::fields::DrfPk<'a>>", True
             return "crate::fields::DrfPk<'a>", True
-
         optional = self.optional(field)
         skippable = self.skippable(field)
         nullable = optional or skippable
@@ -1262,6 +1265,41 @@ class RustGenerator:
             ), nullable
         raise SystemExit(f"unhandled python type {kind!r} for {name}")
 
+    def scalar_type(self, field: dict[str, Any], kind: str, many: bool) -> str:
+        """The inner type of a skippable field's `FieldValue<T>`.
+
+        The wrapper a field class renders through, without the `Option` that
+        used to stand for "skip". `FieldValue` supplies the null/absent cases,
+        so the inner type is always the present-value type.
+        """
+        if kind in ("method", "value"):
+            return "crate::value::DrfValue<'a>"
+        if kind == "pk":
+            return "crate::fields::DrfPk<'a>"
+        if kind == "json":
+            return "crate::fields::PgJson<'a>"
+        if kind == "bytes":
+            return "&'a [u8]"
+        if many:
+            return {
+                "uuid": "&'a [uuid::Uuid]",
+                "str": "&'a [&'a str]",
+                "int": "&'a [i64]",
+                "float": "&'a [f64]",
+                "bool": "&'a [bool]",
+            }[kind]
+        return {
+            "uuid": "uuid::Uuid",
+            "str": "&'a str",
+            "int": "i64",
+            "float": "f64",
+            "bool": "bool",
+            "datetime": "chrono::DateTime<chrono::Utc>",
+            "date": "chrono::NaiveDate",
+            "time": "chrono::NaiveTime",
+            "decimal": "crate::fields::DrfDecimal",
+        }[kind]
+
     def optional(self, field: dict[str, Any]) -> bool:
         """Whether the value can be `None` on the model."""
         model_field = field.get("model_field")
@@ -1282,9 +1320,12 @@ class RustGenerator:
         the retrieve response has no `"order"` key at all
         (`plane/app/views/state/base.py:102-104`).
 
-        `None` in the generated struct means "omit"; a nullable field's `None`
-        means `null`, and the two are never mixed because `allow_null` fields
-        are not skippable.
+        The field is generated as `FieldValue<T>`: `Absent` omits the key,
+        `Null` writes `null` (the attribute exists and is `None`, which DRF
+        writes as `null` without calling the field), and `Value` renders it.
+        A nullable *model column* stays `Option<T>` because its attribute
+        always exists; the two are never mixed because `allow_null` fields are
+        not skippable.
         """
         if field.get("nested"):
             return False
@@ -1410,16 +1451,6 @@ class RustGenerator:
         )
         return f'obj.field_dyn("{key}", ctx, {expression})?;'
 
-    def skipped_field_write(self, record: dict[str, Any], field: dict[str, Any]) -> str:
-        """The body for a `SkipField`-prone field (see [`skippable`])."""
-        key = field["name"]
-        kind, many = self.element_kind(field)
-        if kind == "pk":
-            expression = "value"
-        else:
-            expression = self.scalar_expr(field, kind, many, source="value", is_ref=True)
-        return f'obj.field_dyn("{key}", ctx, {expression})?;'
-
     def render_module(self, module: str, records: list[dict[str, Any]]) -> str:
         lines: list[str] = []
         lines.append("// Copyright (c) 2023-present Plane Software, Inc. and contributors")
@@ -1486,20 +1517,15 @@ class RustGenerator:
         lines.append("        let mut obj = w.begin_object();")
         for field in record["fields"]:
             key = json.dumps(field["name"])
+            lines.append(f"        if ctx.emits({key}, Self::MODE) {{")
             if self.skippable(field):
                 name = self.ident(record, field)
                 lines.append(
-                    f"        if ctx.emits({key}, Self::MODE) "
-                    f"&& let Some(value) = &self.{name} {{"
+                    f"            obj.field_optional_dyn({key}, ctx, &self.{name})?;"
                 )
-                lines.append(
-                    f"            {self.skipped_field_write(record, field)}"
-                )
-                lines.append("        }")
             else:
-                lines.append(f"        if ctx.emits({key}, Self::MODE) {{")
                 lines.append(f"            {self.field_write(record, field)}")
-                lines.append("        }")
+            lines.append("        }")
         lines.append("        ctx.expansions()")
         lines.append(
             "            .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;"
@@ -1628,25 +1654,30 @@ def render_markdown(payload: OrderedDict[str, Any]) -> str:
     )
     lines.append("")
     lines.append(
-        "`SkipField` is modelled as `Option<T>` on annotation-backed fields "
-        "with `required=False`: `None` omits the key. A nullable column uses "
-        "`Option` for `null` instead; the two are never mixed because "
-        "`allow_null` fields are not skippable. `None` for a *value* is written "
-        "as `null` by `DrfWriter::write_value`, which compensates for "
+        "`SkipField` is modelled as `FieldValue<T>` on annotation-backed "
+        "fields with `required=False`: `Absent` omits the key, `Null` writes "
+        "`null` (the attribute exists and is `None`, which DRF writes as "
+        "`null` without calling the field) and `Value(v)` renders the value. A "
+        "nullable model column stays `Option<T>` because its attribute always "
+        "exists; the two are never mixed because `allow_null` fields are not "
+        "skippable. `None` for a *value* is written as `null` by "
+        "`DrfWriter::write_value`, which compensates for "
         "`JSONRenderer.render(None) == b\"\"` only applying at the top level."
     )
     lines.append("")
     lines.append("## Golden corpus")
     lines.append("")
     lines.append(
-        "`crates/plane-serializers/tests/golden/serializers.jsonl` holds 102 "
+        "`crates/plane-serializers/tests/golden/serializers.jsonl` holds 110 "
         "renders recorded by `tools/golden/serializers_record.py` from a real "
         "Django process (`tools/golden/serializers_fixture.py` builds the rows "
         "in a `t_*` clone). `crates/plane-serializers/tests/golden.rs` builds "
         "the same values and asserts byte equality. Covered: no arguments in "
         "`UTC`, `Asia/Kolkata` and `America/New_York` (2026-11-01, the US DST "
         "fall-back), `fields=` lists and the dict form, every `expand=` shape, "
-        "`fields=` and `expand=` together, `many=True`, and a probe serializer "
+        "`fields=` and `expand=` together, `many=True`, a skippable annotation "
+        "that is present and `None` (written as `null`) next to one that is "
+        "missing (`SkipField`), and a probe serializer "
         "for decimal/time/binary/JSON formatting Plane's models do not exercise."
     )
     lines.append("")

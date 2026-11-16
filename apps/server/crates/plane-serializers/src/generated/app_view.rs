@@ -15,7 +15,7 @@ pub struct IssueViewSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `is_favorite`: BooleanField (source `is_favorite`).
-    pub is_favorite: Option<bool>,
+    pub is_favorite: crate::fields::FieldValue<bool>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -98,10 +98,8 @@ impl<'a> crate::ser::DrfSerialize for IssueViewSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("is_favorite", Self::MODE)
-            && let Some(value) = &self.is_favorite
-        {
-            obj.field_dyn("is_favorite", ctx, &value)?;
+        if ctx.emits("is_favorite", Self::MODE) {
+            obj.field_optional_dyn("is_favorite", ctx, &self.is_favorite)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

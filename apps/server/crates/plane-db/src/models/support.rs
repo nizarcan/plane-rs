@@ -70,6 +70,54 @@ pub fn select_list(columns: &str, alias: &str) -> String {
 pub struct JsonText(String);
 
 impl JsonText {
+    /// Wrap JSON text a caller already has.
+    ///
+    /// The text must be UTF-8 JSON. Nothing is validated: a handler that built
+    /// the text from a trusted source (a `serde` render, [`JsonText::from_json`])
+    /// pays nothing, and Postgres reports malformed text when the parameter is
+    /// bound.
+    #[must_use]
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// Render a `json.loads` value the way Django's `JSONField.get_prep_value`
+    /// writes it: `json.dumps(value, cls=encoder)` — Python dict order,
+    /// `", "`/`": "` separators and `ensure_ascii=True`
+    /// (`django/db/models/fields/json.py:80-101`), which is
+    /// [`plane_serde::Dialect::Django`].
+    ///
+    /// This is for the write path. A handler that just wrote a JSON column can
+    /// bind this value and render the very same object on the response instead
+    /// of re-reading the row: `jsonb` re-orders keys (length-then-bytes), while
+    /// Django answers from the in-memory dict, so a round trip would change the
+    /// response bytes. `from_json` preserves that dict's insertion order.
+    ///
+    /// # Errors
+    ///
+    /// [`plane_serde::Error`] for a value `json.dumps` refuses (a non-finite
+    /// float is fine here because Django's encoder allows `NaN`/`Infinity`).
+    pub fn from_json(value: &plane_serde::pyjson::Value) -> Result<Self, plane_serde::Error> {
+        let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, value)?;
+        // `Dialect::Django` escapes every non-ASCII character
+        // (`ensure_ascii=True`), so the output is ALWAYS valid UTF-8.
+        match String::from_utf8(bytes) {
+            Ok(text) => Ok(Self(text)),
+            Err(error) => Err(plane_serde::Error::Custom(format!(
+                "json.dumps produced non-UTF-8 output: {error}"
+            ))),
+        }
+    }
+
+    /// [`JsonText::from_json`] for a parsed object.
+    ///
+    /// # Errors
+    ///
+    /// See [`JsonText::from_json`].
+    pub fn from_json_dict(value: &plane_serde::pyjson::PyDict) -> Result<Self, plane_serde::Error> {
+        Self::from_json(&plane_serde::pyjson::Value::Dict(value.clone()))
+    }
+
     /// Borrow the JSON text.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -81,6 +129,42 @@ impl JsonText {
     pub fn into_string(self) -> String {
         self.0
     }
+}
+
+/// Bind a [`JsonText`] as a `json` or `jsonb` parameter.
+///
+/// Postgres' binary `json` format is the text itself; `jsonb` is a one-byte
+/// version marker (`1`, from `jsonb_send` in `jsonfuncs.c`) followed by the
+/// same text. This is the inverse of [`JsonText`]'s `FromSql`, which strips the
+/// marker.
+///
+/// The type is named through `tokio_postgres::types::private::BytesMut`
+/// because `plane-db` does not depend on `bytes` directly; that module is
+/// postgres-types' own alias for the buffer its `ToSql` signature requires.
+impl tokio_postgres::types::ToSql for JsonText {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut tokio_postgres::types::private::BytesMut,
+    ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        match *ty {
+            Type::JSON => out.extend_from_slice(self.0.as_bytes()),
+            Type::JSONB => {
+                out.extend_from_slice(&[1]);
+                out.extend_from_slice(self.0.as_bytes());
+            }
+            ref other => {
+                return Err(format!("cannot bind JsonText as {other}").into());
+            }
+        }
+        Ok(tokio_postgres::types::IsNull::No)
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        matches!(*ty, Type::JSON | Type::JSONB)
+    }
+
+    tokio_postgres::types::to_sql_checked!();
 }
 
 impl fmt::Display for JsonText {
@@ -338,6 +422,67 @@ mod tests {
     }
 
     #[test]
+    fn json_text_new_and_bind_for_json_and_jsonb() {
+        use tokio_postgres::types::{IsNull, ToSql};
+
+        let text = JsonText::new(r#"{"b": 1, "a": 2}"#);
+        assert_eq!(text.as_str(), r#"{"b": 1, "a": 2}"#);
+
+        let mut json = tokio_postgres::types::private::BytesMut::new();
+        assert!(matches!(
+            text.to_sql(&Type::JSON, &mut json),
+            Ok(IsNull::No)
+        ));
+        assert_eq!(&json[..], br#"{"b": 1, "a": 2}"#);
+
+        let mut jsonb = tokio_postgres::types::private::BytesMut::new();
+        assert!(matches!(
+            text.to_sql(&Type::JSONB, &mut jsonb),
+            Ok(IsNull::No)
+        ));
+        assert_eq!(&jsonb[..], b"\x01{\"b\": 1, \"a\": 2}");
+        assert!(text.to_sql(&Type::TEXT, &mut jsonb).is_err());
+
+        // `to_sql_checked` refuses a type `accepts` does not list.
+        assert!(text.to_sql_checked(&Type::TEXT, &mut jsonb).is_err());
+        assert!(text.to_sql_checked(&Type::JSONB, &mut jsonb).is_ok());
+        assert!(<JsonText as ToSql>::accepts(&Type::JSON));
+        assert!(<JsonText as ToSql>::accepts(&Type::JSONB));
+        assert!(!<JsonText as ToSql>::accepts(&Type::TEXT));
+    }
+
+    #[test]
+    fn json_text_from_json_uses_django_dumps_order_and_escaping() {
+        use plane_serde::pyjson::{PyDict, PyStr, Value};
+
+        let mut dict = PyDict::new();
+        dict.insert(PyStr::new("z"), Value::from(1i64));
+        dict.insert(PyStr::new("a"), Value::Str(PyStr::new("é")));
+        dict.insert(
+            PyStr::new("m"),
+            Value::List(vec![Value::Null, Value::Bool(true)]),
+        );
+
+        let text = JsonText::from_json_dict(&dict).expect("json");
+        // Python dict order (not sorted), `", "`/`": "` separators,
+        // `ensure_ascii=True` — `json.dumps(dict)`.
+        assert_eq!(
+            text.as_str(),
+            "{\"z\": 1, \"a\": \"\\u00e9\", \"m\": [null, true]}"
+        );
+
+        // And it round-trips through the renderer in that same order, which is
+        // what a just-written row answers with (jsonb would reorder the keys).
+        let mut out = Vec::new();
+        plane_serde::transcode_json(plane_serde::Dialect::Drf, text.as_str(), &mut out)
+            .expect("transcode");
+        assert_eq!(
+            String::from_utf8(out).expect("utf8"),
+            "{\"z\":1,\"a\":\"é\",\"m\":[null,true]}"
+        );
+    }
+
+    #[test]
     fn alias_placeholder_replaces_every_occurrence() {
         assert_eq!(
             with_alias("{alias}.id, {alias}.deleted_at", "i"),
@@ -345,5 +490,42 @@ mod tests {
         );
         assert_eq!(with_alias("TRUE", "i"), "TRUE");
         assert_eq!(select_list("{alias}.id", "work_items"), "work_items.id");
+    }
+
+    #[test]
+    fn generated_models_are_named_like_django_object_names() {
+        // `ApiError::not_found_for::<Model>()` derives the message's model name
+        // from `std::any::type_name`, i.e. the generated struct's name. That is
+        // Django's `_meta.object_name` only if `models.json`'s `rust_struct`
+        // and `django_class` agree; this is the check that keeps it true.
+        let models: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../models.json")).expect("models.json");
+        let mut concrete = 0;
+        for model in models["models"].as_array().expect("models array") {
+            let django = model["django_class"].as_str().expect("django_class");
+            let rust = model["rust_struct"].as_str().expect("rust_struct");
+            if model["auto_created"].as_bool().unwrap_or(false) {
+                // The two auto-created M2M through tables normalise the `_` in
+                // their Rust name. No view resolves one with
+                // `get_object_or_404`.
+                assert!(django.starts_with("User_"), "{django}");
+                continue;
+            }
+            assert_eq!(django, rust, "{}", model["django_label"]);
+            concrete += 1;
+        }
+        assert!(concrete > 50, "only {concrete} concrete models");
+        assert_eq!(
+            plane_core::error::model_object_name::<crate::models::state::State>(),
+            "State"
+        );
+        assert_eq!(
+            plane_core::error::model_object_name::<crate::models::project::Project>(),
+            "Project"
+        );
+        assert_eq!(
+            plane_core::error::model_object_name::<crate::models::issue::Issue>(),
+            "Issue"
+        );
     }
 }

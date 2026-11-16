@@ -6,24 +6,24 @@
 //!
 //! Everything here is used by at least two `sub_` handler files: the nested
 //! serializer rows (`UserLite`, `ProjectLite`, `WorkspaceLite`, `IssueFlat`),
-//! the `issue_hidden_from_guest` / `issue_in_project` guards, and the global
+//! the `issue_in_project` / `issue_hidden_from_guest` guards, and the global
 //! paginator the version endpoints use.
 //!
-//! `plane-http-app` does not depend on `plane-permissions`, so the two guards
-//! are re-implemented here with the statements of
-//! [`super::queries`](crate::issues::sub_resources::sub_queries). They are the same two
-//! queries `plane_permissions::issue_hidden_from_guest` runs
-//! (`plane/app/permissions/base.py:106-141`); once a second domain needs them
-//! they belong in `common`.
+//! `issue_hidden_from_guest` itself lives in `plane-permissions`
+//! (`plane/app/permissions/base.py:106-141`); this module keeps the handler
+//! wrapper so the eight `sub_` handlers do not each build a `PermCtx`.
 
 use chrono::NaiveDate;
 use deadpool_postgres::Client;
+use plane_auth::{AuthUser, RequestUser};
+use plane_permissions::{PermCtx, UrlKwargs};
 use tokio_postgres::Row;
 use uuid::Uuid;
 
 use plane_db::JsonText;
 use plane_drf::error::ViewError;
 use plane_drf::view::{ViewCtx, ViewResponse};
+use plane_serializers::FieldValue;
 use plane_serializers::PgJson;
 use plane_serializers::generated::app_issue::{CommentReactionSerializer, IssueFlatSerializer};
 use plane_serializers::generated::app_project::ProjectLiteSerializer;
@@ -442,7 +442,17 @@ impl<'a> CommentEntry<'a> {
             project_detail: self.project.as_ref(),
             workspace_detail: self.workspace.as_ref(),
             comment_reactions: &self.reactions,
-            is_member: self.is_member,
+            // `is_member` is `Some` only when the query selected the
+            // `Exists(…) AS is_member` annotation (`IssueCommentViewSet`'s
+            // queryset, `plane/app/views/issue/comment.py:55-63`); `Exists`
+            // never returns NULL, so `Some` is the value. The history queryset
+            // has no such annotation: in DRF `getattr` raises `AttributeError`,
+            // the serializer raises `SkipField`, and the key is absent — not
+            // `null`.
+            is_member: match self.is_member {
+                Some(value) => FieldValue::Value(value),
+                None => FieldValue::Absent,
+            },
             created_at: self.comment.created_at,
             updated_at: self.comment.updated_at,
             deleted_at: self.comment.deleted_at,
@@ -500,6 +510,11 @@ pub async fn issue_in_project(
 }
 
 /// `issue_hidden_from_guest` (`plane/app/permissions/base.py:106-141`).
+///
+/// Delegates to `plane_permissions::issue_hidden_from_guest`, which owns the
+/// two statements. Its `PermCtx` only reads `request.user.id` (the
+/// `member=request.user` filter), and every caller here already resolved that
+/// id with [`user_id`], so [`request_user_for`] supplies an id-only user.
 pub async fn issue_hidden_from_guest(
     client: &Client,
     slug: &str,
@@ -507,18 +522,42 @@ pub async fn issue_hidden_from_guest(
     issue_id: Uuid,
     user: Uuid,
 ) -> Result<bool, ViewError> {
-    let statement = queries::RESTRICTED_GUEST.prepare(client).await?;
-    let row = client
-        .query_one(&statement, &[&user, &project_id, &slug])
-        .await?;
-    if !row.get::<_, bool>(0) {
-        return Ok(false);
-    }
-    let statement = queries::ISSUE_OWNED_BY.prepare(client).await?;
-    let row = client
-        .query_one(&statement, &[&issue_id, &project_id, &user, &slug])
-        .await?;
-    Ok(!row.get::<_, bool>(0))
+    let request_user = request_user_for(user);
+    let method = http::Method::GET;
+    let kwargs = UrlKwargs::new();
+    let ctx = PermCtx::new(client, &request_user, &method, &kwargs);
+    Ok(plane_permissions::issue_hidden_from_guest(
+        &ctx,
+        slug,
+        &project_id.to_string(),
+        &issue_id.to_string(),
+    )
+    .await?)
+}
+
+/// The `request.user` of the id-only [`PermCtx`] above.
+///
+/// `issue_hidden_from_guest` reads `request.user.id` and nothing else, and a
+/// handler cannot change the user between [`user_id`] and the guard. Building
+/// the rest of `AuthUser` with empty values keeps the wrapper's signature (the
+/// handlers already reduced the request to `(client, ids, user_id)`); no field
+/// below is ever read by the guard.
+fn request_user_for(id: Uuid) -> RequestUser {
+    RequestUser::from_user(AuthUser {
+        id,
+        email: String::new(),
+        username: String::new(),
+        display_name: String::new(),
+        first_name: String::new(),
+        last_name: String::new(),
+        user_timezone: String::new(),
+        is_active: true,
+        is_superuser: false,
+        is_staff: false,
+        is_bot: false,
+        is_email_verified: true,
+        password: String::new(),
+    })
 }
 
 /// `Response({"error": "You are not allowed to view this issue"}, 403)`.

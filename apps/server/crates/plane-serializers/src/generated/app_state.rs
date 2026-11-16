@@ -80,7 +80,7 @@ pub struct StateSerializer<'a> {
     /// `sequence`: FloatField (source `sequence`).
     pub sequence: f64,
     /// `order`: FloatField (source `order`).
-    pub order: Option<f64>,
+    pub order: crate::fields::FieldValue<f64>,
 }
 
 impl<'a> StateSerializer<'a> {
@@ -139,10 +139,8 @@ impl<'a> crate::ser::DrfSerialize for StateSerializer<'a> {
         if ctx.emits("sequence", Self::MODE) {
             obj.field_dyn("sequence", ctx, &self.sequence)?;
         }
-        if ctx.emits("order", Self::MODE)
-            && let Some(value) = &self.order
-        {
-            obj.field_dyn("order", ctx, &value)?;
+        if ctx.emits("order", Self::MODE) {
+            obj.field_optional_dyn("order", ctx, &self.order)?;
         }
         ctx.expansions()
             .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;

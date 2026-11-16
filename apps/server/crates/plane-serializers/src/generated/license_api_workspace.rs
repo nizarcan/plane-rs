@@ -19,9 +19,9 @@ pub struct WorkspaceSerializer<'a> {
     /// `logo_url`: CharField (source `logo_url`).
     pub logo_url: Option<&'a str>,
     /// `total_projects`: IntegerField (source `total_projects`).
-    pub total_projects: Option<i64>,
+    pub total_projects: crate::fields::FieldValue<i64>,
     /// `total_members`: IntegerField (source `total_members`).
-    pub total_members: Option<i64>,
+    pub total_members: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -94,15 +94,11 @@ impl<'a> crate::ser::DrfSerialize for WorkspaceSerializer<'a> {
         if ctx.emits("logo_url", Self::MODE) {
             obj.field_dyn("logo_url", ctx, &self.logo_url)?;
         }
-        if ctx.emits("total_projects", Self::MODE)
-            && let Some(value) = &self.total_projects
-        {
-            obj.field_dyn("total_projects", ctx, &value)?;
+        if ctx.emits("total_projects", Self::MODE) {
+            obj.field_optional_dyn("total_projects", ctx, &self.total_projects)?;
         }
-        if ctx.emits("total_members", Self::MODE)
-            && let Some(value) = &self.total_members
-        {
-            obj.field_dyn("total_members", ctx, &value)?;
+        if ctx.emits("total_members", Self::MODE) {
+            obj.field_optional_dyn("total_members", ctx, &self.total_members)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(

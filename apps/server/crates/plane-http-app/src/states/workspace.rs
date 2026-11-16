@@ -23,6 +23,7 @@ use plane_core::error::{APPLICATION_JSON, ApiError};
 use plane_db::models::state::State;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_serializers::FieldValue;
 use plane_serializers::generated::app_state::StateSerializer;
 
 use crate::common::render::RequestRender;
@@ -76,7 +77,9 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
                 default: state.default,
                 description: &state.description,
                 sequence: state.sequence,
-                order: Some(order),
+                // `state.order = index / count` is assigned on the model
+                // instance before serialising (`plane/app/views/workspace/state.py:28-35`).
+                order: FieldValue::value(order),
             })
             .collect();
 

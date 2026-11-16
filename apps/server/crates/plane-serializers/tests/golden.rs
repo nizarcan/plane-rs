@@ -41,7 +41,7 @@ use plane_serializers::generated::app_issue::{
     IssueStateSerializer, LabelLiteSerializer, LabelSerializer,
 };
 use plane_serializers::generated::app_module::ModuleSerializer;
-use plane_serializers::generated::app_project::ProjectLiteSerializer;
+use plane_serializers::generated::app_project::{ProjectDetailSerializer, ProjectLiteSerializer};
 use plane_serializers::generated::app_state::{StateLiteSerializer, StateSerializer};
 use plane_serializers::generated::app_user::{UserLiteSerializer, UserMeSerializer};
 use plane_serializers::generated::app_workspace::{
@@ -49,7 +49,8 @@ use plane_serializers::generated::app_workspace::{
 };
 use plane_serializers::{
     DrfDecimal, DrfError, DrfPk, DrfSerialize, DrfUuid, DrfValue, EncoderDecimal, Expansion,
-    Expansions, FieldEntry, FilterMode, PgJson, PyBase64, PyDate, PyDecimal, PyTime, RenderCtx,
+    Expansions, FieldEntry, FieldValue, FilterMode, PgJson, PyBase64, PyDate, PyDecimal, PyTime,
+    RenderCtx,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -148,13 +149,17 @@ struct Fixture {
     workspace_lite: WorkspaceLiteSerializer<'static>,
     workspace: WorkSpaceSerializer<'static>,
     project_lite: ProjectLiteSerializer<'static>,
+    project_detail: ProjectDetailSerializer<'static>,
+    project_detail_null: ProjectDetailSerializer<'static>,
     state: StateSerializer<'static>,
     state_with_order: StateSerializer<'static>,
+    state_with_order_none: StateSerializer<'static>,
     state_triage: StateSerializer<'static>,
     state_lite: StateLiteSerializer<'static>,
     label: LabelSerializer<'static>,
     label_lite: LabelLiteSerializer<'static>,
     issue: IssueSerializer<'static>,
+    issue_null_annotations: IssueSerializer<'static>,
     issue_child: IssueSerializer<'static>,
     issue_detail: IssueDetailSerializer<'static>,
     issue_flat: IssueFlatSerializer<'static>,
@@ -233,9 +238,9 @@ fn fixture() -> Fixture {
     };
     let workspace = WorkSpaceSerializer {
         id: WORKSPACE_ID,
-        total_members: Some(3),
+        total_members: FieldValue::value(3),
         logo_url: Some("https://cdn.example.com/logos/acme.png"),
-        role: Some(20),
+        role: FieldValue::value(20),
         created_at: t_created(),
         updated_at: t_updated(),
         deleted_at: None,
@@ -265,6 +270,64 @@ fn fixture() -> Fixture {
         color: "#f59e0b",
         group: "started",
     };
+    // `ProjectDetailSerializer`'s two nested relations are declared fields
+    // (`plane/app/serializers/project.py`); the fixture keeps each user alive
+    // for the whole test, so the struct can borrow them.
+    let alice_ref: &'static UserLiteSerializer<'static> = Box::leak(Box::new(alice.clone()));
+    let bob_ref: &'static UserLiteSerializer<'static> = Box::leak(Box::new(bob.clone()));
+    let project_detail = ProjectDetailSerializer {
+        id: PROJECT_ID,
+        default_assignee: Some(bob_ref),
+        project_lead: Some(alice_ref),
+        // The four annotation-backed fields are present with values in
+        // `serializers_fixture.project_annotated`.
+        is_favorite: FieldValue::value(true),
+        sort_order: FieldValue::value(12.5),
+        member_role: FieldValue::value(20),
+        anchor: FieldValue::value("fixture-anchor-alpha"),
+        created_at: t_created(),
+        updated_at: t_updated(),
+        deleted_at: None,
+        name: "Apollo",
+        description: "Landing on the moon",
+        description_text: Some(PgJson("{\"text\": \"Landing on the moon\"}")),
+        description_html: None,
+        network: 2,
+        identifier: "APL",
+        emoji: None,
+        icon_prop: None,
+        module_view: false,
+        cycle_view: false,
+        issue_views_view: false,
+        page_view: true,
+        intake_view: false,
+        is_time_tracking_enabled: false,
+        is_issue_type_enabled: false,
+        guest_view_all_features: false,
+        cover_image: Some("https://cdn.example.com/covers/apollo.png"),
+        archive_in: 0,
+        close_in: 0,
+        logo_props: Some(PgJson(LOGO_PROPS)),
+        archived_at: None,
+        timezone: "America/New_York",
+        external_source: None,
+        external_id: None,
+        created_by: Some(USER_ALICE),
+        updated_by: Some(USER_ALICE),
+        workspace: WORKSPACE_ID,
+        cover_image_asset: None,
+        estimate: None,
+        default_state: None,
+    };
+    // The same instance with every annotation present and `None`: DRF writes
+    // `null` rather than omitting the key (`serializers.py:541-546`).
+    let project_detail_null = ProjectDetailSerializer {
+        is_favorite: FieldValue::null(),
+        sort_order: FieldValue::null(),
+        member_role: FieldValue::null(),
+        anchor: FieldValue::null(),
+        ..project_detail.clone()
+    };
     let state = StateSerializer {
         id: STATE_ID,
         project_id: PROJECT_ID,
@@ -275,10 +338,16 @@ fn fixture() -> Fixture {
         default: false,
         description: "Work in progress",
         sequence: 2.5,
-        order: None,
+        order: FieldValue::absent(),
     };
     let state_with_order = StateSerializer {
-        order: Some(0.5),
+        order: FieldValue::value(0.5),
+        ..state.clone()
+    };
+    // `order` is present and `None` (the `state1_with_order_none` fixture):
+    // DRF writes the key with `null`.
+    let state_with_order_none = StateSerializer {
+        order: FieldValue::null(),
         ..state.clone()
     };
     let state_triage = StateSerializer {
@@ -332,19 +401,32 @@ fn fixture() -> Fixture {
         sequence_id: 42,
         project_id: PROJECT_ID,
         parent_id: None,
-        cycle_id: Some(DrfPk::Uuid(CYCLE_ID)),
-        module_ids: Some(module_ids),
-        label_ids: Some(label_ids),
-        assignee_ids: Some(assignee_ids),
-        sub_issues_count: Some(1),
+        cycle_id: FieldValue::value(DrfPk::Uuid(CYCLE_ID)),
+        module_ids: FieldValue::value(module_ids),
+        label_ids: FieldValue::value(label_ids),
+        assignee_ids: FieldValue::value(assignee_ids),
+        sub_issues_count: FieldValue::value(1),
         created_at: t_created(),
         updated_at: t_updated(),
         created_by: Some(USER_ALICE),
         updated_by: Some(USER_BOB),
-        attachment_count: Some(1),
-        link_count: Some(1),
+        attachment_count: FieldValue::value(1),
+        link_count: FieldValue::value(1),
         is_draft: false,
         archived_at: None,
+    };
+    let issue_null_annotations = IssueSerializer {
+        // The annotations exist but are NULL: `cycle_id` and the three counts
+        // are skippable (null), while the three list annotations are
+        // `ListField(allow_null=True)` (null through `Option`).
+        cycle_id: FieldValue::null(),
+        module_ids: FieldValue::null(),
+        label_ids: FieldValue::null(),
+        assignee_ids: FieldValue::null(),
+        sub_issues_count: FieldValue::null(),
+        attachment_count: FieldValue::null(),
+        link_count: FieldValue::null(),
+        ..issue.clone()
     };
     // The child issue carries no view annotations, so every annotation-backed
     // field is a `SkipField`: its key is absent, while the model-backed
@@ -362,17 +444,17 @@ fn fixture() -> Fixture {
         sequence_id: 43,
         project_id: PROJECT_ID,
         parent_id: Some(ISSUE_ID),
-        cycle_id: None,
-        module_ids: None,
-        label_ids: None,
-        assignee_ids: None,
-        sub_issues_count: None,
+        cycle_id: FieldValue::absent(),
+        module_ids: FieldValue::absent(),
+        label_ids: FieldValue::absent(),
+        assignee_ids: FieldValue::absent(),
+        sub_issues_count: FieldValue::absent(),
         created_at: t_created(),
         updated_at: t_updated(),
         created_by: Some(USER_BOB),
         updated_by: Some(USER_BOB),
-        attachment_count: None,
-        link_count: None,
+        attachment_count: FieldValue::absent(),
+        link_count: FieldValue::absent(),
         is_draft: false,
         archived_at: None,
     };
@@ -389,22 +471,22 @@ fn fixture() -> Fixture {
         sequence_id: 42,
         project_id: PROJECT_ID,
         parent_id: None,
-        cycle_id: Some(DrfPk::Uuid(CYCLE_ID)),
-        module_ids: Some(module_ids),
-        label_ids: Some(label_ids),
-        assignee_ids: Some(assignee_ids),
-        sub_issues_count: Some(1),
+        cycle_id: FieldValue::value(DrfPk::Uuid(CYCLE_ID)),
+        module_ids: FieldValue::value(module_ids),
+        label_ids: FieldValue::value(label_ids),
+        assignee_ids: FieldValue::value(assignee_ids),
+        sub_issues_count: FieldValue::value(1),
         created_at: t_created(),
         updated_at: t_updated(),
         created_by: Some(USER_ALICE),
         updated_by: Some(USER_BOB),
-        attachment_count: Some(1),
-        link_count: Some(1),
+        attachment_count: FieldValue::value(1),
+        link_count: FieldValue::value(1),
         is_draft: false,
         archived_at: None,
         description_html: "<p>Gear</p>",
-        is_subscribed: Some(false),
-        is_intake: Some(false),
+        is_subscribed: FieldValue::value(false),
+        is_intake: FieldValue::value(false),
     };
     let issue_flat = IssueFlatSerializer {
         id: ISSUE_ID,
@@ -433,14 +515,14 @@ fn fixture() -> Fixture {
         external_id: None,
         progress_snapshot: Some(PgJson(PROGRESS_SNAPSHOT)),
         logo_props: Some(PgJson(LOGO_PROPS)),
-        is_favorite: Some(true),
-        total_issues: Some(3),
-        cancelled_issues: Some(0),
-        completed_issues: Some(1),
-        started_issues: Some(1),
-        unstarted_issues: Some(1),
-        backlog_issues: Some(0),
-        status: Some("current"),
+        is_favorite: FieldValue::value(true),
+        total_issues: FieldValue::value(3),
+        cancelled_issues: FieldValue::value(0),
+        completed_issues: FieldValue::value(1),
+        started_issues: FieldValue::value(1),
+        unstarted_issues: FieldValue::value(1),
+        backlog_issues: FieldValue::value(0),
+        status: FieldValue::value("current"),
     };
     let module = ModuleSerializer {
         id: MODULE_ID,
@@ -460,15 +542,15 @@ fn fixture() -> Fixture {
         external_source: None,
         external_id: None,
         logo_props: Some(PgJson(LOGO_PROPS)),
-        total_estimate_points: Some(13.0),
-        completed_estimate_points: Some(5.0),
-        is_favorite: Some(false),
-        total_issues: Some(4),
-        cancelled_issues: Some(0),
-        completed_issues: Some(1),
-        started_issues: Some(2),
-        unstarted_issues: Some(1),
-        backlog_issues: Some(0),
+        total_estimate_points: FieldValue::value(13.0),
+        completed_estimate_points: FieldValue::value(5.0),
+        is_favorite: FieldValue::value(false),
+        total_issues: FieldValue::value(4),
+        cancelled_issues: FieldValue::value(0),
+        completed_issues: FieldValue::value(1),
+        started_issues: FieldValue::value(2),
+        unstarted_issues: FieldValue::value(1),
+        backlog_issues: FieldValue::value(0),
         created_at: t_created(),
         updated_at: t_updated(),
         archived_at: None,
@@ -493,13 +575,17 @@ fn fixture() -> Fixture {
         workspace_lite,
         workspace,
         project_lite,
+        project_detail,
+        project_detail_null,
         state,
         state_with_order,
+        state_with_order_none,
         state_triage,
         state_lite,
         label,
         label_lite,
         issue,
+        issue_null_annotations,
         issue_child,
         issue_detail,
         issue_flat,
@@ -523,9 +609,9 @@ fn issue_state(fx: &Fixture) -> IssueStateSerializer<'_> {
         state_detail: Some(&fx.state_lite),
         project_detail: Some(&fx.project_lite),
         assignee_details: std::slice::from_ref(&fx.alice),
-        sub_issues_count: Some(1),
-        attachment_count: Some(1),
-        link_count: Some(1),
+        sub_issues_count: FieldValue::value(1),
+        attachment_count: FieldValue::value(1),
+        link_count: FieldValue::value(1),
         created_at: t_created(),
         updated_at: t_updated(),
         deleted_at: None,
@@ -679,6 +765,7 @@ const WORKSPACE_LITE: &str = "plane.app.serializers.workspace.WorkspaceLiteSeria
 const WORKSPACE: &str = "plane.app.serializers.workspace.WorkSpaceSerializer";
 const WORKSPACE_MEMBER: &str = "plane.app.serializers.workspace.WorkSpaceMemberSerializer";
 const PROJECT_LITE: &str = "plane.app.serializers.project.ProjectLiteSerializer";
+const PROJECT_DETAIL: &str = "plane.app.serializers.project.ProjectDetailSerializer";
 const STATE: &str = "plane.app.serializers.state.StateSerializer";
 const STATE_LITE: &str = "plane.app.serializers.state.StateLiteSerializer";
 const LABEL: &str = "plane.app.serializers.issue.LabelSerializer";
@@ -807,9 +894,18 @@ fn render_record(record: &Record, fx: &Fixture) -> Result<Vec<u8>, DrfError> {
             plane_serializers::render(&workspace_member(fx), &ctx)
         }
         (PROJECT_LITE, "project1", false) => plane_serializers::render(&fx.project_lite, &ctx),
+        (PROJECT_DETAIL, "project_annotated", false) => {
+            plane_serializers::render(&fx.project_detail, &ctx)
+        }
+        (PROJECT_DETAIL, "project_null", false) => {
+            plane_serializers::render(&fx.project_detail_null, &ctx)
+        }
         (STATE, "state1", false) => plane_serializers::render(&fx.state, &ctx),
         (STATE, "state1_with_order", false) => {
             plane_serializers::render(&fx.state_with_order, &ctx)
+        }
+        (STATE, "state1_with_order_none", false) => {
+            plane_serializers::render(&fx.state_with_order_none, &ctx)
         }
         (STATE, "state_pair", true) => {
             plane_serializers::render_list(&[fx.state.clone(), fx.state_triage.clone()], &ctx)
@@ -817,6 +913,9 @@ fn render_record(record: &Record, fx: &Fixture) -> Result<Vec<u8>, DrfError> {
         (STATE_LITE, "state1", false) => plane_serializers::render(&fx.state_lite, &ctx),
         (LABEL, "label1", false) => plane_serializers::render(&fx.label, &ctx),
         (ISSUE, "issue1", false) => plane_serializers::render(&fx.issue, &ctx),
+        (ISSUE, "issue_null_annotations", false) => {
+            plane_serializers::render(&fx.issue_null_annotations, &ctx)
+        }
         (ISSUE, "issue_pair", true) => {
             plane_serializers::render_list(&[fx.issue.clone(), fx.issue_child.clone()], &ctx)
         }
@@ -841,7 +940,7 @@ fn render_record(record: &Record, fx: &Fixture) -> Result<Vec<u8>, DrfError> {
 fn golden_serializers() {
     let fx = fixture();
     let records = records();
-    assert_eq!(records.len(), 106, "golden case count");
+    assert_eq!(records.len(), 110, "golden case count");
 
     let mut failures = Vec::new();
     for record in &records {

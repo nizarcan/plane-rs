@@ -275,19 +275,19 @@ pub struct ProjectSerializer<'a> {
     /// `id`: PrimaryKeyRelatedField (source `id`).
     pub id: uuid::Uuid,
     /// `total_members`: IntegerField (source `total_members`).
-    pub total_members: Option<i64>,
+    pub total_members: crate::fields::FieldValue<i64>,
     /// `total_cycles`: IntegerField (source `total_cycles`).
-    pub total_cycles: Option<i64>,
+    pub total_cycles: crate::fields::FieldValue<i64>,
     /// `total_modules`: IntegerField (source `total_modules`).
-    pub total_modules: Option<i64>,
+    pub total_modules: crate::fields::FieldValue<i64>,
     /// `is_member`: BooleanField (source `is_member`).
-    pub is_member: Option<bool>,
+    pub is_member: crate::fields::FieldValue<bool>,
     /// `sort_order`: FloatField (source `sort_order`).
-    pub sort_order: Option<f64>,
+    pub sort_order: crate::fields::FieldValue<f64>,
     /// `member_role`: IntegerField (source `member_role`).
-    pub member_role: Option<i64>,
+    pub member_role: crate::fields::FieldValue<i64>,
     /// `is_deployed`: BooleanField (source `is_deployed`).
-    pub is_deployed: Option<bool>,
+    pub is_deployed: crate::fields::FieldValue<bool>,
     /// `cover_image_url`: CharField (source `cover_image_url`).
     pub cover_image_url: Option<&'a str>,
     /// `created_at`: DateTimeField (source `created_at`).
@@ -424,40 +424,26 @@ impl<'a> crate::ser::DrfSerialize for ProjectSerializer<'a> {
         if ctx.emits("id", Self::MODE) {
             obj.field_dyn("id", ctx, &crate::fields::DrfUuid(self.id))?;
         }
-        if ctx.emits("total_members", Self::MODE)
-            && let Some(value) = &self.total_members
-        {
-            obj.field_dyn("total_members", ctx, &value)?;
+        if ctx.emits("total_members", Self::MODE) {
+            obj.field_optional_dyn("total_members", ctx, &self.total_members)?;
         }
-        if ctx.emits("total_cycles", Self::MODE)
-            && let Some(value) = &self.total_cycles
-        {
-            obj.field_dyn("total_cycles", ctx, &value)?;
+        if ctx.emits("total_cycles", Self::MODE) {
+            obj.field_optional_dyn("total_cycles", ctx, &self.total_cycles)?;
         }
-        if ctx.emits("total_modules", Self::MODE)
-            && let Some(value) = &self.total_modules
-        {
-            obj.field_dyn("total_modules", ctx, &value)?;
+        if ctx.emits("total_modules", Self::MODE) {
+            obj.field_optional_dyn("total_modules", ctx, &self.total_modules)?;
         }
-        if ctx.emits("is_member", Self::MODE)
-            && let Some(value) = &self.is_member
-        {
-            obj.field_dyn("is_member", ctx, &value)?;
+        if ctx.emits("is_member", Self::MODE) {
+            obj.field_optional_dyn("is_member", ctx, &self.is_member)?;
         }
-        if ctx.emits("sort_order", Self::MODE)
-            && let Some(value) = &self.sort_order
-        {
-            obj.field_dyn("sort_order", ctx, &value)?;
+        if ctx.emits("sort_order", Self::MODE) {
+            obj.field_optional_dyn("sort_order", ctx, &self.sort_order)?;
         }
-        if ctx.emits("member_role", Self::MODE)
-            && let Some(value) = &self.member_role
-        {
-            obj.field_dyn("member_role", ctx, &value)?;
+        if ctx.emits("member_role", Self::MODE) {
+            obj.field_optional_dyn("member_role", ctx, &self.member_role)?;
         }
-        if ctx.emits("is_deployed", Self::MODE)
-            && let Some(value) = &self.is_deployed
-        {
-            obj.field_dyn("is_deployed", ctx, &value)?;
+        if ctx.emits("is_deployed", Self::MODE) {
+            obj.field_optional_dyn("is_deployed", ctx, &self.is_deployed)?;
         }
         if ctx.emits("cover_image_url", Self::MODE) {
             obj.field_dyn("cover_image_url", ctx, &self.cover_image_url)?;

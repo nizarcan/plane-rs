@@ -17,7 +17,7 @@ pub struct CycleIssueSerializer<'a> {
     /// `issue_detail`: IssueStateSerializer (source `issue`).
     pub issue_detail: Option<&'a crate::generated::app_issue::IssueStateSerializer<'a>>,
     /// `sub_issues_count`: IntegerField (source `sub_issues_count`).
-    pub sub_issues_count: Option<i64>,
+    pub sub_issues_count: crate::fields::FieldValue<i64>,
     /// `created_at`: DateTimeField (source `created_at`).
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// `updated_at`: DateTimeField (source `updated_at`).
@@ -76,10 +76,8 @@ impl<'a> crate::ser::DrfSerialize for CycleIssueSerializer<'a> {
                     .map(|value| value as &(dyn crate::ser::DrfSerialize + '_)),
             )?;
         }
-        if ctx.emits("sub_issues_count", Self::MODE)
-            && let Some(value) = &self.sub_issues_count
-        {
-            obj.field_dyn("sub_issues_count", ctx, &value)?;
+        if ctx.emits("sub_issues_count", Self::MODE) {
+            obj.field_optional_dyn("sub_issues_count", ctx, &self.sub_issues_count)?;
         }
         if ctx.emits("created_at", Self::MODE) {
             obj.field_dyn(
@@ -170,21 +168,21 @@ pub struct CycleSerializer<'a> {
     /// `logo_props`: JSONField (source `logo_props`).
     pub logo_props: Option<crate::fields::PgJson<'a>>,
     /// `is_favorite`: BooleanField (source `is_favorite`).
-    pub is_favorite: Option<bool>,
+    pub is_favorite: crate::fields::FieldValue<bool>,
     /// `total_issues`: IntegerField (source `total_issues`).
-    pub total_issues: Option<i64>,
+    pub total_issues: crate::fields::FieldValue<i64>,
     /// `cancelled_issues`: IntegerField (source `cancelled_issues`).
-    pub cancelled_issues: Option<i64>,
+    pub cancelled_issues: crate::fields::FieldValue<i64>,
     /// `completed_issues`: IntegerField (source `completed_issues`).
-    pub completed_issues: Option<i64>,
+    pub completed_issues: crate::fields::FieldValue<i64>,
     /// `started_issues`: IntegerField (source `started_issues`).
-    pub started_issues: Option<i64>,
+    pub started_issues: crate::fields::FieldValue<i64>,
     /// `unstarted_issues`: IntegerField (source `unstarted_issues`).
-    pub unstarted_issues: Option<i64>,
+    pub unstarted_issues: crate::fields::FieldValue<i64>,
     /// `backlog_issues`: IntegerField (source `backlog_issues`).
-    pub backlog_issues: Option<i64>,
+    pub backlog_issues: crate::fields::FieldValue<i64>,
     /// `status`: CharField (source `status`).
-    pub status: Option<&'a str>,
+    pub status: crate::fields::FieldValue<&'a str>,
 }
 
 impl<'a> CycleSerializer<'a> {
@@ -282,45 +280,29 @@ impl<'a> crate::ser::DrfSerialize for CycleSerializer<'a> {
         if ctx.emits("logo_props", Self::MODE) {
             obj.field_json_dyn("logo_props", ctx, self.logo_props)?;
         }
-        if ctx.emits("is_favorite", Self::MODE)
-            && let Some(value) = &self.is_favorite
-        {
-            obj.field_dyn("is_favorite", ctx, &value)?;
+        if ctx.emits("is_favorite", Self::MODE) {
+            obj.field_optional_dyn("is_favorite", ctx, &self.is_favorite)?;
         }
-        if ctx.emits("total_issues", Self::MODE)
-            && let Some(value) = &self.total_issues
-        {
-            obj.field_dyn("total_issues", ctx, &value)?;
+        if ctx.emits("total_issues", Self::MODE) {
+            obj.field_optional_dyn("total_issues", ctx, &self.total_issues)?;
         }
-        if ctx.emits("cancelled_issues", Self::MODE)
-            && let Some(value) = &self.cancelled_issues
-        {
-            obj.field_dyn("cancelled_issues", ctx, &value)?;
+        if ctx.emits("cancelled_issues", Self::MODE) {
+            obj.field_optional_dyn("cancelled_issues", ctx, &self.cancelled_issues)?;
         }
-        if ctx.emits("completed_issues", Self::MODE)
-            && let Some(value) = &self.completed_issues
-        {
-            obj.field_dyn("completed_issues", ctx, &value)?;
+        if ctx.emits("completed_issues", Self::MODE) {
+            obj.field_optional_dyn("completed_issues", ctx, &self.completed_issues)?;
         }
-        if ctx.emits("started_issues", Self::MODE)
-            && let Some(value) = &self.started_issues
-        {
-            obj.field_dyn("started_issues", ctx, &value)?;
+        if ctx.emits("started_issues", Self::MODE) {
+            obj.field_optional_dyn("started_issues", ctx, &self.started_issues)?;
         }
-        if ctx.emits("unstarted_issues", Self::MODE)
-            && let Some(value) = &self.unstarted_issues
-        {
-            obj.field_dyn("unstarted_issues", ctx, &value)?;
+        if ctx.emits("unstarted_issues", Self::MODE) {
+            obj.field_optional_dyn("unstarted_issues", ctx, &self.unstarted_issues)?;
         }
-        if ctx.emits("backlog_issues", Self::MODE)
-            && let Some(value) = &self.backlog_issues
-        {
-            obj.field_dyn("backlog_issues", ctx, &value)?;
+        if ctx.emits("backlog_issues", Self::MODE) {
+            obj.field_optional_dyn("backlog_issues", ctx, &self.backlog_issues)?;
         }
-        if ctx.emits("status", Self::MODE)
-            && let Some(value) = &self.status
-        {
-            obj.field_dyn("status", ctx, &value)?;
+        if ctx.emits("status", Self::MODE) {
+            obj.field_optional_dyn("status", ctx, &self.status)?;
         }
         ctx.expansions()
             .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;

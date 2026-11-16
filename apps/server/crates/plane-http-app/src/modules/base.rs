@@ -29,7 +29,8 @@ use plane_serializers::generated::app_module::{
     ModuleLinkSerializer, ModuleSerializer, ModuleUserPropertiesSerializer,
 };
 use plane_serializers::{
-    DrfDateTime, DrfError, DrfSerialize, DrfUuid, DrfUuidList, DrfWriter, PgJson, RenderCtx,
+    DrfDateTime, DrfError, DrfSerialize, DrfUuid, DrfUuidList, DrfWriter, FieldValue, PgJson,
+    RenderCtx,
 };
 use tokio_postgres::Row;
 use uuid::Uuid;
@@ -325,10 +326,38 @@ pub(crate) fn decode_workspace_row(row: &Row) -> Result<ModuleRow, ViewError> {
     })
 }
 
+/// Which annotations a Python queryset adds before `ModuleSerializer` runs.
+///
+/// `ModuleSerializer` declares the estimate-point sums and `is_favorite` as
+/// `required=False` fields. DRF writes `null` when the attribute exists and is
+/// `None`, and omits the key when the attribute is missing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModuleAnnotations {
+    /// `ModuleViewSet.get_queryset` (`plane/app/views/module/base.py:79-294`)
+    /// annotates every field, so the attributes always exist.
+    Project,
+    /// `WorkspaceModulesEndpoint.get` (`plane/app/views/workspace/module.py:25-160`)
+    /// annotates the issue counts and `member_ids` only; the estimate-point
+    /// sums and `is_favorite` are missing, so DRF skips those keys.
+    Workspace,
+}
+
 impl ModuleRow {
     /// `ModuleSerializer`'s data (`SERIALIZERS.md`), for the `?fields=` list
     /// path and the workspace list.
-    pub(crate) fn serializer(&self) -> ModuleSerializer<'_> {
+    pub(crate) fn serializer(&self, annotations: ModuleAnnotations) -> ModuleSerializer<'_> {
+        let (total_estimate_points, completed_estimate_points, is_favorite) = match annotations {
+            ModuleAnnotations::Project => (
+                FieldValue::from_attribute(self.total_estimate_points),
+                FieldValue::from_attribute(self.completed_estimate_points),
+                FieldValue::from_attribute(self.is_favorite),
+            ),
+            ModuleAnnotations::Workspace => (
+                FieldValue::absent(),
+                FieldValue::absent(),
+                FieldValue::absent(),
+            ),
+        };
         ModuleSerializer {
             id: self.id,
             workspace_id: self.workspace_id,
@@ -341,21 +370,24 @@ impl ModuleRow {
             target_date: self.target_date,
             status: &self.status,
             lead_id: self.lead_id,
-            member_ids: Some(&self.member_ids),
+            member_ids: Some(self.member_ids.as_slice()),
             view_props: self.view_props.as_ref().map(PgJson::from),
             sort_order: self.sort_order,
             external_source: self.external_source.as_deref(),
             external_id: self.external_id.as_deref(),
             logo_props: self.logo_props.as_ref().map(PgJson::from),
-            total_estimate_points: self.total_estimate_points,
-            completed_estimate_points: self.completed_estimate_points,
-            is_favorite: self.is_favorite,
-            total_issues: Some(self.total_issues),
-            cancelled_issues: self.cancelled_issues,
-            completed_issues: self.completed_issues,
-            started_issues: self.started_issues,
-            unstarted_issues: self.unstarted_issues,
-            backlog_issues: self.backlog_issues,
+            // The issue counts and `member_ids` are annotated by both views
+            // (`module/base.py:214-294`, `workspace/module.py:44-129`); a NULL
+            // is DRF's `null` (`rest_framework/serializers.py:541-546`).
+            total_estimate_points,
+            completed_estimate_points,
+            is_favorite,
+            total_issues: FieldValue::value(self.total_issues),
+            cancelled_issues: FieldValue::from_attribute(self.cancelled_issues),
+            completed_issues: FieldValue::from_attribute(self.completed_issues),
+            started_issues: FieldValue::from_attribute(self.started_issues),
+            unstarted_issues: FieldValue::from_attribute(self.unstarted_issues),
+            backlog_issues: FieldValue::from_attribute(self.backlog_issues),
             created_at: self.created_at,
             updated_at: self.updated_at,
             archived_at: self.archived_at,
@@ -527,8 +559,10 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
                     .collect::<Vec<_>>()
             });
             let render_ctx = RenderCtx::new(&timezone, fields.as_deref(), &[]);
-            let serializers: Vec<ModuleSerializer<'_>> =
-                decoded.iter().map(ModuleRow::serializer).collect();
+            let serializers: Vec<ModuleSerializer<'_>> = decoded
+                .iter()
+                .map(|row| row.serializer(ModuleAnnotations::Project))
+                .collect();
             let bytes = plane_serializers::render_list(&serializers, &render_ctx)?;
             return Ok(ViewResponse::raw(200, APPLICATION_JSON, bytes));
         }
