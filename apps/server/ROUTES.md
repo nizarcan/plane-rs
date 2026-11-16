@@ -211,10 +211,10 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 121 | `/api/workspaces/{slug}/users/notifications/mark-all-read/` | POST:create | `plane.app.views.notification.base.MarkAllReadNotificationViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
 | 122 | `/api/users/me/notification-preferences/` | GET, PATCH | `plane.app.views.notification.base.UserNotificationPreferenceEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 123 | `/api/workspaces/{slug}/projects/{project_id}/pages-summary/` | GET:summary | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
-| 124 | `/api/workspaces/{slug}/projects/{project_id}/pages/` | GET:list, POST:create | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
-| 125 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
+| 124 | `/api/workspaces/{slug}/projects/{project_id}/pages/` | GET:list, POST:create | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET,POST) | verified |
+| 125 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET,PATCH,DELETE) | verified |
 | 126 | `/api/workspaces/{slug}/projects/{project_id}/favorite-pages/{page_id}/` | POST:create, DELETE:destroy | `plane.app.views.page.base.PageFavoriteViewSet` | IsAuthenticated; POST,DELETE allow(ADMIN,MEMBER;PROJECT) | rust(POST,DELETE) | verified |
-| 127 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/archive/` | POST:archive, DELETE:unarchive | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
+| 127 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/archive/` | POST:archive, DELETE:unarchive | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(POST,DELETE) | verified |
 | 128 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/lock/` | POST:lock, DELETE:unlock | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(POST,DELETE) | verified |
 | 129 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/access/` | POST:access | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(POST) | verified |
 | 130 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/description/` | GET:retrieve, PATCH:partial_update | `plane.app.views.page.base.PagesDescriptionViewSet` | ProjectPagePermission | rust(GET,PATCH) | verified |

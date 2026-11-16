@@ -871,7 +871,26 @@ and only `verified` rows are Rust-owned.
   favourite destroy now uses the shared collector port.
 - Environment: Redis DB 1 receives writes from another process (issue-activity origin
   keys). Don't assign Redis DBs 0–1 to harness runs.
-- Running: set A, page core (124, 125, 127).
+- Set A, page core (merged `5496a1d119`, flipped with this entry): 124
+  `rust(GET,POST)`, 125 `rust(GET,PATCH,DELETE)`, 127 `rust(POST,DELETE)`.
+  `write/pages.yaml` 75/75 in both directions. On the merge, all 22 write scenarios are
+  clean DvR. The read sweep is 41/42 files; the one failure is below and predates this
+  merge. No contract test reaches 124/125/127. New shared pieces: `uuid_list_field`
+  (DRF `ListField(child=UUIDField())`, emitted by the generator; the issue/draft tables'
+  three `TODO(list)` lines became calls, and no handler calls those `validate`s yet),
+  `uuid_field`, and the `naive_datetime` shape plus a `request:`-scoped `archived_at`
+  rule.
+- Plan corrections A found: `ProjectPagePermission` resolves the page first, so every
+  missing/unlinked page is its 403. The view's 400/404 branches are unreachable,
+  except PATCH's 400 for a bad `parent`. Django's `datetime.now()`/`date.today()` are
+  **UTC**: settings set the process `TZ` to `TIME_ZONE`. PATCH with
+  `label_ids`/`project_ids` echoes them (17/18 keys) and writes nothing; create with
+  them is a 500.
+- **The pages domain is fully on Rust** (123–134).
+- Bug found by the read sweep: `users_me/support.rs:55` `today()` uses
+  `chrono::Local`, while Django's `date.today()` is UTC. So `read/users-me.yaml`
+  activity-graph steps 34–35 differ whenever the host's local date ≠ the UTC date
+  (00:00–03:00 at +03). Fix: today in `TIME_ZONE`, and audit every `Local::now`.
 
 ## Next three steps
 
