@@ -166,8 +166,18 @@ invariants (each domain registers only its group's actions; every `rust` row in
   (its restart policy is `no`); the owner's `cc-cost` containers restart on their own.
   The dev Postgres limit (2 GiB in `dev/compose.yml`) must go back to 640M at the same time.
 
-- Wave 2 GET ports (one worktree each): views/stickies/search/webhooks; pages;
+- Wave 2 GET ports (one worktree each): views/stickies/search/webhooks;
   intake/notifications; analytics; assets + `/api/unsplash/`.
+- Wave 2 pages: **merged** (6 GET endpoints: summary, list, retrieve, versions list/detail,
+  live access; orders 123-125, 131, 132, 134). List/retrieve take 2 statements where Django
+  takes 5/4 (two prefetches Django never serialises). `GET …/pages/{id}/description/`
+  (order 130) stays on Django: it is a `StreamingHttpResponse` (chunked, and Django gzips
+  streaming responses at any length), so it needs a streaming flag in the response
+  pipeline. That and the port are in progress on `rs/w2-pages`.
+- Proxy generator tests (`tools/proxy/test_gen_caddy.py`): 3 tests assumed the Phase 0
+  "every owner is django" state and have failed since wave 1's first flip. `--check` and
+  Caddy validation passed throughout, so the generated config was never wrong. Fix in
+  progress on `rs/w2-pages`; the orchestrator's merge checklist now runs this file too.
 - `plane-query` batch: filter-backend selection, `issue_group_values` key order and
   empty pages, per-view `distinct`, count projections, scope hook, generic paginator,
   D16 harness rule; then the six held/unported issue, cycle and module list routes.
@@ -226,6 +236,12 @@ invariants (each domain registers only its group's actions; every `rust` row in
 - `APPEND_SLASH` answers a POST with 301 and drops the body at `DEBUG=0`.
 - With `NUM_PROXIES` unset, the throttle identity collapses `X-Forwarded-For`, so clients
   behind a proxy share one bucket (`rest_framework/throttling.py:40`).
+- Pages: `project_ids` aggregates over the visibility join, so it lists projects whose
+  `ProjectPage` link is soft-deleted, and its `~Q(projects__id=True)` filter compiles to a
+  sentinel UUID comparison (`plane/app/views/page/base.py:127-140`). `label_ids` ignores
+  `page_labels.deleted_at`. The visibility join ignores `project_members.deleted_at`.
+  `live-access` answers 404 on every denial and matches `action` case-sensitively
+  (`plane/app/views/page/live.py`).
 - `ApiKeyRateThrottle` puts the raw API token in the Redis key (`plane/api/rate_limit.py:23`).
 - `is_allowed_origin` compares host only, not scheme (`plane/authentication/session.py:51`).
 - `project_invitations.delay(...)` is called on a list and the task module is never
