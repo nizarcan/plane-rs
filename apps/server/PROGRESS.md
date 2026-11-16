@@ -937,6 +937,13 @@ and only `verified` rows are Rust-owned.
   state is written before validation, so a 400 writes; a project without an intake is a
   500 after the issue/sequence/m2m writes; the fallback state is `group="triage"` with
   `is_triage=False`; create answers 200; drafts can be linked.
+- H09a fix (merged `003838bfc9`): `retime_intake_snoozes` uses
+  `hooks::intake_issue::project_day_start`. Ambiguous midnights take standard time and
+  nonexistent ones resolve instead of being skipped. Six cases are pinned against real
+  pytz. `write/projects.yaml` 73/73 DvR; 925 tests.
+- Doc note: `MODEL_HOOKS.md`'s status column says `not-ported` for all 39 rows and was
+  never maintained. The source of truth for ported hooks is the "Ported today" table in
+  `plane-db/src/hooks/mod.rs`.
 - Running: intake C (PATCH 56/60).
 
 ## Next three steps
