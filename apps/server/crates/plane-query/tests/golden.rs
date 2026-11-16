@@ -229,7 +229,26 @@ async fn filters_match_django() {
         let parsed =
             plane_query::issue::filter::LegacyFilters::parse(&filter_params, now.date_naive());
         match (parsed, case.get("error")) {
-            (Err(_), Some(_)) => {
+            (Err(error), Some(kind)) => {
+                // The exception class decides the HTTP status: a
+                // `ValidationError` from `DateField.get_prep_value` is the
+                // family handler's 400 (now `QueryError::Validation`), while a
+                // `FieldError`/`TypeError`/`ValueError` is the upstream 500 the
+                // port keeps as `QueryError::Unsupported`.
+                let expected_validation = kind.as_str() == Some("ValidationError");
+                let matches = if expected_validation {
+                    error == QueryError::Validation
+                } else {
+                    matches!(error, QueryError::Unsupported(_))
+                };
+                if !matches {
+                    failures.push(format!(
+                        "case {id} {}: Django raised {} but the port raised {error}",
+                        describe(params_value),
+                        kind.as_str().unwrap_or("an error")
+                    ));
+                    continue;
+                }
                 expected_errors += 1;
                 continue;
             }
@@ -1016,6 +1035,58 @@ fn global_fields() -> Vec<ValueField> {
         ValueField::AttachmentCount,
         ValueField::SubIssuesCount,
     ]
+}
+
+/// `paginator::offset_page` is `OffsetPaginator.get_result` for a non-issue
+/// list: the page is `[offset, offset + limit)`, `total` is the filtered
+/// count, and the extra row decides `next_page_results`
+/// (`plane/utils/paginator.py:125-189`).
+#[tokio::test]
+async fn offset_page_slices_like_offset_paginator() {
+    let Some(client) = connect().await else {
+        return;
+    };
+    let meta = meta();
+    let params = QueryDict::parse("per_page=13&cursor=13:2:0", None).expect("query");
+    let page = PageQuery::parse(&params, None, None).expect("page");
+    let base = base_query(&meta, Default::default());
+
+    let mut total = base.filtered_base();
+    total.distinct = true;
+    let mut rows = base.filtered_base();
+    rows.distinct = true;
+    rows.projection = vec![Frag::raw("issues.id")];
+    rows.order_by = vec![Frag::raw("issues.id ASC")];
+
+    let result = plane_query::paginator::offset_page(
+        &client,
+        &page,
+        plane_query::paginator::MAX_LIMIT,
+        &total,
+        Some("issues.id"),
+        rows.clone(),
+    )
+    .await
+    .expect("offset page");
+
+    let mut expected = rows;
+    expected.limit = Some(13);
+    expected.offset = Some(26);
+    let expected_rows = run_select(&client, &expected).await.expect("expected page");
+    assert_eq!(result.rows.len(), 13);
+    assert_eq!(
+        ids_in_order(&result.rows, 0),
+        ids_in_order(&expected_rows, 0)
+    );
+    assert_eq!(
+        result.total,
+        run_count(&client, &total, true).await.expect("count")
+    );
+    assert_eq!(result.window.offset, 26);
+    assert_eq!(result.next.to_string(), "13:3:0");
+    assert!(result.next.has_results);
+    assert_eq!(result.prev.to_string(), "13:1:1");
+    assert!(result.prev.has_results);
 }
 
 /// A tiny sanity test that the fixture the goldens were built on is the one the

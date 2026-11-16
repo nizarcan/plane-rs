@@ -112,6 +112,17 @@ impl PortAllocator {
         }
     }
 
+    /// Mark a port as taken without probing it: a second target whose
+    /// `port_range` is the same as the first's (two runs of the same target
+    /// definition, e.g. Django vs Django) must not be handed the port the
+    /// first one is about to bind. The probe below cannot see a listener that
+    /// has not been bound yet, so without this both targets get `first` and one
+    /// of them fails to bind — after which both requests reach the survivor and
+    /// the run compares a target with itself.
+    pub fn reserve(&mut self, port: u16) {
+        self.used.insert(port);
+    }
+
     pub async fn allocate(&mut self) -> Result<u16> {
         for port in self.first..=self.last {
             if self.used.contains(&port) {

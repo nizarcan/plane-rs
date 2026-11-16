@@ -157,6 +157,32 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
+### Phase 3 wave 2 (merged 2026-11-16)
+
+Same process as wave 1: each agent's result was re-run on isolated ports and Redis DBs,
+merged, built and tested on the merge commit (fmt, clippy, workspace tests, schema check,
+registry, proxy generator tests, Caddy validation), and only then flipped.
+
+| Domain | GET endpoints on Rust | Held on Django (reason) |
+| --- | --- | --- |
+| pages | 7 (incl. the streamed `description/`) | – |
+| assets + meta | 15 (incl. `/api/unsplash/`) | – (write methods are Phase 5) |
+| intake, notifications | 15 | – |
+| analytics | 12 | `export-analytics/` is POST only |
+| views, stickies, search, webhooks | 13 | – |
+
+Total after wave 2: **181 rows** on `rust(GET)` (each wave 2 scenario 0 diffs; full read
+suite re-run on the combined pages/assets merge). Notable: page list 5 → 2 statements,
+attachment list 1 per row → 2, stickies 3 → 2, notifications drop the per-row avatar
+query. Debug Rust p50 across the 340 analytics steps 9.2 ms vs Django 27.4 ms.
+
+Framework work alongside: streaming raw responses (chunked, no `Content-Length`) and
+`GZipMiddleware` in Django 5.2's exact order, so streamed bodies are gzipped at any
+length. Shared `common/asset_url.rs` (`FileAsset.asset_url` and the user, workspace and
+project asset properties), one `build_absolute_uri`, and `common/fernet.rs`. Proxy
+generator tests on an all-django baseline, plus new invariants: owner cells are valid,
+and only `verified` rows are Rust-owned.
+
 ## In flight
 
 - **Environment change to revert at the end:** the Colima VM was resized from 2 CPUs / 2 GiB
@@ -166,29 +192,43 @@ invariants (each domain registers only its group's actions; every `rust` row in
   (its restart policy is `no`); the owner's `cc-cost` containers restart on their own.
   The dev Postgres limit (2 GiB in `dev/compose.yml`) must go back to 640M at the same time.
 
-- Wave 2 GET ports (one worktree each): views/stickies/search/webhooks;
-  intake/notifications; analytics.
-- Wave 2 assets: **merged** (15 GET endpoints: file assets v1/v2, static, presigned
-  downloads, checks, v2 issue attachments, and `/api/unsplash/`). The meta group is now
-  fully on Rust. The attachment list takes 2 statements where Django takes 4 for the
-  fixture (1 per row). Debug Rust averaged 27.7 ms per request on the scenario, Django
-  91.6 ms. The write methods stay on Django (Phase 5). Presigned URLs can differ by one
-  second between the targets; see D17. The harness rule is in progress on `rs/w2-assets`.
-- Wave 2 pages: **merged** (6 GET endpoints: summary, list, retrieve, versions list/detail,
-  live access; orders 123-125, 131, 132, 134). List/retrieve take 2 statements where Django
-  takes 5/4 (two prefetches Django never serialises). `GET …/pages/{id}/description/`
-  (order 130) stays on Django: it is a `StreamingHttpResponse` (chunked, and Django gzips
-  streaming responses at any length), so it needs a streaming flag in the response
-  pipeline. That and the port are in progress on `rs/w2-pages`.
-- Proxy generator tests (`tools/proxy/test_gen_caddy.py`): 3 tests assumed the Phase 0
-  "every owner is django" state and have failed since wave 1's first flip. `--check` and
-  Caddy validation passed throughout, so the generated config was never wrong. Fix in
-  progress on `rs/w2-pages`; the orchestrator's merge checklist now runs this file too.
+- Shared preamble: the intake agent measured 4 transactions per request for Rust vs 3
+  for Django (`xact_commit` deltas on 405 guard routes). Root cause and fix being
+  investigated on `rs/w2-intake`.
 - `plane-query` batch: filter-backend selection, `issue_group_values` key order and
   empty pages, per-view `distinct`, count projections, scope hook, generic paginator,
   D16 harness rule; then the six held/unported issue, cycle and module list routes.
+  Added: **`Frag::icontains` doesn't escape `%`/`_`/`\`** like Django's
+  `prep_for_like_query`. This is a correctness bug on merged routes (issue `name=`
+  filter, draft issues, stored analytics filters); four modules carry local escaping
+  copies. Also an unordered-object-key harness rule for `project-stats`.
 
 ## Follow-ups (not blocking)
+
+- Harness, after the `plane-query` batch merges (it is editing the same files):
+  - the D17 `presigned_url` comparison;
+  - the per-side `PortAllocator` collision;
+  - re-run the Django-vs-Django baselines agents took with a second target definition.
+- `analytics/pyset.rs` reproduces CPython's set layout under `PYTHONHASHSEED=0` for the
+  `project-stats` key order. Replace it with ascending order once the unordered-key rule
+  exists (D16; production order is random per process anyway).
+- `plane-query` generic pieces reported by wave 2: `Value::Int8` (callers write
+  `LIMIT $n::int4`), an `OffsetPaginator` (stickies and notifications compose their own),
+  `issue_filters(prefix=)` (intake aliases around it), lazy filter validation (the
+  paginator is parsed first), and binding the timezone inside `GROUP BY` ordinal
+  expressions (analytics inlines a literal).
+- `ApiError` 404-with-detail: analytics and labels hand-build `Http404` bodies; check that
+  they use `ApiError::NotFoundDetail`.
+- Small shared helpers duplicated across groups: the 405 `guard_only` (cycles plus
+  intake, notifications, views, stickies), a plain render context that ignores
+  `?fields=`/`?expand=`, and the `projects::lite` asset loader, which filters soft-deleted
+  assets where Django's FK read does not. Also the remaining asset URL helpers that
+  differ from Django in edge cases (`projects/lite.rs:69`, NULL slug renders `"None"`;
+  `issues/sub_common.rs:74`, description URL without the trailing `/`) — unreachable
+  through current fixtures, so fix them with a test.
+- `async` pipelining: independent counts (default/advance analytics) run sequentially
+  like Django. With `futures-util` they could be pipelined on one connection, fewer
+  round trips than Django.
 
 - Performance: loading session + user costs ~1.27 ms p50 per authenticated request (two
   sequential queries over the Docker VM network). Candidates: one round trip using the
@@ -264,6 +304,27 @@ invariants (each domain registers only its group's actions; every `rust` row in
   missing (`v2.py:987,1022`). The attachment detail never checks `entity_type`, and the
   attachment list never checks that the issue belongs to the project
   (`plane/app/views/issue/attachment.py:212-238`).
+- Intake: the list defaults `?status=-2`, so it only lists pending items; `?status=`
+  (empty) is a 500 (`plane/app/views/intake/base.py:208-210`). A project without an intake
+  renders `IntakeSerializer.get_initial()`, while retrieve dereferences `None` → 500
+  (`:76-77`, `:509-510`). `pending_issue_count` counts soft-deleted rows (`:70`).
+- Notifications: `mentioned=false` filters *for* mentions (any non-empty string is
+  truthy), `?type=` with an unknown value returns everything, `snoozed=true`/`false`
+  overlap, pagination needs both `per_page` and `cursor`
+  (`plane/app/views/notification/base.py:55-141`). The preference GET is a 500 when a user
+  has two preference rows (`:302`).
+- Views and search: retrieving a view outside the URL's project returns 200 with
+  `get_initial()` (500 for guests) and still enqueues `recent_visited_task`
+  (`plane/app/views/view/base.py:350-383`). Issue search reads `issue.parent` outside its
+  guard → 500 (`plane/app/views/search/issue.py:72-77`). Entity search `count=-1`/`abc` →
+  500.
+- Analytics: `?cycle=`/`?module=`/`?labels=` with the matching axis → 500 (duplicate
+  filter kwarg, `plane/app/views/analytic/base.py:140-165`); `date_filter=custom` never
+  filters (`advance.py:34-40`); the stats endpoint ignores `date_filter`; the completion
+  chart mixes UTC and local dates, so every bucket is 0 (`advance.py:228-278`); cancelled
+  items count as completed in `project-stats` (`base.py:456`); a non-numeric estimate
+  value makes the plot query fail → 500 (`analytics_plot.py:111`); project chart
+  cycle/module lookups are not workspace-scoped (`project_analytics.py`).
 - `ApiKeyRateThrottle` puts the raw API token in the Redis key (`plane/api/rate_limit.py:23`).
 - `is_allowed_origin` compares host only, not scheme (`plane/authentication/session.py:51`).
 - `project_invitations.delay(...)` is called on a list and the task module is never

@@ -140,6 +140,113 @@ db_schemas:
 # write anywhere.
 db_exclude_tables: []
 
+# DECISIONS.md D16. Django builds some response values by iterating a Python
+# `set` of `str` values, whose order CPython randomises per process:
+#
+#   * `GroupedOffsetPaginator.__query_multi_grouper` and
+#     `SubGroupedOffsetPaginator.__query_multi_grouper` replace an issue's
+#     `label_ids` / `assignee_ids` / `module_ids` with
+#     `list(result_group_mapping[...])` (plane/utils/paginator.py:352,579-602);
+#   * `GroupedOffsetPaginator.__query_multi_grouper` builds its result dict by
+#     iterating those same sets (plane/utils/paginator.py:355,365), so the
+#     *group key order* of a single m2m-grouped page is set order too.
+#
+# Rust emits both in ascending order (stable and cheap). `unordered_json_paths`
+# compares exactly those places as multisets / key sets: `mode: array` sorts the
+# elements, so a missing, extra or duplicated element still differs;
+# `mode: object_keys` ignores the key order but still compares the key set and
+# every value. `path` is a JSON-document glob (`*` = one component, `**` = any
+# number); `request` limits a rule to the steps whose `METHOD path?query`
+# matches, so no other endpoint is weakened.
+#
+# Every array and parent-key rule names the m2m grouper that builds it. On a
+# page grouped by an ordinary column (`group_by=state_id`, `priority`, …) the
+# same arrays are plain `ARRAY_AGG(DISTINCT …)` output and the raw column is a
+# real column, so those pages stay an exact comparison; only
+# `plane/utils/paginator.py:352,355,579-605` is exempt. `request:
+# "*group_by=<m2m>*"` also matches `sub_group_by=<m2m>` — `sub_group_by` contains
+# the substring `group_by=` — which is what the sub-grouped page needs: the
+# `SubGroupedOffsetPaginator.__query_multi_grouper` replaces only the m2m
+# field's own mapper array (`paginator.py:597-606`), so each rule is scoped to
+# its own column.
+unordered_json_paths:
+  # Single-group m2m page: the arrays of an issue inside a group's `results`.
+  - path: "$.results.*.results.*.label_ids"
+    mode: array
+    request: "*group_by=labels__id*"
+    why: "plane/utils/paginator.py:352 builds the array from list(set(...)); D16 compares it as a multiset"
+  - path: "$.results.*.results.*.assignee_ids"
+    mode: array
+    request: "*group_by=assignees__id*"
+    why: "plane/utils/paginator.py:352 builds the array from list(set(...)); D16 compares it as a multiset"
+  - path: "$.results.*.results.*.module_ids"
+    mode: array
+    request: "*group_by=issue_module__module_id*"
+    why: "plane/utils/paginator.py:352 builds the array from list(set(...)); D16 compares it as a multiset"
+  # Sub-grouped page: group -> sub-group -> the same arrays.
+  - path: "$.results.*.results.*.results.*.label_ids"
+    mode: array
+    request: "*group_by=labels__id*"
+    why: "plane/utils/paginator.py:599-605 builds the array from list(set(...)); D16 compares it as a multiset"
+  - path: "$.results.*.results.*.results.*.assignee_ids"
+    mode: array
+    request: "*group_by=assignees__id*"
+    why: "plane/utils/paginator.py:599-605 builds the array from list(set(...)); D16 compares it as a multiset"
+  - path: "$.results.*.results.*.results.*.module_ids"
+    mode: array
+    request: "*group_by=issue_module__module_id*"
+    why: "plane/utils/paginator.py:599-605 builds the array from list(set(...)); D16 compares it as a multiset"
+  # A row that an issue contributes to more than one group is the *same dict*
+  # object in Python, appended under every group id (plane/utils/paginator.py:355).
+  # Its raw group column therefore keeps whichever of the issue's rows the
+  # database returned first — an order neither side's SQL defines (the
+  # plane-query README records the same normalisation for its golden corpus).
+  # Canonicalise it to the group key the row is filed under; the membership
+  # array (`assignee_ids`, …) is still compared, as a multiset.
+  - path: "$.results.*.results.*.assignees__id"
+    mode: parent_key
+    request: "*group_by=assignees__id*"
+    why: "the row dict is shared across groups, so its raw group column is a database-order accident (plane/utils/paginator.py:355)"
+  - path: "$.results.*.results.*.labels__id"
+    mode: parent_key
+    request: "*group_by=labels__id*"
+    why: "the row dict is shared across groups, so its raw group column is a database-order accident (plane/utils/paginator.py:355)"
+  - path: "$.results.*.results.*.issue_module__module_id"
+    mode: parent_key
+    request: "*group_by=issue_module__module_id*"
+    why: "the row dict is shared across groups, so its raw group column is a database-order accident (plane/utils/paginator.py:355)"
+
+  # Sub-grouped pages: the cells of a group are built from
+  # `__get_subgroup_total_queryset`, which has no ORDER BY
+  # (plane/utils/paginator.py:511-518), so the cell order is the database's.
+  - path: "$.results.*.results"
+    mode: object_keys
+    request: "*sub_group_by=*"
+    why: "the sub-group cell order is whatever the unordered subgroup-total query returns (plane/utils/paginator.py:511-518)"
+  # `GET /api/workspaces/{slug}/project-stats/` keys every row by
+  # `set(filter(None, fields)) & valid_fields`, so the annotation order (and
+  # with it the row's key order) follows the process's string hash seed
+  # (plane/app/views/analytic/base.py:420-427). The key set and every value are
+  # still compared by key.
+  - path: "$.*"
+    mode: object_keys
+    request: "*project-stats*"
+    why: "plane/app/views/analytic/base.py:420-427 builds the row keys from set(...) & valid_fields; D16 compares the key set"
+
+  # Single m2m group: the group keys of the response are set order too.
+  - path: "$.results"
+    mode: object_keys
+    request: "*group_by=labels__id*"
+    why: "plane/utils/paginator.py:355-365 keys the result dict by list(set(...)); D16 compares the key set, not its order"
+  - path: "$.results"
+    mode: object_keys
+    request: "*group_by=assignees__id*"
+    why: "plane/utils/paginator.py:355-365 keys the result dict by list(set(...)); D16 compares the key set, not its order"
+  - path: "$.results"
+    mode: object_keys
+    request: "*group_by=issue_module__module_id*"
+    why: "plane/utils/paginator.py:355-365 keys the result dict by list(set(...)); D16 compares the key set, not its order"
+
 volatile_cookies:
   - name: session-id
     placeholder: session

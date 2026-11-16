@@ -15,6 +15,8 @@
 
 use plane_drf::registry::{Registry, RegistryError};
 
+#[path = "list_archive.rs"]
+mod list_archive;
 #[path = "list_common.rs"]
 pub mod list_common;
 #[path = "list_detail_endpoint.rs"]
@@ -27,12 +29,12 @@ mod list_export;
 mod list_list_endpoint;
 #[path = "list_paginated.rs"]
 mod list_paginated;
-#[path = "list_pyset.rs"]
-mod list_pyset;
 #[path = "list_retrieve.rs"]
 mod list_retrieve;
 #[path = "list_small.rs"]
 mod list_small;
+#[path = "list_sub_issues.rs"]
+mod list_sub_issues;
 #[path = "list_viewset.rs"]
 mod list_viewset;
 
@@ -46,5 +48,7 @@ pub fn register_lists(registry: &mut Registry) -> Result<(), RegistryError> {
     list_export::register(registry)?;
     list_drafts::register(registry)?;
     list_viewset::register(registry)?;
+    list_archive::register(registry)?;
+    list_sub_issues::register(registry)?;
     Ok(())
 }

@@ -22,6 +22,7 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         let params = params(ctx)?;
         let cycle_id: Uuid = uuid_kwarg(ctx, "cycle_id")?;
         let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
+        // `CycleIssueViewSet.list` never calls `.distinct()` (`cycle/issue.py:108-112`).
         issue_list::run(
             ctx,
             Request {
@@ -29,6 +30,7 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
                 scope: ScopeKind::Cycle(cycle_id),
                 default_order: "-created_at",
                 group_values_issues: false,
+                distinct: false,
                 timezone,
                 query: ctx.query(),
             },

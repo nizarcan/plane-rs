@@ -27,7 +27,10 @@ use crate::compare::{
     Difference, FormattingStatus, check_drf_formatting, compare_bodies, compare_celery, compare_db,
     compare_formatting, compare_headers, compare_redis, compare_status, drf_compact,
 };
-use crate::config::{DbRule, NamedRule, NormalizeRules, RuleCheck, RuleMode, ShapeRule};
+use crate::config::{
+    DbRule, NamedRule, NormalizeRules, RuleCheck, RuleMode, ShapeRule, UnorderedMode,
+    UnorderedPathRule,
+};
 use crate::db::{DbDiff, TableDiff, diff_snapshots};
 use crate::normalize::{BodyValue, NormalizedBody, NormalizerConfig, TargetNormalizer, Violation};
 use crate::password;
@@ -199,6 +202,7 @@ fn rules() -> Arc<NormalizeRules> {
             named("parent_id", "celery parent id", RuleMode::Drop),
             named("origin", "hostname:pid", RuleMode::Drop),
         ],
+        unordered_json_paths: Vec::new(),
         volatile_db_columns: vec![
             db_placeholder("sessions", "session_key", "session", "session_key"),
             DbRule {
@@ -1444,6 +1448,180 @@ pub fn run() -> Result<()> {
         modified: false,
     };
     checks.detected("binary body", "body", &compare_bodies(&binary_a, &binary_b))?;
+
+    // -- D16: path-scoped unordered comparisons ---------------------------
+    // DECISIONS.md D16: an array Django builds with `list(set(...))` is a
+    // multiset; an object keyed by such a set compares its key set, not its
+    // key order. The rule is scoped to a JSON path *and* to the request that
+    // makes Django build a set: a page grouped by an ordinary column carries
+    // `ARRAY_AGG(DISTINCT …)` output, which must stay an exact comparison.
+    let mut unordered = (*rules()).clone();
+    unordered.unordered_json_paths = vec![
+        UnorderedPathRule {
+            path: "$.results.*.results.*.label_ids".to_string(),
+            mode: UnorderedMode::Array,
+            request: Some("*group_by=labels__id*".to_string()),
+            why: "selftest: the multi-grouper builds the id array from a set".to_string(),
+        },
+        UnorderedPathRule {
+            path: "$.results.*.results.*.results.*.assignee_ids".to_string(),
+            mode: UnorderedMode::Array,
+            request: Some("*group_by=assignees__id*".to_string()),
+            why: "selftest: the sub-grouped multi-grouper builds the id array from a set"
+                .to_string(),
+        },
+        UnorderedPathRule {
+            path: "$.results".to_string(),
+            mode: UnorderedMode::ObjectKeys,
+            request: Some("*group_by=labels__id*".to_string()),
+            why: "selftest: the m2m grouper's group keys come from a set".to_string(),
+        },
+        UnorderedPathRule {
+            path: "$.results.*.results.*.assignees__id".to_string(),
+            mode: UnorderedMode::ParentKey,
+            request: Some("*group_by=assignees__id*".to_string()),
+            why: "selftest: a row shared across groups keeps a database-order group column"
+                .to_string(),
+        },
+    ];
+    let unordered_rules = Arc::new(unordered);
+    let unordered_normalizer = |request: &str| {
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: unordered_rules.clone(),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+        });
+        normalizer.start_step(start, start);
+        normalizer.set_request(request.to_string());
+        normalizer
+    };
+    let normalise = |request: &str, raw: &str| {
+        let mut normalizer = unordered_normalizer(request);
+        normalizer.normalize_body(raw.as_bytes(), true)
+    };
+    let request = "GET /api/workspaces/w/projects/p/issues/?group_by=labels__id";
+
+    // The same elements in a different order are equal at the rule's path ...
+    let forward = normalise(
+        request,
+        r#"{"results":{"g":{"results":[{"label_ids":["b","a"]}]}}}"#,
+    );
+    let backward = normalise(
+        request,
+        r#"{"results":{"g":{"results":[{"label_ids":["a","b"]}]}}}"#,
+    );
+    checks.accepted(
+        "a set-derived array is a multiset",
+        &compare_bodies(&forward, &backward),
+    )?;
+
+    // ... but a missing, extra or duplicated element is not.
+    for (label, raw) in [
+        (
+            "missing",
+            r#"{"results":{"g":{"results":[{"label_ids":["a"]}]}}}"#,
+        ),
+        (
+            "extra",
+            r#"{"results":{"g":{"results":[{"label_ids":["a","b","c"]}]}}}"#,
+        ),
+        (
+            "duplicate",
+            r#"{"results":{"g":{"results":[{"label_ids":["a","a","b"]}]}}}"#,
+        ),
+    ] {
+        let other = normalise(request, raw);
+        checks.detected(
+            &format!("a set-derived array with a {label} element"),
+            "body",
+            &compare_bodies(&forward, &other),
+        )?;
+    }
+
+    // `parent_key` canonicalises the raw group column to the group the row is
+    // filed under, so the two database orders compare equal.
+    let assignee_request = "GET /api/workspaces/w/projects/p/issues/?group_by=assignees__id";
+    let parent_a = normalise(
+        assignee_request,
+        r#"{"results":{"g1":{"results":[{"assignees__id":"g2"}]}}}"#,
+    );
+    let parent_b = normalise(
+        assignee_request,
+        r#"{"results":{"g1":{"results":[{"assignees__id":"g1"}]}}}"#,
+    );
+    checks.accepted(
+        "a shared row's raw group column is canonicalised to its group",
+        &compare_bodies(&parent_a, &parent_b),
+    )?;
+
+    // The rule is scoped to the m2m request: a page grouped by an ordinary
+    // column carries `ARRAY_AGG(DISTINCT …)` output, whose order is part of the
+    // body. The same two arrays must differ there.
+    let state_request = "GET /api/workspaces/w/projects/p/issues/?group_by=state_id";
+    let state_forward = normalise(
+        state_request,
+        r#"{"results":{"g":{"results":[{"label_ids":["b","a"]}]}}}"#,
+    );
+    let state_backward = normalise(
+        state_request,
+        r#"{"results":{"g":{"results":[{"label_ids":["a","b"]}]}}}"#,
+    );
+    checks.detected(
+        "an array on a non-m2m grouped page compares in order",
+        "body",
+        &compare_bodies(&state_forward, &state_backward),
+    )?;
+    // `parent_key` is scoped the same way: on a `group_by=state_id` page its
+    // path cannot match, and the value it would have rewritten is a real
+    // column.
+    let state_parent = unordered_normalizer(state_request).normalize_body(
+        br#"{"results":{"g":{"results":[{"assignees__id":"g2"}]}}}"#,
+        true,
+    );
+    checks.ok(
+        "parent_key does not rewrite a non-m2m grouped page",
+        state_parent.pretty().contains("\"assignees__id\": \"g2\""),
+    )?;
+
+    // The rule is path-scoped: the same key outside it keeps its order.
+    let outside = normalise(request, r#"{"items":[{"label_ids":["b","a"]}]}"#);
+    let outside_reordered = normalise(request, r#"{"items":[{"label_ids":["a","b"]}]}"#);
+    checks.detected(
+        "an array outside the rule's path compares in order",
+        "body",
+        &compare_bodies(&outside, &outside_reordered),
+    )?;
+
+    // The m2m grouper's key order is unordered on its endpoint ...
+    let keys_forward = normalise(
+        request,
+        r#"{"results":{"a":{"results":[],"total_results":0},"b":{"results":[],"total_results":0}}}"#,
+    );
+    let keys_backward = normalise(
+        request,
+        r#"{"results":{"b":{"results":[],"total_results":0},"a":{"results":[],"total_results":0}}}"#,
+    );
+    checks.accepted(
+        "m2m group keys compare as a set",
+        &compare_bodies(&keys_forward, &keys_backward),
+    )?;
+    // ... and exact on a step whose request does not match the rule.
+    let other_request = "GET /api/workspaces/w/projects/p/issues/?group_by=state_id";
+    let keys_ordered = normalise(
+        other_request,
+        r#"{"results":{"a":{"results":[],"total_results":0},"b":{"results":[],"total_results":0}}}"#,
+    );
+    let keys_reordered = normalise(
+        other_request,
+        r#"{"results":{"b":{"results":[],"total_results":0},"a":{"results":[],"total_results":0}}}"#,
+    );
+    checks.detected(
+        "group key order stays exact on a non-m2m step",
+        "body",
+        &compare_bodies(&keys_ordered, &keys_reordered),
+    )?;
 
     // -- ordering of placeholders across parts ----------------------------
     let mut a = normalizer("http://127.0.0.1:18000");

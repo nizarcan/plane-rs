@@ -347,6 +347,10 @@ async fn run_inner(
         let port_a = ports_a.allocate().await?;
         let port_a_context = target_context(port_a, &a_db, a_redis_db, &a_vhost);
         let mut target_a = TargetInstance::start("a", &spec_a, &port_a_context, &log_dir).await?;
+        // A and B may share one `port_range` (the same target definition on
+        // both sides, which is how Django-vs-Django is run). B must not be
+        // handed A's port: A is not listening yet when B allocates.
+        ports_b.reserve(port_a);
         let port_b = ports_b.allocate().await?;
         let port_b_context = target_context(port_b, &b_db, b_redis_db, &b_vhost);
         let mut target_b = TargetInstance::start("b", &spec_b, &port_b_context, &log_dir).await?;
@@ -364,6 +368,9 @@ async fn run_inner(
         health_b?;
         let a_url = target_a.base_url.clone();
         let b_url = target_b.base_url.clone();
+        if a_url == b_url {
+            bail!("targets A and B both listen on {a_url}; A and B must be distinct processes");
+        }
         resources.targets.push(target_a);
         resources.targets.push(target_b);
         (a_url, b_url, a_db, b_db, a_vhost, b_vhost)
@@ -1150,6 +1157,10 @@ async fn execute_step(
     // Normalisation order is fixed: headers (Location first), body, database,
     // Celery, Redis. Placeholder numbering depends on it.
     let normalise_started = Instant::now();
+    // The `unordered_json_paths` rules that name an endpoint match against the
+    // request, so the normaliser needs it before the body is walked.
+    side.normalizer
+        .set_request(format!("{} {}", step.method, request.path_and_query));
     side.normalizer.start_step(started, ended);
     let headers = side.normalizer.normalize_headers(&response.headers);
     let json = content_type_is_json(&response.headers);
@@ -1542,6 +1553,7 @@ mod tests {
     #[test]
     fn content_length_is_user_controlled() {
         let rules = NormalizeRules {
+            unordered_json_paths: Vec::new(),
             ignore_headers: vec!["content-length".to_string(), "date".to_string()],
             shapes: BTreeMap::new(),
             volatile_cookies: vec![],
