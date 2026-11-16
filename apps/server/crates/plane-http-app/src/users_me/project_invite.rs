@@ -37,7 +37,11 @@ use crate::common::asset_url::{self, AssetRef};
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.project.invite.UserProjectInvitationsViewset")?
-        .action("list", list)?;
+        .action("list", list)?
+        // The join itself is a project-membership write; it lives next to the
+        // other member writes and is registered here because routes.json puts
+        // the route in this group.
+        .action("create", crate::projects::invite_write::join_projects)?;
     Ok(())
 }
 
