@@ -1,0 +1,335 @@
+{
+ "generated_by": "apps/server/tools/descriptions/gen_description_corpus.py",
+ "python": "3.12.13",
+ "validate_html_content": [
+  {
+   "input": "<p>hello</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>hello</p>"
+  },
+  {
+   "input": "<script>alert(1)</script>",
+   "is_valid": true,
+   "error": null,
+   "clean": ""
+  },
+  {
+   "input": "<style>.x{color:red}</style>",
+   "is_valid": true,
+   "error": null,
+   "clean": ""
+  },
+  {
+   "input": "<p onclick='x'>a</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>a</p>"
+  },
+  {
+   "input": "<p data-foo='1' data-tight='2'>x</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p data-tight=\"2\">x</p>"
+  },
+  {
+   "input": "<p data-tight='true'>x</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p data-tight=\"true\">x</p>"
+  },
+  {
+   "input": "<a href='javascript:alert(1)'>x</a>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<a rel=\"noopener noreferrer\">x</a>"
+  },
+  {
+   "input": "<a href='https://e.test/x?y=1&amp;z=2'>x</a>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<a href=\"https://e.test/x?y=1&amp;z=2\" rel=\"noopener noreferrer\">x</a>"
+  },
+  {
+   "input": "<img src='/api/assets/v2/static/x/' width='10'>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<img src=\"/api/assets/v2/static/x/\" width=\"10\">"
+  },
+  {
+   "input": "<iframe src='x'></iframe>",
+   "is_valid": true,
+   "error": null,
+   "clean": ""
+  },
+  {
+   "input": "<p>a &amp; b</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>a &amp; b</p>"
+  },
+  {
+   "input": "<mention-component id='1' entity_name='user'></mention-component>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<mention-component id=\"1\" entity_name=\"user\"></mention-component>"
+  },
+  {
+   "input": "<p style='color:red'>x</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p style=\"color:red\">x</p>"
+  },
+  {
+   "input": "<pre language='js'><code>a</code></pre>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<pre language=\"js\"><code>a</code></pre>"
+  },
+  {
+   "input": "<p>line1\nline2</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>line1\nline2</p>"
+  },
+  {
+   "input": "<!-- comment --><p>x</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>x</p>"
+  },
+  {
+   "input": "<p>café 你好 😀</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>café 你好 😀</p>"
+  },
+  {
+   "input": "<div><p>a</p><p>b <b>c</b></p></div>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<div><p>a</p><p>b <b>c</b></p></div>"
+  },
+  {
+   "input": "<table><tr><td colspan='2' textColor='red'>a</td></tr></table>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<table><tbody><tr><td colspan=\"2\" textcolor=\"red\">a</td></tr></tbody></table>"
+  },
+  {
+   "input": "<label class='x' for='y'>l</label>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<label class=\"x\">l</label>"
+  },
+  {
+   "input": "<image-component src='s' width='10' height='20' unknown='z'></image-component>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<image-component src=\"s\" width=\"10\" height=\"20\"></image-component>"
+  },
+  {
+   "input": "<input type='checkbox' checked>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<input type=\"checkbox\" checked=\"\">"
+  },
+  {
+   "input": "<a href='mailto:x@y.z' target='_blank'>m</a>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<a href=\"mailto:x@y.z\" target=\"_blank\" rel=\"noopener noreferrer\">m</a>"
+  },
+  {
+   "input": "<a href='tel:+123'>t</a>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<a href=\"tel:+123\" rel=\"noopener noreferrer\">t</a>"
+  },
+  {
+   "input": "<svg><circle/></svg>",
+   "is_valid": true,
+   "error": null,
+   "clean": ""
+  },
+  {
+   "input": "<p>&amp;lt;</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>&amp;lt;</p>"
+  },
+  {
+   "input": "<p>&#39;</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>'</p>"
+  },
+  {
+   "input": "<p class='' id=''>x</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p class=\"\" id=\"\">x</p>"
+  },
+  {
+   "input": "<th colwidth='1' style='x'>h</th>",
+   "is_valid": true,
+   "error": null,
+   "clean": "h"
+  },
+  {
+   "input": "<p aria-label='a' role='b'>x</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p aria-label=\"a\" role=\"b\">x</p>"
+  },
+  {
+   "input": "<p unclosed='x'>a",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>a</p>"
+  },
+  {
+   "input": "<p>a</p >b",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>a</p>b"
+  },
+  {
+   "input": "<p><em>nested <strong>tags</strong></em></p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p><em>nested <strong>tags</strong></em></p>"
+  },
+  {
+   "input": "<blockquote><p>quote</p></blockquote>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<blockquote><p>quote</p></blockquote>"
+  },
+  {
+   "input": "",
+   "is_valid": true,
+   "error": null,
+   "clean": null
+  },
+  {
+   "input": "no markup at all",
+   "is_valid": true,
+   "error": null,
+   "clean": "no markup at all"
+  },
+  {
+   "input": "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>",
+   "is_valid": true,
+   "error": null,
+   "clean": "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>"
+  }
+ ],
+ "validate_binary_data": [
+  {
+   "input": "",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "aGVsbG8=",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "not-base64!!!",
+   "is_valid": false,
+   "error": "Invalid base64 encoding"
+  },
+  {
+   "input": "aGVsbG8gd29ybGQ=",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "PGh0bWw+PHNjcmlwdD54PC9zY3JpcHQ+PC9odG1sPg==",
+   "is_valid": false,
+   "error": "Binary data contains suspicious content patterns"
+  },
+  {
+   "input": "YWJj",
+   "is_valid": false,
+   "error": "Binary data too short to be valid document format"
+  },
+  {
+   "input": "JVBERi0xLjQ=",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "SkFWQVNDUklQVDphbGVydCgxKQ==",
+   "is_valid": false,
+   "error": "Binary data contains suspicious content patterns"
+  },
+  {
+   "input": "ZGF0YTp0ZXh0L2h0bWwseA==",
+   "is_valid": false,
+   "error": "Binary data contains suspicious content patterns"
+  },
+  {
+   "input": "Y2Fmw6k=",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "PGlmcmFtZSBzcmM9eD4=",
+   "is_valid": false,
+   "error": "Binary data contains suspicious content patterns"
+  },
+  {
+   "input": "PCFkb2N0eXBlIGh0bWw+",
+   "is_valid": false,
+   "error": "Binary data contains suspicious content patterns"
+  },
+  {
+   "input": "b2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sgb2sg",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "AAECAw==",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "YWJjZA",
+   "is_valid": false,
+   "error": "Invalid base64 encoding"
+  },
+  {
+   "input": "YWJjZA==",
+   "is_valid": true,
+   "error": null
+  },
+  {
+   "input": "!!!!",
+   "is_valid": false,
+   "error": "Binary data too short to be valid document format"
+  },
+  {
+   "input": "a",
+   "is_valid": false,
+   "error": "Invalid base64 encoding"
+  },
+  {
+   "input": "====",
+   "is_valid": false,
+   "error": "Binary data too short to be valid document format"
+  },
+  {
+   "input": " ",
+   "is_valid": false,
+   "error": "Binary data too short to be valid document format"
+  },
+  {
+   "input": "aGVsbG8gd29ybGQ",
+   "is_valid": false,
+   "error": "Invalid base64 encoding"
+  }
+ ]
+}

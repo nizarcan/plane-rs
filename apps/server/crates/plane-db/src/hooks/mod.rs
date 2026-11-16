@@ -46,6 +46,9 @@
 pub mod audit;
 pub mod favorite;
 pub mod html;
+/// Generated data tables for [`html`] (CPython's `html.entities.html5` and its
+/// invalid-reference tables). Private: only `html::strip_tags` needs them.
+mod html_entities;
 pub mod json_merge;
 pub mod project;
 pub mod project_member;

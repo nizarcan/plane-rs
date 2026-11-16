@@ -1,0 +1,246 @@
+{
+ "generated_by": "apps/server/tools/descriptions/gen_description_corpus.py",
+ "python": "3.12.13",
+ "cases": [
+  {
+   "input": "",
+   "output": ""
+  },
+  {
+   "input": "plain",
+   "output": "plain"
+  },
+  {
+   "input": "<p>hello</p>",
+   "output": "hello"
+  },
+  {
+   "input": "<p>Hello <strong>world</strong>!</p>",
+   "output": "Hello world!"
+  },
+  {
+   "input": "<div><p>a</p><p>b</p></div>",
+   "output": "ab"
+  },
+  {
+   "input": "<p>a<br/>b</p>",
+   "output": "ab"
+  },
+  {
+   "input": "<p>  spaced  </p>",
+   "output": "  spaced  "
+  },
+  {
+   "input": "<p>a\tb\nc</p>",
+   "output": "a\tb\nc"
+  },
+  {
+   "input": "<p>a\r\nb\rc</p>",
+   "output": "a\r\nb\rc"
+  },
+  {
+   "input": "text</p>after",
+   "output": "textafter"
+  },
+  {
+   "input": "<p>unclosed <b>bold",
+   "output": "unclosed bold"
+  },
+  {
+   "input": "<p>a<b>c",
+   "output": "ac"
+  },
+  {
+   "input": "a < b > c",
+   "output": "a < b > c"
+  },
+  {
+   "input": "<p>a<1>b</p>",
+   "output": "a<1>b"
+  },
+  {
+   "input": "<p>a<!x>b</p>",
+   "output": "ab"
+  },
+  {
+   "input": "<!-- c --><p>x</p>",
+   "output": "x"
+  },
+  {
+   "input": "<p>a<!--x-->b</p>",
+   "output": "ab"
+  },
+  {
+   "input": "<!-- unterminated <p>x</p>",
+   "output": ""
+  },
+  {
+   "input": "<!DOCTYPE html><p>x</p>",
+   "output": "x"
+  },
+  {
+   "input": "<?xml version='1.0'?><p>x</p>",
+   "output": "x"
+  },
+  {
+   "input": "<![CDATA[raw <b>text</b>]]>",
+   "output": ""
+  },
+  {
+   "input": "<![CDATA[unterminated <p>x</p>",
+   "output": ""
+  },
+  {
+   "input": "<script>alert(1)</script>",
+   "output": "alert(1)"
+  },
+  {
+   "input": "<SCRIPT>alert(1)</SCRIPT>",
+   "output": "alert(1)"
+  },
+  {
+   "input": "<style>.x{color:red}</style>",
+   "output": ".x{color:red}"
+  },
+  {
+   "input": "<script>if (a < b) { x() }</script>",
+   "output": "if (a < b) { x() }"
+  },
+  {
+   "input": "<script>a &amp; b</script>",
+   "output": "a &amp; b"
+  },
+  {
+   "input": "<script>a</script >b",
+   "output": "ab"
+  },
+  {
+   "input": "<script>a</ script>b",
+   "output": ""
+  },
+  {
+   "input": "<script/>x",
+   "output": "x"
+  },
+  {
+   "input": "<scriptx>a</scriptx>b",
+   "output": "ab"
+  },
+  {
+   "input": "<script>unterminated <b>text",
+   "output": ""
+  },
+  {
+   "input": "<textarea><b>x</b></textarea>",
+   "output": "<b>x</b>"
+  },
+  {
+   "input": "<p>a &amp; b</p>",
+   "output": "a & b"
+  },
+  {
+   "input": "<p>a &lt;b&gt; c</p>",
+   "output": "a <b> c"
+  },
+  {
+   "input": "<p>&nbsp;</p>",
+   "output": " "
+  },
+  {
+   "input": "<p>&#39;q&#39;</p>",
+   "output": "'q'"
+  },
+  {
+   "input": "<p>&#x27;quote&#x27;</p>",
+   "output": "'quote'"
+  },
+  {
+   "input": "<p>&#x1F600;</p>",
+   "output": "😀"
+  },
+  {
+   "input": "<p>&Aacute; &copy; &hellip; &trade; &euro; &rarr; &frac12; &mdash;</p>",
+   "output": "Á © … ™ € → ½ —"
+  },
+  {
+   "input": "<p>&amp</p>",
+   "output": "&"
+  },
+  {
+   "input": "<p>&amp x</p>",
+   "output": "& x"
+  },
+  {
+   "input": "<p>&ampx</p>",
+   "output": "&x"
+  },
+  {
+   "input": "<p>&notit;</p>",
+   "output": "¬it;"
+  },
+  {
+   "input": "<p>&; &#; &#x; &unknown;</p>",
+   "output": "&; &#; &#x; &unknown;"
+  },
+  {
+   "input": "<p>&#0; &#x110000; &#xD800;</p>",
+   "output": "� � �"
+  },
+  {
+   "input": "<p>&#13; &#x80; &#x9f;</p>",
+   "output": "\r € Ÿ"
+  },
+  {
+   "input": "<p>&#1; &#8; &#127;</p>",
+   "output": "  "
+  },
+  {
+   "input": "<p>&&amp;&</p>",
+   "output": "&&&"
+  },
+  {
+   "input": "<p>&AMP; &Amp; &amp;</p>",
+   "output": "& &Amp; &"
+  },
+  {
+   "input": "<p>&CounterClockwiseContourIntegral;</p>",
+   "output": "∳"
+  },
+  {
+   "input": "<p>&fjlig; &ThickSpace;</p>",
+   "output": "fj   "
+  },
+  {
+   "input": "<p>café 你好 😀</p>",
+   "output": "café 你好 😀"
+  },
+  {
+   "input": "<p>àèìòù &egrave;</p>",
+   "output": "àèìòù è"
+  },
+  {
+   "input": "<p title='a\"b'>x</p>",
+   "output": "x"
+  },
+  {
+   "input": "<p>a' b\"</p>",
+   "output": "a' b\""
+  },
+  {
+   "input": "<td>cell</td>",
+   "output": "cell"
+  },
+  {
+   "input": "<p>&#99999999999999999999;</p>",
+   "output": "�"
+  },
+  {
+   "input": "<p>&#xZZ;</p>",
+   "output": "&#xZZ;"
+  },
+  {
+   "input": "<p>&#x41</p>",
+   "output": "A"
+  }
+ ]
+}
