@@ -4,11 +4,8 @@ Read at the start of every session; update at the end.
 
 ## Current phase
 
-Phase 3: Read paths. The **differential half** of the exit check passed on 2026-11-16
-(every app-group GET on Rust and verified). The **contract half** is still open:
-`plane/tests/contract` (94 files) has never been run against `plane-api`. A mixed-backend
-contract runner is being built. Phase 4 doesn't start until both halves pass (brief:
-"do not start a phase early").
+Phase 4: Job plumbing (started 2026-11-16). Phase 3 exit check passed on 2026-11-16:
+differential tests and contract tests are green for every ported GET (see below).
 
 ## Upstream reference
 
@@ -161,7 +158,34 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
-### Phase 3 exit, differential half (2026-11-16)
+### Phase 3 exit: contract half (2026-11-16)
+
+`tools/contract/` is a pytest plugin that runs the upstream `plane/tests/contract` tests
+unchanged against the mixed backend:
+- each request goes to `plane-api` or in-process Django using the proxy generator's own
+  plan;
+- forced authentication becomes a real session;
+- tests are forced transactional, so `plane-api` sees their rows;
+- Rust-published Celery messages are replayed into patched `.delay` mocks.
+
+A static dry pass selected the 28 app files that can reach a Rust-owned route.
+- **Django-only baseline:** 310/310 pass.
+- **Mixed mode, re-run by the orchestrator on `43ac1b539d`:** 310/310. 195 of 366
+  requests went to Rust, and **all 183 tests touching Rust pass**. They cover analytics,
+  assets, cycles, issues, modules, notifications, pages, projects, search, views,
+  webhooks and workspaces.
+
+The runner found two Rust bugs the differential suite had missed, both fixed:
+- a NULL `workspaces.logo` panicked every route that nests the lite workspace
+  serializer;
+- page favourites selected a non-existent `pages.project_id`, a 500 on
+  `/user-favorites/`.
+
+Limitations: 12 tests assert on an in-process storage mock (`boto3`/`S3Storage`), so
+those requests are served by Django. Those routes are covered by the differential
+suite, including D17 signature checks.
+
+### Phase 3 exit: differential half (2026-11-16)
 
 Every app-group route with a GET is `rust(GET)` / `verified` (187 routes). Only the later-phase groups (v1, public, instances, auth, web) are left on
 Django. The full read suite on `c48b145a13` has 0 diffs on every ported group:
@@ -254,6 +278,10 @@ and only `verified` rows are Rust-owned.
   932 at 32). Suspect the per-request `recent_visited_task` publish; check its publisher
   path, connection and channel reuse.
 
+- Fixture gaps found by the contract runner: `plane_fix_tpl` has no workspace with a NULL
+  `logo` and no page favourite whose page belongs to a project, so the two bugs fixed in
+  `43ac1b539d` have contract-test regressions but no differential scenario step. Add both
+  to `tools/fixtures/build.py`, rebuild the template, and add the steps.
 - Re-run the Django-vs-Django baselines that agents took with a second target
   definition (the port allocator is fixed now).
 - Harness flake: under load, the Celery comparison sometimes sees messages one step late
@@ -429,12 +457,11 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. The contract half of the Phase 3 exit: a mixed-backend runner for
-   `plane/tests/contract`, without changing `apps/api`. Every request goes to Rust or
-   Django according to `ROUTES.md`, as the proxy does; forced authentication becomes a
-   real session; databases are transactional so `plane-api` sees the test's rows. Then
-   every contract test that touches a Rust-owned route must pass.
-2. Re-measure the Phase 3 row in `BENCH.md` on a quiet stack with the current code (one
-   concurrency level, short windows, per the time budgets).
-3. Phase 4 (job plumbing), only after step 1: the Postgres queue in `plane-jobs`,
-   `plane-worker`, and `plane-beat` with advisory locks.
+1. Phase 4: the `plane_jobs` Postgres queue in `plane-jobs` (`FOR UPDATE SKIP LOCKED`,
+   retries, dead letter, enqueue in the caller's transaction), `plane-worker`, and
+   `plane-beat` with a Postgres advisory lock per tick. Exit: a Rust handler can enqueue
+   to both queues, and a scheduled job runs exactly once with two beat replicas.
+2. Fixture additions for the two contract-found bugs, plus their differential steps.
+3. Phase 5 planning (write paths): domain order, `MODEL_HOOKS.md` coverage, and harness
+   support for write scenarios (DB diffs on POST/PATCH/DELETE already exist). Then the
+   Phase 3 benchmark re-measure on a quiet stack, at the end of Phase 4.
