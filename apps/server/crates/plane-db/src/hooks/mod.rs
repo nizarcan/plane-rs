@@ -46,6 +46,8 @@
 pub mod audit;
 pub mod favorite;
 pub mod html;
+pub mod issue;
+pub mod issue_m2m;
 pub mod json_merge;
 pub mod project;
 pub mod project_member;
