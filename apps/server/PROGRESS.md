@@ -4,8 +4,8 @@ Read at the start of every session; update at the end.
 
 ## Current phase
 
-Phase 4: Job plumbing (started 2026-11-16). Phase 3 exit check passed on 2026-11-16:
-differential tests and contract tests are green for every ported GET (see below).
+Phase 5: Write paths (started 2026-11-16). The Phase 4 exit check passed on 2026-11-16
+(see below).
 
 ## Upstream reference
 
@@ -157,6 +157,44 @@ pickles), harness per-target port ranges and Redis DBs in managed mode, registry
 invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
+
+### Phase 4: Job plumbing (merged `b1129b5b22`, 2026-11-16)
+
+Exit check passed, re-run by the orchestrator:
+- **A Rust handler can enqueue to both queues.** `route::dispatch` sends each task to the
+  Celery publisher or to `plane_jobs` by its owner (`ownership.rs`, `TASKS.md` §10).
+  `recent_visited_task` goes through it and stays byte-identical on the wire (`projects`,
+  `cycles`, `users-me`, `pages-extra`, `views-extra`, `workspaces`: 0 diffs). The
+  test-only Rust task lands in `plane_jobs` and the worker runs it.
+- **A scheduled job runs exactly once with two beat replicas.**
+  `tools/jobs/beat_exactly_once.sh`: 27 ticks, 27 jobs, 0 duplicates, 0 gaps; replica A
+  killed, B carried on.
+- **The handover from a real Celery beat is safe.** `tools/jobs/beat_handover.sh`
+  requests the handover 1 s before a tick: it waits for a quiet window, then every tick
+  runs exactly once (Celery 2, Rust 3, none on both).
+
+Design (`JOBS.md`):
+- `plane_jobs` schema (jobs, schedules, ticks, meta), created by `plane-migrator`
+  outside Django's migrations. Jobs are leased, with retries and a dead-letter state;
+  `enqueue` works inside the caller's transaction.
+- Workers claim with `SKIP LOCKED`, wake on `LISTEN/NOTIFY` with a poll fallback, and
+  release on SIGTERM.
+- Beat fires each tick once: an advisory lock plus a primary key on `ticks`.
+- **Handover from Celery beat** without editing `apps/api`:
+  - disable the `django_celery_beat_periodictask` row. `enabled` is not in
+    `_unpack_fields`, so it survives beat restarts;
+  - bump `django_celery_beat_periodictasks.last_update` in the same transaction, so a
+    running Celery beat reloads. Raw SQL skips Django's signal, which found in review;
+  - do both only in a quiet window: the previous tick is ≥ 30 s past and the next tick
+    is ≥ 15 s ahead, against `DatabaseScheduler`'s 5 s loop.
+
+  Celery's own `last_run_at` can't be trusted on a disabled row: `PeriodicTask.save()`
+  clears it, also found in review.
+
+Indicative idle memory (macOS host, release build): `plane-worker` 8 MB, `plane-beat`
+8 MB, against Celery's 852 MiB (`-c 4`) and 172 MiB in containers. Container numbers
+come with the next benchmark run. No real task or schedule has moved yet; tasks move
+with their Phase 5 domains.
 
 ### Phase 3 exit: contract half (2026-11-16)
 
@@ -458,13 +496,17 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. Phase 4: the `plane_jobs` Postgres queue in `plane-jobs` (`FOR UPDATE SKIP LOCKED`,
-   retries, dead letter, enqueue in the caller's transaction), `plane-worker`, and
-   `plane-beat` with a Postgres advisory lock per tick. Exit: a Rust handler can enqueue
-   to both queues, and a scheduled job runs exactly once with two beat replicas.
-2. (Done, `c934203c19`.) Fixture coverage for the two contract-found bugs: a NULL-logo
-   workspace and a project page favourite. Each step fails against its reverted fix,
-   and the full sweep on the new template has 0 diffs (42 files, 2,155 steps).
-3. Phase 5 planning (write paths): domain order, `MODEL_HOOKS.md` coverage, and harness
-   support for write scenarios (DB diffs on POST/PATCH/DELETE already exist). Then the
-   Phase 3 benchmark re-measure on a quiet stack, at the end of Phase 4.
+1. Phase 5 infrastructure, before any domain: write-request parsing (JSON, multipart,
+   form) with Django/DRF's exact error bodies; writable serializer validation that
+   reproduces DRF's error format and field order; CSRF on unsafe methods
+   (Phase 2 primitives); a transaction per request like Django's autocommit;
+   `created_by`/`updated_by` like `django-crum`; a `model_hooks` module from
+   `MODEL_HOOKS.md`; and harness support for write scenarios. DB diffs already exist;
+   add per-step fixture reset or isolation, and ids normalised across the two DBs.
+2. Then the domains in the brief's order, one agent per domain, each porting its tasks
+   with it: projects and members → states/labels → work items and sub-resources
+   (including `issue_activities_task` and `notification_task`) → cycles → modules →
+   views → pages → intake → notifications → favourites → stickies → webhooks → assets
+   → exports → analytics → search.
+3. Re-measure the Phase 3 benchmark row and add container numbers for `plane-worker` and
+   `plane-beat`, on a quiet stack, within the time budget.
