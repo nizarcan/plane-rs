@@ -255,7 +255,7 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
         // `requested_data = json.dumps(request.data)` and
         // `current_instance = json.dumps(IssueLinkSerializer(issue_link).data)`
         // (`:84-85`), both before validation.
-        let requested_data = queries::request_data_arg(ctx)?;
+        let requested_data = crate::write::request_data_json_text(ctx)?;
         let current_instance = queries::django_json(&link_json(&previous, timezone, None))?;
 
         let data = ctx.data()?;

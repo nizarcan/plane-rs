@@ -36,9 +36,11 @@
 //! ## Remaining gaps
 //!
 //! * **Multipart files are skipped**, not stored: only non-file field values
-//!   are exposed, and `request.FILES` is always empty. Django's
-//!   `MultiPartParserError` wording and `DATA_UPLOAD_MAX_NUMBER_FIELDS` counting
-//!   for parts are not reproduced.
+//!   are exposed and `request.FILES` stays empty. `QueryDict::has_files`
+//!   records that a file part was present, which is enough for a handler that
+//!   publishes `request.data` to reproduce Django's encoder `TypeError`.
+//!   Django's `MultiPartParserError` wording and
+//!   `DATA_UPLOAD_MAX_NUMBER_FIELDS` counting for parts are not reproduced.
 //! * `MultiPartParser` is only selected when the view lists it; Plane's asset
 //!   endpoints do.
 //! * `pyjson` decodes UTF-8/ASCII/latin-1/cp1252/UTF-16/UTF-32. A request body
@@ -303,10 +305,12 @@ fn decode_text(body: &[u8], charset: &str) -> Result<String, ViewError> {
 ///
 /// Django's `MultiPartParser` feeds chunks to the upload handlers and decodes
 /// each part with the request charset; this port does the same for fields and
-/// **skips file parts**, so `request.FILES` stays empty. Two Django behaviours
-/// are deliberately not reproduced and are listed in the module docs: the
-/// `DATA_UPLOAD_MAX_NUMBER_FIELDS` count for parts, and the exact
-/// `MultiPartParserError` wording beyond a missing boundary.
+/// **skips file parts**, recording only that one was present
+/// ([`QueryDict::has_files`]) so a handler that publishes `request.data` can
+/// reproduce Django's `TypeError: Object of type … is not JSON serializable`.
+/// Two Django behaviours are deliberately not reproduced and are listed in the
+/// module docs: the `DATA_UPLOAD_MAX_NUMBER_FIELDS` count for parts, and the
+/// exact `MultiPartParserError` wording beyond a missing boundary.
 fn parse_multipart(
     body: &[u8],
     raw_content_type: &str,
@@ -345,7 +349,11 @@ fn parse_multipart(
             break;
         };
         let part = &rest[..end];
+        // `end` points at the CRLF before the next `--boundary`; skip both so
+        // the loop's closing-delimiter check sees the `--` of `--boundary--`
+        // (and the next iteration starts after the delimiter, like the first).
         rest = &rest[end + 2..];
+        rest = rest.strip_prefix(delimiter.as_str()).unwrap_or(rest);
         let Some((headers, value)) = part.split_once("\r\n\r\n") else {
             continue;
         };
@@ -363,6 +371,7 @@ fn parse_multipart(
             is_file = disposition.contains_key("filename");
         }
         if is_file {
+            query.mark_files();
             continue;
         }
         let Some(name) = name else {
@@ -400,6 +409,51 @@ mod tests {
 
     fn parsers() -> Vec<String> {
         PARSERS.iter().map(|class| (*class).to_string()).collect()
+    }
+
+    #[test]
+    fn multipart_file_parts_are_flagged() {
+        let body = concat!(
+            "--BOUND\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nhello\r\n",
+            "--BOUND\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n",
+            "Content-Type: text/plain\r\n\r\nabc\r\n",
+            "--BOUND--\r\n"
+        );
+        let length = body.len().to_string();
+        let data = parse(
+            &ctx(
+                &[
+                    ("content-type", "multipart/form-data; boundary=BOUND"),
+                    ("content-length", &length),
+                ],
+                Some(body),
+            ),
+            &parsers(),
+        )
+        .expect("multipart parses");
+        match data {
+            Data::Form(query) => {
+                assert_eq!(query.get("name"), Some("hello"), "parsed {query:?}");
+                assert!(query.has_files(), "the file part must be recorded");
+            }
+            other => panic!("expected a form body, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn urlencoded_bodies_have_no_files() {
+        let data = parse(
+            &ctx(
+                &[("content-type", "application/x-www-form-urlencoded")],
+                Some("name=hello"),
+            ),
+            &parsers(),
+        )
+        .expect("urlencoded parses");
+        match data {
+            Data::Form(query) => assert!(!query.has_files()),
+            other => panic!("expected a form body, got {other:?}"),
+        }
     }
 
     #[test]

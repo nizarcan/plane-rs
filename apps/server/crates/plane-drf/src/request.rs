@@ -52,6 +52,13 @@ pub struct TooManyFields;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QueryDict {
     pairs: Vec<(String, String)>,
+    /// Whether a multipart body carried at least one file part. Django keeps
+    /// the parsed files in `request.FILES` and merges them into `request.data`
+    /// (`Request._load_data_and_files`), so `request.data` is a `QueryDict`
+    /// whose file entries are `[<InMemoryUploadedFile>]` — not JSON
+    /// serialisable. This port skips file parts (see `parsers.rs`); the flag
+    /// is what lets a handler reproduce the encoder failure.
+    files: bool,
 }
 
 impl QueryDict {
@@ -82,13 +89,28 @@ impl QueryDict {
             };
             pairs.push((unquote_plus(key), unquote_plus(value)));
         }
-        Ok(Self { pairs })
+        Ok(Self {
+            pairs,
+            files: false,
+        })
     }
 
     /// Append one pair (the multipart parser's equivalent of
     /// `QueryDict.appendlist`).
     pub fn push(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.pairs.push((key.into(), value.into()));
+    }
+
+    /// Whether the multipart body had a file part
+    /// (`request.FILES` non-empty, merged into `request.data` by DRF).
+    #[must_use]
+    pub fn has_files(&self) -> bool {
+        self.files
+    }
+
+    /// Record that a multipart body carried a file part.
+    pub fn mark_files(&mut self) {
+        self.files = true;
     }
 
     /// `QueryDict.get(key)` / `__getitem__`: the last value for `key`.

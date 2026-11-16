@@ -991,7 +991,9 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             .map_err(ViewError::from)?;
 
         spread_body(ctx.data()?)?;
-        let mut serializer = Serializer::new(ctx, false)?;
+        // `data={**request.data}` (`:263`): a form body expands to `{key: [values]}`
+        // before the serializer sees it.
+        let mut serializer = Serializer::new_expanded(ctx, false)?;
         let mut body = read_body(&mut serializer, client, workspace.id, None, None, None).await?;
         if let Err(errors) = serializer.finish() {
             return Ok(errors.into_response());
@@ -1146,8 +1148,9 @@ pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
         }
 
         // `ProjectSerializer(project, data={**request.data, "intake_view": …},
-        // partial=True)` (`:350-355`).
-        let mut serializer = Serializer::new(ctx, true)?;
+        // partial=True)` (`:350-355`): a form body expands to `{key: [values]}`
+        // before the serializer sees it.
+        let mut serializer = Serializer::new_expanded(ctx, true)?;
         let mut body = read_body(
             &mut serializer,
             client,

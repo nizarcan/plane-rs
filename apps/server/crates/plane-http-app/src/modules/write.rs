@@ -509,35 +509,6 @@ fn nullable<T>(values: &Validated, name: &str, value: Option<T>) -> Option<Optio
 // Activity
 // ---------------------------------------------------------------------------
 
-/// `requested_data=request.data` for `model_activity`.
-///
-/// A JSON body is the parsed tree. A form body is a Django `QueryDict`: a
-/// `dict` subclass, so `json.dumps` and `saferepr` both go through its
-/// `items()` method, which yields the **last** value per key in first-seen key
-/// order — `{"name": "Harness form"}`, not a list (`kombu.utils.json.dumps`
-/// and `celery.utils.saferepr` on a `MultiValueDict`).
-fn request_data_arg(ctx: &ViewCtx<'_>) -> Result<TaskArg, ViewError> {
-    match ctx.data()? {
-        Data::Json(_) => write::request_data_arg(ctx),
-        Data::Form(query) => {
-            let mut keys: Vec<&str> = Vec::new();
-            for (key, _) in query.iter() {
-                if !keys.contains(&key) {
-                    keys.push(key);
-                }
-            }
-            let entries = keys
-                .into_iter()
-                .map(|key| {
-                    let value = query.get(key).unwrap_or_default().to_owned();
-                    (key.to_owned(), TaskArg::Str(value))
-                })
-                .collect();
-            Ok(TaskArg::Map(entries))
-        }
-    }
-}
-
 async fn publish_model_activity(
     ctx: &ViewCtx<'_>,
     slug: &str,
@@ -549,7 +520,7 @@ async fn publish_model_activity(
     let message = tasks::model_activity(ModelActivityCall {
         model_name: "module".to_owned(),
         model_id: module_id.to_string(),
-        requested_data: request_data_arg(ctx)?,
+        requested_data: write::request_data_arg(ctx)?,
         current_instance,
         actor_id: user,
         slug: slug.to_owned(),

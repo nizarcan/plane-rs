@@ -335,7 +335,7 @@ pub fn remove_relation<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRes
         publish_activity(
             ctx,
             "issue_relation.activity.deleted",
-            queries::request_data_arg(ctx)?,
+            crate::write::request_data_json_text(ctx)?,
             TaskArg::json_text(current_instance),
             now,
             issue_id,
