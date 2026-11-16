@@ -60,9 +60,8 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
             return Ok(ViewResponse::raw(400, APPLICATION_JSON, rendered));
         }
 
-        let rows = client(ctx)?
-            .query(queries::PROJECT_IDENTIFIERS.sql, &[&name, &slug])
-            .await?;
+        let statement = queries::PROJECT_IDENTIFIERS.prepare(client(ctx)?).await?;
+        let rows = client(ctx)?.query(&statement, &[&name, &slug]).await?;
 
         // `len(exists)` evaluates the queryset once, so the count is the row
         // count of the one query.

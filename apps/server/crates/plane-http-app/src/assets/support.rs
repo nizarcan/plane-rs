@@ -361,9 +361,8 @@ pub(super) async fn accessible_assets(
     if !comment_ids.is_empty() {
         comment_ids.sort_unstable();
         comment_ids.dedup();
-        let rows = client
-            .query(queries::COMMENT_ISSUE_IDS.sql, &[&comment_ids])
-            .await?;
+        let statement = queries::COMMENT_ISSUE_IDS.prepare(client).await?;
+        let rows = client.query(&statement, &[&comment_ids]).await?;
         let comments: HashMap<Uuid, Option<Uuid>> = rows
             .iter()
             .map(|row| {
@@ -398,9 +397,8 @@ pub(super) async fn accessible_assets(
     if !issue_ids.is_empty() {
         issue_ids.sort_unstable();
         issue_ids.dedup();
-        let rows = client
-            .query(queries::ISSUES_OWNED_BY_USER.sql, &[&issue_ids, &user_id])
-            .await?;
+        let statement = queries::ISSUES_OWNED_BY_USER.prepare(client).await?;
+        let rows = client.query(&statement, &[&issue_ids, &user_id]).await?;
         let owned: Vec<(Uuid, Uuid)> = rows
             .iter()
             .map(|row| Ok((row.try_get::<_, Uuid>(0)?, row.try_get::<_, Uuid>(1)?)))

@@ -45,8 +45,9 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         let project_id =
             lookup::uuid_kwarg("project_id", ctx.kwarg("project_id").ok_or(ViewError::Key)?)?;
 
+        let statement = queries::PROJECT_DEPLOY_BOARD.prepare(client(ctx)?).await?;
         let row = client(ctx)?
-            .query_opt(queries::PROJECT_DEPLOY_BOARD.sql, &[&project_id, &slug])
+            .query_opt(&statement, &[&project_id, &slug])
             .await?;
         let Some(row) = row else {
             // `DeployBoardSerializer(None).data` is `get_initial()`: the fields

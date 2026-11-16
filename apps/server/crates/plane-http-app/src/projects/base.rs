@@ -549,9 +549,8 @@ async fn load_sequences(
     client: &deadpool_postgres::Client,
     project_ids: &[Uuid],
 ) -> Result<HashMap<Uuid, i64>, ViewError> {
-    let rows = client
-        .query(queries::ISSUE_SEQUENCE_MAX.sql, &[&project_ids])
-        .await?;
+    let statement = queries::ISSUE_SEQUENCE_MAX.prepare(client).await?;
+    let rows = client.query(&statement, &[&project_ids]).await?;
     let mut sequences = HashMap::with_capacity(rows.len());
     for row in &rows {
         sequences.insert(row.get(0), row.get(1));

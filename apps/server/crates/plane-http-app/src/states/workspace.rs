@@ -39,9 +39,8 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
             .id()
             .ok_or(ViewError::Api(ApiError::NotAuthenticated))?;
 
-        let rows = client(ctx)?
-            .query(queries::WORKSPACE_STATES.sql, &[&member_id, &slug])
-            .await?;
+        let statement = queries::WORKSPACE_STATES.prepare(client(ctx)?).await?;
+        let rows = client(ctx)?.query(&statement, &[&member_id, &slug]).await?;
 
         let mut states = Vec::with_capacity(rows.len());
         for row in &rows {

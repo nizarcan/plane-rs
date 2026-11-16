@@ -113,9 +113,8 @@ fn static_file_asset_get<'a>(
 ) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
         let asset_id = support::uuid_kwarg(ctx, "asset_id")?;
-        let row = client(ctx)?
-            .query_opt(queries::FILE_ASSET_BY_ID.sql, &[&asset_id])
-            .await?;
+        let statement = queries::FILE_ASSET_BY_ID.prepare(client(ctx)?).await?;
+        let row = client(ctx)?.query_opt(&statement, &[&asset_id]).await?;
         let Some(asset) = decode_optional(row)? else {
             return Err(ViewError::ObjectDoesNotExist);
         };

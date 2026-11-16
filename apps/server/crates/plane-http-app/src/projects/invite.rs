@@ -48,8 +48,9 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         let project_id =
             lookup::uuid_kwarg("project_id", ctx.kwarg("project_id").ok_or(ViewError::Key)?)?;
 
+        let statement = queries::PROJECT_INVITATIONS.prepare(client(ctx)?).await?;
         let rows = client(ctx)?
-            .query(queries::PROJECT_INVITATIONS.sql, &[&slug, &project_id])
+            .query(&statement, &[&slug, &project_id])
             .await?;
         let mut invites = Vec::with_capacity(rows.len());
         let mut projects = Vec::with_capacity(rows.len());

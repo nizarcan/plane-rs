@@ -62,8 +62,9 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         // `filter_queryset`, so the class's `search_fields` never applies:
         // `?search=` is ignored on this route (`member.py:166-176`). Ported as
         // it is; `retrieve` is unaffected either way.
+        let statement = queries::PROJECT_MEMBERS.prepare(client(ctx)?).await?;
         let rows = client(ctx)?
-            .query(queries::PROJECT_MEMBERS.sql, &[&slug, &project_id])
+            .query(&statement, &[&slug, &project_id])
             .await?;
         let mut members = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -114,8 +115,9 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
             return Err(ViewError::ObjectDoesNotExist);
         };
 
+        let statement = queries::PROJECT_MEMBER_ONE.prepare(client).await?;
         let row = client
-            .query_opt(queries::PROJECT_MEMBER_ONE.sql, &[&pk, &project_id, &slug])
+            .query_opt(&statement, &[&pk, &project_id, &slug])
             .await?;
         let Some(row) = row else {
             // The view's own body (`member.py:204-208`), not DRF's `get_object()`.

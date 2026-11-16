@@ -100,9 +100,8 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
                 .id()
                 .ok_or(ViewError::Api(ApiError::NotAuthenticated))?;
 
-            let rows = client(ctx)?
-                .query(queries::WORKSPACE_ESTIMATES.sql, &[&slug])
-                .await?;
+            let statement = queries::WORKSPACE_ESTIMATES.prepare(client(ctx)?).await?;
+            let rows = client(ctx)?.query(&statement, &[&slug]).await?;
             let mut estimates = Vec::with_capacity(rows.len());
             for row in &rows {
                 estimates.push(Estimate::from_row(row, 0)?);
@@ -112,9 +111,10 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
             let mut grouped = std::collections::HashMap::new();
             if !estimates.is_empty() {
                 let ids: Vec<uuid::Uuid> = estimates.iter().map(|estimate| estimate.id).collect();
-                let point_rows = client(ctx)?
-                    .query(queries::ESTIMATE_POINTS_BY_ESTIMATES.sql, &[&ids])
+                let statement = queries::ESTIMATE_POINTS_BY_ESTIMATES
+                    .prepare(client(ctx)?)
                     .await?;
+                let point_rows = client(ctx)?.query(&statement, &[&ids]).await?;
                 let mut points = Vec::with_capacity(point_rows.len());
                 for row in &point_rows {
                     points.push(plane_db::models::estimate::EstimatePoint::from_row(row, 0)?);

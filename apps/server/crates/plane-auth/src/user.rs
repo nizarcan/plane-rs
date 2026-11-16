@@ -31,9 +31,9 @@
 use std::fmt;
 use std::sync::Arc;
 
+use deadpool_postgres::Client;
 use plane_core::config::Settings;
 use plane_db::models::user::User as UserRow;
-use tokio_postgres::Client;
 use uuid::Uuid;
 
 use crate::error::AuthError;
@@ -289,9 +289,8 @@ pub async fn load_session_user_by_id(
     client: &Client,
     user_id: Uuid,
 ) -> Result<Option<SessionUser>, AuthError> {
-    let row = client
-        .query_opt(queries::LOAD_USER_BY_ID.sql, &[&user_id])
-        .await?;
+    let statement = client.prepare_cached(queries::LOAD_USER_BY_ID.sql).await?;
+    let row = client.query_opt(&statement, &[&user_id]).await?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -319,9 +318,10 @@ pub async fn load_user_by_email(
     client: &Client,
     email: &str,
 ) -> Result<Option<AuthUser>, AuthError> {
-    let row = client
-        .query_opt(queries::LOAD_USER_BY_EMAIL.sql, &[&email])
+    let statement = client
+        .prepare_cached(queries::LOAD_USER_BY_EMAIL.sql)
         .await?;
+    let row = client.query_opt(&statement, &[&email]).await?;
     Ok(row.as_ref().map(|row| AuthUser::from_row(row, 0)))
 }
 
@@ -427,9 +427,10 @@ pub async fn authenticate_password(
     }
     if let Some(rehash) = check.1 {
         // `check_password(setter=...)` → `save(update_fields=["password"])`.
-        client
-            .execute(queries::UPDATE_USER_PASSWORD.sql, &[&user.id, &rehash])
+        let statement = client
+            .prepare_cached(queries::UPDATE_USER_PASSWORD.sql)
             .await?;
+        client.execute(&statement, &[&user.id, &rehash]).await?;
     }
     Ok(user.is_active.then_some(user))
 }

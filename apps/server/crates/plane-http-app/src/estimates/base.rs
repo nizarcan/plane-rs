@@ -39,8 +39,11 @@ pub fn project_estimates<'a>(
         let project_id =
             lookup::uuid_kwarg("project_id", ctx.kwarg("project_id").ok_or(ViewError::Key)?)?;
 
+        let statement = queries::PROJECT_BY_SLUG_AND_ID
+            .prepare(client(ctx)?)
+            .await?;
         let project_row = client(ctx)?
-            .query_opt(queries::PROJECT_BY_SLUG_AND_ID.sql, &[&project_id, &slug])
+            .query_opt(&statement, &[&project_id, &slug])
             .await?;
         let Some(project_row) = project_row else {
             return Err(ViewError::ObjectDoesNotExist);
@@ -77,8 +80,9 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         let project_id =
             lookup::uuid_kwarg("project_id", ctx.kwarg("project_id").ok_or(ViewError::Key)?)?;
 
+        let statement = queries::ESTIMATES_BY_PROJECT.prepare(client(ctx)?).await?;
         let rows = client(ctx)?
-            .query(queries::ESTIMATES_BY_PROJECT.sql, &[&project_id, &slug])
+            .query(&statement, &[&project_id, &slug])
             .await?;
         let mut estimates = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -114,9 +118,10 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
 
         // `EstimateReadSerializer(estimate)` walks `estimate.points`, which is a
         // reverse manager: one query for this instance.
-        let point_rows = client(ctx)?
-            .query(queries::ESTIMATE_POINTS_OF_ESTIMATE.sql, &[&estimate.id])
+        let statement = queries::ESTIMATE_POINTS_OF_ESTIMATE
+            .prepare(client(ctx)?)
             .await?;
+        let point_rows = client(ctx)?.query(&statement, &[&estimate.id]).await?;
         let mut points = Vec::with_capacity(point_rows.len());
         for row in &point_rows {
             points.push(EstimatePoint::from_row(row, 0)?);
@@ -158,9 +163,10 @@ pub(crate) async fn render_estimates(
     let ids: Vec<uuid::Uuid> = estimates.iter().map(|estimate| estimate.id).collect();
     // The prefetch is a second round trip after the estimates query, exactly as
     // Django's `prefetch_related` does it.
-    let point_rows = client(ctx)?
-        .query(queries::ESTIMATE_POINTS_BY_ESTIMATES.sql, &[&ids])
+    let statement = queries::ESTIMATE_POINTS_BY_ESTIMATES
+        .prepare(client(ctx)?)
         .await?;
+    let point_rows = client(ctx)?.query(&statement, &[&ids]).await?;
     let mut points = Vec::with_capacity(point_rows.len());
     for row in &point_rows {
         points.push(EstimatePoint::from_row(row, 0)?);

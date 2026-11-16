@@ -27,8 +27,8 @@
 //! | `device_info` | `session_data["device_info"]` when it is a dict, else `NULL` |
 
 use chrono::{DateTime, TimeDelta, Utc};
+use deadpool_postgres::Client;
 use plane_core::config::Settings;
-use tokio_postgres::Client;
 
 use crate::cookies::http_date;
 use crate::error::AuthError;
@@ -158,9 +158,10 @@ impl SessionStore {
             self.cache = Some(Json::empty_object());
             return Ok(());
         };
-        let row = client
-            .query_opt(queries::LOAD_SESSION_BY_KEY.sql, &[&key])
+        let statement = client
+            .prepare_cached(queries::LOAD_SESSION_BY_KEY.sql)
             .await?;
+        let row = client.query_opt(&statement, &[&key]).await?;
         match row {
             // `_get_session_from_db`: a miss sets `_session_key = None`.
             None => {
@@ -353,8 +354,9 @@ impl SessionStore {
 
     /// `exists(session_key)` (`db.py:52-53`).
     pub async fn exists(client: &Client, session_key: &str) -> Result<bool, AuthError> {
+        let statement = client.prepare_cached(queries::SESSION_EXISTS.sql).await?;
         Ok(client
-            .query_opt(queries::SESSION_EXISTS.sql, &[&session_key])
+            .query_opt(&statement, &[&session_key])
             .await?
             .is_some())
     }
@@ -514,7 +516,8 @@ impl SessionStore {
         let Some(key) = self.key.clone() else {
             return Ok(());
         };
-        client.execute(queries::DELETE_SESSION.sql, &[&key]).await?;
+        let statement = client.prepare_cached(queries::DELETE_SESSION.sql).await?;
+        client.execute(&statement, &[&key]).await?;
         Ok(())
     }
 
@@ -546,9 +549,8 @@ impl SessionStore {
         self.create(client, settings, secret_key).await?;
         self.cache = Some(data);
         if let Some(old_key) = old_key {
-            client
-                .execute(queries::DELETE_SESSION.sql, &[&old_key])
-                .await?;
+            let statement = client.prepare_cached(queries::DELETE_SESSION.sql).await?;
+            client.execute(&statement, &[&old_key]).await?;
         }
         Ok(())
     }
