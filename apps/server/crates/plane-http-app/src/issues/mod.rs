@@ -33,6 +33,7 @@
 
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod lists;
 pub mod queries;
 
 /// Register this group's handlers, in the order they were ported.
@@ -41,5 +42,6 @@ pub mod queries;
 /// [`RegistryError`]: a route that cannot be registered must fail startup
 /// rather than fall back to a 501 nobody notices.
 pub fn register(_registry: &mut Registry) -> Result<(), RegistryError> {
+    lists::register_lists(_registry)?;
     Ok(())
 }

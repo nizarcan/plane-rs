@@ -1,0 +1,656 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written read scenario for the issue *list* routes: the shapes the
+# generated `issues.yaml` does not cover (every group_by/sub_group_by pair the
+# allowlist accepts, every order_by value, cursor walks in both directions,
+# the legacy filters the generated file omits, `fields=`/`expand=`, users in
+# four timezones, the two guest variants, and the archived/deleted/draft
+# lookups). Run Django-vs-Django first, then Django-vs-Rust:
+#
+#   ./target/debug/difftest run --targets /tmp/targets-rs-issues-list.yaml \
+#     --scenario scenarios/read/issues-list-extra.yaml --a django --b django
+#   ./target/debug/difftest run --targets /tmp/targets-rs-issues-list.yaml \
+#     --scenario scenarios/read/issues-list-extra.yaml --a django --b rust
+
+name: read-issues-list-extra
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_child: "42c68569-5178-4a34-8c17-0488d036ed0c"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_alpha_archived: "e956b8e9-1f3f-408d-98b1-b33fc15ce144"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  state_alpha_done: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  user_admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  estimate_point_alpha_points_3: "ddea004d-0068-44bb-90c6-7197c8b915e6"
+  project_alpha_identifier: "ALP"
+  issue_alpha_child_sequence: "2"
+  draft_admin_alpha: "16d3ed64-bc76-4664-9859-faa191202c1d"
+  date_past_date: "2026-10-02"
+  date_future_date: "2026-12-16"
+  date_issue_created_range: "2026-04-30,2026-09-27"
+  date_issue_alpha_created_day: "2026-08-08"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # ---------------------------------------------------------------------
+  # group_by: every allowed value; then every field against a fixed
+  # sub_group_by, and the "same parameter twice" 400.
+  # ---------------------------------------------------------------------
+  - name: extra-group-state-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "state_id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "state__group", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "priority", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "labels__id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "assignees__id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "issue_module__module_id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-cycle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "cycle_id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "project_id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-created-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "created_by", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-target-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "target_date", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-start-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "start_date", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-labels-sub-state
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "labels__id", sub_group_by: "state__group", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-assignees-sub-state
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "assignees__id", sub_group_by: "state_id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-module-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "issue_module__module_id", sub_group_by: "priority", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-state-id-sub-created-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "state_id", sub_group_by: "created_by", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-cycle-sub-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "cycle_id", sub_group_by: "project_id", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-same-parameter-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "priority", sub_group_by: "priority" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-group-invalid-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { group_by: "not_a_field" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # order_by: every allowed value, both directions on a sample.
+  # ---------------------------------------------------------------------
+  - name: extra-order-created-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "created_at", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-updated-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "updated_at", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-sequence-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "sequence_id", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-sort-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "-sort_order", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-target-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "target_date", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-start-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "-start_date", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-completed-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "completed_at", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-archived-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "-archived_at", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "priority", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-priority-desc
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "-priority", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-state-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "state__name", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "state__group", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-state-group-desc
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "-state__group", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-assignees-first-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "assignees__first_name", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-labels-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "labels__name", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-module-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "-issue_module__module__name", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-order-invalid-falls-back
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { order_by: "--created_at", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # Cursors: forward, backward and the two 400s.
+  # ---------------------------------------------------------------------
+  - name: extra-cursor-forward
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "2", cursor: "2:1:0" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-cursor-backward
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "2", cursor: "2:2:1" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-cursor-malformed-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { cursor: "nope" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-cursor-out-of-range-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { cursor: "5000:0:0" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-per-page-zero-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "0" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-per-page-not-a-number-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "many" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # Filters the generated file misses.
+  # ---------------------------------------------------------------------
+  - name: extra-filter-mentions
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { mentions: "{{user_member_id}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-subscriber
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { subscriber: "{{user_admin_id}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-cycle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { cycle: "{{cycle_alpha_current}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { module: "{{module_alpha_in_progress}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-type-backlog
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { type: "backlog" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-type-all
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { type: "all" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-start-date-before
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { start_date: "{{date_future_date}};before" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-target-date-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { target_date: "{{date_past_date}};after" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-completed-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { completed_at: "{{date_issue_created_range}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-labels-and-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      labels: "{{label_alpha_bug}}"
+      assignees: "{{user_member_id}}"
+      priority: "high,urgent"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-state-invalid-date-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { start_date: "after;{{date_past_date}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-sub-issue-false
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { sub_issue: "false" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-parent-none
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { parent: "None" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-filters-json
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      filters: '{"and":[{"priority__in":["high"]}]}'
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-filter-filters-json-invalid-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      filters: '{"and":[{"nope":["x"]}]}'
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # fields= and expand=.
+  # ---------------------------------------------------------------------
+  - name: extra-fields-subset
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { fields: "id,name,state__group,assignee_ids" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-fields-and-expand
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { fields: "id,name", expand: "state" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # Timezones: the same list rendered for four users.
+  # ---------------------------------------------------------------------
+  - name: extra-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "2" }
+    jar: kolkata
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_kolkata}}" }
+  - name: extra-tz-newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "2" }
+    jar: newyork
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_newyork}}" }
+  - name: extra-tz-tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "2" }
+    jar: tokyo
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_tokyo}}" }
+  - name: extra-tz-member2-v2
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/v2/issues/"
+    query: { description: "true" }
+    jar: member2
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member2}}" }
+
+  # ---------------------------------------------------------------------
+  # Guests: `guest` is restricted on alpha, `guest2` is a guest on epsilon,
+  # which has `guest_view_all_features` set.
+  # ---------------------------------------------------------------------
+  - name: extra-guest-restricted-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { per_page: "5" }
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+  - name: extra-guest-restricted-detail
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+  - name: extra-guest-all-features
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/issues/"
+    query: { per_page: "5" }
+    jar: guest2
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest2}}" }
+
+  # ---------------------------------------------------------------------
+  # Single-issue routes.
+  # ---------------------------------------------------------------------
+  - name: extra-retrieve-archived-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_archived}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-retrieve-missing-404
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/00000000-0000-4000-8000-000000000000/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-meta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/meta/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-identifier-invalid-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/work-items/{{project_alpha_identifier}}-abc/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-identifier-missing-project-404
+    method: GET
+    path: "/api/workspaces/{{ws}}/work-items/NOPE-1/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-identifier-nonmember-403
+    method: GET
+    path: "/api/workspaces/{{ws}}/work-items/ALP-{{issue_alpha_child_sequence}}/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+
+  # ---------------------------------------------------------------------
+  # issues/list: the remaining filter shapes.
+  # ---------------------------------------------------------------------
+  - name: extra-list-endpoint-filters
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/list/"
+    query:
+      issues: "{{issue_alpha}},{{issue_alpha_child}},{{issue_alpha_commented}}"
+      priority: "high,urgent"
+      group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-list-endpoint-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/list/"
+    query:
+      issues: "{{issue_alpha}},{{issue_alpha_child}}"
+      order_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-list-endpoint-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/list/"
+    query:
+      issues: "{{issue_alpha}}"
+      fields: "id,name,state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-list-endpoint-bad-uuid-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/list/"
+    query: { issues: "not-a-uuid" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-list-endpoint-missing-400
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/list/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # v2 paginator: cursor walk and the description column.
+  # ---------------------------------------------------------------------
+  - name: extra-v2-forward
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/v2/issues/"
+    query: { per_page: "3", cursor: "3:1:0" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-v2-description
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/v2/issues/"
+    query: { per_page: "2", description: "true" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-v2-updated-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/v2/issues/"
+    query: { updated_at__gt: "2026-01-01T00:00:00Z", per_page: "2" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # deleted-issues / user-properties / export history.
+  # ---------------------------------------------------------------------
+  - name: extra-deleted-issues-updated-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/deleted-issues/"
+    query: { updated_at__gt: "2026-01-01T00:00:00Z" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-user-properties-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: member2
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member2}}" }
+  - name: extra-user-properties-member-again
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: member2
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member2}}" }
+  - name: extra-export-with-cursor
+    method: GET
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    query: { per_page: "10", cursor: "10:0:0" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-export-order-invalid-falls-back
+    method: GET
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    query: { per_page: "10", cursor: "10:0:0", order_by: "provider" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # Drafts.
+  # ---------------------------------------------------------------------
+  - name: extra-drafts-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    query: { per_page: "2" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-drafts-list-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    query: { priority: "high" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-drafts-list-state
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    query: { state: "{{state_alpha_todo}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-drafts-retrieve
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_admin_alpha}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
+  # Workspace-level list.
+  # ---------------------------------------------------------------------
+  - name: extra-workspace-issues-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query: { order_by: "priority", per_page: "3" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-workspace-issues-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query: { per_page: "3" }
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+  - name: extra-workspace-issues-project-filter
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query: { project: "{{project_beta}}" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
