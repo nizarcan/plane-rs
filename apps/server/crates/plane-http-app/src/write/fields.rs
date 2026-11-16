@@ -730,15 +730,24 @@ fn localize(naive: NaiveDateTime, timezone: Tz) -> Option<DateTime<Utc>> {
 /// `JSONField.to_internal_value` (`rest_framework/fields.py:1848-1858`): any
 /// JSON value is stored as-is; a form value is parsed as JSON text.
 pub fn json(raw: Raw<'_>) -> Result<JsonText, Detail> {
-    let invalid = || Detail::new("Value must be valid JSON.", "invalid");
     match raw {
-        Raw::Json(value) => JsonText::from_json(value).map_err(|_| invalid()),
+        Raw::Json(value) => JsonText::from_json(value).map_err(|_| invalid_json()),
         Raw::Text(text) => {
             let value =
-                plane_serde::pyjson::loads(text.as_bytes(), "utf-8").map_err(|_| invalid())?;
-            JsonText::from_json(&value).map_err(|_| invalid())
+                plane_serde::pyjson::loads(text.as_bytes(), "utf-8").map_err(|_| invalid_json())?;
+            JsonText::from_json(&value).map_err(|_| invalid_json())
         }
     }
+}
+
+/// `JSONField`'s `invalid` detail (`rest_framework/fields.py:1830-1848`).
+///
+/// A model `JSONField` is `binary=False`, so `to_internal_value` runs
+/// `json.dumps(data)` before returning it; a multipart file object — or a
+/// `{**request.data}` list holding one — is not serialisable and fails here.
+#[must_use]
+pub fn invalid_json() -> Detail {
+    Detail::new("Value must be valid JSON.", "invalid")
 }
 
 /// The `(year, ordinal day)` of a timestamp, used by tests.

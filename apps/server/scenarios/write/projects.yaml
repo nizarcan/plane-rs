@@ -920,3 +920,21 @@ steps:
       Cookie: "session-id={{session_admin}}"
     jar: admin
     expect_status: 400
+
+  # A file part whose name is a JSONField: `{**request.data}` holds
+  # `logo_props: [<InMemoryUploadedFile>]`, and DRF's `JSONField` runs
+  # `json.dumps(data)`, which refuses the file object.
+  - name: write-projects-74-patch-multipart-json-field
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta_empty}}/"
+    multipart:
+      files:
+        - field: logo_props
+          filename: logo_props.json
+          content_type: application/json
+          content: '{"icon": "module"}'
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    jar: admin
+    expect_status: 400
