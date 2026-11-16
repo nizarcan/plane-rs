@@ -86,6 +86,8 @@ pub mod issue_relation_serializer;
 pub mod issue_serializer;
 pub mod issue_subscriber_serializer;
 pub mod label_serializer;
+pub mod module_user_properties_serializer;
+pub mod module_write_serializer;
 pub mod project_member_serializer;
 pub mod project_serializer;
 pub mod project_user_property_serializer;
