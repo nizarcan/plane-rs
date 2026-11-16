@@ -72,7 +72,7 @@
 # | meta | `PLANE_RS_GROUP_META` | 2 | 6 | yes |
 # | users-me | `PLANE_RS_GROUP_USERS_ME` | 22 | 75 | yes |
 # | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | no |
-# | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | no |
+# | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | yes |
 # | analytics | `PLANE_RS_GROUP_ANALYTICS` | 13 | 41 | no |
 # | projects | `PLANE_RS_GROUP_PROJECTS` | 17 | 65 | no |
 # | states | `PLANE_RS_GROUP_STATES` | 4 | 14 | no |
@@ -126,6 +126,22 @@ handle @plane_rs_meta {
 	CEL
 }
 handle @plane_rs_users_me {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# workspaces: Workspaces, members, invitations, themes and workspace-level preferences.
+# 28 route(s), 108 endpoint x method pair(s); PLANE_RS_GROUP_WORKSPACES=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_workspaces {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_WORKSPACES} == "" ? "rust" : {env.PLANE_RS_GROUP_WORKSPACES}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspace-slug-check/$") || path_regexp(r"^/api/workspaces/$") || path_regexp(r"^/api/workspaces/[^/]+/$") || path_regexp(r"^/api/workspaces/[^/]+/invitations/$") || path_regexp(r"^/api/workspaces/[^/]+/invitations/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/invitations/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/join/$") || path_regexp(r"^/api/workspaces/[^/]+/members/$") || path_regexp(r"^/api/workspaces/[^/]+/project-members/$") || path_regexp(r"^/api/workspaces/[^/]+/members/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/workspace-members/me/$") || path_regexp(r"^/api/workspaces/[^/]+/workspace-themes/$") || path_regexp(r"^/api/workspaces/[^/]+/workspace-themes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/user-stats/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/user-activity/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/user-profile/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/user-issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/user-properties/$") || path_regexp(r"^/api/workspaces/[^/]+/user-favorites/$") || path_regexp(r"^/api/workspaces/[^/]+/user-favorites/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/user-favorites/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/group/$") || path_regexp(r"^/api/workspaces/[^/]+/quick-links/$") || path_regexp(r"^/api/workspaces/[^/]+/quick-links/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/home-preferences/$") || path_regexp(r"^/api/workspaces/[^/]+/home-preferences/[^/]+/$") || path_regexp(r"^/api/workspaces/[^/]+/recent-visits/$") || path_regexp(r"^/api/workspaces/[^/]+/sidebar-preferences/$")))
+		)
+	CEL
+}
+handle @plane_rs_workspaces {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
 
