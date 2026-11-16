@@ -1,0 +1,362 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5, cycles set B: cycle issues (33, 34) and the transfer (38).
+#
+#   POST   …/cycles/{cycle_id}/cycle-issues/                       (33)
+#   DELETE …/cycles/{cycle_id}/cycle-issues/{issue_id}/            (34)
+#   POST   …/cycles/{cycle_id}/transfer-issues/                    (38)
+#
+# Covers: adding issues (several at once, across the batch boundary), moving
+# issues from another cycle, the re-add duplicate (upstream 400), removal
+# (including a repeated remove), the transfer snapshot (success, same cycle,
+# completed destination, unknown destination 500, missing source 400), the
+# follow-up GETs (cycle issues list, cycle retrieve, analytics reading the
+# stored snapshot) and the permission matrix + foreign origin.
+#
+# No `PYTHONHASHSEED` pin: the payload order must be the issue queryset's
+# `-created_at` order, not the `set()` iteration order, and the two Django
+# targets run separate processes.
+#
+# Fixture: ALP `b0063033…`; Sprint 1 `e6f4b40f…` (ended 2026-08-16), Sprint 2
+# `9a27989a…` (ends 2026-12-06, one started issue), Sprint 3 `1df0c827…`
+# (starts 2026-12-16, 17 backlog/started issues).
+
+name: write-cycle-issues
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  cycle_sprint1: "e6f4b40f-2492-4a1e-97f1-d84204ff65c1"
+  cycle_sprint2: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  cycle_sprint3: "1df0c827-94ce-419f-b6ed-4e69b69769ae"
+  unknown_cycle: "55555555-5555-4555-8555-555555555555"
+  issue_000: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_007: "ac2ff3cd-baee-4c8d-bc3c-3fb2768f75ec"
+  issue_009: "688b9acd-89b2-4aea-804c-4d08d7ec1994"
+  issue_012: "d66a8985-46ce-446d-a4c1-fc0828d1b575"
+  issue_batch_01: "42c68569-5178-4a34-8c17-0488d036ed0c"
+  issue_batch_02: "741f914e-f6ca-4be2-9acf-cd8422569c68"
+  issue_batch_03: "a358d045-849f-44bc-9383-ed6de6e03a3e"
+  issue_batch_04: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_batch_05: "b2387b6f-e186-4067-9e39-8bfa6b4112b5"
+  issue_batch_06: "e93447dc-5684-47ca-8cfa-354c503f6065"
+  issue_batch_07: "2dcd903d-4321-4295-91b0-5e2371f5451f"
+  issue_batch_08: "0861bafd-e553-4436-8c86-00e5324a5448"
+  issue_batch_09: "88a2167d-d9af-4775-b2b0-227286106baa"
+  issue_batch_10: "4ebe1f55-eb01-43db-9b55-5edc75a0d797"
+  issue_batch_11: "e4b423d9-ed63-449f-b48e-913afa08c765"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- add (33) ------------------------------------------------------------
+  - name: wcyb-01-add-two
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["{{issue_007}}", "{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # Eleven new issues: one `bulk_create` call, two batches (10 + 1).
+  - name: wcyb-02-add-across-batch
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["{{issue_batch_01}}", "{{issue_batch_02}}", "{{issue_batch_03}}", "{{issue_batch_04}}", "{{issue_batch_05}}", "{{issue_batch_06}}", "{{issue_batch_07}}", "{{issue_batch_08}}", "{{issue_batch_09}}", "{{issue_batch_10}}", "{{issue_batch_11}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # Issues already in another cycle are moved (`bulk_update`), not rejected.
+  - name: wcyb-03-move-from-other-cycle
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["{{issue_000}}", "{{issue_012}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wcyb-04-readd-is-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-05-add-missing-issues
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-06-add-null-issues
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-07-add-invalid-uuid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["not-a-uuid"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-08-add-to-completed-cycle
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/cycle-issues/"
+    json:
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-09-add-unknown-cycle
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{unknown_cycle}}/cycle-issues/"
+    json:
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wcyb-10-add-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["{{issue_009}}"]
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wcyb-11-add-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["{{issue_009}}"]
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: wcyb-12-add-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    json:
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: wcyb-13-cycle-issues-followup
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- remove (34) ---------------------------------------------------------
+  - name: wcyb-14-remove
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_007}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wcyb-15-remove-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_007}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wcyb-16-remove-foreign-issue
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_batch_11}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wcyb-17-cycle-issues-after-remove
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- transfer (38) -------------------------------------------------------
+  - name: wcyb-17-transfer-missing-id
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/transfer-issues/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-18-transfer-missing-source
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{unknown_cycle}}/transfer-issues/"
+    json:
+      new_cycle_id: "{{cycle_sprint3}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-19-transfer-unknown-target
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint2}}/transfer-issues/"
+    json:
+      new_cycle_id: "{{unknown_cycle}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wcyb-20-transfer-to-completed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint2}}/transfer-issues/"
+    json:
+      new_cycle_id: "{{cycle_sprint1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wcyb-21-transfer-success
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/transfer-issues/"
+    json:
+      new_cycle_id: "{{cycle_sprint3}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wcyb-22-transfer-same-cycle
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/transfer-issues/"
+    json:
+      new_cycle_id: "{{cycle_sprint3}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wcyb-23-transfer-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/transfer-issues/"
+    json:
+      new_cycle_id: "{{cycle_sprint3}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wcyb-24-transfer-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/transfer-issues/"
+    json:
+      new_cycle_id: "{{cycle_sprint3}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # The snapshot is read back by the analytics endpoint (already Rust): a
+  # non-empty `progress_snapshot` answers from its stored `distribution`.
+  - name: wcyb-25-cycle-retrieve
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wcyb-26-analytics-from-snapshot
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/analytics/?type=issues"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wcyb-27-analytics-points-from-snapshot
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint1}}/analytics/?type=points"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wcyb-28-cycle-issues-final
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
