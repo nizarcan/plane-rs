@@ -1,0 +1,112 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Production image for the Rust `plane-api` HTTP server.
+#
+#   docker build -f apps/server/deploy/docker/Dockerfile.plane-api \
+#     -t plane-api:latest .
+#
+# The build context is the repository root, because `plane-api` embeds one file
+# from `apps/api` at compile time (`bins/plane-api/src/middleware/csrf.rs:42`
+# `include_str!("../../../../../../apps/api/templates/csrf_failure.html")`) and
+# cargo resolves that path from the real tree layout. The Dockerfile's own
+# ignore file, `Dockerfile.plane-api.dockerignore`, is what keeps the
+# multi-gigabyte `apps/server/target/`, the Django virtualenv and the rest of
+# the repository out of the context: BuildKit reads `<Dockerfile>.dockerignore`
+# in preference to the context's `.dockerignore`.
+#
+# The release profile is the workspace's (`apps/server/Cargo.toml`): fat LTO,
+# one codegen unit, `panic = "abort"`, symbols stripped. That is the binary
+# BENCH.md measures; a debug image would be a different program.
+#
+# glibc (Debian bookworm) is the default base because the runtime image can then
+# use the builder's own libc: no cross toolchain, and `aws-lc-rs` (rustls'
+# crypto backend) links against it without a static-musl toolchain. An musl
+# variant would swap the builder for `rust:${RUST_VERSION}-alpine3.22`, add
+# `musl-dev cmake perl make g++` and `RUSTFLAGS="-C target-feature=+crt-static"`,
+# and copy the result into `scratch` + CA certs. It is not the default here: the
+# static aws-lc-rs build is slower to compile, and on the 2-vCPU benchmark VM
+# the extra build is minutes of wall clock for no measured runtime win. The
+# glibc binary is dynamically linked against exactly the base image's glibc.
+
+ARG RUST_VERSION=1.99.1
+
+# ---------------------------------------------------------------------------
+# Builder
+# ---------------------------------------------------------------------------
+# `rust:1.99.1-slim-bookworm` matches the toolchain the workspace pins
+# (`rust-version = "1.99"`, host cargo/rustc 1.99.1).
+FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+
+# aws-lc-rs builds C (cmake + perl + a C compiler), mimalloc and the other
+# `cc`-based crates need a C compiler too. None of this ships in the runtime
+# image.
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        build-essential \
+        ca-certificates \
+        cmake \
+        lld \
+        perl \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build/apps/server
+
+# Only the workspace manifests and source, plus the one Django template the
+# binary embeds. `routes.json` is a tracked build input: `plane-drf` embeds it
+# with `include_str!` (crates/plane-drf/src/policy.rs) and refuses to compile
+# without it, exactly as a checkout would.
+COPY apps/server/Cargo.toml apps/server/Cargo.lock apps/server/routes.json ./
+COPY apps/server/crates ./crates
+COPY apps/server/bins ./bins
+COPY apps/api/templates/csrf_failure.html /build/apps/api/templates/csrf_failure.html
+
+# The benchmark VM has 2 vCPUs and ~1.9 GB of RAM shared with the database
+# containers, so the default is conservative. Raise it with
+# `--build-arg CARGO_BUILD_JOBS=4` on a bigger machine.
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
+
+# Cache mounts keep the registry and the intermediate objects across rebuilds;
+# they are not part of any layer. The binary is copied out of the cache mount in
+# the same layer because a cache mount is not visible to a later `COPY --from`.
+#
+# The link goes through lld instead of GNU ld: for the same output its resident
+# set is a fraction of BFD's and it is faster, which matters on a 2-vCPU VM.
+#
+# It is not sufficient on its own. Fat LTO's peak (LLVM merging every crate's IR
+# into one module) is larger than this VM has free while the owner's containers
+# are running: two attempts died with SIGKILL in this step, and a third completed
+# only after a temporary 4 GiB swap file was enabled in the VM. See BENCH.md
+# ("Phase 3 — Linux containers") for the incident. The profile is unchanged
+# (fat LTO, one codegen unit, panic=abort, strip), and `cargo rustc` adds the
+# linker argument to the final `plane-api` compilation only, so every dependency
+# keeps its normal fingerprint and is not rebuilt with a different RUSTFLAGS.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/apps/server/target \
+    cargo rustc --release --locked -p plane-api -- -C link-arg=-fuse-ld=lld \
+    && install -D -m 0755 /build/apps/server/target/release/plane-api /out/plane-api
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+# Distroless `cc` carries glibc, libgcc and the CA bundle (for outbound HTTPS:
+# S3, webhooks, OAuth), and nothing else: no shell, no package manager.
+FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
+
+COPY --from=builder /out/plane-api /usr/local/bin/plane-api
+
+# Same contract as `apps/api/bin/docker-entrypoint-api.sh:38`: gunicorn binds
+# `0.0.0.0:${PORT:-8000}`. `plane-api` reads `PORT` with shell `${PORT:-8000}`
+# semantics when `PLANE_RS_BIND` is unset (ENV.md), so compose can keep setting
+# only `PORT`.
+ENV PORT=8000
+EXPOSE 8000
+
+# `:nonroot` is UID 65532 with no home directory. The server writes nothing to
+# disk; logs go to stdout.
+USER nonroot:nonroot
+
+ENTRYPOINT ["/usr/local/bin/plane-api"]

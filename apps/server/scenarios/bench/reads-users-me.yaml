@@ -1,0 +1,54 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Bench scenario: the three routes a signed-in web app calls before it can
+# render anything. All three are owned by `plane-api` today (`ROUTES.md`:
+# `rust(GET)`) and were verified Django vs Rust by the `users-me` domain.
+#
+# Authentication is the fixture's own session cookie (`plane_fix_tpl`, see
+# `scenarios/fixtures/fix_tpl.json`): a bench `setup` step that signs in would
+# need `/auth/`, which is still Django's, and the fixture already has 15 signed
+# sessions. The cookie is sent literally, so every measured request is
+# identical on both targets.
+#
+# Attach mode ignores `target_env`; the runner sets `PYTHONHASHSEED=0` on the
+# Django container because some of these responses are assembled from a Python
+# `set` (see `scenarios/read/README.md`).
+#
+# The YAML anchor on the first request's `headers` is reused by the rest; a
+# top-level key would be rejected by the scenario validator's
+# `deny_unknown_fields`.
+#
+# See BENCH.md ("Phase 3 — Linux containers") for how this file is driven.
+name: reads-users-me
+template_db: plane_fix_tpl
+
+vars:
+  # The admin of `fix-workspace`: member of every fixture project.
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+requests:
+  # `GET /api/users/me/` — the full user row, profile and settings. The web app
+  # calls it on every page load.
+  - name: users-me
+    path: /api/users/me/
+    headers: &auth
+      # What `scenarios/read/users-me.yaml` sends, so the measured bytes are
+      # the bytes the differential tests already compare.
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    weight: 4
+
+  # `GET /api/users/me/settings/` — a narrower projection of the same user.
+  - name: users-me-settings
+    path: /api/users/me/settings/
+    headers: *auth
+    weight: 3
+
+  # `GET /api/users/me/workspaces/` — the workspace switcher's list, with
+  # per-workspace membership and counts.
+  - name: users-me-workspaces
+    path: /api/users/me/workspaces/
+    headers: *auth
+    weight: 3

@@ -1,0 +1,133 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Bench scenario: one signed-in web-app page load, mixed. This is the scenario
+# BENCH.md's Phase 3 summary quotes: a weighted blend of the four per-area
+# scenarios above, with the weights a user's first ten seconds produce.
+#
+# Every template is `rust(GET)` in `ROUTES.md`. The sum of the weights is 37,
+# so the schedule is exact over 37 requests and the share of each class is
+# readable off its weight:
+#
+#   3  /api/users/me/                         bootstrap
+#   2  /api/users/me/workspaces/              sidebar workspace list
+#   3  /api/users/me/settings/                settings drawer
+#   2  project list                           sidebar
+#   3  project detail                         project page (enqueues a task)
+#   2  states                                 project page
+#   2  labels                                 project page
+#   2  project members                        project page
+#   3  v2/issues/                             issue list
+#   2  issues-detail                          peek-panel prefetch
+#   3  issue detail                           the opened issue
+#   2  issue history                          its activity feed
+#   2  issue comments                         its thread
+#   2  cycle list                             cycles screen
+#   1  cycle detail                           opened cycle
+#   2  module list                            modules screen
+#   1  module detail                          opened module
+#
+# See BENCH.md ("Phase 3 — Linux containers").
+name: reads-mixed
+template_db: plane_fix_tpl
+
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_child: "42c68569-5178-4a34-8c17-0488d036ed0c"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+requests:
+  - name: users-me
+    path: /api/users/me/
+    headers: &auth
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    weight: 3
+
+  - name: users-me-workspaces
+    path: /api/users/me/workspaces/
+    headers: *auth
+    weight: 2
+
+  - name: users-me-settings
+    path: /api/users/me/settings/
+    headers: *auth
+    weight: 3
+
+  - name: project-list
+    path: /api/workspaces/{{ws}}/projects/
+    headers: *auth
+    weight: 2
+
+  - name: project-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/
+    headers: *auth
+    weight: 3
+
+  - name: states
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/states/
+    headers: *auth
+    weight: 2
+
+  - name: labels
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/
+    headers: *auth
+    weight: 2
+
+  - name: project-members
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/members/
+    headers: *auth
+    weight: 2
+
+  - name: v2-issues
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/v2/issues/
+    headers: *auth
+    weight: 3
+
+  - name: issues-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues-detail/
+    query:
+      issues: "{{issue_alpha}},{{issue_alpha_child}}"
+    headers: *auth
+    weight: 2
+
+  - name: issue-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/
+    headers: *auth
+    weight: 3
+
+  - name: issue-history
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/history/
+    headers: *auth
+    weight: 2
+
+  - name: issue-comments
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/
+    headers: *auth
+    weight: 2
+
+  - name: cycle-list
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/
+    headers: *auth
+    weight: 2
+
+  - name: cycle-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/
+    headers: *auth
+    weight: 1
+
+  - name: module-list
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/
+    headers: *auth
+    weight: 2
+
+  - name: module-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/
+    headers: *auth
+    weight: 1

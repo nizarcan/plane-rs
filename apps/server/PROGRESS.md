@@ -223,19 +223,34 @@ and only `verified` rows are Rust-owned.
 
 - One-exchange dynamic SQL (`query_typed_raw`) plus a sweep removing every string-SQL
   call, and the `workspaces/user.rs` `/user-activity/` LIKE escape: `rs/w2-intake`.
-- D17 presigned URL comparison, and removing `analytics/pyset.rs` with the `object_keys`
-  rule: `rs/query-batch`.
+- Done and merged (`eddfe5d425`): D17 presigned URL verification in the harness (each
+  side's SigV4 signature recomputed with its own credentials and date), and
+  `analytics/pyset.rs` deleted, with `project-stats` keys ascending and compared as a key
+  set (shown necessary: Django seed 0 vs seed 1 differs on 15 of 275 steps without the
+  rule).
+- Phase 3 benchmark (preliminary, `BENCH.md`), Rust vs Django, each in a container with
+  2 CPUs and 512 MiB. Throughput is 8–51× Django's across five read scenarios, p95 is
+  7–58× lower, CPU per request is 26–45× lower, and there were 0 errors. Memory is 48 vs
+  144 MiB at fresh start, but Rust retained **176 MiB** after the whole matrix (~1M
+  requests) vs Django's 157. The image is 70 MB vs 497 MB.
 
 ## Follow-ups (not blocking)
+
+- **Memory after sustained load (blocks the memory claim):** `plane-api` retained
+  176 MiB after the benchmark matrix (48 MiB fresh). Profile it: mimalloc arena retention
+  (`MIMALLOC_PURGE_DELAY`, `mi_collect`), per-connection buffers (16-connection pool),
+  the statement cache size, and the response cache interner. Re-run with the system
+  allocator and jemalloc (D3 is provisional), and report RSS after the same request
+  count.
+- `reads-project` on Rust is the only non-monotonic row (1,207 rps at concurrency 8,
+  932 at 32). Suspect the per-request `recent_visited_task` publish; check its publisher
+  path, connection and channel reuse.
 
 - Re-run the Django-vs-Django baselines that agents took with a second target
   definition (the port allocator is fixed now).
 - Harness flake: under load, the Celery comparison sometimes sees messages one step late
   (0 vs N on one step, N vs 0 on the next). Bodies are identical, and a re-run is clean.
   Consider waiting until queue depth is stable before snapshotting.
-- `analytics/pyset.rs` reproduces CPython's set layout under `PYTHONHASHSEED=0` for the
-  `project-stats` key order. Replace it with ascending order once the unordered-key rule
-  exists (D16; production order is random per process anyway).
 - `plane-query` generic pieces reported by wave 2: `Value::Int8` (callers write
   `LIMIT $n::int4`), an `OffsetPaginator` (stickies and notifications compose their own),
   `issue_filters(prefix=)` (intake aliases around it), lazy filter validation (the

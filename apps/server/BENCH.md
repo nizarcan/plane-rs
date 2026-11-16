@@ -371,6 +371,264 @@ per report). The third `static-responses` Rust repetition at concurrency 64 drop
 used. These are exactly the disturbances the 3-repetition median is for, and exactly why
 the load average is recorded with every run.
 
+### Phase 3 — Linux containers, preliminary (2026-11-16, `plane-api` built from `183e61c1b7`)
+
+> **Code measured:** the `plane-api` image was built at 08:48 UTC from `rust-rewrite` at
+> `183e61c1b7` (wave 2 merged). That is *before* the `plane-query` batch and *before* the
+> `prepare_cached` preamble fix (`9c91dc3113`, 4 → 2 transactions per authenticated
+> request), so Rust's numbers here are pessimistic. Measurements ran 08:50–09:17 UTC and
+> 09:54–10:12 UTC (`reads-cycles` and `reads-mixed` re-measured after the broker incident)
+> on a shared dev Postgres that other agents were using. The Phase 3 row is re-measured
+> on a quiet stack after the dynamic-SQL work is merged; until then, treat these as lower
+> bounds for Rust.
+
+Phase 3's exit check adds "a first Linux container measurement" of the
+authenticated read paths. This section is that run: five read scenarios at
+concurrency 1, 8 and 32, each backend in its own container with the same CPU
+and memory quota and its own clone of the `plane_fix_tpl` fixture database.
+
+#### Environment
+
+| | |
+| --- | --- |
+| Host / client | Apple MacBook Pro, Apple M3 Max (14-core), macOS 26.6.2, 36 GiB |
+| Docker VM | Colima 28.4.0, Linux `6.8.0-64-generic`, **6 vCPU / 9.7 GiB** (temporarily resized from the dev baseline of 2 vCPU / 1.9 GiB for this run), overlayfs, cgroup v2 |
+| Bench containers | `--cpus 2`, `--memory 512m --memory-swap 512m` each; own Postgres clone, Redis DB (8 / 9) and RabbitMQ vhost |
+| `plane-rs-bench-api` | image **69.7 MB** on disk (54.4 MB of layers; `docker image inspect` size 15,263,793 B); `rust:1.99.1-slim-bookworm` builder → `gcr.io/distroless/cc-debian12:nonroot`; rustc 1.99.1; release profile (fat LTO, 1 CGU, panic=abort, strip); **2 tokio worker threads** (`PLANE_RS_WORKER_THREADS=2`, one per allowed core) |
+| `plane-rs-bench-django` | image **497 MB** on disk (390 MB of layers; `docker image inspect` size 106,967,048 B); `apps/api/Dockerfile.api` unchanged (`python:3.12.12-alpine`); Django 5.2.17, DRF 3.18.3, gunicorn 23.0.0, uvicorn 0.29.0, `GUNICORN_WORKERS=1` |
+| Django command | the entrypoint's final gunicorn line, including `--max-requests 1200 --max-requests-jitter 1000`; `collectstatic` runs first (WhiteNoise needs `STATIC_ROOT`), `wait_for_db`/registration/`create_bucket`/`clear_cache` are skipped; access log to `/dev/null` (formatting and write still paid) |
+| Postgres | 15.7-alpine, 2 GiB limit, dev settings (`fsync=off`) |
+| Fixture | `plane_fix_tpl`: 401 issues, 7 projects, 17 users, 15 signed sessions; the admin session cookie is sent literally |
+
+#### Method
+
+* **Routes.** Only routes owned by `rust(GET)` in `ROUTES.md`. `scenarios/bench/reads-users-me.yaml`
+  (`/api/users/me/`, `/settings/`, `/workspaces/`), `reads-project.yaml` (project
+  list/detail, states, labels, members), `reads-issues.yaml`
+  (`v2/issues/`, `issues-detail/`, issue detail, history, comments),
+  `reads-cycles.yaml` (cycle and module list/detail) and `reads-mixed.yaml`
+  (a 37-slot weighted blend of the four, the "one page load" row).
+* **Verification first.** `difftest run` in attach mode compared every step of
+  every scenario between the two containers — status, headers, decoded body,
+  database diff, Redis diff and drained Celery messages. **All five scenarios
+  were identical** (exit 0, 0 mismatches) before any measurement.
+* **Load.** `difftest bench` closed loop, one keep-alive HTTP/1.1 connection per
+  concurrent worker, 5 s warm-up, 20 s measured window, **3 repetitions**,
+  median; `--settle 10` before each repetition. Attach mode does not restart
+  the container between repetitions, so repetitions 2 and 3 see a warm process.
+* **Client.** On the host, across the VM's published-port boundary. The same
+  loop against a trivial local server measured 37k–41k rps at concurrency 1,
+  115k–125k at 8 and 129k–151k at 32; the fastest Rust row (4,824 rps) is ~3%
+  of that ceiling, so the client is not the limit.
+* **Memory / CPU.** `ps` on the host cannot see the VM's processes, so a
+  sidecar (`plane-rs-bench-stats`) samples cgroup v2 `memory.current`,
+  `memory.stat` and `cpu.stat` 4 times per second (250 ms). `idle` in the table
+  is the median of the 3 s before the first warm-up, i.e. after the bench's 10 s
+  settle and with the process warm from earlier scenarios; `peak` is the highest
+  `memory.current - inactive_file` inside the measured window (the same
+  cache-excluded subtraction `docker stats` shows; raw `memory.current` is in
+  the JSON); `CPU s` is the `usage_usec` delta across the window (±0.25 s).
+* **Errors** are the worst repetition; `reconnects` counts a keep-alive
+  connection the server closed and the client reopened and retried once.
+* **Provenance.** `reads-users-me`, `reads-project` and `reads-issues` were
+  measured 08:50–09:17 UTC. The shared RabbitMQ was recreated by another agent
+  at 09:26 UTC (every vhost lost), which invalidated the first
+  `reads-cycles`/`reads-mixed` rows (32–522 publish errors); both scenarios were
+  re-measured 09:54–10:12 UTC and the table uses those rows. **Every row below
+  has 0 errors.**
+
+#### Measurements
+
+`date` is the report date; `commit` is the branch head the binary was built
+near (the working tree also contained other agents' in-progress changes).
+Medians of three repetitions. `idle`/`peak` are cache-excluded container
+memory; `CPU s` is the whole container over the 20 s window (20.00 s = one
+saturated core).
+
+| date | commit | scenario | target | conc | rps | p50 ms | p95 ms | p99 ms | err | idle | peak | CPU s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-16 | eddfe5d425 | reads-users-me | django | 1 | 60 | 16.03 | 21.60 | 26.69 | 0 | 155.5 MiB | 159.3 MiB | 12.36 |
+| 2026-11-16 | eddfe5d425 | reads-users-me | django | 8 | 112 | 63.71 | 103.94 | 137.85 | 0 | 155.5 MiB | 158.4 MiB | 29.22 |
+| 2026-11-16 | eddfe5d425 | reads-users-me | django | 32 | 94 | 283.39 | 461.57 | 1965.06 | 0 | 155.5 MiB | 168.7 MiB | 28.76 |
+| 2026-11-16 | eddfe5d425 | reads-users-me | rust | 1 | 686 | 1.24 | 2.19 | 3.88 | 0 | 78.5 MiB | 80.7 MiB | 3.75 |
+| 2026-11-16 | eddfe5d425 | reads-users-me | rust | 8 | 3339 | 2.16 | 4.46 | 6.05 | 0 | 78.5 MiB | 80.9 MiB | 12.07 |
+| 2026-11-16 | eddfe5d425 | reads-users-me | rust | 32 | 4824 | 6.05 | 11.21 | 14.54 | 0 | 78.5 MiB | 82.1 MiB | 14.83 |
+| 2026-11-16 | eddfe5d425 | reads-project | django | 1 | 40 | 18.99 | 42.94 | 46.98 | 0 | 162.8 MiB | 168.0 MiB | 10.15 |
+| 2026-11-16 | eddfe5d425 | reads-project | django | 8 | 73 | 79.30 | 193.53 | 248.57 | 0 | 162.8 MiB | 165.0 MiB | 26.47 |
+| 2026-11-16 | eddfe5d425 | reads-project | django | 32 | 70 | 373.76 | 686.59 | 2363.39 | 0 | 162.8 MiB | 173.5 MiB | 26.55 |
+| 2026-11-16 | eddfe5d425 | reads-project | rust | 1 | 399 | 2.44 | 3.72 | 4.25 | 0 | 80.1 MiB | 79.8 MiB | 3.90 |
+| 2026-11-16 | eddfe5d425 | reads-project | rust | 8 | 1207 | 3.79 | 7.33 | 9.52 | 0 | 80.1 MiB | 80.1 MiB | 8.23 |
+| 2026-11-16 | eddfe5d425 | reads-project | rust | 32 | 932 | 13.01 | 22.25 | 30.30 | 0 | 80.1 MiB | 81.2 MiB | 5.43 |
+| 2026-11-16 | eddfe5d425 | reads-issues | django | 1 | 22 | 39.65 | 70.78 | 119.42 | 0 | 168.0 MiB | 179.3 MiB | 12.75 |
+| 2026-11-16 | eddfe5d425 | reads-issues | django | 8 | 29 | 245.25 | 385.28 | 2043.90 | 0 | 168.0 MiB | 180.8 MiB | 22.43 |
+| 2026-11-16 | eddfe5d425 | reads-issues | django | 32 | 28 | 1104.89 | 1613.82 | 1715.20 | 0 | 168.0 MiB | 186.8 MiB | 21.82 |
+| 2026-11-16 | eddfe5d425 | reads-issues | rust | 1 | 185 | 3.55 | 10.76 | 12.65 | 0 | 79.8 MiB | 81.0 MiB | 4.01 |
+| 2026-11-16 | eddfe5d425 | reads-issues | rust | 8 | 486 | 7.05 | 20.59 | 26.57 | 0 | 79.8 MiB | 85.0 MiB | 8.33 |
+| 2026-11-16 | eddfe5d425 | reads-issues | rust | 32 | 769 | 28.45 | 56.38 | 68.93 | 0 | 79.8 MiB | 88.4 MiB | 12.80 |
+| 2026-11-16 | eddfe5d425 | reads-cycles | django | 1 | 22 | 38.81 | 106.50 | 113.02 | 0 | 150.6 MiB | 163.9 MiB | 10.78 |
+| 2026-11-16 | eddfe5d425 | reads-cycles | django | 8 | 35 | 156.93 | 457.21 | 1549.31 | 0 | 150.6 MiB | 165.1 MiB | 23.22 |
+| 2026-11-16 | eddfe5d425 | reads-cycles | django | 32 | 36 | 737.79 | 1586.17 | 1865.73 | 0 | 150.6 MiB | 167.9 MiB | 22.92 |
+| 2026-11-16 | eddfe5d425 | reads-cycles | rust | 1 | 360 | 2.46 | 5.01 | 6.42 | 0 | 80.5 MiB | 81.1 MiB | 3.88 |
+| 2026-11-16 | eddfe5d425 | reads-cycles | rust | 8 | 756 | 3.77 | 9.34 | 13.01 | 0 | 80.5 MiB | 81.1 MiB | 5.99 |
+| 2026-11-16 | eddfe5d425 | reads-cycles | rust | 32 | 1039 | 13.70 | 27.15 | 38.37 | 0 | 80.5 MiB | 82.2 MiB | 6.74 |
+| 2026-11-16 | eddfe5d425 | reads-mixed | django | 1 | 27 | 35.42 | 101.31 | 122.43 | 0 | 163.0 MiB | 166.2 MiB | 11.72 |
+| 2026-11-16 | eddfe5d425 | reads-mixed | django | 8 | 43 | 144.00 | 386.05 | 553.98 | 0 | 163.0 MiB | 170.1 MiB | 23.99 |
+| 2026-11-16 | eddfe5d425 | reads-mixed | django | 32 | 41 | 649.22 | 1278.97 | 2650.11 | 0 | 163.0 MiB | 181.8 MiB | 23.75 |
+| 2026-11-16 | eddfe5d425 | reads-mixed | rust | 1 | 294 | 2.48 | 9.65 | 11.38 | 0 | 81.8 MiB | 86.0 MiB | 4.08 |
+| 2026-11-16 | eddfe5d425 | reads-mixed | rust | 8 | 807 | 4.70 | 17.68 | 25.93 | 0 | 81.8 MiB | 86.5 MiB | 8.93 |
+| 2026-11-16 | eddfe5d425 | reads-mixed | rust | 32 | 1000 | 17.63 | 46.69 | 69.25 | 0 | 81.8 MiB | 88.0 MiB | 10.27 |
+
+#### Container idle memory
+
+Sampled 30 s after both containers started, and 30 s after the last measured
+window of the full five-scenario matrix. Cache-excluded (`memory.current -
+inactive_file`) and raw `memory.current`.
+
+| | fresh start | | after full run | |
+| --- | --- | --- | --- | --- |
+| | cache-excl. | raw | cache-excl. | raw |
+| django | 143.8 MiB | 148.8 MiB | 157.2 MiB | 170.8 MiB |
+| rust | 48.2 MiB | 48.2 MiB | 176.1 MiB | 176.1 MiB |
+
+The Rust figure after the full run is **not** a leak in the usual sense: it
+grew from 48.2 MiB to 176.1 MiB over five scenarios and 90 measured windows
+(and to 93.1 MiB after the two-scenario re-measurement), with `file` at 0 — it
+is retained heap (mimalloc arenas, per-connection buffers and the 16-connection
+DB pool). The brief's "under 60 MiB idle" holds for a freshly started
+`plane-api`, not for one that has served the matrix's roughly one million
+requests.
+
+#### Summary ratios
+
+| scenario | conc | rps django | rps rust | rps ratio | p95 django | p95 rust | p95 ratio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| reads-users-me | 1 | 60 | 686 | 11.5x | 21.60 | 2.19 | 9.8x |
+| reads-users-me | 8 | 112 | 3339 | 29.9x | 103.94 | 4.46 | 23.3x |
+| reads-users-me | 32 | 94 | 4824 | 51.3x | 461.57 | 11.21 | 41.2x |
+| reads-project | 1 | 40 | 399 | 9.9x | 42.94 | 3.72 | 11.6x |
+| reads-project | 8 | 73 | 1207 | 16.6x | 193.53 | 7.33 | 26.4x |
+| reads-project | 32 | 70 | 932 | 13.2x | 686.59 | 22.25 | 30.9x |
+| reads-issues | 1 | 22 | 185 | 8.2x | 70.78 | 10.76 | 6.6x |
+| reads-issues | 8 | 29 | 486 | 16.9x | 385.28 | 20.59 | 18.7x |
+| reads-issues | 32 | 28 | 769 | 27.3x | 1613.82 | 56.38 | 28.6x |
+| reads-cycles | 1 | 22 | 360 | 16.7x | 106.50 | 5.01 | 21.3x |
+| reads-cycles | 8 | 35 | 756 | 21.3x | 457.21 | 9.34 | 48.9x |
+| reads-cycles | 32 | 36 | 1039 | 29.0x | 1586.17 | 27.15 | 58.4x |
+| reads-mixed | 1 | 27 | 294 | 10.8x | 101.31 | 9.65 | 10.5x |
+| reads-mixed | 8 | 43 | 807 | 18.9x | 386.05 | 17.68 | 21.8x |
+| reads-mixed | 32 | 41 | 1000 | 24.3x | 1278.97 | 46.69 | 27.4x |
+
+#### What the numbers say
+
+**Throughput.** `plane-api` is **8.2×–51.3×** faster on these routes; the ratio
+grows with concurrency because Django is saturated at one worker while Rust
+keeps scaling. The absolute figures are modest for both — 22–120 rps for Django,
+185–4,824 rps for Rust — because every request authenticates a session, does
+two or more SQL round trips and serialises a full DRF-shaped body.
+
+**Django is flat above concurrency 8.** `reads-issues` goes 22 → 29 → 28 rps,
+`reads-project` 40 → 73 → 70, `reads-cycles` 22 → 35 → 36, `reads-mixed` 27 → 43
+→ 41, while p50 grows 6–15×. One gunicorn worker spends 1.1–1.5 CPU-seconds per
+second (the rest of the 2-core quota is idle), so extra connections only queue.
+
+**Rust keeps scaling.** `reads-users-me` 686 → 3,339 → 4,824 rps (7.0× from
+concurrency 1 to 32), `reads-issues` 185 → 769 (4.2×), `reads-cycles` 360 →
+1,039 (2.9×), `reads-mixed` 294 → 1,000 (3.4×). `reads-project` is the exception:
+1,207 rps at concurrency 8 but 932 at 32, the only Rust row that gets *slower*.
+That scenario publishes `recent_visited_task` on `projects/{pk}/`; at that mix
+(project detail is 3 of 11 slots) 1,200 rps is roughly 330 AMQP publishes per
+second, the likely limiter. It was not profiled.
+
+**CPU per request** (concurrency 1, whole container):
+
+| scenario | django | rust | ratio |
+| --- | --- | --- | --- |
+| reads-users-me | 10.3 ms | 0.27 ms | 38× |
+| reads-project | 12.7 ms | 0.49 ms | 26× |
+| reads-issues | 29.0 ms | 1.08 ms | 27× |
+| reads-cycles | 24.5 ms | 0.54 ms | 45× |
+| reads-mixed | 21.7 ms | 0.69 ms | 31× |
+
+**Memory.** A fresh `plane-api` idles at **48.2 MiB** versus Django's
+**143.8 MiB** (3.0×), and peak under load is 80–88 MiB versus 158–187 MiB
+(~2×). Under load the Rust container's memory is almost all `anon` (no file
+cache) and its peak grows slowly with concurrency (80.7 → 82.1 MiB across
+concurrency 1/8/32 in `reads-users-me`). Django's peak is bounded by the 512 MB
+limit and by `--max-requests`, which restarts the worker before memory can creep.
+
+**Worker recycling is visible.** Django reconnects 8 connections per 20 s window
+at concurrency 8 and 32–64 at concurrency 32, and p99 reaches 1.5–2.6 s: that is
+`--max-requests 1200` firing once per window at ~100 rps. The numbers are the
+production line's ("as deployed"), not a sustained-load upper bound; Phase 1
+measured the same difference with and without the flag.
+
+**The page-load mix is not the sum of its parts.** At concurrency 32 Rust serves
+`reads-mixed` at 1,000 rps, 4.8× slower than `users-me` alone but 1.3× faster
+than `issues` alone; the weighted mix is dominated by the issue list, the issue
+detail and their two sub-resources.
+
+#### Reproduce
+
+```bash
+# Everything: build both images, provision, verify, measure, clean up (~50 min).
+apps/server/tools/bench/run-phase3.sh
+
+# Reuse the images and the harness binary; rerun two scenarios only.
+apps/server/tools/bench/run-phase3.sh --no-build \
+  --scenarios reads-cycles,reads-mixed
+
+# Leave the containers and databases up for inspection.
+apps/server/tools/bench/run-phase3.sh --keep
+
+# Remove what a run left behind.
+apps/server/tools/bench/run-phase3.sh --down
+```
+
+The script checks the host's free disk (20 GiB) and the VM's free memory before
+building, records `pg_stat_activity` per database every 5 s into
+`target/bench/<tag>/pg-load.log`, and writes one JSON report plus one row per
+(scenario, target) to `target/bench/<tag>/`. `tools/bench/phase3.py table --rows
+<tag>` regenerates the table and ratios above from those rows.
+
+#### Threats to validity (Phase 3)
+
+* **Shared machine.** The 14-core host ran at 1-minute load averages of
+  **4.2–9.8** during these runs. Both the client and the VM compete with other
+  agents' builds.
+* **Shared Postgres.** Another agent's `dt_*` differential runs and
+  `t_w2perf_*` connections were present for most 5 s samples in both runs
+  (`pg-load.log`); the shared database was **not quiet**. Every row has 0
+  errors, but a difference below ~10% should be re-measured on a quiet database.
+* **One broker incident.** The shared RabbitMQ was recreated at 09:26 UTC and
+  every vhost was lost. The first `reads-cycles` and `reads-mixed` rows were
+  discarded (the Rust cycles row carried 32–522 publish errors); the table uses
+  the re-measurement. No row with errors is quoted.
+* **Client across the VM boundary.** Requests go over Colima's published port,
+  not loopback inside the VM. At concurrency 1 a Rust request takes ~1.2 ms, of
+  which a large part is the host↔VM round trip; the absolute latencies are not
+  comparable to Phase 1's macOS rows. The client's own ceiling (37k–151k rps)
+  is one to two orders of magnitude above every target rps here.
+* **Django's `--max-requests`.** Kept because the task is "as deployed"; it caps
+  each 20 s window with one worker restart (reconnects, p99 2 s). Without it
+  Django's throughput would be higher and its p99 lower.
+* **250 ms sampling.** Peak memory can miss a shorter spike, and the CPU window
+  edges are ±0.25 s (≈1% of a 20 s window).
+* **Container memory is cache-excluded.** The table subtracts
+  `inactive_file` (as `docker stats` does). Raw `memory.current` is 5–14 MiB
+  higher for Django and identical for Rust; page cache from the image is not
+  charged to either.
+* **The VM was resized for this run** (6 vCPU / 9.7 GiB instead of the 2 vCPU /
+  1.9 GiB dev baseline). Containers are pinned to 2 CPUs each and Rust to 2
+  tokio threads, so the internal comparison is unaffected, but the *absolute*
+  numbers are not the 2-vCPU deployment's.
+* **VM clock drift.** After the resize the VM's clock was ~14 minutes ahead of
+  the host; the sampler is therefore host-stamped (`tools/bench/stamp.py`).
+  Responses were verified identical on both targets regardless.
+* **Two measurement windows.** `users-me`/`project`/`issues` were taken
+  08:50–09:17 UTC and `cycles`/`mixed` 09:54–10:12 UTC, each against its own
+  fresh database clone; per-row idle reflects the process's warm state at that
+  point, not a single run-wide baseline.
+
 ### Phase 4 baseline: Django's Celery worker and beat
 
 `plane-worker` and `plane-beat` must beat these numbers, so they were measured before any

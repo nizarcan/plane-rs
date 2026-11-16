@@ -1,0 +1,58 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Bench scenario: opening a project and its issues. Every route below is
+# `rust(GET)` in `ROUTES.md` and was verified by the `projects`, `states`,
+# `labels` and project-members domains.
+#
+# The mix is the set of requests a project page issues in its first second:
+# the project itself (the page's `projects/{pk}/` retrieve, which also writes
+# `recent_visited_task`, and the workspace's project list), its states, its
+# labels and its members. `projects/{pk}/` publishing a task is deliberate: the
+# Celery publisher runs on the read path, so its cost belongs in the
+# measurement (the runner gives each target a vhost with a 2 s message TTL so
+# the broker cannot grow without bound).
+#
+# See BENCH.md ("Phase 3 — Linux containers").
+name: reads-project
+template_db: plane_fix_tpl
+
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+requests:
+  # The project list the sidebar and the "all projects" page load.
+  - name: project-list
+    path: /api/workspaces/{{ws}}/projects/
+    headers: &auth
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    weight: 2
+
+  # Project retrieve; `ProjectViewSet.retrieve` is the page's own call and the
+  # one that enqueues `recent_visited_task`.
+  - name: project-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/
+    headers: *auth
+    weight: 3
+
+  # State columns / dropdown.
+  - name: states
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/states/
+    headers: *auth
+    weight: 2
+
+  # Labels for the label picker and the issue cards.
+  - name: labels
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/
+    headers: *auth
+    weight: 2
+
+  # Members for avatars, assignee filters and the members page.
+  - name: members
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/members/
+    headers: *auth
+    weight: 2

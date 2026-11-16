@@ -1,0 +1,66 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Bench scenario: the issue list, an issue page and its sub-resources. Every
+# route is `rust(GET)` in `ROUTES.md` and was verified by the
+# `issues-lists`/`issues-detail`/`issue-sub-resources` domains.
+#
+# Weights follow one issue page load: the paginated list (`v2/issues/`, two
+# pages on average as the user scrolls), the issue itself (the most expensive
+# response in the app: all relations, assignees, labels, modules, cycles and
+# attachments per row), the bulk detail lookup the list uses to prefill its
+# peek panel, then the activity feed and the comment thread.
+#
+# `v2/issues/` and `issues/{pk}/` both publish `recent_visited_task`; see
+# reads-project.yaml for why that is part of the measurement.
+#
+# See BENCH.md ("Phase 3 — Linux containers").
+name: reads-issues
+template_db: plane_fix_tpl
+
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_child: "42c68569-5178-4a34-8c17-0488d036ed0c"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+requests:
+  # The paginated issue list (`IssuePaginatedViewSet`, page size 100 by
+  # default). The web app sends `per_page` on some screens; the default page is
+  # the heavier, more common case.
+  - name: v2-issues
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/v2/issues/
+    headers: &auth
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    weight: 3
+
+  # The unpaginated bulk detail endpoint the list uses to fill its peek panel.
+  - name: issues-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues-detail/
+    query:
+      issues: "{{issue_alpha}},{{issue_alpha_child}}"
+    headers: *auth
+    weight: 2
+
+  # A single issue: `IssueViewSet.retrieve`, the issue detail page.
+  - name: issue-detail
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/
+    headers: *auth
+    weight: 4
+
+  # Activity feed (`IssueActivityEndpoint`): 9 statements on Rust vs 29 on
+  # Django according to PROGRESS.md.
+  - name: issue-history
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/history/
+    headers: *auth
+    weight: 2
+
+  # Comment thread (`IssueCommentViewSet.list`).
+  - name: issue-comments
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/
+    headers: *auth
+    weight: 2
