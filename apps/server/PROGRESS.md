@@ -278,10 +278,11 @@ and only `verified` rows are Rust-owned.
   932 at 32). Suspect the per-request `recent_visited_task` publish; check its publisher
   path, connection and channel reuse.
 
-- Fixture gaps found by the contract runner: `plane_fix_tpl` has no workspace with a NULL
-  `logo` and no page favourite whose page belongs to a project, so the two bugs fixed in
-  `43ac1b539d` have contract-test regressions but no differential scenario step. Add both
-  to `tools/fixtures/build.py`, rebuild the template, and add the steps.
+- Fixture manifest bug (pre-existing): the `notification_preference_*` and
+  `project_user_property_*` vars in `fix_tpl.json` are recorded before
+  `Fixture.renumber()` rewrites those ids, so they never match the template, and the
+  scenario steps using them only exercise 404s on both backends. Record the vars after
+  renumbering, then check which steps change meaning.
 - Re-run the Django-vs-Django baselines that agents took with a second target
   definition (the port allocator is fixed now).
 - Harness flake: under load, the Celery comparison sometimes sees messages one step late
@@ -461,7 +462,9 @@ and only `verified` rows are Rust-owned.
    retries, dead letter, enqueue in the caller's transaction), `plane-worker`, and
    `plane-beat` with a Postgres advisory lock per tick. Exit: a Rust handler can enqueue
    to both queues, and a scheduled job runs exactly once with two beat replicas.
-2. Fixture additions for the two contract-found bugs, plus their differential steps.
+2. (Done, `c934203c19`.) Fixture coverage for the two contract-found bugs: a NULL-logo
+   workspace and a project page favourite. Each step fails against its reverted fix,
+   and the full sweep on the new template has 0 diffs (42 files, 2,155 steps).
 3. Phase 5 planning (write paths): domain order, `MODEL_HOOKS.md` coverage, and harness
    support for write scenarios (DB diffs on POST/PATCH/DELETE already exist). Then the
    Phase 3 benchmark re-measure on a quiet stack, at the end of Phase 4.
