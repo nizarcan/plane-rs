@@ -379,6 +379,7 @@ part of the Rust config.
 | `UV_NO_CACHE` | `1` | `Dockerfile.api:16` | Build-time. |
 | `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` | `/etc/ssl/certs/ca-certificates.crt` | `Dockerfile.api:19` | Forces grpcio's OTLP exporter to use the system CA bundle. Rust: the OTLP/tonic client should use the system store; add an override under the `PLANE_RS_` rule (§6) only if a deployment needs it. |
 | `APK_SECURITY_PATCH` | `2026-10-26` | `Dockerfile.api:24` | Build `ARG` used only to bust the apk cache. Build-time. |
+| `MIMALLOC_PURGE_DELAY` | `0` | `apps/server/deploy/docker/Dockerfile.plane-api` (`runtime` stage) | mimalloc's purge delay in milliseconds: how long a freed segment is kept before being returned to the OS (and 10x that for a whole arena). mimalloc's own default is `10`; `0` purges immediately and `-1` never purges. Not read by Plane code. `0` lowers the post-load plateau from 89.1 to 51.4 MiB after 1M requests at concurrency 32 (`BENCH.md`, "Phase 3: memory after sustained load"). |
 
 ---
 
