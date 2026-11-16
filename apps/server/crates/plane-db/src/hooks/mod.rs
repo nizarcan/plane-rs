@@ -21,6 +21,7 @@
 //! | H03 | `SoftDeleteModel.delete` (`plane/db/mixins.py:65-77`) | [`soft_delete::delete_instance`] |
 //! | H23 | `Sticky.save` (`plane/db/models/sticky.py:38-54`) | [`sticky::before_save`] |
 //! | H08/H09 | `Project.save` (`plane/db/models/project.py:193-227`) | [`project::before_insert`] / [`project::before_update`] / [`project::retime_intake_snoozes`] |
+//! | H20 | `Label.save` (`plane/db/models/label.py:46-54`) | [`label::before_insert`] |
 //! | H25 | `UserFavorite.save` (`plane/db/models/favorite.py:52-72`) | [`favorite::before_insert`] |
 //! | H32 | `ProjectMember.save` (`plane/db/models/project.py:276-293`) | [`project_member::before_insert`] |
 //!
@@ -47,6 +48,7 @@ pub mod audit;
 pub mod favorite;
 pub mod html;
 pub mod json_merge;
+pub mod label;
 pub mod project;
 pub mod project_member;
 pub mod soft_delete;

@@ -130,6 +130,7 @@ fn db_placeholder(table: &str, column: &str, kind: &str, shape: &str) -> DbRule 
         placeholder: Some(kind.to_string()),
         shape: Some(shape.to_string()),
         check: None,
+        request: None,
     }
 }
 
@@ -228,6 +229,7 @@ fn rules() -> Arc<NormalizeRules> {
                 placeholder: None,
                 shape: Some("signed_session".to_string()),
                 check: None,
+                request: None,
             },
             DbRule {
                 table: "sessions".to_string(),
@@ -237,6 +239,7 @@ fn rules() -> Arc<NormalizeRules> {
                 placeholder: None,
                 shape: None,
                 check: None,
+                request: None,
             },
             DbRule {
                 table: "deploy_boards".to_string(),
@@ -246,6 +249,7 @@ fn rules() -> Arc<NormalizeRules> {
                 placeholder: Some("anchor".to_string()),
                 shape: Some("anchor_hex".to_string()),
                 check: None,
+                request: None,
             },
             db_placeholder("users", "username", "username", "uuid_hex"),
             DbRule {
@@ -256,6 +260,7 @@ fn rules() -> Arc<NormalizeRules> {
                 placeholder: None,
                 shape: Some("django_password_hash".to_string()),
                 check: None,
+                request: None,
             },
             DbRule {
                 table: "users".to_string(),
@@ -265,6 +270,7 @@ fn rules() -> Arc<NormalizeRules> {
                 placeholder: Some("token".to_string()),
                 shape: Some("hex64".to_string()),
                 check: None,
+                request: None,
             },
             db_placeholder("profiles", "background_color", "colour", "hex_colour"),
             db_placeholder("workspaces", "background_color", "colour", "hex_colour"),
