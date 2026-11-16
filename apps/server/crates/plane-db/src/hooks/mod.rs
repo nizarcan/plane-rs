@@ -23,6 +23,7 @@
 //! | H21 | `Module.save` (`plane/db/models/module.py:115-124`) | [`module::before_insert`] |
 //! | H22 | `Cycle.save` (`plane/db/models/cycle.py:88-97`) | [`cycle::before_insert`] |
 //! | H23 | `Sticky.save` (`plane/db/models/sticky.py:38-54`) | [`sticky::before_save`] |
+//! | H24 | `IssueView.save` (`plane/db/models/view.py:79-95`) | [`issue_view::query_from_filters`] / [`issue_view::before_insert`] |
 //! | H08/H09 | `Project.save` (`plane/db/models/project.py:193-227`) | [`project::before_insert`] / [`project::before_update`] / [`project::retime_intake_snoozes`] |
 //! | H20 | `Label.save` (`plane/db/models/label.py:46-54`) | [`label::before_insert`] |
 //! | H25 | `UserFavorite.save` (`plane/db/models/favorite.py:52-72`) | [`favorite::before_insert`] |
@@ -58,6 +59,7 @@ mod html_entities;
 pub mod issue;
 pub mod issue_comment;
 pub mod issue_m2m;
+pub mod issue_view;
 pub mod json_merge;
 pub mod label;
 pub mod module;

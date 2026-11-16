@@ -1,0 +1,1013 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Saved views set A (view CRUD) write scenario:
+#
+#   POST    /api/workspaces/{slug}/projects/{project_id}/views/          (178)
+#   PATCH   /api/workspaces/{slug}/projects/{project_id}/views/{pk}/     (179)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/views/{pk}/     (179)
+#   PUT     the same route answers 405                                   (179)
+#   POST    /api/workspaces/{slug}/views/                                (180)
+#   PATCH   /api/workspaces/{slug}/views/{pk}/                           (181)
+#   DELETE  /api/workspaces/{slug}/views/{pk}/                           (181)
+#   PUT     the same route answers 405                                   (181)
+#
+# Covers H24 (`IssueView.save`) in both directions: the create chain across
+# several creates (`MAX(sort_order) + 10000`, the body's value ignored once a
+# view exists, a pre-deleted row excluded from the aggregate), the
+# `issue_filters(filters, "POST")` transform for every key and its odd cases
+# (`type` overwriting `state__group__in`, `sub_issue` compared with the string
+# `"false"`, `intake_status` reading `inbox_status`, `logged_by`, the
+# `created_at` string-iteration quirk, a non-dict `filters` value, and the
+# Python exceptions that become a family 500), the PATCH transaction (locked and
+# foreign-owner 400s, validation 400s, the 500 that must roll back), the
+# decorator-vs-handler 400/403 divergence (`created_by` vs `owned_by`), the
+# cross-scope quirk of the workspace routes, the 405 `PUT` guard, and the two
+# destroy paths with their side effects (global favourites H04, the project
+# path's hard-deleted recent visits, the workspace path's untouched recent
+# visits). The rows those deletes act on are seeded by `views-fixture.sql`.
+
+name: write-views
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/views-fixture.sql"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_empty: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  view_beta_bugs: "e0d49e2f-8d9c-4780-bc12-3b7c3264ce11"
+  view_alpha_high: "062b3259-338c-48e4-923c-32bdf03fb91a"
+  view_alpha_started: "626adef8-5e34-4a77-ab26-6bdeceb2afc0"
+  view_ws_public: "0e5e15ac-d652-4232-ac25-ac2dd1ead1c5"
+  view_ws_private: "0370f75d-2888-4151-ae08-634d1f46a2d7"
+  view_seed_stale_patch: "a9000000-0000-4000-8000-000000000001"
+  view_seed_locked: "a9000000-0000-4000-8000-000000000003"
+  view_seed_member_owns: "a9000000-0000-4000-8000-000000000004"
+  view_seed_member_created: "a9000000-0000-4000-8000-000000000005"
+  view_seed_ws_member_owns: "a9000000-0000-4000-8000-000000000006"
+  view_seed_ws_member_created: "a9000000-0000-4000-8000-000000000007"
+  view_seed_ws_locked: "a9000000-0000-4000-8000-000000000008"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  missing: "00000000-0000-4000-8000-000000000123"
+  missing_project: "00000000-0000-4000-8000-000000000456"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- 178 create: defaults, the full body, the sort-order chain ------------
+  - name: vw-01-project-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project minimal"
+    capture:
+      - name: view_min
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # Every writable field, a filters dict that exercises most of `issue_filters`
+  # (`state`, `state_group` overwritten by `type`, the five `*_deleted_at`
+  # extras, `sub_issue` as the string, `intake_status` reading `inbox_status`,
+  # `logged_by`, the `created_at` list forms) and every read-only key, which
+  # Django must ignore.
+  - name: vw-02-project-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project full"
+      description: "created by the views write harness"
+      filters:
+        state: "bbbbbbbb-0000-4000-8000-000000000001"
+        state_group: "started"
+        priority: ["urgent", "high"]
+        labels: null
+        assignees: ["{{member_id}}"]
+        cycle: null
+        module: "cccccccc-0000-4000-8000-000000000001"
+        subscriber: "{{admin_id}}"
+        created_by: "{{admin_id}}"
+        logged_by: "{{member_id}}"
+        name: "needle"
+        type: "active"
+        intake_status: "1"
+        inbox_status: "2"
+        sub_issue: "false"
+        start_target_date: "true"
+        start_date: "2026-03-01"
+        target_date: "2026-04-01"
+        created_at: ["2026-01-01;after"]
+        updated_at: ["3_months;before"]
+        completed_at: ["2026-05-01"]
+        project: "{{project_alpha}}"
+      display_filters: {"layout": "kanban", "group_by": "state"}
+      display_properties: {"assignee": false, "key": false}
+      rich_filters: {"and": [{"priority": "high"}]}
+      sort_order: 42
+      logo_props: {"in_use": "emoji", "emoji": {"value": "🚀"}}
+      archived_at: "2026-10-01T10:00:00Z"
+      # read-only on the serializer: every one of these is ignored
+      query: {"nonsense": true}
+      access: 0
+      is_locked: true
+      is_favorite: true
+      owned_by: "{{member_id}}"
+      workspace: "{{project_beta}}"
+      project: "{{project_beta}}"
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+    capture:
+      - name: view_full
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  - name: vw-03-project-create-second
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project second"
+    capture:
+      - name: view_second
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # `deleted_at` is writable: the row is inserted soft-deleted, so it must not
+  # count in the next `MAX(sort_order)` either.
+  - name: vw-04-project-create-pre-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project pre-deleted"
+      deleted_at: "2026-02-01T12:00:00Z"
+    capture:
+      - name: view_pre_deleted
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # Same `MAX` as the pre-deleted create: the soft-deleted row is invisible to
+  # the default manager's aggregate.
+  - name: vw-05-project-create-after-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project after deleted"
+    capture:
+      - name: view_after_deleted
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # A form body: every value is a string and a JSONField parses its text.
+  - name: vw-06-project-create-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      name: "Harness project form"
+      description: "form body"
+      filters: '{"priority": "low"}'
+      sort_order: "4242"
+    capture:
+      - name: view_form
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # A falsy non-dict `filters` value is stored verbatim and `query` stays `{}`.
+  - name: vw-07-project-create-empty-list-filters
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project empty filters"
+      filters: []
+      display_filters: {}
+      display_properties: {}
+    capture:
+      - name: view_empty_filters
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # A project with no views: the aggregate is NULL, so the body's `sort_order`
+  # survives; the next create then raises it by 10000.
+  - name: vw-07b-project-create-empty-project-body-sort-order
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_empty}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness empty project first"
+      sort_order: 7
+    capture:
+      - name: view_empty_project
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  - name: vw-07c-project-create-empty-project-default-sort-order
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_empty}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness empty project second"
+    capture:
+      - name: view_empty_project_2
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # A project in this workspace with no views and no body `sort_order`: the
+  # model default 65535 survives because the aggregate is NULL.
+  - name: vw-07d-project-create-model-default-sort-order
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness model default sort order"
+    capture:
+      - name: view_model_default
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  # --- 178 create: the `filters` shapes that crash `issue_filters` ----------
+  # `len(5)` is a TypeError inside `IssueView.save`, before the INSERT.
+  - name: vw-08-project-create-filters-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project bad filters int"
+      filters: {"state": 5}
+    expect_status: 500
+
+  # A list passes the `"state" in filters` test and dies on `params.get`.
+  # A duration filter returns a `datetime.date`, which the JSONField column
+  # cannot serialise: the INSERT fails after H24, so no row is written.
+  - name: vw-08b-project-create-duration-filter
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project duration filters"
+      filters: {"completed_at": ["3_months;before;fromnow"]}
+    expect_status: 500
+
+  - name: vw-09-project-create-filters-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project bad filters list"
+      filters: ["state"]
+    expect_status: 500
+
+  # --- 178 create: validation, permissions, origin --------------------------
+  - name: vw-10-project-create-missing-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description: "no name"
+      sort_order: "not-a-number"
+      filters: null
+    expect_status: 400
+
+  - name: vw-11-project-create-blank-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "   "
+    expect_status: 400
+
+  - name: vw-12-project-create-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness name that is far too long aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    expect_status: 400
+
+  - name: vw-13-project-create-bad-datetime
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project bad datetime"
+      archived_at: "not-a-date"
+      deleted_at: "2026-13-01T00:00:00Z"
+    expect_status: 400
+
+  # Body shapes the whole pipeline shares: `null` is DRF's "No data provided",
+  # a list is `non_field_errors`, an empty body is an empty object.
+  - name: vw-13b-project-create-null-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: "null"
+    expect_status: 400
+
+  - name: vw-13c-project-create-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: "[]"
+    expect_status: 400
+
+  - name: vw-13d-project-create-empty-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: ""
+    expect_status: 400
+
+  - name: vw-14-project-create-guest-allowed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Harness guest view"
+    capture:
+      - name: view_guest
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  - name: vw-15-project-create-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "Harness nonmember view"
+    expect_status: 403
+
+  - name: vw-16-project-create-unknown-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{missing_project}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness unknown project"
+    expect_status: 403
+
+  - name: vw-17-project-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    origin: "http://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness foreign origin view"
+    expect_status: 403
+
+  # --- 179 PATCH ------------------------------------------------------------
+  - name: vw-20-project-patch-full
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness project full (edited)"
+      description: "edited"
+      filters: {"priority": "low", "labels": null, "sub_issue": "false"}
+      display_filters: {"layout": "list"}
+      display_properties: {"key": true}
+      rich_filters: {}
+      sort_order: 12.5
+      logo_props: {"in_use": "icon"}
+      archived_at: null
+      deleted_at: null
+      # read-only, ignored
+      query: {"ignored": true}
+      access: 0
+      is_locked: true
+      owned_by: "{{member_id}}"
+    expect_status: 200
+
+  # A PATCH with no body still saves: H24 recomputes `query` from the stored
+  # `filters`, which the fixture left disagreeing.
+  - name: vw-21-project-patch-empty-recomputes-query
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_seed_stale_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 200
+
+  - name: vw-22-project-patch-locked
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_seed_locked}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "locked edit"
+    expect_status: 400
+
+  # The admin created the view (decorator passes) but does not own it.
+  - name: vw-23-project-patch-not-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_seed_member_owns}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "not owner edit"
+    expect_status: 400
+
+  # The member neither created nor owns the view and is no admin: the
+  # decorator denies before the handler's owner test.
+  - name: vw-24-project-patch-decorator-denies
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_seed_member_owns}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      name: "owner not creator edit"
+    expect_status: 403
+
+  # A project other than the URL's: the lookup is project-scoped.
+  - name: vw-25-project-patch-foreign-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_beta_bugs}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "foreign project edit"
+    expect_status: 404
+
+  # A workspace view is unreachable from the project routes.
+  - name: vw-26-project-patch-workspace-view
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_ws_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "workspace view via project route"
+    expect_status: 404
+
+  - name: vw-27-project-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "missing edit"
+    expect_status: 404
+
+  - name: vw-28-project-patch-validation
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: null
+      filters: null
+      sort_order: "abc"
+      archived_at: "not-a-date"
+    expect_status: 400
+
+  # A string `filters` value passes `"state" in …` and raises inside
+  # `issue_filters` after the instance was updated in memory: the atomic block
+  # rolls back and the row keeps its name.
+  - name: vw-29-project-patch-filters-crash-rolls-back
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_second}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "must not persist"
+      filters: "state"
+    expect_status: 500
+
+  - name: vw-30-project-patch-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_form}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      name: "Harness project form (edited)"
+      filters: '{"type": "backlog"}'
+    expect_status: 200
+
+  # A duration filter makes `issue_filters` return a `datetime.date`, which the
+  # plain JSONField column cannot serialise: the UPDATE fails and the atomic
+  # block rolls back.
+  - name: vw-31-project-patch-duration-filter-500
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_second}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "duration must not persist"
+      filters: {"updated_at": ["2_weeks;after;fromnow"]}
+    expect_status: 500
+
+  # `deleted_at` is writable: a PATCH can soft-delete the row, and the later
+  # project list must not show it.
+  - name: vw-31b-project-patch-deleted-at
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_empty_filters}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      deleted_at: "2026-03-01T00:00:00Z"
+    expect_status: 200
+
+  - name: vw-32-project-put-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "put"
+    expect_status: 405
+
+  # --- 181 PATCH (workspace views) -----------------------------------------
+  - name: vw-40-workspace-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness workspace minimal"
+    capture:
+      - name: ws_view_min
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  - name: vw-41-workspace-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness workspace full"
+      description: "workspace view"
+      filters:
+        type: "backlog"
+        sub_issue: false
+        assignees: null
+        cycle: "dddddddd-0000-4000-8000-000000000001"
+      display_filters: {"layout": "calendar"}
+      display_properties: {"state": false}
+      sort_order: 7
+    capture:
+      - name: ws_view_full
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  - name: vw-42-workspace-create-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Harness workspace guest"
+    capture:
+      - name: ws_view_guest
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  - name: vw-43-workspace-create-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      name: "Harness workspace form"
+      filters: '{"priority": "high"}'
+    capture:
+      - name: ws_view_form
+        source: db
+        table: issue_views
+        column: id
+    expect_status: 201
+
+  - name: vw-44-workspace-create-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "Harness workspace nonmember"
+    expect_status: 403
+
+  - name: vw-45-workspace-create-validation
+    method: POST
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: ""
+      logo_props: null
+    expect_status: 400
+
+  - name: vw-46-workspace-patch-own
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/views/{{ws_view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness workspace minimal (edited)"
+      filters: {"priority": "urgent", "state_group": "started"}
+      archived_at: "2026-09-01T00:00:00Z"
+    expect_status: 200
+
+  - name: vw-47-workspace-patch-locked
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_private}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "locked workspace edit"
+    expect_status: 400
+
+  # The admin created it, so the decorator passes; the member owns it.
+  - name: vw-48-workspace-patch-not-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/views/{{view_seed_ws_member_owns}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "workspace not owner edit"
+    expect_status: 400
+
+  # The member neither created nor owns it, and the WORKSPACE decorator has no
+  # admin fallback: this is the decorator's 403.
+  - name: vw-49-workspace-patch-decorator-denies
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/views/{{view_seed_ws_member_owns}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      name: "workspace owner not creator edit"
+    expect_status: 403
+
+  - name: vw-50-workspace-patch-foreign-workspace
+    method: PATCH
+    path: "/api/workspaces/not-this-workspace/views/{{ws_view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "foreign workspace edit"
+    expect_status: 403
+
+  # The cross-scope quirk: a **project** view is patchable through the
+  # workspace route (the lookup has no `project__isnull=True`).
+  - name: vw-51-workspace-patch-project-view
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/views/{{view_after_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: {"priority": "medium"}
+    expect_status: 200
+
+  - name: vw-52-workspace-put-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/views/{{ws_view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "put"
+    expect_status: 405
+
+  # --- 179/181 DELETE -------------------------------------------------------
+  # The workspace route can destroy a project view; its favourite (seeded with
+  # a `project_id`) survives the `project__isnull=True` filter, and recent
+  # visits are not touched at all.
+  - name: vw-60-workspace-delete-project-view
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/views/{{view_seed_stale_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: vw-61-project-delete-workspace-view
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_ws_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # H03's full save: the soft delete also rewrites `query` from `filters`
+  # (the fixture left it disagreeing) and re-derives the workspace.
+  - name: vw-62-project-delete-stale-query
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/a9000000-0000-4000-8000-000000000002/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: vw-63-project-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # A member who is neither the owner nor a project admin: decorator 403.
+  - name: vw-64-project-delete-not-allowed
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_seed_member_owns}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  # The member created it (decorator passes) but is not an admin and does not
+  # own it: the handler's 400.
+  - name: vw-65-project-delete-handler-400
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_seed_member_created}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+
+  # The project destroy removes every user's favourite for `view_alpha_started`
+  # and hard-deletes every live recent visit, leaving the soft-deleted row and
+  # the `project_id NULL` row alone.
+  - name: vw-66-project-delete-side-effects
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_alpha_started}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The workspace destroy removes favourites with `project_id IS NULL` for every
+  # user and leaves the seeded recent visit alone.
+  - name: vw-67-workspace-delete-side-effects
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: vw-68-workspace-delete-handler-400
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/views/{{view_seed_ws_member_created}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+
+  - name: vw-69-workspace-delete-locked-not-owner-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/views/{{view_seed_ws_locked}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: vw-70-workspace-delete-guest-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/views/{{view_seed_ws_locked}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: vw-71-workspace-delete-own
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/views/{{ws_view_guest}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  # --- follow-up reads ------------------------------------------------------
+  - name: vw-80-project-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A soft-deleted row is not found, and `IssueViewViewSet.retrieve` answers
+  # `IssueViewSerializer(None).data` — a 200 with the writable fields' initial
+  # values (`rest_framework/serializers.py:500-520`).
+  - name: vw-81-project-detail-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_alpha_started}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: vw-82-project-detail-pre-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_pre_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: vw-83-workspace-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: vw-84-workspace-detail-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: vw-85-workspace-detail-cross-scope
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_alpha_high}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404

@@ -85,6 +85,7 @@ pub mod issue_reaction_serializer;
 pub mod issue_relation_serializer;
 pub mod issue_serializer;
 pub mod issue_subscriber_serializer;
+pub mod issue_view_serializer;
 pub mod label_serializer;
 pub mod module_issue_serializer;
 pub mod module_link_serializer;
