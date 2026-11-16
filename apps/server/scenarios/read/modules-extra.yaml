@@ -1,0 +1,508 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra `modules` steps beyond the generated read scenario: `fields=` (the
+# list switches to `ModuleSerializer`), every module status, a project whose
+# estimate is not of type `points`, users in other profile timezones, archived
+# modules, links, the module issue list's filters/ordering/cursors/grouping and
+# error paths, and the per-user properties `get_or_create`.
+#
+# The m2m group fields (`labels__id`, `assignees__id`,
+# `issue_module__module_id`) are deliberately absent: the grouper builds their
+# group-key order from a Python `set`, which `plane-query` documents as not
+# reproducible (its golden corpus normalises it), so such a step could never be
+# byte-identical. Their row *counts* on a registered route are covered through a
+# non-m2m group over an m2m filter instead.
+#
+# Run against the rich fixture template `plane_fix_tpl`:
+#   ./target/debug/difftest run --scenario scenarios/read/modules-extra.yaml \
+#     --a django --b rust --targets /tmp/targets-rs-cycles-modules.yaml
+
+name: read-modules-extra
+template_db: plane_fix_tpl
+redis_db: [12, 15]
+target_env:
+  # Some views build their response from a Python `set`, so JSON key order
+  # follows the process's string-hash seed. Pinning the seed makes the two
+  # targets agree without normalising the body.
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  module_alpha_planned: "cac530e3-b832-4ca9-aef9-f4427b1a8f86"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  module_alpha_paused: "3dd8a2b9-d24e-4946-b348-e17e2e9676ac"
+  module_alpha_completed: "e03eff9f-ec87-4133-bee9-474d29c4d397"
+  module_alpha_cancelled: "a9cd2566-6ca2-40a5-ad76-81abe779cb42"
+  module_alpha_backlog: "c36df15d-45cc-4e0d-84cf-a2aed3cb5b37"
+  module_alpha_archived: "710da01c-8e38-407d-bfce-f7674b644275"
+  module_beta_in_progress: "381b0fc4-1835-4ec3-bf58-a946281dfc74"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  module_link_0: "8bbc71fe-5579-45f9-9a6a-5b6bc108ee64"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- module list: fields= runs the serializer path ------------------------
+  - name: extra-modules-0001-list-fields-subset
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    query:
+      fields: "id,name,start_date,target_date,status,member_ids,description_text,total_issues,is_favorite,total_estimate_points"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0002-list-fields-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    query:
+      fields: "id,not_a_field"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0002b-list-fields-and-expand
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    query:
+      fields: "id,name,lead_id"
+      expand: "lead"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0003-list-expand
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    query:
+      expand: "lead,members"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0004-list-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: extra-modules-0005-list-tz-tokyo-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/modules/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: extra-modules-0006-list-empty-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_theta}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0007-list-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+
+  # --- module detail: every status, both estimate types, the archived 404 ---
+  - name: extra-modules-0010-retrieve-planned
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_planned}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0011-retrieve-paused
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_paused}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0012-retrieve-completed
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_completed}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0013-retrieve-cancelled
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_cancelled}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0014-retrieve-backlog
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_backlog}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-modules-0015-retrieve-beta-tshirt
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/modules/{{module_beta_in_progress}}/"
+    jar: tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: extra-modules-0016-retrieve-archived-is-404
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0017-retrieve-wrong-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/modules/{{module_alpha_planned}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0018-retrieve-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/"
+    query:
+      fields: "id,name"
+      expand: "lead"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- archived modules ----------------------------------------------------
+  - name: extra-modules-0020-archived-list-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/archived-modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0021-archived-detail-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/{{module_alpha_archived}}/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: extra-modules-0022-archived-detail-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/{{module_alpha_archived}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-modules-0023-archived-detail-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/{{missing}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-modules-0024-archive-get-is-500
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/archive/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+
+  # --- links ---------------------------------------------------------------
+  - name: extra-modules-0030-links-list-second
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_planned}}/module-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0031-links-list-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/module-links/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-modules-0032-links-retrieve
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/module-links/{{module_link_0}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0033-links-retrieve-wrong-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_planned}}/module-links/{{module_link_0}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0034-links-retrieve-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/module-links/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- favourites GET (500) and per-user properties -------------------------
+  - name: extra-modules-0040-favorites-get-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0041-favorites-get-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-modules-0042-props-create-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/user-properties/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: extra-modules-0043-props-existing-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/user-properties/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: extra-modules-0044-props-missing-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{missing}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- module issue list ----------------------------------------------------
+  - name: extra-modules-0050-issues-filter-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      priority: "low,urgent"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0051-issues-filter-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      labels: "3e6f9c26-e729-4009-ab69-974b067075aa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0052-issues-filter-json
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      filters: "{\"or\": [{\"priority\": \"urgent\"}, {\"state__group\": \"started\"}]}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0053-issues-filter-json-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      filters: "{\"unknown__field\": 1}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0054-issues-order-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      order_by: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0055-issues-order-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      order_by: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0056-issues-page-next
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0057-issues-page-prev
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      per_page: "2"
+      cursor: "2:2:1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0058-issues-group-created-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "created_by"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0059-issues-group-target-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "target_date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0060-issues-group-duplicates
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state__group"
+      labels: "3e6f9c26-e729-4009-ab69-974b067075aa,4e684b34-0406-4516-96ce-361f9f3f1665"
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0061-issues-sub-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state_id"
+      sub_group_by: "state__group"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0062-issues-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-modules-0063-issues-archived-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_archived}}/issues/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-modules-0064-issues-missing-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{missing}}/issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0065-issues-bad-cursor
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      cursor: "1:x:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- workspace-wide list -------------------------------------------------
+  - name: extra-modules-0070-workspace-list-tz-tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/modules/"
+    jar: tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: extra-modules-0071-workspace-list-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/modules/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: extra-modules-0072-workspace-list-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/modules/"
+    query:
+      fields: "id,name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # --- archived-project and guest-view-all projects -------------------------
+  - name: extra-modules-0100-list-archived-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0101-list-epsilon-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/modules/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-modules-0102-workspace-list-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/modules/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+
+  # --- archived detail for a live module: the 200 `get_initial()` body ------
+  - name: extra-modules-0110-archived-detail-live-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/{{module_alpha_in_progress}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-modules-0111-archived-detail-live-module-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/archived-modules/{{module_beta_in_progress}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
