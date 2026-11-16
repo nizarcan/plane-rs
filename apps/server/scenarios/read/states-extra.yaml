@@ -1,0 +1,169 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `states` group, beyond the generated `states.yaml`:
+# the `grouped=` values the view treats as false, a project with no states (an
+# archived project, where `grouped=true` renders `{}`), states of a soft-deleted
+# project, a triage state and a state of another project on the detail route,
+# and the `fields=`/`expand=` parameters that the plain `StateSerializer` does
+# not accept.
+#
+# Deterministic against Django (`--a django --b django` is clean), then run
+# Django vs Rust.
+
+name: read-states-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
+  state_beta_todo: "d2219614-de4c-4ec2-b6b2-508543dabc56"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: se-01-grouped-false
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      grouped: "false"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-02-grouped-one
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      grouped: "1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-03-grouped-capital
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      grouped: "True"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-04-grouped-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      grouped: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Archived project: `get_queryset` filters `archived_at__isnull=True`, so the
+  # list is empty and `grouped=true` renders `{}`.
+  - name: se-05-archived-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/states/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-06-archived-grouped
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/states/"
+    query:
+      grouped: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Soft-deleted project: the queryset does not filter `projects.deleted_at`,
+  # so its states are returned (ported as it is).
+  - name: se-07-soft-deleted-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/states/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-08-empty-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/states/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `fields=` / `expand=` are not accepted by `StateSerializer`.
+  - name: se-09-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-10-expand-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      expand: "project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Detail: a triage state (excluded by the manager and by `is_triage`), and a
+  # state of another project through this project's route.
+  - name: se-11-triage-state
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_alpha_triage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-12-other-project-state
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_beta_todo}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: se-13-bad-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/nope/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Workspace states for a guest and for a member: the visible project set (and
+  # therefore the group counts and the tie order) differs per role.
+  - name: se-14-workspace-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/states/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: se-15-workspace-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/states/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: se-16-workspace-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/states/"
+    query:
+      fields: "id,name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

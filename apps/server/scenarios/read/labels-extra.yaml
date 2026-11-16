@@ -1,0 +1,112 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `labels` group, beyond the generated `labels.yaml`:
+# `LabelViewSet` does not filter archived or soft-deleted projects (ported as it
+# is), a project with no labels, a label of another project on the detail route,
+# the workspace route's permission for a non-member, a second admin request to
+# the cached workspace route (a cache *hit*), and the `fields=` parameter the
+# plain `LabelSerializer` ignores.
+#
+# Deterministic against Django (`--a django --b django` is clean), then run
+# Django vs Rust.
+
+name: read-labels-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  label_beta_android: "84602ca2-8eb3-4240-910e-1032516ad452"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: le-01-archived-project-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/issue-labels/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: le-02-soft-deleted-project-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/issue-labels/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: le-03-empty-project-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/issue-labels/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: le-04-label-of-another-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{label_beta_android}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: le-05-workspace-labels-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: le-06-workspace-labels-cache-miss
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: le-07-workspace-labels-cache-hit
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: le-08-workspace-labels-member-cache-miss
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: le-09-workspace-labels-member-cache-hit
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: le-10-label-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: le-11-label-expand-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    query:
+      expand: "project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

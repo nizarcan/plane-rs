@@ -1,0 +1,123 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `estimates` group, beyond the generated `estimates.yaml`:
+# projects without an estimate, an archived and a soft-deleted project, a
+# missing estimate id and a foreign estimate id on the detail route, the
+# workspace route's permission for a non-member, its cache miss/hit pair, and
+# the `fields=` parameter the plain `EstimateReadSerializer` ignores.
+#
+# Deterministic against Django (`--a django --b django` is clean), then run
+# Django vs Rust.
+
+name: read-estimates-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  estimate_beta: "c3103528-6292-44e2-86c9-240eb87c1e19"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: ee-01-project-estimates-none
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-02-project-estimates-archived
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/project-estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-03-project-estimates-soft-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/project-estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-04-estimates-none
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-05-estimates-soft-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-06-estimate-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-07-estimate-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/00000000-0000-4000-8000-000000000000/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-08-estimate-of-another-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_beta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-09-estimate-belongs-to-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/estimates/{{estimate_beta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-10-workspace-estimates-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/estimates/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: ee-11-workspace-estimates-cache-miss
+    method: GET
+    path: "/api/workspaces/{{ws}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-12-workspace-estimates-cache-hit
+    method: GET
+    path: "/api/workspaces/{{ws}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ee-13-workspace-estimates-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/estimates/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
