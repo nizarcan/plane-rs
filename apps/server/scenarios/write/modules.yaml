@@ -1,0 +1,861 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Modules set A (module core) write scenario:
+#
+#   POST    /api/workspaces/{slug}/projects/{project_id}/modules/              (103)
+#   PATCH   /api/workspaces/{slug}/projects/{project_id}/modules/{pk}/         (104)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/modules/{pk}/         (104)
+#   PUT     the same route answers 405                                        (104)
+#   PATCH   .../modules/{module_id}/user-properties/                          (112)
+#   POST    .../modules/{module_id}/archive/                                  (113)
+#   DELETE  .../modules/{module_id}/archive/                                  (113)
+#   POST    .../archived-modules/ and .../archived-modules/{pk}/ (both 500)   (114, 115)
+#   DELETE  the same two routes (both 500)                                    (114, 115)
+#
+# Covers the H21 sort-order hook across several creates (the fixture's live
+# minimum, archived modules included), the serializer's duplicate-name
+# `{"error": …}` and `validate()` non-field 400s, the `lead`/`lead_id` alias
+# merge, member bulk_create on create and the H04 replace on PATCH, every
+# PATCH-able column, the archived guard, the view's own 404, the permission
+# matrix and a foreign-origin 403, user properties (201 from the in-memory
+# instance, null -> 400, missing row/module -> 404), archive/unarchive (the
+# archive POST removes every user's favourite and answers Python `str()` of the
+# datetime), the unconditional 114/115 500s, and DELETE with its ordered side
+# effects (one activity per module issue, H03 + cascade, H04 module issues and
+# the caller's favourite, hard-deleted recent visits). The favourite and recent
+# visit rows the deletes act on are seeded by `modules-fixture.sql`, because the
+# route that creates favourites (110) belongs to set B and still answers 501 on
+# the Rust target of this scenario.
+
+name: write-modules
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/modules-fixture.sql"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  module_alpha_completed: "e03eff9f-ec87-4133-bee9-474d29c4d397"
+  module_alpha_cancelled: "a9cd2566-6ca2-40a5-ad76-81abe779cb42"
+  module_alpha_planned: "cac530e3-b832-4ca9-aef9-f4427b1a8f86"
+  module_alpha_archived: "710da01c-8e38-407d-bfce-f7674b644275"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  member2_id: "bc437914-c250-4c9f-ac69-85003fdf6205"
+  guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- create: minimal, full, the lead alias and the sort-order chain ------
+  - name: mo-01-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness minimal"
+    capture:
+      - name: module_min
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  - name: mo-02-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness full"
+      description: "created by the write harness"
+      description_text: {"type": "doc", "content": []}
+      description_html: {"type": "doc", "content": [{"type": "paragraph"}]}
+      start_date: "2027-03-01"
+      target_date: "2027-03-10"
+      status: "in-progress"
+      lead_id: "{{admin_id}}"
+      member_ids: ["{{admin_id}}", "{{member2_id}}"]
+      view_props: {"layout": "board"}
+      sort_order: 42
+      external_source: "harness"
+      external_id: "mo-2"
+      logo_props: {"icon": "module"}
+      # read-only on the serializer: both are ignored by Django
+      archived_at: "2020-01-01T00:00:00Z"
+      deleted_at: "2020-01-01T00:00:00Z"
+    capture:
+      - name: module_full
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  - name: mo-03-create-lead-alias
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness lead alias"
+      lead: "{{member_id}}"
+    capture:
+      - name: module_lead
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  - name: mo-04-create-second
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness second"
+    capture:
+      - name: module_second
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  - name: mo-05-create-beta
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness beta"
+    capture:
+      - name: module_beta
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  # --- create: validation errors and the permission matrix ------------------
+  - name: mo-06-create-duplicate-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness minimal"
+    expect_status: 400
+
+  - name: mo-07-create-start-after-target
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness reversed"
+      start_date: "2027-05-10"
+      target_date: "2027-05-01"
+    expect_status: 400
+
+  - name: mo-08-create-missing-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description: "no name"
+    expect_status: 400
+
+  - name: mo-09-create-invalid-status
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness bad status"
+      status: "not-a-status"
+    expect_status: 400
+
+  - name: mo-10-create-invalid-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness bad member"
+      member_ids: ["{{admin_id}}", "{{missing}}"]
+    expect_status: 400
+
+  - name: mo-11-create-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness name that is far too long aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    expect_status: 400
+
+  - name: mo-12-create-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Harness guest"
+    expect_status: 403
+
+  - name: mo-13-create-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "Harness nonmember"
+    expect_status: 403
+
+  - name: mo-14-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    origin: "http://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness foreign origin"
+    expect_status: 403
+
+  # A form body is a QueryDict: `model_activity` receives `{"name": ["Harness
+  # form"]}` (a dict subclass of lists) and the create answers 201.
+  - name: mo-15-create-form-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      name: "Harness form"
+    capture:
+      - name: module_form
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  # --- PATCH: every writable column and the guards -------------------------
+  - name: mo-16-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness minimal edited"
+    expect_status: 200
+
+  - name: mo-17-patch-empty-description
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description: ""
+    expect_status: 200
+
+  - name: mo-18-patch-both-dates
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2027-06-01"
+      target_date: "2027-06-10"
+    expect_status: 200
+
+  - name: mo-19-patch-one-sided-start
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2027-07-01"
+    expect_status: 200
+
+  - name: mo-20-patch-one-sided-end
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      target_date: "2027-07-31"
+    expect_status: 200
+
+  - name: mo-21-patch-null-date
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: null
+    expect_status: 200
+
+  - name: mo-22-patch-status-completed
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: "completed"
+    expect_status: 200
+
+  - name: mo-23-patch-json-columns
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      view_props: {"layout": "list", "show": true}
+      logo_props: {"icon": "pencil"}
+      description_text: {"type": "doc", "content": [{"type": "text", "text": "hello"}]}
+      description_html: {"type": "doc", "content": [{"type": "paragraph"}]}
+    expect_status: 200
+
+  - name: mo-24-patch-lead-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      lead_id: null
+    expect_status: 200
+
+  - name: mo-25-patch-lead-alias
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      lead: "{{member_id}}"
+    expect_status: 200
+
+  - name: mo-26-patch-members-replace
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      member_ids: ["{{guest_id}}", "{{member2_id}}"]
+    expect_status: 200
+
+  - name: mo-27-patch-members-clear
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_lead}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      member_ids: []
+    expect_status: 200
+
+  - name: mo-28-patch-members-duplicate
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_lead}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      member_ids: ["{{member_id}}", "{{member_id}}"]
+    expect_status: 200
+
+  - name: mo-29-patch-sort-order
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      sort_order: 123.5
+    expect_status: 200
+
+  - name: mo-30-patch-external
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      external_source: "harness-2"
+      external_id: "mo-min-2"
+    expect_status: 200
+
+  - name: mo-31-patch-archived
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "archived module edit"
+    expect_status: 400
+
+  - name: mo-32-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "missing module"
+    expect_status: 404
+
+  - name: mo-33-patch-cross-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_beta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "foreign project module"
+    expect_status: 404
+
+  - name: mo-34-patch-guest-denied
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "guest edit"
+    expect_status: 403
+
+  - name: mo-35-put-method-not-allowed
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "put is 405"
+    expect_status: 405
+
+  # --- user properties ------------------------------------------------------
+  - name: mo-36-user-properties-patch
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: {"priority": "urgent", "state": null}
+      rich_filters: {"and": []}
+      display_filters: {"layout": "board"}
+      display_properties: {"assignee": false}
+    expect_status: 201
+
+  - name: mo-37-user-properties-partial
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: {"priority": "low"}
+    expect_status: 201
+
+  - name: mo-38-user-properties-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: null
+    expect_status: 400
+
+  - name: mo-39-user-properties-guest-missing-row
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/user-properties/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      filters: {"priority": "low"}
+    expect_status: 404
+
+  - name: mo-40-user-properties-missing-module
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{missing}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: {"priority": "low"}
+    expect_status: 404
+
+  # --- archive / unarchive --------------------------------------------------
+  # `module_alpha_completed` carries one favourite per user from
+  # `modules-fixture.sql`: the archive POST's H04 removes both.
+  - name: mo-41-archive-in-progress
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: mo-42-archive-completed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: mo-43-patch-after-archive
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_completed}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "archived edit"
+    expect_status: 400
+
+  - name: mo-44-unarchive
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: mo-45-patch-after-unarchive
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_completed}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      sort_order: 77.5
+    expect_status: 200
+
+  # No archived guard on the archive POST: the fixture's archived module can be
+  # archived again.
+  - name: mo-46-archive-already-archived
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_archived}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: mo-47-unarchive-archived
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_archived}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: mo-48-archive-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{missing}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: mo-49-archive-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_cancelled}}/archive/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- 114/115: archived-modules POST/DELETE are unconditional 500s --------
+  - name: mo-50-archived-list-post
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  - name: mo-51-archived-list-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: mo-52-archived-detail-post
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/{{module_alpha_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  - name: mo-53-archived-detail-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/{{module_alpha_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # --- DELETE: permission matrix, side effects, soft delete -----------------
+  - name: mo-54-delete-member-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_second}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+
+  - name: mo-55-delete-module-second
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_second}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Eight live module issues: eight `module.activity.deleted` activities, then
+  # H03 + the cascade task, the H04 module-issue delete and the hard-deleted
+  # recent visits.
+  - name: mo-56-delete-with-issues
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_planned}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: mo-57-get-deleted-fixture
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_planned}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: mo-58-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: mo-59-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: mo-60-delete-guest-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_lead}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- a member creates and deletes its own module (creator bypass) ---------
+  - name: mo-61-member-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      name: "Harness member module"
+    capture:
+      - name: module_member
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  - name: mo-62-member-delete-own
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # The unique index only covers live rows: the same name is allowed again.
+  - name: mo-63-member-recreate-same-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      name: "Harness member module"
+    capture:
+      - name: module_member_two
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+
+  # --- DELETE a module that still has member rows ---------------------------
+  - name: mo-64-delete-module-with-members
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: mo-65-get-deleted-full
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: mo-66-delete-form-module
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_form}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: mo-67-list-final
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A member may PATCH (ADMIN/MEMBER), and the DELETE lookup binds the URL
+  # project: a module from another project is the family 404.
+  - name: mo-68-member-patch
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_member_two}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      description: "edited by its creator"
+    expect_status: 200
+
+  - name: mo-69-delete-cross-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_beta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
