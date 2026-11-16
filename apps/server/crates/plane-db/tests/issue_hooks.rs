@@ -6,7 +6,7 @@
 //! (`hooks::issue_m2m`).
 //!
 //! ```sh
-//! apps/server/dev/mkdb.sh t_rsp5w_test
+//! apps/server/dev/mkdb.sh t_rsp5w_test --template plane_fix_tpl
 //! PLANE_RS_TEST_DATABASE_URL=postgresql://plane:plane@127.0.0.1:55432/t_rsp5w_test \
 //!   PLANE_RS_REQUIRE_DB_TESTS=1 cargo test -p plane-db --test issue_hooks
 //! ```

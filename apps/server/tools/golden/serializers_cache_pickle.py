@@ -16,8 +16,7 @@ same tree through `PyInterner` and assert byte equality.
 Usage, from the repository root, against a clone of the rich fixture template
 (`plane_fix_tpl`, built by `apps/server/dev/bootstrap-fixture.sh`)::
 
-    apps/server/dev/mkdb.sh t_fw2_pickle --replace   # then re-clone from fix_tpl
-    psql ... -c 'CREATE DATABASE t_fw2_pickle TEMPLATE plane_fix_tpl'
+    apps/server/dev/mkdb.sh t_fw2_pickle --replace --template plane_fix_tpl
     eval "$(PLANE_DB=t_fw2_pickle PLANE_REDIS_DB=2 apps/server/dev/django-env.sh)"
     apps/api/.venv/bin/python apps/server/tools/golden/serializers_cache_pickle.py
 
