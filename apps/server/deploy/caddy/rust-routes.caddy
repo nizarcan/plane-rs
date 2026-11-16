@@ -8,7 +8,7 @@
 #   apps/server/routes.json            (path templates and converters)
 #   apps/server/ROUTES.md              (Owner column)
 #   apps/server/deploy/route-groups.yaml (group membership)
-# Route inventory generated from commit 208e993fd3c741e6ac2556af834583d0b482782a.
+# Route inventory generated from commit 26c84a701e2cb05cc2dfbb2f02927a85d93454f6.
 #
 # What this file is
 # ----------------
@@ -69,7 +69,7 @@
 # | Group | Flag | Routes | Methods | Emitted |
 # | --- | --- | ---: | ---: | --- |
 # | health | `PLANE_RS_GROUP_HEALTH` | 1 | 8 | no |
-# | meta | `PLANE_RS_GROUP_META` | 2 | 6 | no |
+# | meta | `PLANE_RS_GROUP_META` | 2 | 6 | yes |
 # | users-me | `PLANE_RS_GROUP_USERS_ME` | 22 | 75 | no |
 # | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | no |
 # | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | no |
@@ -97,6 +97,18 @@
 # | instances | `PLANE_RS_GROUP_INSTANCES` | 14 | 43 | no |
 # | web | `PLANE_RS_GROUP_WEB` | 1 | 8 | no |
 
-# No group has a Rust-owned route yet: every Owner cell in ROUTES.md is
-# `django`, so this fragment adds no matcher and the site block routes
-# exactly as apps/proxy/Caddyfile.ce does.
+# --------------------------------------------------------------------------
+# meta: Static reference data (timezones, Unsplash proxy).
+# 2 route(s), 6 endpoint x method pair(s); PLANE_RS_GROUP_META=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_meta {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_META} == "" ? "rust" : {env.PLANE_RS_GROUP_META}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/timezones/$")))
+		)
+	CEL
+}
+handle @plane_rs_meta {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}

@@ -319,7 +319,7 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 229 | `/api/workspaces/{slug}/webhooks/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | django | not-started |
 | 230 | `/api/workspaces/{slug}/webhooks/{pk}/regenerate/` | POST | `plane.app.views.webhook.base.WebhookSecretRegenerateEndpoint` | IsAuthenticated; POST allow(ADMIN;WORKSPACE) | django | not-started |
 | 231 | `/api/workspaces/{slug}/webhook-logs/{webhook_id}/` | GET | `plane.app.views.webhook.base.WebhookLogsEndpoint` | IsAuthenticated; GET allow(ADMIN;WORKSPACE) | django | not-started |
-| 232 | `/api/timezones/` | GET | `plane.app.views.timezone.base.TimezoneEndpoint` | AllowAny | django | not-started |
+| 232 | `/api/timezones/` | GET | `plane.app.views.timezone.base.TimezoneEndpoint` | AllowAny | rust(GET) | verified |
 | 233 | `/api/workspaces/{slug}/export-issues/` | GET, POST | `plane.app.views.exporter.base.ExportIssuesEndpoint` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
 
 ## v1 (`/api/v1/`)
