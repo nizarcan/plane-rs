@@ -554,6 +554,31 @@ plane_query! {
 }
 
 plane_query! {
+    /// The states the issue serializer's **model** `state` field rejects after
+    /// the generated table-only pk check.
+    ///
+    /// `IssueCreateSerializer` declares `state_id` with
+    /// `queryset=State.all_state_objects.all()` (`plane/app/serializers/issue.py:84-86`),
+    /// but `Meta.fields = "__all__"` also builds the model field `state`, whose
+    /// `PrimaryKeyRelatedField` uses the **default** manager `State.objects` —
+    /// `StateManager`, which hides soft-deleted rows and every
+    /// `group = 'triage'` row (`plane/db/models/state.py:49-68`). DRF visits
+    /// `self.fields` in declaration order, so `state` comes after `state_id` and
+    /// wins in `validated_data` (`fk_value`). A body that sends the injected
+    /// triage state under `state` therefore gets a field error, while the same
+    /// id under `state_id` is accepted — an upstream oddity kept as it is.
+    ///
+    /// Bind order: `$1` state ids.
+    INVALID_STATE_MANAGER = "issues_write_invalid_state_manager",
+    "SELECT id FROM states \
+     WHERE id = ANY($1::uuid[]) \
+       AND (deleted_at IS NOT NULL OR \"group\" = 'triage')",
+    [
+        ("id", Uuid),
+    ]
+}
+
+plane_query! {
     /// The soft-deleted estimate points the generated pk check misses.
     ///
     /// Bind order: `$1` estimate point ids.
@@ -611,6 +636,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &FILTER_LABELS,
     &SOFT_DELETED_ISSUES,
     &SOFT_DELETED_LABELS,
+    &INVALID_STATE_MANAGER,
     &SOFT_DELETED_ESTIMATE_POINTS,
     &SOFT_DELETED_ISSUE_TYPES,
 ];

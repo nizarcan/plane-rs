@@ -216,7 +216,49 @@ pub(crate) async fn prepare_create(
     project_id: Uuid,
     allow_triage: bool,
 ) -> Result<PreparedCreate, ViewError> {
-    let mut serializer = Serializer::new(ctx, false)?;
+    prepare_create_with(
+        client,
+        project_id,
+        allow_triage,
+        Serializer::new(ctx, false)?,
+    )
+    .await
+}
+
+/// [`prepare_create`] for a serializer bound to a **nested** request value
+/// rather than the whole body: `IssueCreateSerializer(data=request.data["issue"],
+/// context={…allow_triage_state: True})` (`plane/app/views/intake/base.py:261-271`).
+///
+/// The body-shape branches are [`Serializer::from_value`]'s; everything after
+/// them is the same sequence `prepare_create` runs.
+///
+/// # Errors
+///
+/// The same database failures as [`prepare_create`].
+pub(crate) async fn prepare_create_from_value(
+    ctx: &ViewCtx<'_>,
+    client: &Client,
+    project_id: Uuid,
+    allow_triage: bool,
+    value: &PValue,
+) -> Result<PreparedCreate, ViewError> {
+    prepare_create_with(
+        client,
+        project_id,
+        allow_triage,
+        Serializer::from_value(ctx, value, false),
+    )
+    .await
+}
+
+/// The shared serializer half of [`prepare_create`] and
+/// [`prepare_create_from_value`].
+async fn prepare_create_with(
+    client: &Client,
+    project_id: Uuid,
+    allow_triage: bool,
+    mut serializer: Serializer<'_>,
+) -> Result<PreparedCreate, ViewError> {
     write::generated::issue_create_serializer::validate(&mut serializer, client).await?;
     recheck_manager_fields(client, &mut serializer).await?;
     let validated = match serializer.finish() {
@@ -1214,13 +1256,16 @@ async fn filter_labels(
 ///
 /// * `parent`/`parent_id`: `Issue.objects` (`deleted_at IS NULL`);
 /// * `label_ids` children: `Label.objects`;
+/// * `state`: `State.objects` — soft-deleted **and** `group = 'triage'` rows,
+///   because the model field's `PrimaryKeyRelatedField` uses the default
+///   manager, not `all_state_objects`;
 /// * `estimate_point`: `EstimatePoint.objects`;
 /// * `type`: `IssueType.objects`.
 ///
-/// `state`/`state_id` are deliberately absent: the serializer uses
-/// `State.all_state_objects`, which is the plain manager and includes
-/// soft-deleted and triage rows (the project check in `validate()` is what
-/// rejects triage).
+/// `state_id` is deliberately absent: its declared field uses
+/// `State.all_state_objects`, the plain manager, so soft-deleted and triage
+/// states are resolved (the project/triage check in `validate()` is what
+/// rejects them).
 pub(crate) async fn recheck_manager_fields(
     client: &Client,
     serializer: &mut Serializer<'_>,
@@ -1228,6 +1273,7 @@ pub(crate) async fn recheck_manager_fields(
     for (field, query) in [
         ("parent_id", &queries::SOFT_DELETED_ISSUES),
         ("parent", &queries::SOFT_DELETED_ISSUES),
+        ("state", &queries::INVALID_STATE_MANAGER),
         ("estimate_point", &queries::SOFT_DELETED_ESTIMATE_POINTS),
         ("type", &queries::SOFT_DELETED_ISSUE_TYPES),
     ] {
@@ -1557,7 +1603,7 @@ async fn publish_model_activity(
     Ok(())
 }
 
-async fn publish_description_version(
+pub(crate) async fn publish_description_version(
     ctx: &ViewCtx<'_>,
     updated_issue: TaskArg,
     issue_id: &str,

@@ -39,12 +39,15 @@ pub mod queries;
 pub mod render;
 pub mod state;
 pub mod versions;
+pub mod write_intake_issue;
+pub mod write_intake_issue_queries;
 pub mod write_queries;
 
 /// Register this group's handlers, in route order.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     base::register(registry)?;
     issue::register(registry)?;
+    write_intake_issue::register(registry)?;
     versions::register(registry)?;
     state::register(registry)?;
     Ok(())
