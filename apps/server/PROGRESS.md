@@ -897,7 +897,27 @@ and only `verified` rows are Rust-owned.
   already UTC; the rest are unported or deliberately user/project-tz. `chrono::Local`
   no longer appears in the tree.
 - Intake: plan committed (`2313e2a31d`; claim "53/57 create never writes" verified at
-  `intake/base.py:79-81`). P0 running; sets A–D start after it merges.
+  `intake/base.py:79-81`).
+- Intake P0 (merged `2aad91561b`):
+  - H16 `hooks::intake_issue::{before_save, project_day_start}`, matching pytz
+    `localize(is_dst=False)`;
+  - `write::Serializer::from_value` for nested bodies;
+  - issue-create helpers `pub(crate)`, with `allow_triage` and
+    `VALID_TRIAGE_STATE_IN_PROJECT`;
+  - intake renderer constructors (GET bytes unchanged);
+  - `intake/write_queries.rs`.
+
+  On the merge, all 22 write scenarios plus `read/intake*.yaml` are clean DvR; 921
+  tests.
+- Harness note: in attach mode (`--a-url`/`--b-url`), `base_host` origins are rewritten
+  on one side only, so Celery `origin` fields differ spuriously. Use managed mode
+  (`--targets`) for Celery comparisons.
+- Follow-up: H09a `hooks/project.rs:107-110` localises snooze midnights with
+  `.earliest()` and skips nonexistent ones. Django's `project_day_start` uses pytz
+  `is_dst=False` (`models/project.py:176-183`). Reuse
+  `hooks::intake_issue::project_day_start`.
+- Intake sets running: A+D (intake CRUD 53/54/57/58, intake-issue DELETE 56/60), B
+  (create 55/59), C (PATCH 56/60). A and D are combined to keep the disk above the floor.
 
 ## Next three steps
 
