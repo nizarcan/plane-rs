@@ -37,6 +37,8 @@ pub mod lists;
 pub mod queries;
 pub mod row;
 mod sub_resources;
+pub mod write_comment;
+pub mod write_comment_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -55,5 +57,20 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
             http::Method::PATCH,
             crate::projects::settings_write::user_properties,
         )?;
+
+    // Set B: comments and reactions (routes 81, 82, 86, 87, 88, 89).
+    registry
+        .viewset("plane.app.views.issue.comment.IssueCommentViewSet")?
+        .action("create", write_comment::comment_create)?
+        .action("partial_update", write_comment::comment_partial_update)?
+        .action("destroy", write_comment::comment_destroy)?;
+    registry
+        .viewset("plane.app.views.issue.reaction.IssueReactionViewSet")?
+        .action("create", write_comment::issue_reaction_create)?
+        .action("destroy", write_comment::issue_reaction_destroy)?;
+    registry
+        .viewset("plane.app.views.issue.comment.CommentReactionViewSet")?
+        .action("create", write_comment::comment_reaction_create)?
+        .action("destroy", write_comment::comment_reaction_destroy)?;
     Ok(())
 }

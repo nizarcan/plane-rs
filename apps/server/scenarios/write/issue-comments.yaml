@@ -1,0 +1,525 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Write scenario for the work-items set B: comments (81/82) and reactions
+# (86/87/88/89). Generated from those orders by
+# `tools/scenarios/gen_write.py`, then curated: the Description row and the
+# H14/H15 sync, the role/creator matrix, the restricted guest, duplicates,
+# both activity shapes and the follow-up reads.
+
+name: write-issue-comments
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  issue_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_beta: "2039d0ab-2732-436d-8b51-eecfa854c8fe"
+  comment_guest: "eaacf1d0-6afc-4972-b0b6-649452ffd341"
+  comment_member: "d8fa6287-ddd7-4303-b743-02986ecbac94"
+  comment_admin: "2ae9869b-6925-4521-9807-834d714eaef4"
+  comment_reactions: "0552f5e2-5ff9-4783-b680-82217bd66b61"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  - name: wc-01-comment-create-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>Hello <strong>world</strong></p>", "comment_json": {"type": "doc"}, "access": "INTERNAL"}
+    capture:
+      - name: comment_new
+        source: db
+        table: issue_comments
+        column: id
+    expect_status: 201
+
+  - name: wc-02-comment-create-sanitised
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>ok</p><script>alert(1)</script><img src=x onerror=alert(1)>"}
+    capture:
+      - name: comment_sanitised
+        source: db
+        table: issue_comments
+        column: id
+    expect_status: 201
+
+  - name: wc-03-comment-create-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"comment_html": "<p>member comment</p>"}
+    capture:
+      - name: comment_member_new
+        source: db
+        table: issue_comments
+        column: id
+    expect_status: 201
+
+  - name: wc-04-comment-create-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    json: {"comment_html": "<p>guest</p>"}
+    expect_status: 400
+
+  - name: wc-05-comment-create-bad-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_beta}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 404
+
+  - name: wc-06-comment-create-null-html
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": null}
+    expect_status: 400
+
+  - name: wc-07-comment-create-bad-access
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"access": "PUBLIC"}
+    expect_status: 400
+
+  - name: wc-08-comment-create-json-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_json": null}
+    expect_status: 400
+
+  - name: wc-09-comment-create-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: nonmember
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_nonmember}}"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 403
+
+  - name: wc-10-comment-create-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 403
+
+  - name: wc-11-comment-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wc-12-comment-retrieve
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_new}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wc-13-comment-patch-author
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_member_new}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"comment_html": "<p>edited</p>"}
+    expect_status: 200
+
+  - name: wc-14-comment-patch-same-html
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_member_new}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"comment_html": "<p>edited</p>"}
+    expect_status: 200
+
+  - name: wc-15-comment-patch-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>admin edit</p>"}
+    expect_status: 200
+
+  - name: wc-16-comment-patch-member-other
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"comment_html": "<p>nope</p>"}
+    expect_status: 403
+
+  - name: wc-17-comment-patch-guest-own
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_guest}}/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    json: {"comment_html": "<p>nope</p>"}
+    expect_status: 403
+
+  - name: wc-18-comment-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/00000000-0000-0000-0000-000000000000/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 404
+
+  - name: wc-19-comment-patch-bad-access
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_member_new}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"access": "BAD"}
+    expect_status: 400
+
+  - name: wc-20-comment-patch-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_member_new}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    origin: "http://evil.example"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 403
+
+  - name: wc-21-comment-delete-author
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_member_new}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wc-22-comment-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_member_new}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: wc-23-comment-delete-member-other
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: wc-24-comment-delete-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_guest}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wc-25-comment-retrieve-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_guest}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wc-26-comment-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wc-27-issue-reaction-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": "eyes"}
+    capture:
+      - name: reaction_member
+        source: db
+        table: issue_reactions
+        column: id
+    expect_status: 201
+
+  - name: wc-28-issue-reaction-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": "eyes"}
+    expect_status: 400
+
+  - name: wc-29-issue-reaction-create-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    json: {"reaction": "eyes"}
+    capture:
+      - name: reaction_guest
+        source: db
+        table: issue_reactions
+        column: id
+    expect_status: 201
+
+  - name: wc-30-issue-reaction-missing-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/00000000-0000-0000-0000-000000000001/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": "eyes"}
+    expect_status: 404
+
+  - name: wc-31-issue-reaction-missing-field
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 400
+
+  - name: wc-32-issue-reaction-blank
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": ""}
+    expect_status: 400
+
+  - name: wc-33-issue-reaction-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": null}
+    expect_status: 400
+
+  - name: wc-34-issue-reaction-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/eyes/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wc-35-issue-reaction-delete-other
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/thumbs_up/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wc-36-issue-reaction-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/eyes/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wc-37-issue-reaction-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/reactions/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wc-38-comment-reaction-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": "heart"}
+    capture:
+      - name: comment_reaction_member
+        source: db
+        table: comment_reactions
+        column: id
+    expect_status: 201
+
+  - name: wc-39-comment-reaction-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": "heart"}
+    expect_status: 400
+
+  - name: wc-40-comment-reaction-guest-hidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    json: {"reaction": "heart"}
+    expect_status: 403
+
+  - name: wc-41-comment-reaction-missing-comment
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/00000000-0000-0000-0000-000000000002/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": "heart"}
+    expect_status: 404
+
+  - name: wc-42-comment-reaction-blank
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"reaction": ""}
+    expect_status: 400
+
+  - name: wc-43-comment-reaction-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/heart/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wc-44-comment-reaction-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/heart/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wc-45-comment-reaction-delete-other
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/eyes/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wc-46-comment-reaction-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wc-47-comment-reaction-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/comments/{{comment_reactions}}/reactions/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    origin: "http://evil.example"
+    json: {"reaction": "eyes"}
+    expect_status: 403
+
+  - name: wc-48-comment-reactions-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
