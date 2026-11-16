@@ -53,7 +53,8 @@ Everything binds to 127.0.0.1 on these ports only. Compose project name: `plane-
 | Rust `plane-api` instances | | 18100-18199 |
 | Dev proxy (Caddy) | `caddy` | 18080 |
 
-The Docker VM has 2 CPUs and about 2 GB of memory. Keep containers lean and never start
+The Docker VM has 2 CPUs and about 2 GB of memory (temporarily 6 CPUs / 10 GB during
+Phase 3; see `PROGRESS.md`). Keep containers lean and never start
 the full `docker-compose-local.yml` stack.
 
 Python for Django runs natively on the host from the already-synced virtualenv. Call the
@@ -71,6 +72,9 @@ once they exist.
 Isolation between concurrent agents: create your own databases with a unique prefix
 (for example `t_<task>_<n>`), cloned from the template database, use your own Redis DB
 index or key prefix, and your own RabbitMQ vhost. Drop what you create when done.
+Drop only databases you created yourself, by exact name. Never drop databases by
+pattern (`dt_%`, `t_%`, ...): the `dt_*` clones belong to other agents' in-flight harness
+runs, and the harness removes its own. A bulk drop once aborted several agents' runs.
 
 ## Rust conventions
 
