@@ -865,7 +865,13 @@ and only `verified` rows are Rust-owned.
   makes a page public; lock/unlock have no archived guard; `description_binary: ""` is a
   500 (`DataError`, str into bytea); `page_transaction` gets the raw request value, so
   an int stays an int; `description_json: null` → 400 "The payload is not valid".
-- Running: set A, page core (124, 125, 127); the projects/cycles favourite cascade fix.
+- Projects 150 and cycles 37 favourite cascade (merged `b5e72f9ac5`): both go through
+  `write::favorite::hard_delete`; `write/cycles.yaml` 67/67, `projects-extra.yaml` 49/49
+  DvR. A negative control (single-row delete restored) fails 47/49. Every merged
+  favourite destroy now uses the shared collector port.
+- Environment: Redis DB 1 receives writes from another process (issue-activity origin
+  keys). Don't assign Redis DBs 0–1 to harness runs.
+- Running: set A, page core (124, 125, 127).
 
 ## Next three steps
 
