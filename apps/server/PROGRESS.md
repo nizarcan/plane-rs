@@ -158,6 +158,19 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
+### Phase 5: write-scenario harness (merged `2d4f858d9a`, 2026-11-16)
+
+- Per-side captures from the response or the DB diff (`source: db`), placeholdered
+  consistently across the body, the DB diff and Celery args.
+- JSON, form, raw and multipart bodies; per-step `origin`, `csrf` and `api_key`.
+  Plane's session CSRF is an Origin check (`plane/authentication/session.py`), not
+  DRF's token.
+- 122 selftest checks, including a wrong `updated_by`, a missing `updated_at` bump, a
+  hard delete in place of a soft one, an extra row and a wrong `sequence_id`.
+- Contract runner `--assume-rust <orders> --methods ...`, and `tools/scenarios/gen_write.py`.
+- Verified on the merge commit: gates, 172 testkit tests, `stickies-harness.yaml` Django
+  vs Django 10/10, and the full read sweep 0 diffs.
+
 ### Phase 4: Job plumbing (merged `b1129b5b22`, 2026-11-16)
 
 Exit check passed, re-run by the orchestrator:

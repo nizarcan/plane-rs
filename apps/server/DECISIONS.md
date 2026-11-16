@@ -418,6 +418,19 @@ workspace `Cargo.toml` and upgrade deliberately.
   `/tmp/orch-scripts/sigv4check.py`: on the asset merge commit both sides' signatures
   were valid for their own dates, one second apart.
 
+## D18. `Content-Length` on 204/304 is not part of the contract (decided 2026-11-16)
+
+- Django (uvicorn) sends `Content-Length: 0` on a 204. hyper omits it, as RFC 9110
+  §8.6 requires: a server must not send `Content-Length` on 204, nor on 304 other
+  than the representation's length.
+- Clients never see Django's header. Plane is served through Caddy (`apps/proxy`, and
+  the coexistence proxy in `deploy/caddy`), and Go's `net/http` strips `Content-Length`
+  from 204 responses. Checked by the orchestrator: a `caddy:2` `reverse_proxy` in front
+  of an upstream that sends `204` plus `Content-Length: 0` returns no `Content-Length`.
+- So the harness ignores `Content-Length` only when **both** sides return 204 (or both
+  304) and the header is absent on one side and `0` (204) on the other. Any other
+  `Content-Length` difference is still a diff. Rust handlers don't add the header back.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
