@@ -37,6 +37,8 @@ pub mod base;
 pub mod live;
 pub mod queries;
 pub mod version;
+pub mod write_duplicate;
+pub mod write_duplicate_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -58,5 +60,9 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.page.live.PageLiveAccessEndpoint")?
         .method(Method::GET, live::get)?;
+    // Set D: duplicate (route 133).
+    registry
+        .api_view("plane.app.views.page.base.PageDuplicateEndpoint")?
+        .method(Method::POST, write_duplicate::post)?;
     Ok(())
 }
