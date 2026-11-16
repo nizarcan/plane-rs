@@ -264,6 +264,17 @@ unordered_json_paths:
     request: "*group_by=issue_module__module_id*"
     why: "plane/utils/paginator.py:355-365 keys the result dict by list(set(...)); D16 compares the key set, not its order"
 
+  # `ProjectViewSet.list` (`plane/app/views/project/base.py:147-226`) emits
+  # `SELECT DISTINCT … GROUP BY p.id` with **no ORDER BY**: the `Count(...)`
+  # annotation combined with `distinct()` and `.values()` drops
+  # `Project.Meta.ordering`, so PostgreSQL returns hash-aggregate order, which
+  # changes when the set of project ids changes. Compare the page as a
+  # multiset (the endpoint has no ordering contract).
+  - path: "$"
+    mode: array
+    request: "GET /api/workspaces/*/projects/"
+    why: "plane/app/views/project/base.py:147-226 has no ORDER BY (GROUP BY p.id); D16 compares the page as a multiset"
+
 volatile_cookies:
   - name: session-id
     placeholder: session

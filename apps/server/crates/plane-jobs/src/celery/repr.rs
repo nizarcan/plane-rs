@@ -109,6 +109,10 @@ enum Part<'a> {
     Raw(String),
     /// A value that has not been expanded yet.
     Value(&'a TaskArg),
+    /// A parsed JSON value that has not been expanded yet. `request.data` is
+    /// such a value (`TaskArg::Json`); it must go through the same
+    /// `maxlevels`/truncation stream as a `TaskArg` container.
+    Json(&'a plane_serde::pyjson::Value),
 }
 
 impl<'a> Part<'a> {
@@ -150,10 +154,13 @@ fn push_value<'a>(parts: &mut Vec<Part<'a>>, value: &'a TaskArg) {
             }
             parts.push(Part::literal("}", false));
         }
-        TaskArg::Json(json) => push_json(parts, json),
+        TaskArg::Json(json) => parts.push(Part::Json(json)),
     }
 }
 
+/// Expand one level of a parsed JSON value. Nested containers stay as
+/// [`Part::Json`] so `render` can apply `maxlevels` and the budget to them,
+/// exactly as it does for a `TaskArg` container.
 fn push_json<'a>(parts: &mut Vec<Part<'a>>, value: &'a plane_serde::pyjson::Value) {
     use plane_serde::pyjson::Value;
     match value {
@@ -171,7 +178,7 @@ fn push_json<'a>(parts: &mut Vec<Part<'a>>, value: &'a plane_serde::pyjson::Valu
                 if index > 0 {
                     parts.push(Part::literal(", ", true));
                 }
-                push_json(parts, item);
+                parts.push(Part::Json(item));
             }
             parts.push(Part::literal("]", false));
         }
@@ -183,7 +190,7 @@ fn push_json<'a>(parts: &mut Vec<Part<'a>>, value: &'a plane_serde::pyjson::Valu
                 }
                 parts.push(Part::OwnedKey(key.to_string_lossy().into_owned()));
                 parts.push(Part::literal(": ", true));
-                push_json(parts, item);
+                parts.push(Part::Json(item));
             }
             parts.push(Part::literal("}", false));
         }
@@ -278,9 +285,38 @@ fn render(mut parts: Vec<Part<'_>>, maxlen: i64) -> String {
                     parts.splice(index..=index, child);
                 }
             }
+            Part::Json(value) => {
+                if is_json_container(value) {
+                    if level >= SAFEREPR_MAXLEVELS {
+                        let text = if matches!(value, plane_serde::pyjson::Value::List(_)) {
+                            "[...]"
+                        } else {
+                            "{...}"
+                        };
+                        out.push_str(text);
+                        budget -= char_len(text);
+                        index += 1;
+                    } else {
+                        let mut child = Vec::new();
+                        push_json(&mut child, value);
+                        parts.splice(index..=index, child);
+                    }
+                } else {
+                    let mut child = Vec::new();
+                    push_json(&mut child, value);
+                    parts.splice(index..=index, child);
+                }
+            }
         }
     }
     out
+}
+
+fn is_json_container(value: &plane_serde::pyjson::Value) -> bool {
+    matches!(
+        value,
+        plane_serde::pyjson::Value::List(_) | plane_serde::pyjson::Value::Dict(_)
+    )
 }
 
 fn is_container(value: &TaskArg) -> bool {

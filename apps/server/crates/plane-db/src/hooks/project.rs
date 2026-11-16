@@ -71,7 +71,26 @@ pub async fn retime_intake_snoozes(
     old_timezone: Tz,
     new_timezone: Tz,
 ) -> Result<(), DbError> {
-    let rows = transaction
+    retime_intake_snoozes_with(transaction, project_id, old_timezone, new_timezone).await
+}
+
+/// H09a for any client — the same body as [`retime_intake_snoozes`], for a
+/// caller that opened its transaction with `BEGIN` on the request's own
+/// connection (a `&mut deadpool_postgres::Client` is not available there).
+///
+/// # Errors
+///
+/// A database failure.
+pub async fn retime_intake_snoozes_with<C>(
+    client: &C,
+    project_id: Uuid,
+    old_timezone: Tz,
+    new_timezone: Tz,
+) -> Result<(), DbError>
+where
+    C: deadpool_postgres::GenericClient + ?Sized,
+{
+    let rows = client
         .query(
             "SELECT id, snoozed_till FROM intake_issues \
              WHERE project_id = $1 AND status = 0 AND snoozed_till IS NOT NULL \
@@ -97,13 +116,11 @@ pub async fn retime_intake_snoozes(
     if updates.is_empty() {
         return Ok(());
     }
-    let statement = transaction
+    let statement = client
         .prepare("UPDATE intake_issues SET snoozed_till = $1 WHERE id = $2")
         .await?;
     for (id, snoozed_till) in updates {
-        transaction
-            .execute(&statement, &[&snoozed_till, &id])
-            .await?;
+        client.execute(&statement, &[&snoozed_till, &id]).await?;
     }
     Ok(())
 }

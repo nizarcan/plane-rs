@@ -591,8 +591,9 @@ pub fn compare_celery(a: &[CeleryMessage], b: &[CeleryMessage]) -> Vec<Differenc
     let mut out = Vec::new();
     for queue in queues {
         let empty = Vec::new();
-        let a_value = canonical_messages(a_groups.get(queue).unwrap_or(&empty));
-        let b_value = canonical_messages(b_groups.get(queue).unwrap_or(&empty));
+        let mut a_value = canonical_messages(a_groups.get(queue).unwrap_or(&empty));
+        let mut b_value = canonical_messages(b_groups.get(queue).unwrap_or(&empty));
+        reconcile_repr_headers(&mut a_value, &mut b_value);
         if a_value == b_value {
             continue;
         }
@@ -613,6 +614,81 @@ pub fn compare_celery(a: &[CeleryMessage], b: &[CeleryMessage]) -> Vec<Differenc
         );
     }
     out
+}
+
+/// Celery's truncation marker: `_saferepr` writes `", ..."` once the
+/// `argsrepr_maxsize`/`kwargsrepr_maxsize` budget (1024) is exhausted and then
+/// every closing bracket that is still open (`celery/utils/saferepr.py:158-183`).
+const TRUNCATION_MARKER: &str = ", ...";
+
+/// The repr text before Celery's truncation marker.
+///
+/// A truncated repr ends with `", ..."` followed only by closing brackets; a
+/// literal `", ..."` inside a quoted value is not a truncation (text follows
+/// it). `None` means the value is not truncated.
+fn repr_before_truncation(value: &str) -> Option<&str> {
+    let marker = value.rfind(TRUNCATION_MARKER)?;
+    let tail = &value[marker + TRUNCATION_MARKER.len()..];
+    if tail
+        .chars()
+        .all(|character| matches!(character, ')' | ']' | '}'))
+    {
+        Some(&value[..marker])
+    } else {
+        None
+    }
+}
+
+/// Drop the counters from the harness's placeholders (`<id:10>` -> `<id>`), so
+/// two targets whose generated ids were numbered differently still line up:
+/// the width of `<id:10>` vs `<id:4>` must not move the truncation point.
+fn canonical_placeholders(value: &str) -> String {
+    static PLACEHOLDER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let regex = PLACEHOLDER.get_or_init(|| {
+        regex::Regex::new(r"<([A-Za-z0-9_-]+):[0-9]+>").expect("placeholder regex")
+    });
+    regex.replace_all(value, "<$1>").into_owned()
+}
+
+/// Compare the Python-repr headers of matched messages.
+///
+/// `argsrepr`/`kwargsrepr` are `saferepr(kwargs, 1024)`; when the budget runs
+/// out the tail is cut and its position depends on how wide the harness's
+/// placeholders came out on each side. An untruncated pair is compared
+/// exactly (after the normal placeholder substitution). When either side is
+/// truncated, only the common prefix before the truncation marker is
+/// compared: it is rewritten to the shorter prefix on both sides, so the
+/// shifted tail cannot differ. An early mismatch survives and is reported.
+fn reconcile_repr_headers(a_value: &mut Value, b_value: &mut Value) {
+    let (Value::Array(a_messages), Value::Array(b_messages)) = (a_value, b_value) else {
+        return;
+    };
+    for (a_message, b_message) in a_messages.iter_mut().zip(b_messages.iter_mut()) {
+        for key in ["argsrepr", "kwargsrepr"] {
+            let (Some(a_headers), Some(b_headers)) = (
+                a_message.get_mut("headers").and_then(Value::as_object_mut),
+                b_message.get_mut("headers").and_then(Value::as_object_mut),
+            ) else {
+                continue;
+            };
+            let (Some(a), Some(b)) = (a_headers.get_mut(key), b_headers.get_mut(key)) else {
+                continue;
+            };
+            let (Some(a_text), Some(b_text)) = (a.as_str(), b.as_str()) else {
+                continue;
+            };
+            let a_prefix = repr_before_truncation(a_text);
+            let b_prefix = repr_before_truncation(b_text);
+            if a_prefix.is_none() && b_prefix.is_none() {
+                continue;
+            }
+            let a_prefix = canonical_placeholders(a_prefix.unwrap_or(a_text));
+            let b_prefix = canonical_placeholders(b_prefix.unwrap_or(b_text));
+            let length = a_prefix.chars().count().min(b_prefix.chars().count());
+            *a = Value::String(a_prefix.chars().take(length).collect());
+            *b = Value::String(b_prefix.chars().take(length).collect());
+        }
+    }
 }
 
 fn queue_groups(messages: &[CeleryMessage]) -> BTreeMap<String, Vec<&CeleryMessage>> {
@@ -1096,5 +1172,24 @@ mod tests {
         removed_b.removed.insert(b"k".to_vec());
         assert!(compare_redis(&removed_a, &removed_b).is_empty());
         assert_eq!(compare_redis(&removed_a, &a).len(), 1);
+    }
+    #[test]
+    fn repr_truncation_marker_is_celery_tail_only() {
+        assert_eq!(repr_before_truncation("('a', ...}"), Some("('a'"));
+        assert_eq!(repr_before_truncation("('a', ...}}"), Some("('a'"));
+        assert_eq!(repr_before_truncation("('a, ... b')"), None);
+        assert_eq!(repr_before_truncation("('a', 1)"), None);
+    }
+
+    #[test]
+    fn placeholder_numbers_do_not_move_the_truncation_point() {
+        assert_eq!(
+            canonical_placeholders("<id:10>/<session:2>"),
+            "<id>/<session>"
+        );
+        assert_eq!(
+            repr_before_truncation("('x', <id:10>, ...}"),
+            Some("('x', <id:10>")
+        );
     }
 }
