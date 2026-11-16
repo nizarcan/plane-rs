@@ -2384,6 +2384,7 @@ name = "plane-db"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "deadpool-postgres",
  "http",
  "plane-core",

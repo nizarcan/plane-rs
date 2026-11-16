@@ -13,6 +13,7 @@ repository.workspace = true
 
 [dependencies]
 chrono = { workspace = true, features = ["serde"] }
+chrono-tz.workspace = true
 deadpool-postgres.workspace = true
 http.workspace = true
 plane-core = { path = "../plane-core" }
