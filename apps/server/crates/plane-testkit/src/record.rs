@@ -160,6 +160,8 @@ impl CaptureIndex {
             header: None,
             cookie: None,
             pattern: None,
+            table: None,
+            column: None,
         };
         self.entries.push(CaptureEntry {
             raw: raw.to_string(),
@@ -188,6 +190,8 @@ impl CaptureIndex {
                 header: Some("Location".to_string()),
                 cookie: None,
                 pattern: Some(UUID_CAPTURE_PATTERN.to_string()),
+                table: None,
+                column: None,
             };
             self.entries.push(CaptureEntry {
                 raw,
@@ -215,6 +219,8 @@ impl CaptureIndex {
             header: None,
             cookie: Some(name.to_string()),
             pattern: None,
+            table: None,
+            column: None,
         };
         self.entries.push(CaptureEntry {
             raw: value.to_string(),
@@ -392,7 +398,13 @@ impl Recorder {
             json: None,
             form: None,
             body: None,
+            multipart: None,
             jar: exchange.jar.to_string(),
+            // The recorder replays a browser session; CSRF and API-key auth are
+            // scenario-authoring knobs, not recorded state.
+            csrf: true,
+            api_key: None,
+            origin: crate::config::OriginHeader::Bool(true),
             capture: Vec::new(),
             expect_status: Some(exchange.status),
         };

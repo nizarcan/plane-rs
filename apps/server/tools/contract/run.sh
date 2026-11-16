@@ -10,6 +10,14 @@
 #   ./run.sh --backend mixed           # ROUTES.md owners decide per request
 #   ./run.sh --backend mixed -- --create-db -x
 #
+# A domain agent whose write methods are not flipped in ROUTES.md yet can run
+# them against Rust anyway. `--assume-rust` takes route orders (`routes.json`'s
+# `order` column, also ROUTES.md's first column) and points their unsafe methods
+# (`POST`/`PUT`/`PATCH`/`DELETE`) at `plane-api`; `--methods` narrows the plan
+# to those verbs, so only requests that use them reach Rust:
+#
+#   ./run.sh --assume-rust 223,224 --methods POST,PATCH,DELETE
+#
 # Everything before `--` is the runner's own; everything after it goes to
 # pytest unchanged. PLANE_RS_CONTRACT_* variables override the defaults below.
 #
@@ -25,6 +33,8 @@ SERVER_DIR="$REPO_ROOT/apps/server"
 backend="${PLANE_RS_CONTRACT_BACKEND:-mixed}"
 build=1
 smoke=0
+assume_rust=""
+methods=""
 declare -a pytest_args=()
 
 while (($#)); do
@@ -37,8 +47,20 @@ while (($#)); do
       backend="${1#*=}"
       shift
       ;;
-    --no-build)
-      build=0
+    --assume-rust)
+      assume_rust="${2:?--assume-rust needs route orders (e.g. 223,224)}"
+      shift 2
+      ;;
+    --assume-rust=*)
+      assume_rust="${1#*=}"
+      shift
+      ;;
+    --methods)
+      methods="${2:?--methods needs a comma-separated list (e.g. POST,PATCH)}"
+      shift 2
+      ;;
+    --methods=*)
+      methods="${1#*=}"
       shift
       ;;
     --smoke)
@@ -46,7 +68,7 @@ while (($#)); do
       shift
       ;;
     -h | --help)
-      sed -n '7,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '6,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     --)
@@ -81,7 +103,18 @@ source "$SERVER_DIR/dev/django-env.sh"
 # plane.tests installed); django-env.sh sets the production module.
 export DJANGO_SETTINGS_MODULE=plane.settings.test
 export PLANE_RS_CONTRACT_BACKEND="$backend"
+if [[ -n "$assume_rust" ]]; then
+  export PLANE_RS_CONTRACT_ASSUME_RUST="$assume_rust"
+fi
+if [[ -n "$methods" ]]; then
+  export PLANE_RS_CONTRACT_METHODS="$methods"
+fi
 export PYTHONPATH="$SERVER_DIR/tools/contract${PYTHONPATH:+:$PYTHONPATH}"
+
+if [[ -n "$assume_rust" || -n "$methods" ]]; then
+  printf 'contract: backend=%s assume-rust=%s methods=%s\n' \
+    "$backend" "${assume_rust:-none}" "${methods:-all}" >&2
+fi
 
 if [[ "$backend" == "mixed" && "$build" == "1" ]]; then
   (cd "$SERVER_DIR" && cargo build -p plane-api)

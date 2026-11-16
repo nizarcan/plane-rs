@@ -192,6 +192,12 @@ fn collect_captures(
                     other => serde_json::to_string(other)?,
                 }
             }
+            CaptureSource::Db => {
+                anyhow::bail!(
+                    "capture {}: `db` captures need the differential runner's snapshots",
+                    capture.name
+                )
+            }
             CaptureSource::Header => {
                 let name = capture.header.as_deref().unwrap_or_default();
                 response.header(name).map(str::to_string).ok_or_else(|| {
