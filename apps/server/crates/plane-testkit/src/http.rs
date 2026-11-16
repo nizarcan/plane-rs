@@ -101,12 +101,22 @@ impl HttpClient {
             .with_context(|| format!("invalid HTTP method {:?}", request.method))?;
 
         let mut headers = HeaderMap::new();
-        if let Some(cookie) = self
+        // The jar holds cookies the target set (notably `csrftoken`); an
+        // explicit `Cookie` header supplies the fixture sessions, which are
+        // rows rather than `Set-Cookie` responses. Merge them by cookie name,
+        // the explicit header winning, so a write step can carry both.
+        let jar_cookie = self
             .jars
             .get(&request.jar)
-            .and_then(CookieJar::cookie_header)
-        {
-            insert(&mut headers, "cookie", &cookie)?;
+            .and_then(CookieJar::cookie_header);
+        let explicit_cookie = request
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("cookie"))
+            .map(|(_, value)| value.clone());
+        let merged_cookie = merge_cookies(jar_cookie.as_deref(), explicit_cookie.as_deref());
+        if let Some(cookie) = &merged_cookie {
+            insert(&mut headers, "cookie", cookie)?;
         }
         insert(&mut headers, "accept-encoding", "gzip")?;
         insert(&mut headers, "user-agent", &self.user_agent)?;
@@ -114,6 +124,10 @@ impl HttpClient {
         for (name, value) in &request.headers {
             if name.eq_ignore_ascii_case("content-type") {
                 has_content_type = true;
+            }
+            if name.eq_ignore_ascii_case("cookie") {
+                // Already merged above.
+                continue;
             }
             insert(&mut headers, name, value)?;
         }
@@ -180,6 +194,42 @@ impl HttpClient {
             .await
             .with_context(|| format!("probing {url}"))?;
         Ok(response.status().as_u16())
+    }
+}
+
+/// Merge a jar's `Cookie` header with an explicit one, by cookie name; the
+/// explicit value wins for a name both carry, and the jar's order is kept.
+fn merge_cookies(jar: Option<&str>, explicit: Option<&str>) -> Option<String> {
+    let parse = |header: &str| -> Vec<(String, String)> {
+        header
+            .split(';')
+            .filter_map(|item| {
+                let item = item.trim();
+                let (name, value) = item.split_once('=')?;
+                Some((name.trim().to_string(), value.trim().to_string()))
+            })
+            .collect()
+    };
+    match (jar, explicit) {
+        (None, None) => None,
+        (Some(jar), None) => Some(jar.to_string()),
+        (None, Some(explicit)) => Some(explicit.to_string()),
+        (Some(jar), Some(explicit)) => {
+            let mut pairs = parse(jar);
+            for (name, value) in parse(explicit) {
+                match pairs.iter_mut().find(|(existing, _)| *existing == name) {
+                    Some(slot) => slot.1 = value,
+                    None => pairs.push((name, value)),
+                }
+            }
+            Some(
+                pairs
+                    .into_iter()
+                    .map(|(name, value)| format!("{name}={value}"))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        }
     }
 }
 
@@ -266,6 +316,25 @@ pub fn tail_file(path: &std::path::Path, max_bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cookie_headers_merge_and_the_explicit_value_wins() {
+        assert_eq!(merge_cookies(None, None), None);
+        assert_eq!(
+            merge_cookies(Some("csrftoken=abc"), None).as_deref(),
+            Some("csrftoken=abc")
+        );
+        assert_eq!(
+            merge_cookies(None, Some("session-id=s")).as_deref(),
+            Some("session-id=s")
+        );
+        // The fixture session is an explicit header; the CSRF cookie comes from
+        // the target. Both survive, and an explicit value wins by name.
+        assert_eq!(
+            merge_cookies(Some("csrftoken=abc"), Some("session-id=s; csrftoken=def")).as_deref(),
+            Some("csrftoken=def; session-id=s")
+        );
+    }
     use std::io::Write;
 
     #[test]

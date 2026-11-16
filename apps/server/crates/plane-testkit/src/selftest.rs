@@ -586,6 +586,172 @@ pub fn run() -> Result<()> {
         &violation_differences(&mut wrong_normalizer),
     )?;
 
+    // -- write-path DB diffs (Phase 5) -------------------------------------
+    // The rows below model a `stickies` update. `updated_by` and the two ids
+    // are baseline fixture UUIDs, so they are not placeholdered: a wrong actor
+    // is a byte difference, exactly as it is against the real database.
+    let actor = uuid_a;
+    let other_actor = uuid_c;
+    let row_id = uuid_d;
+    let baseline = "2026-01-01T00:00:00Z";
+    let in_window = start.to_rfc3339();
+    let write_normalizer = |base_url: &str, known: &[&str]| {
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: rules(),
+            base_url: base_url.to_string(),
+            known_uuids: Arc::new(known.iter().map(|value| (*value).to_string()).collect()),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        normalizer.start_step(start, start);
+        normalizer
+    };
+    let sticky_row =
+        |updated_by: &str, updated_at: &str, deleted_at: Option<&str>, sequence: i64| {
+            json!({
+                "id": row_id,
+                "name": "A sticky",
+                "sequence_id": sequence,
+                "created_at": baseline,
+                "updated_at": updated_at,
+                "deleted_at": deleted_at,
+                "created_by_id": actor,
+                "updated_by_id": updated_by,
+            })
+        };
+    let known = [actor, other_actor, row_id];
+    let mut wa = write_normalizer("http://127.0.0.1:18000", &known);
+    let mut wb = write_normalizer("http://127.0.0.1:18001", &known);
+    let mut base_diff = db_diff(
+        "public.stickies",
+        vec![],
+        vec![],
+        vec![json!({"pk": [row_id], "changed": {
+            "name": {"a": "old", "b": "A sticky"},
+            "updated_at": {"a": baseline, "b": in_window},
+            "updated_by_id": {"a": actor, "b": actor},
+        }})],
+    );
+    wa.normalize_db_diff(&mut base_diff);
+    let mut same_diff = base_diff.clone();
+    wb.normalize_db_diff(&mut same_diff);
+    checks.accepted(
+        "an identical write compares",
+        &compare_db(&base_diff, &same_diff),
+    )?;
+    checks.ok(
+        "the clock column is the window placeholder, the counters are exact",
+        base_diff.tables["public.stickies"].updated[0]["changed"]["updated_at"]["b"]
+            == json!("<now>")
+            && base_diff.tables["public.stickies"].updated[0]["changed"]["name"]["b"]
+                == json!("A sticky"),
+    )?;
+
+    // A wrong `updated_by` is a difference, not a placeholder coincidence: both
+    // values are baseline ids, so neither is placeholdered.
+    let mut wrong_actor = db_diff(
+        "public.stickies",
+        vec![],
+        vec![],
+        vec![json!({"pk": [row_id], "changed": {
+            "updated_by_id": {"a": actor, "b": other_actor},
+        }})],
+    );
+    wa.normalize_db_diff(&mut base_diff);
+    wb.normalize_db_diff(&mut wrong_actor);
+    checks.detected(
+        "a wrong updated_by",
+        "db",
+        &compare_db(&base_diff, &wrong_actor),
+    )?;
+
+    // A write that forgot to bump `updated_at` keeps the baseline value, which
+    // is outside the step window and therefore compared literally.
+    let mut not_bumped = db_diff(
+        "public.stickies",
+        vec![],
+        vec![],
+        vec![json!({"pk": [row_id], "changed": {
+            "name": {"a": "old", "b": "A sticky"},
+            "updated_at": {"a": baseline, "b": baseline},
+        }})],
+    );
+    let mut missing_bump = db_diff(
+        "public.stickies",
+        vec![],
+        vec![],
+        vec![json!({"pk": [row_id], "changed": {
+            "name": {"a": "old", "b": "A sticky"},
+        }})],
+    );
+    wb.normalize_db_diff(&mut not_bumped);
+    wb.normalize_db_diff(&mut missing_bump);
+    checks.detected(
+        "a missing updated_at bump",
+        "db",
+        &compare_db(&base_diff, &not_bumped),
+    )?;
+    checks.detected(
+        "a missing updated_at column",
+        "db",
+        &compare_db(&base_diff, &missing_bump),
+    )?;
+
+    // Soft delete: an update that sets `deleted_at`, not a `DELETE`.
+    let mut soft_deleted = db_diff(
+        "public.stickies",
+        vec![],
+        vec![],
+        vec![json!({"pk": [row_id], "changed": {
+            "deleted_at": {"a": null, "b": in_window},
+        }})],
+    );
+    let mut hard_deleted = db_diff(
+        "public.stickies",
+        vec![],
+        vec![sticky_row(actor, &in_window, None, 7)],
+        vec![],
+    );
+    wb.normalize_db_diff(&mut soft_deleted);
+    wb.normalize_db_diff(&mut hard_deleted);
+    checks.detected(
+        "a soft delete compared with a hard delete",
+        "db",
+        &compare_db(&soft_deleted, &hard_deleted),
+    )?;
+
+    // An extra row, and an off-by-one counter, are differences.
+    let inserted = |sequence: i64| {
+        vec![json!({
+            "id": row_id,
+            "name": "A sticky",
+            "sequence_id": sequence,
+            "created_at": in_window,
+            "updated_at": in_window,
+            "deleted_at": null,
+            "created_by_id": actor,
+            "updated_by_id": actor,
+        })]
+    };
+    let mut one_insert = db_diff("public.stickies", inserted(7), vec![], vec![]);
+    let mut two_inserts = db_diff(
+        "public.stickies",
+        [inserted(7), inserted(8)].concat(),
+        vec![],
+        vec![],
+    );
+    let mut wrong_sequence = db_diff("public.stickies", inserted(8), vec![], vec![]);
+    wb.normalize_db_diff(&mut one_insert);
+    wb.normalize_db_diff(&mut two_inserts);
+    wb.normalize_db_diff(&mut wrong_sequence);
+    checks.detected("an extra row", "db", &compare_db(&one_insert, &two_inserts))?;
+    checks.detected(
+        "a wrong sequence_id",
+        "db",
+        &compare_db(&one_insert, &wrong_sequence),
+    )?;
+
     // -- shape checks ------------------------------------------------------
     let mut a = normalizer("http://127.0.0.1:18000");
     let mut b = normalizer("http://127.0.0.1:18001");

@@ -40,6 +40,28 @@ apps/api/.venv/bin/python dry_routing.py > /tmp/selected.txt
 and `--` after which every argument goes to pytest unchanged. A path given
 after `--` replaces the default target directory.
 
+### Before a domain's write methods are flipped
+
+A domain agent can run its write routes against Rust while `ROUTES.md` still
+says `django`. `--assume-rust` takes route orders (`routes.json`'s `order`, which
+is `ROUTES.md`'s first column) and points every unsafe method that route
+registers (`POST`/`PUT`/`PATCH`/`DELETE`) at `plane-api`; a route with no unsafe
+method is reported and ignored, so a GET-only route is never sent to an
+unported handler. `--methods` narrows the plan to those verbs, so only requests
+that use them reach Rust (and the dry pass selects only files whose write calls
+match):
+
+```sh
+# stickies (orders 223, 224), writes only
+./run.sh --assume-rust 223,224 --methods POST,PATCH,DELETE
+```
+
+Both options apply to the dry selection pass as well
+(`PLANE_RS_CONTRACT_ASSUME_RUST` / `PLANE_RS_CONTRACT_METHODS` are read by
+`owner_override.py` in the plugin and in `dry_routing.py`), so
+`dry_routing.py --quiet` and the pytest run select the same files. Do not edit
+`ROUTES.md` to test a write path; it is the orchestrator's table.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PLANE_RS_CONTRACT_BACKEND` | `mixed` | `django` or `mixed` |
@@ -49,6 +71,8 @@ after `--` replaces the default target directory.
 | `PLANE_RS_CONTRACT_VHOST` | `rsct_contract` | RabbitMQ vhost created for the run |
 | `PLANE_RS_CONTRACT_REPORT` | `apps/server/target/contract-<backend>.json` | JSON report path |
 | `PLANE_RS_CONTRACT_DEBUG` | unset | `1` prints each drain and each replay decision to stderr |
+| `PLANE_RS_CONTRACT_ASSUME_RUST` | unset | route orders whose unsafe methods are treated as Rust-owned (`--assume-rust`) |
+| `PLANE_RS_CONTRACT_METHODS` | unset | plan is narrowed to these methods (`--methods`) |
 
 The run uses the shared dev stack through `apps/server/dev/django-env.sh`
 (Postgres 55432, Valkey 56379, RabbitMQ 55672/55673). It never starts or stops

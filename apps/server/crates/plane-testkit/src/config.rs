@@ -45,6 +45,23 @@ fn default_jar() -> String {
     "default".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_origin() -> OriginHeader {
+    OriginHeader::Bool(true)
+}
+
+/// `origin:` on a step: `true` derives it from `Host`, `false` omits it, a
+/// string is the literal value.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum OriginHeader {
+    Bool(bool),
+    Text(String),
+}
+
 fn default_port_range() -> Vec<u16> {
     vec![18000, 18099]
 }
@@ -315,14 +332,63 @@ pub struct Step {
     pub form: Option<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// `multipart/form-data` with text fields and file parts. The boundary is a
+    /// constant, so both targets receive byte-identical request bodies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multipart: Option<Multipart>,
     #[serde(default = "default_jar")]
     pub jar: String,
+    /// Attach `X-CSRFToken` from this jar's `csrftoken` cookie on an unsafe
+    /// method (default `true`). `false` omits it, which is how a scenario
+    /// asserts the CSRF rejection.
+    #[serde(default = "default_true")]
+    pub csrf: bool,
+    /// Send this value as `X-Api-Key` (API-token auth, for `/api/v1/`). No
+    /// session cookie is needed; the jar still supplies one if it has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    /// `Origin` on an unsafe, cookie-authenticated request. Plane replaces
+    /// DRF's token CSRF with an origin check (`BaseSessionAuthentication`):
+    /// a missing header is accepted (non-browser clients), a header must name
+    /// the request's own host. `true` (default) sends the step's `Host` as the
+    /// origin, `false` omits it, and a string is sent verbatim — the rejection
+    /// case.
+    #[serde(default = "default_origin")]
+    pub origin: OriginHeader,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capture: Vec<Capture>,
     /// Sanity check applied to both targets. A mismatch is reported like any
     /// other difference, so an unexpected status cannot pass unnoticed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expect_status: Option<u16>,
+}
+
+/// A `multipart/form-data` body: text fields first, then file parts, in the
+/// order they appear in the YAML (the serialised body is compared only via the
+/// response, but a stable order keeps two runs identical).
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Multipart {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<FilePart>,
+}
+
+/// One file part of a multipart body. `content` is inline text; `path` reads a
+/// file relative to the harness's working directory (`apps/server`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilePart {
+    pub field: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -345,6 +411,12 @@ pub struct Capture {
     pub cookie: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
+    /// `db` captures: the table whose **inserted** rows this step produced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
+    /// `db` captures: the inserted row's column, e.g. `id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -358,6 +430,11 @@ pub enum CaptureSource {
     Cookie,
     /// First capture group of a regex over a response header.
     Regex,
+    /// A column of the step's **inserted** database rows: the `id` of the row a
+    /// `POST` created, without parsing the response body. The step must insert
+    /// exactly one row in `table`; a write that inserts several (or none) is an
+    /// error, not a guess.
+    Db,
 }
 
 impl Scenario {
@@ -445,9 +522,28 @@ impl Scenario {
             }
             let bodies = usize::from(step.json.is_some())
                 + usize::from(step.form.is_some())
-                + usize::from(step.body.is_some());
+                + usize::from(step.body.is_some())
+                + usize::from(step.multipart.is_some());
             if bodies > 1 {
-                bail!("{where_}: at most one of `json`, `form`, `body` may be set");
+                bail!("{where_}: at most one of `json`, `form`, `body`, `multipart` may be set");
+            }
+            if let OriginHeader::Text(text) = &step.origin
+                && text.trim().is_empty()
+            {
+                bail!("{where_}: `origin` must not be an empty string");
+            }
+            if let Some(multipart) = &step.multipart {
+                for (index, file) in multipart.files.iter().enumerate() {
+                    if file.field.trim().is_empty() {
+                        bail!("{where_}: multipart file {index} has an empty `field`");
+                    }
+                    if file.content.is_some() == file.path.is_some() {
+                        bail!(
+                            "{where_}: multipart file {:?} needs exactly one of `content` or `path`",
+                            file.field
+                        );
+                    }
+                }
             }
             for capture in &step.capture {
                 capture.validate(&where_)?;
@@ -479,6 +575,11 @@ impl Capture {
             CaptureSource::Cookie => {
                 if self.cookie.is_none() {
                     bail!("{where_}: capture {} needs `cookie`", self.name);
+                }
+            }
+            CaptureSource::Db => {
+                if self.table.is_none() || self.column.is_none() {
+                    bail!("{where_}: capture {} needs `table` and `column`", self.name);
                 }
             }
             CaptureSource::Regex => {
@@ -994,6 +1095,76 @@ steps:
         );
         let error = scenario.validate().expect_err("must reject");
         assert!(error.to_string().contains("needs `pointer`"));
+    }
+
+    #[test]
+    fn db_capture_requires_table_and_column() {
+        let scenario = parse_scenario(
+            r#"
+name: t
+steps:
+  - name: s
+    path: /x
+    capture:
+      - name: created
+        source: db
+        table: stickies
+"#,
+        );
+        let error = scenario.validate().expect_err("must reject");
+        assert!(error.to_string().contains("needs `table` and `column`"));
+    }
+
+    #[test]
+    fn write_step_defaults_and_overrides() {
+        let scenario = parse_scenario(
+            r#"
+name: t
+steps:
+  - name: create
+    method: POST
+    path: /x
+  - name: update
+    method: PATCH
+    path: /y
+    csrf: false
+    origin: "http://evil.example"
+    api_key: "{{api_token}}"
+"#,
+        );
+        scenario.validate().expect("valid");
+        assert!(scenario.steps[0].csrf);
+        assert!(matches!(scenario.steps[0].origin, OriginHeader::Bool(true)));
+        assert!(!scenario.steps[1].csrf);
+        assert!(matches!(
+            &scenario.steps[1].origin,
+            OriginHeader::Text(value) if value == "http://evil.example"
+        ));
+        assert_eq!(scenario.steps[1].api_key.as_deref(), Some("{{api_token}}"));
+    }
+
+    #[test]
+    fn multipart_files_need_exactly_one_content_source() {
+        let scenario = parse_scenario(
+            r#"
+name: t
+steps:
+  - name: upload
+    method: POST
+    path: /x
+    multipart:
+      files:
+        - field: file
+          content: "hello"
+          path: fixtures/harness.png
+"#,
+        );
+        let error = scenario.validate().expect_err("must reject");
+        assert!(
+            error
+                .to_string()
+                .contains("exactly one of `content` or `path`")
+        );
     }
 
     #[test]

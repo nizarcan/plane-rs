@@ -106,11 +106,15 @@ is `RESERVED_TARGET_ENV` in `crates/plane-testkit/src/config.rs`. Attach mode
 does not start targets, so `target_env` is ignored there; pass the variable on
 each target's own command line instead.
 
-`json:` sends a JSON body, `body:` sends a raw string body (default
-`text/plain;charset=UTF-8`). Variables are per target: A captures and uses
-A's values, B captures and uses B's. `capture` supports a JSON pointer, a
-whole header, a cookie from the step's jar, or the first group of a regex over
-a header (useful for `Location`).
+`json:` sends a JSON body, `body:` a raw string body (default
+`text/plain;charset=UTF-8`), `form:` an urlencoded body, and `multipart:` a
+`multipart/form-data` body with text fields and file parts (see "Write
+scenarios"). A `Content-Type` header in `headers:` wins over the implicit one.
+Variables are per target: A captures and uses A's values, B captures and uses
+B's. `capture` supports a JSON pointer, a whole header, a cookie from the step's
+jar, the first group of a regex over a header (useful for `Location`), or — for
+writes — a column of the step's **inserted** database rows (`source: db`,
+`table:`, `column:`).
 
 Every request sends `Accept-Encoding: gzip` and a fixed browser `User-Agent`.
 Redirects are not followed, cookies are not stored implicitly, and gzip bodies
@@ -130,6 +134,120 @@ value must verify against one of those plaintexts (per target, so
 `--b-var password=...` changes what B must verify); when it is not set, hashes
 are shape-checked and their algorithm/iteration prefix compared, but not
 verified.
+
+## Write scenarios
+
+A write step looks like a read step plus a body, a capture and an expected
+status. The example is `scenarios/write/stickies-harness.yaml`; it runs Django
+vs Django until the write methods flip to Rust, and the same file then runs
+Django vs Rust.
+
+```yaml
+  - name: sticky-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "harness sticky"
+      description_html: "<p>created by the write harness</p>"
+    capture:
+      - name: sticky_id            # later steps use {{sticky_id}}
+        source: db                 # the created row, from this step's DB diff
+        table: stickies
+        column: id
+      - name: sticky_name          # ...and a value out of the response body
+        source: json
+        pointer: /name
+    expect_status: 201
+
+  - name: sticky-update
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { name: "{{sticky_name}} (edited)" }
+    expect_status: 200
+```
+
+Why `source: db` rather than the `id` in the response body: the id is what the
+later `PATCH`/`DELETE` paths need, and the database diff is the row the rest of
+the step is already checked against. The capture runs *before* normalisation, on
+the raw snapshot diff, so it returns that side's generated id; A and B then use
+their own id in the path, and the comparator sees the usual `<id:N>` placeholder
+in the body, the database diff and any Celery argument. The step must insert
+exactly one row in `table` (a bare table name matches `public.<table>`); a write
+that inserts several rows is an error rather than a guess — capture from the
+response then.
+
+**Authentication.** The fixture sessions are supplied as an explicit
+`Cookie: session-id=…` header with the jar's cookies merged in by name, so a
+`csrftoken` cookie the target set survives. Two step options cover the rest:
+
+* `api_key: "{{api_token_active}}"` sends `X-Api-Key` and skips the session —
+  this is the `/api/v1/` auth path.
+* `csrf: true` (default) sends `X-CSRFToken` from the jar's `csrftoken` cookie,
+  for routes that use DRF's stock `SessionAuthentication`. Plane's own
+  `BaseSessionAuthentication` does **not** use the token: it replaces DRF's CSRF
+  check with an origin check (`plane/authentication/session.py:38-63`).
+
+**Origin.** Every unsafe, cookie-authenticated request gets an `Origin` header,
+because that is what Plane's session authentication actually checks:
+
+| `origin:` | Header sent | Effect |
+| --- | --- | --- |
+| omitted / `true` | `http://<the step's Host>` | browser-accurate, allowed |
+| `false` | none | allowed (Plane treats a missing origin as a non-browser client) |
+| a string, e.g. `"http://evil.example"` | that value | `403 {"detail": "CSRF Failed: origin not allowed"}` |
+
+`scenarios/write/stickies-harness.yaml` ends with that 403, the `204` soft
+delete and the list steps that show the create, the update and the delete. A
+soft delete shows up as an **UPDATE of `deleted_at`**, not a `DELETE`, so a port
+that hard-deletes fails the step.
+
+**Body shapes.** `json:` sends a JSON body; `form:` is urlencoded; `body:` is a
+raw string, useful with a `Content-Type` the server expects (`headers:` wins
+over the implicit `text/plain;charset=UTF-8`):
+
+```yaml
+    body: '{"name": "{{sticky_name}}"}'
+    headers: { Content-Type: application/json }
+```
+
+`multipart:` builds a form with file parts:
+
+```yaml
+    multipart:
+      fields:
+        name: "{{sticky_name}}"
+      files:
+        - field: file
+          filename: note.txt          # optional; defaults to the path's basename
+          content_type: text/plain    # optional; default application/octet-stream
+          content: "hello"            # exactly one of content:, path:
+        - field: image
+          path: fixtures/harness.png  # relative to apps/server (the harness's cwd)
+```
+
+Every part is sent with a fixed boundary, so both targets receive identical
+request bytes.
+
+**Starter files.** `tools/scenarios/gen_write.py` emits the first draft of a
+group's write scenario: one step per unsafe method, a body built from the
+serializer's writable fields, a `db` capture after `POST`, an obvious denial
+step (a non-member session, `expect_status: 403`) and the expected create/update
+/delete statuses.
+
+```bash
+cd apps/server
+../api/.venv/bin/python tools/scenarios/gen_write.py --orders 223,224      # stickies
+../api/.venv/bin/python tools/scenarios/gen_write.py --group stickies -v   # and show skipped fields
+```
+
+The generator knows serializer *fields*, not view rules: review the body (a
+`description_html` pair, choice values, relations), fill in the `PATCH` body's
+interesting fields, and re-run Django vs Django until it is clean before
+publishing the file as `<group>.yaml`.
 
 ## Normalisation policy
 

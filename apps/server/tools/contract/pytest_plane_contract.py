@@ -205,13 +205,20 @@ STATE = State()
 
 
 def _load_plan() -> list[RustRoute]:
+    if str(TOOLS_DIR) not in sys.path:
+        sys.path.insert(0, str(TOOLS_DIR))
     if str(PROXY_DIR) not in sys.path:
         sys.path.insert(0, str(PROXY_DIR))
     import gen_caddy
+    import owner_override
 
     routes_module = gen_caddy.load_inventory_module()
     _inventory, routes = gen_caddy.load_inventory(gen_caddy.DEFAULT_ROUTES_JSON)
     owners = gen_caddy.load_owners(gen_caddy.DEFAULT_OWNERS_FILE)
+    orders = owner_override.assume_rust_orders()
+    if orders:
+        for warning in owner_override.override_owners(routes, owners, orders):
+            print(f"contract: {warning}", file=sys.stderr)
     groups = gen_caddy.load_groups(gen_caddy.DEFAULT_GROUPS_FILE, routes)
     plans = gen_caddy.build_plan(routes, owners, groups, routes_module)
 
@@ -228,7 +235,7 @@ def _load_plan() -> list[RustRoute]:
                         source=regex,
                     )
                 )
-    return plan
+    return owner_override.filter_methods(plan, owner_override.methods_filter())
 
 
 def _rust_route(method: str, path: str) -> RustRoute | None:

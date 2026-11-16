@@ -1,0 +1,139 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The write-scenario example: `WorkspaceStickyViewSet` (routes 223 and 224).
+#
+# It exercises every harness feature a write scenario needs:
+#
+#   * `capture: source: db` takes the created row's `id` from the step's
+#     database diff (`table: stickies`, `column: id`) — per side, so A's id is
+#     never compared with B's;
+#   * `capture: source: json, pointer: /name` takes a value from the response
+#     body and a later step sends it back in a body;
+#   * `{{name}}` interpolation works in paths, query values, JSON bodies, form
+#     fields, raw bodies and header values;
+#   * `csrf` defaults to true for POST/PATCH/DELETE: the harness sends
+#     `X-CSRFToken` from that side's own `csrftoken` cookie (fetched by the
+#     `/auth/get-csrf-token/` step); `csrf: false` omits it, which is how the
+#     403 case below is written;
+#   * an inserted row, an updated row (column-level) and a soft delete are all
+#     part of the step's database diff, so a wrong audit column or a missing
+#     `updated_at` is a difference, not a normalisation.
+#
+# Run Django vs Django (writes are not ported yet), then Django vs Rust once
+# they are:
+#
+#   ./target/debug/difftest run --targets /tmp/targets-rs-p5-harness.yaml \
+#     --scenario scenarios/write/stickies-harness.yaml --a django --b django \
+#     --a-redis-db 10 --b-redis-db 11
+
+name: write-stickies-harness
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+target_env:
+  # A `set`-derived order in any response would otherwise follow the process's
+  # string hash seed. Writes should not need it, but every scenario keeps it so
+  # a Django-vs-Django baseline is reproducible.
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  # The fixture's signed session rows; the scenario sends them as a Cookie
+  # header (the harness merges the jar's `csrftoken` into it).
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # A fresh CSRF secret and masked token per side. `get_token` sets the
+  # `csrftoken` cookie; the harness merges it with the session cookie the step
+  # names, and derives `X-CSRFToken` from it on the unsafe steps below.
+  - name: sticky-csrf-admin
+    method: GET
+    path: "/auth/get-csrf-token/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: sticky-csrf-nonmember
+    method: GET
+    path: "/auth/get-csrf-token/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+
+  - name: sticky-list-before
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # The create. `sticky_id` comes from the database diff (the response body's
+  # `id` would work too, but the diff is the row every later step must see);
+  # `sticky_name` comes from the response body and is sent back in the PATCH.
+  - name: sticky-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "harness sticky"
+      description_html: "<p>created by the write harness</p>"
+      color: "#102030"
+      background_color: "#f0f0f0"
+    capture:
+      - name: sticky_id
+        source: db
+        table: stickies
+        column: id
+      - name: sticky_name
+        source: json
+        pointer: /name
+    expect_status: 201
+
+  # A non-member with a valid CSRF token: the permission check answers.
+  - name: sticky-create-denied-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+    json: { name: "should not exist" }
+    expect_status: 403
+
+  - name: sticky-update
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { name: "{{sticky_name}} (edited)" }
+    expect_status: 200
+
+  - name: sticky-list-after-update
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # Plane's `BaseSessionAuthentication` replaced DRF's token CSRF with an
+  # origin check (`plane/authentication/session.py:38-63`): an `Origin` that is
+  # not the request's own host is refused. Every other unsafe step gets
+  # `Origin: http://<its Host>` automatically; this one sends a wrong origin.
+  - name: sticky-update-wrong-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_id}}/"
+    jar: admin
+    origin: "http://evil.example"
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { name: "must not be applied" }
+    expect_status: 403
+
+  - name: sticky-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+
+  # Sticky inherits BaseModel's soft delete: the step's diff is an UPDATE of
+  # `deleted_at`, not a DELETE of the row, and the list no longer returns it.
+  - name: sticky-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }

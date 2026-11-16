@@ -1160,7 +1160,9 @@ async fn execute_step(
             .with_context(|| format!("draining {} queue(s)", queues.len()))?;
     }
 
-    let captures = collect_captures(side, step, &response)?;
+    // The raw diff is needed by `db` captures before it is normalised below.
+    let mut db_diff = diff_snapshots(&before, &after);
+    let captures = collect_captures(side, step, &response, &db_diff)?;
 
     // Normalisation order is fixed: headers (Location first), body, database,
     // Celery, Redis. Placeholder numbering depends on it.
@@ -1173,7 +1175,6 @@ async fn execute_step(
     let headers = side.normalizer.normalize_headers(&response.headers);
     let json = content_type_is_json(&response.headers);
     let body = side.normalizer.normalize_body(&response.body, json);
-    let mut db_diff = diff_snapshots(&before, &after);
     side.normalizer.normalize_db_diff(&mut db_diff);
     for message in &mut messages {
         side.normalizer.normalize_celery(message);
@@ -1303,12 +1304,12 @@ fn build_request(side: &Side, step: &Step, scenario: &Scenario) -> Result<HttpRe
 
     let mut headers = Vec::with_capacity(step.headers.len() + 1);
     let mut body = None;
-    let mut content_type: Option<&'static str> = None;
+    let mut content_type: Option<String> = None;
     if let Some(value) = &step.json {
         let mut rendered = value.clone();
         render_json_vars(&mut rendered, &vars, &side.base_url)?;
         body = Some(serde_json::to_vec(&rendered).context("serialising the JSON body")?);
-        content_type = Some("application/json");
+        content_type = Some("application/json".to_string());
     } else if let Some(form) = &step.form {
         let mut pairs = Vec::with_capacity(form.len());
         for (key, value) in form {
@@ -1318,10 +1319,15 @@ fn build_request(side: &Side, step: &Step, scenario: &Scenario) -> Result<HttpRe
             ));
         }
         body = Some(form_encode(&pairs).into_bytes());
-        content_type = Some("application/x-www-form-urlencoded");
+        content_type = Some("application/x-www-form-urlencoded".to_string());
+    } else if let Some(multipart) = &step.multipart {
+        let (encoded, boundary) = multipart_body(multipart, &vars, &side.base_url)
+            .with_context(|| format!("step {}: building the multipart body", step.name))?;
+        body = Some(encoded);
+        content_type = Some(format!("multipart/form-data; boundary={boundary}"));
     } else if let Some(raw) = &step.body {
         body = Some(render_vars(raw, &vars, &side.base_url)?.into_bytes());
-        content_type = Some("text/plain;charset=UTF-8");
+        content_type = Some("text/plain;charset=UTF-8".to_string());
     }
     let has_content_type = step
         .headers
@@ -1330,10 +1336,63 @@ fn build_request(side: &Side, step: &Step, scenario: &Scenario) -> Result<HttpRe
     if let Some(content_type) = content_type
         && !has_content_type
     {
-        headers.push(("Content-Type".to_string(), content_type.to_string()));
+        headers.push(("Content-Type".to_string(), content_type));
     }
+    let has = |headers: &Vec<(String, String)>, name: &str| {
+        headers
+            .iter()
+            .any(|(key, _)| key.eq_ignore_ascii_case(name))
+    };
     for (name, value) in &step.headers {
         headers.push((name.clone(), render_vars(value, &vars, &side.base_url)?));
+    }
+    // `X-Api-Key`: API-token authentication for `/api/v1/`. The value is
+    // rendered like any other scenario variable.
+    if let Some(api_key) = &step.api_key
+        && !has(&headers, "x-api-key")
+    {
+        headers.push((
+            "X-Api-Key".to_string(),
+            render_vars(api_key, &vars, &side.base_url)?,
+        ));
+    }
+    let unsafe_method = !matches!(step.method.as_str(), "GET" | "HEAD" | "OPTIONS" | "TRACE");
+    // Plane's `BaseSessionAuthentication.enforce_csrf` is an origin check, not
+    // DRF's token comparison (`plane/authentication/session.py:38-63`): a
+    // missing `Origin` is accepted, one that is present must name the request's
+    // own host. The default therefore mirrors a browser on the step's `Host`;
+    // `origin: false` omits it and a string sends a mismatching one.
+    if unsafe_method && !has(&headers, "origin") {
+        match &step.origin {
+            crate::config::OriginHeader::Bool(false) => {}
+            crate::config::OriginHeader::Bool(true) => {
+                if let Some((_, host)) = headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("host"))
+                {
+                    headers.push(("Origin".to_string(), format!("http://{host}")));
+                }
+            }
+            crate::config::OriginHeader::Text(value) => {
+                headers.push((
+                    "Origin".to_string(),
+                    render_vars(value, &vars, &side.base_url)?,
+                ));
+            }
+        }
+    }
+    // DRF's stock `SessionAuthentication` would compare `X-CSRFToken` with the
+    // jar's `csrftoken` cookie; Plane's class does not, but a route that uses
+    // the stock class needs it, so `csrf: true` (the default) sends it.
+    if step.csrf
+        && unsafe_method
+        && !has(&headers, "x-csrftoken")
+        && let Some(token) = side
+            .http
+            .jar(&step.jar)
+            .and_then(|jar| jar.get("csrftoken"))
+    {
+        headers.push(("X-CSRFToken".to_string(), token.to_string()));
     }
 
     Ok(HttpRequest {
@@ -1343,6 +1402,62 @@ fn build_request(side: &Side, step: &Step, scenario: &Scenario) -> Result<HttpRe
         body,
         jar: step.jar.clone(),
     })
+}
+
+/// A `multipart/form-data` body with a fixed boundary, so both targets send
+/// identical bytes. Text fields come first, then file parts in YAML order.
+fn multipart_body(
+    multipart: &crate::config::Multipart,
+    vars: &BTreeMap<String, String>,
+    base_url: &str,
+) -> Result<(Vec<u8>, &'static str)> {
+    const BOUNDARY: &str = "difftest-boundary-7d1c4b0e";
+    let mut out = Vec::new();
+    for (name, value) in &multipart.fields {
+        out.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
+        out.extend_from_slice(
+            format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes(),
+        );
+        out.extend_from_slice(render_vars(value, vars, base_url)?.as_bytes());
+        out.extend_from_slice(b"\r\n");
+    }
+    for file in &multipart.files {
+        let filename = match (&file.filename, &file.path) {
+            (Some(name), _) => name.clone(),
+            (None, Some(path)) => std::path::Path::new(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.field.clone()),
+            (None, None) => file.field.clone(),
+        };
+        let content = match (&file.content, &file.path) {
+            (Some(text), None) => render_vars(text, vars, base_url)?.into_bytes(),
+            (None, Some(path)) => {
+                std::fs::read(path).with_context(|| format!("reading multipart file {path:?}"))?
+            }
+            _ => bail!(
+                "multipart file {:?} needs exactly one of content/path",
+                file.field
+            ),
+        };
+        let content_type = file
+            .content_type
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        out.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
+        out.extend_from_slice(
+            format!(
+                "Content-Disposition: form-data; name=\"{}\"; filename=\"{filename}\"\r\n",
+                file.field
+            )
+            .as_bytes(),
+        );
+        out.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
+        out.extend_from_slice(&content);
+        out.extend_from_slice(b"\r\n");
+    }
+    out.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+    Ok((out, BOUNDARY))
 }
 
 fn render_json_vars(
@@ -1398,6 +1513,7 @@ fn collect_captures(
     side: &Side,
     step: &Step,
     response: &HttpResponse,
+    db_diff: &crate::db::DbDiff,
 ) -> Result<BTreeMap<String, String>> {
     let mut captures = BTreeMap::new();
     for capture in &step.capture {
@@ -1415,6 +1531,61 @@ fn collect_captures(
                 match found {
                     Value::String(text) => text.clone(),
                     other => serde_json::to_string(other)?,
+                }
+            }
+            CaptureSource::Db => {
+                let table = capture.table.as_deref().unwrap_or_default();
+                let column = capture.column.as_deref().unwrap_or_default();
+                // Snapshot keys are schema-qualified (`public.stickies`); a
+                // scenario names the table, so match the exact key first and
+                // then the one key whose suffix is `.{table}`.
+                let inserted = match db_diff.tables.get(table) {
+                    Some(diff) => diff.inserted.as_slice(),
+                    None => {
+                        let suffix = format!(".{table}");
+                        let matches: Vec<&crate::db::TableDiff> = db_diff
+                            .tables
+                            .iter()
+                            .filter(|(key, _)| key.ends_with(&suffix))
+                            .map(|(_, diff)| diff)
+                            .collect();
+                        if matches.len() > 1 {
+                            bail!(
+                                "step {}: capture {}: table {table} matches {} schemas",
+                                step.name,
+                                capture.name,
+                                matches.len()
+                            );
+                        }
+                        matches
+                            .first()
+                            .map_or(&[][..], |diff| diff.inserted.as_slice())
+                    }
+                };
+                if inserted.len() != 1 {
+                    bail!(
+                        "step {}: capture {}: expected exactly one inserted row in {table}, \
+                         found {} (use a response capture, or split the step)",
+                        step.name,
+                        capture.name,
+                        inserted.len()
+                    );
+                }
+                let value = inserted[0].get(column).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "step {}: capture {}: {table} has no `{column}` column",
+                        step.name,
+                        capture.name
+                    )
+                })?;
+                match value {
+                    Value::String(text) => text.clone(),
+                    Value::Null => bail!(
+                        "step {}: capture {}: {table}.{column} is null",
+                        step.name,
+                        capture.name
+                    ),
+                    other => other.to_string(),
                 }
             }
             CaptureSource::Header => {
@@ -1487,6 +1658,30 @@ fn collect_captures(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn multipart_bodies_are_byte_identical_and_deterministic() {
+        let multipart = crate::config::Multipart {
+            fields: BTreeMap::from([("name".to_string(), "{{value}}".to_string())]),
+            files: vec![crate::config::FilePart {
+                field: "file".to_string(),
+                filename: Some("note.txt".to_string()),
+                content_type: Some("text/plain".to_string()),
+                content: Some("hello".to_string()),
+                path: None,
+            }],
+        };
+        let vars = BTreeMap::from([("value".to_string(), "v".to_string())]);
+        let (body, boundary) = multipart_body(&multipart, &vars, "http://x").expect("body");
+        assert_eq!(boundary, "difftest-boundary-7d1c4b0e");
+        let text = String::from_utf8(body).expect("utf8");
+        assert!(text.contains("Content-Disposition: form-data; name=\"name\"\r\n\r\nv\r\n"));
+        assert!(text.contains(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"note.txt\"\r\n\
+             Content-Type: text/plain\r\n\r\nhello\r\n"
+        ));
+        assert!(text.ends_with("--difftest-boundary-7d1c4b0e--\r\n"));
+    }
 
     #[test]
     fn url_encoding_matches_form_rules() {

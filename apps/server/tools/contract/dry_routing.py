@@ -55,6 +55,13 @@ def load_plan() -> list[tuple[str, frozenset[str], re.Pattern[str]]]:
     routes_module = gen_caddy.load_inventory_module()
     _inventory, routes = gen_caddy.load_inventory(gen_caddy.DEFAULT_ROUTES_JSON)
     owners = gen_caddy.load_owners(gen_caddy.DEFAULT_OWNERS_FILE)
+    sys.path.insert(0, str(TOOLS_DIR))
+    import owner_override
+
+    orders = owner_override.assume_rust_orders()
+    if orders:
+        for warning in owner_override.override_owners(routes, owners, orders):
+            print(f"dry-routing: {warning}", file=sys.stderr)
     groups = gen_caddy.load_groups(gen_caddy.DEFAULT_GROUPS_FILE, routes)
     plans = gen_caddy.build_plan(routes, owners, groups, routes_module)
     plan = []
@@ -62,7 +69,7 @@ def load_plan() -> list[tuple[str, frozenset[str], re.Pattern[str]]]:
         for cluster in group_plan.clusters:
             for regex in cluster.regexes:
                 plan.append((group_plan.group.name, frozenset(cluster.methods), re.compile(regex)))
-    return plan
+    return owner_override.filter_methods(plan, owner_override.methods_filter())
 
 
 class Resolver:
