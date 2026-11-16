@@ -326,15 +326,6 @@ plane_query! {
 }
 
 plane_query! {
-    /// `cycle_favorite.delete(soft=False)` (`base.py:595`): a hard DELETE.
-    ///
-    /// Bind order: `$1` favourite id.
-    USER_FAVORITE_HARD_DELETE = "cycles_write_favorite_hard_delete",
-    "DELETE FROM user_favorites WHERE id = $1",
-    []
-}
-
-plane_query! {
     /// `UserFavorite.objects.filter(user=request.user, entity_type="cycle",
     /// entity_identifier=pk, project_id=project_id).delete()` in
     /// `CycleViewSet.destroy` (`base.py:487-492`) — H04, live rows only, the
@@ -416,7 +407,6 @@ pub static ALL_QUERIES: &[&Query] = &[
     &CYCLE_FAVORITE_TARGET,
     &USER_FAVORITE_INSERT,
     &USER_FAVORITE_LOOKUP,
-    &USER_FAVORITE_HARD_DELETE,
     &USER_FAVORITE_SOFT_DELETE_USER,
     &USER_FAVORITE_SOFT_DELETE_ALL,
     &USER_RECENT_VISIT_HARD_DELETE,

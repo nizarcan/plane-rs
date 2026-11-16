@@ -35,8 +35,15 @@
 //!
 //! `UserFavorite.objects.get(entity_identifier=project_id,
 //! entity_type="project", project=project_id, user=…, workspace__slug=slug)`
-//! → `DoesNotExist` is 404; then `delete(soft=False)` — a **hard** `DELETE`
-//! (`plane/db/mixins.py:65-77`), so no `deleted_at`, no cascade task.
+//! → `DoesNotExist` is 404; then `project_favorite.delete(soft=False)`. That is
+//! **not** a single-row `DELETE`: `SoftDeleteModel.delete` hands the instance to
+//! `super().delete()` (`plane/db/mixins.py:72-82`), i.e. Django's deletion
+//! collector, and `UserFavorite.parent` is a self-referential
+//! `on_delete=CASCADE` FK (`plane/db/models/favorite.py:25-31`). Every favourite
+//! reachable through `parent_id` goes with it — at every depth, soft-deleted
+//! children included, because the cascade reads the related model's
+//! `_base_manager` (`django/db/models/deletion.py:398-410`). [`write::favorite`]
+//! is the shared port of that collector (126, 111, 184, 37).
 //!
 //! Note the asymmetry, ported as it is: `create` stores the row with
 //! `workspace = project.workspace`, so `destroy`'s `workspace__slug` filter
@@ -49,7 +56,7 @@
 //! | Action | Django | Here |
 //! | --- | ---: | ---: |
 //! | create | 3 (gate, `MAX(sequence)`, INSERT) | 3 |
-//! | destroy | 2 (SELECT, DELETE) | 2 |
+//! | destroy | 1 SELECT + one `parent_id` probe per depth + the `DELETE` | same |
 
 use plane_core::error::ApiError;
 use plane_db::hooks;
@@ -149,10 +156,9 @@ pub fn destroy<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
             .ok_or(ViewError::ObjectDoesNotExist)?;
         let id: Uuid = row.try_get(0)?;
 
-        // `delete(soft=False)` — a hard delete, no cascade task.
-        client
-            .execute(queries::USER_FAVORITE_DELETE.sql, &[&id])
-            .await?;
+        // `delete(soft=False)` → Django's deletion collector over the
+        // self-referential `parent` CASCADE, shared with 126/111/184/37.
+        write::favorite::hard_delete(client, id).await?;
         Ok(ViewResponse::empty(204))
     })
 }

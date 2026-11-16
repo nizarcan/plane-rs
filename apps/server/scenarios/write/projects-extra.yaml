@@ -16,7 +16,9 @@
 #     workspace member with no project membership, and a non-member 403;
 #   * 149 favourite create: success, the duplicate `IntegrityError` 400, an
 #     unknown project 404, a project the caller cannot see 404;
-#   * 150 favourite destroy: success after 149, then the 404;
+#   * 150 favourite destroy: success after 149, then the 404, and the
+#     `user_favorites.parent` cascade behind `delete(soft=False)`
+#     (`project-favorites-fixture.sql`);
 #   * 90 user-properties: a partial update on the fixture row, an invalid
 #     `sort_order` 400, a guest success;
 #   * 154 preferences: the merge, the empty body, another member's id 403;
@@ -31,6 +33,7 @@ redis_db: [10, 11]
 target_env:
   PYTHONHASHSEED: "0"
 vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/project-favorites-fixture.sql"
   ws: "fix-workspace"
   project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
   project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
@@ -207,6 +210,23 @@ steps:
     path: "/api/workspaces/{{ws}}/user-favorite-projects/{{project_alpha}}/"
     jar: member
     headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    expect_status: 404
+  # The collector: the admin's fixture favourite of Beta has a live child (the
+  # member's), a soft-deleted child and a grandchild under each. Django's
+  # `delete(soft=False)` deletes all five rows (`user_favorites.parent` is
+  # CASCADE and read through `_base_manager`), so the SQL is one probe per
+  # depth level and then a single `DELETE … WHERE id = ANY(…)`.
+  - name: px-16b-favorite-destroy-cascade
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/{{project_beta}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+  - name: px-16c-favorite-destroy-cascade-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/{{project_beta}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
     expect_status: 404
 
   # --- 151/152 deploy boards ---------------------------------------------
