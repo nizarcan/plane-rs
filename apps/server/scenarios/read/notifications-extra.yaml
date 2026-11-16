@@ -1,0 +1,342 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `notifications` group, beyond the generated
+# `notifications.yaml`: every value the view reads (`snoozed`, `archived`,
+# `read`, `mentioned`, `type` and its three branches), the modal
+# `per_page`+`cursor` paginator (first page, second page, 400 paths, order_by),
+# the guest `type=created` short-circuit, and the preference endpoint's three
+# cardinalities (one row, two rows, no row for a bot).
+#
+# Deterministic against Django (`--a django --b django` is clean), then run
+# Django vs Rust.
+
+name: read-notifications-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  notification_read_admin: "c004ab4a-791f-4367-87c9-3a1c746785a5"
+  notification_archived_issue: "ce24b44c-7ab9-4e4f-a9ae-7fe8e986a990"
+  notification_snoozed_issue: "8737b1da-063f-4fff-a0f4-d933d1d04842"
+  notification_unread_issue: "0631cd8e-504f-49c9-8d59-76947fbf68df"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_bot: "1ba415d760144c84bafed7b8e721aed3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # ------------------------------------------------------------ list filters
+  - name: ne-01-read-false
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      read: "false"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-02-read-bogus
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      read: "bogus"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-03-archived-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      archived: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ne-04-snoozed-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      snoozed: "true"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-05-snoozed-and-archived
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      snoozed: "true"
+      archived: "false"
+      read: "false"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # `mentioned=false` is a non-empty string and therefore truthy in Python.
+  - name: ne-06-mentioned-literal-false
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      mentioned: "false"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-07-mentioned-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      mentioned: ""
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # `snoozed_filters["yes"]` is a KeyError: the family 500.
+  - name: ne-08-snoozed-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      snoozed: "yes"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-09-archived-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      archived: "1"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # ------------------------------------------------------------- type filter
+  - name: ne-10-type-subscribed
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      type: "subscribed"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-11-type-assigned
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      type: "assigned"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-12-type-created-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      type: "created"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A workspace guest: `WorkspaceMember.role < 15` turns the queryset into
+  # `none()`.
+  - name: ne-13-type-created-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      type: "created"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ne-14-type-all-three
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      type: "subscribed,assigned,created"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `type=cycle` names no branch, so the empty Q() filters nothing.
+  - name: ne-15-type-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      type: "cycle"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # ------------------------------------------------------------- pagination
+  - name: ne-16-page-first
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-17-page-second
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-18-page-size-one
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "1"
+      cursor: "1:0:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `OffsetPaginator` re-orders by the sanitized key, ascending when the value
+  # has no leading `-`.
+  - name: ne-19-page-order-created-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+      order_by: "created_at"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-20-page-order-updated-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+      order_by: "updated_at"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-21-page-order-fallback
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+      order_by: "sender"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # `per_page=0` is truthy (the string is non-empty) and then rejected.
+  - name: ne-22-page-zero
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "0"
+      cursor: "0:0:0"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-23-page-bad-per-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "abc"
+      cursor: "2:0:0"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-24-page-bad-cursor
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "2"
+      cursor: "nope"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # Only `per_page` (no cursor) is the plain list, not a page.
+  - name: ne-25-per-page-without-cursor
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      per_page: "2"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-26-cursor-without-per-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      cursor: "2:0:0"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ne-27-page-guest-created-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    query:
+      type: "created"
+      per_page: "2"
+      cursor: "2:0:0"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # --------------------------------------------------------------- unread
+  - name: ne-28-unread-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/unread/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # --------------------------------------------------------- preferences
+  # One row: 200.
+  - name: ne-29-preferences-guest
+    method: GET
+    path: "/api/users/me/notification-preferences/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # Two rows on one user: `MultipleObjectsReturned`, the generic 500.
+  - name: ne-30-preferences-member-two-rows
+    method: GET
+    path: "/api/users/me/notification-preferences/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # No row: `DoesNotExist`, the family 404.
+  - name: ne-31-preferences-bot-missing
+    method: GET
+    path: "/api/users/me/notification-preferences/"
+    jar: bot
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_bot}}"
+  # ------------------------------------------------------------- detail 405
+  - name: ne-32-detail-405
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"

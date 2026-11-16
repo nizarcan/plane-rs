@@ -9,22 +9,28 @@
 //! * `/api/workspaces/*/users/notifications/**`
 //! * `/api/users/me/notification-preferences/`
 //!
-//! Nothing is registered yet: every route of this group still answers Django,
-//! so `register` is empty. It stops being empty one route at a time, each one
-//! only after its `scenarios/read/` (and, for a write, its write) scenario is
-//! clean against Django — `apps/server/HANDLERS.md` is the procedure. Once a
-//! group is fully ported, the orchestrator flips its `Owner` column in
-//! `ROUTES.md`; a domain agent never edits that file.
+//! | Route | Registered | Python |
+//! | --- | --- | --- |
+//! | `GET …/users/notifications/` | `NotificationViewSet.list` | `plane/app/views/notification/base.py:48` |
+//! | `GET …/users/notifications/{pk}/` | `NotificationViewSet.retrieve` (guard's 405) | `base.py:103-198` |
+//! | `GET …/users/notifications/unread/` | `UnreadNotificationEndpoint.get` | `:201` |
+//! | `GET /api/users/me/notification-preferences/` | `UserNotificationPreferenceEndpoint.get` | `:296` |
+//!
+//! The remaining verbs (`PATCH` snooze, `POST`/`DELETE` read/archive,
+//! `POST` mark-all-read) are Phase 5 and stay on Django.
 
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod base;
+pub mod preference;
 pub mod queries;
+pub mod render;
+pub mod unread;
 
-/// Register this group's handlers, in the order they were ported.
-///
-/// `apps/server/HANDLERS.md` has the step list. Return the first
-/// [`RegistryError`]: a route that cannot be registered must fail startup
-/// rather than fall back to a 501 nobody notices.
-pub fn register(_registry: &mut Registry) -> Result<(), RegistryError> {
+/// Register this group's handlers, in route order.
+pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    base::register(registry)?;
+    unread::register(registry)?;
+    preference::register(registry)?;
     Ok(())
 }

@@ -1,0 +1,458 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `intake` group, beyond the generated `intake.yaml`:
+# the projects without an intake and without a triage state, every intake-issue
+# status and `issue_filters` lookup, the ordering allowlist and its fallbacks,
+# pagination cursors (including the 400/500 paths), the duplicate/snoozed detail
+# shapes, and the description-version page cursors and timezone conversion.
+#
+# Deterministic against Django (`--a django --b django` is clean), then run
+# Django vs Rust.
+
+name: read-intake-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  intake_alpha: "826885ac-00cd-47cd-b54a-77a52004021c"
+  intake_issue_alpha_pending_issue: "27a64497-44aa-446b-8136-8197010dea71"
+  intake_issue_alpha_accepted_issue: "b112d8ba-70d1-4161-9fd1-51714c353f9a"
+  intake_issue_alpha_duplicate_issue: "93926110-bb2b-46fe-b69f-b24d49886168"
+  intake_issue_alpha_snoozed_issue: "af5220dc-dd0b-4ca5-bccf-3e7e8b919b0f"
+  intake_issue_alpha_rejected_issue: "840ec3e4-55d0-4ed2-bde2-48c2d52bc40a"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_description_version_0: "b68cf3eb-2684-4439-bb1a-914a1ff597e9"
+  state_alpha_done: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+  label_alpha_ui: "c08786d6-898c-4a23-a867-3608e6e55189"
+  project_member_alpha_tz_kolkata: "9d2a7c43-795d-44f8-95fc-c8f829ea3130"
+  user_tz_kolkata_id: "f1d4b6e4-0f7b-4fec-8130-208fa8cecc93"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # ---------------------------------------------------------------- intakes
+  # A project with no intake renders `IntakeSerializer(None).data`:
+  # `get_initial()` emits the non-read-only fields' initial values.
+  - name: ie-01-intakes-no-intake
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-02-inboxes-no-intake
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/inboxes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A project whose cover image is the empty string, so `cover_image_url` is
+  # null rather than the static asset URL.
+  - name: ie-03-intakes-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intakes/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # `IntakeSerializer` is a plain ModelSerializer; `fields=` is not accepted.
+  - name: ie-04-intakes-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # ----------------------------------------------------------- intake issues
+  # The default `?status=-2`: only pending rows.
+  - name: ie-05-intake-issues-default
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Every status, including soft-deleted rows excluded by the manager.
+  - name: ie-06-intake-issues-all-statuses
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-07-intake-issues-null-status
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `status__in=[""]` is IntegerField's ValueError: the family 500.
+  - name: ie-08-intake-issues-empty-status
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-09-intake-issues-bad-status
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Ordering: an allowlisted relation, a plain column, descending, and a
+  # malformed value that falls back to `-issue__created_at`.
+  - name: ie-10-order-state-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      order_by: "issue__state__name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-11-order-status
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      order_by: "status"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-12-order-priority-desc
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      order_by: "-issue__priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-13-order-malformed
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      order_by: "--created_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `issue_filters` lookups, all prefixed `issue__` by the view.
+  - name: ie-14-filter-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      name: "backfill"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-15-filter-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      labels: "{{label_alpha_ui}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-16-filter-labels-null-word
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      labels: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-17-filter-labels-none
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      labels: "None"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-18-filter-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      state_group: "completed"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-19-filter-intake-status
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      intake_status: "1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-20-filter-type-active
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      type: "active"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-21-filter-created-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      created_at: "2026-04-23;after"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-22-filter-logged-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      logged_by: "{{user_tz_kolkata_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Pagination: a second page, a page size of one, and the two 400 paths.
+  - name: ie-23-page-second
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-24-page-size-one
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+      per_page: "1"
+      cursor: "1:0:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-25-page-zero
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      per_page: "0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-26-cursor-malformed
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      cursor: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The restricted guest sees only intake issues they created (none here).
+  - name: ie-27-guest-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,0,1,2,-1"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # A project with no intake: the view's own 404 body.
+  - name: ie-28-no-intake-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A project id that belongs to no project of this workspace.
+  - name: ie-29-missing-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/00000000-0000-4000-8000-000000000000/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Detail: the pending row and the duplicate row (whose `duplicate_to` is
+  # expanded through a second statement), the snoozed row, the soft-deleted
+  # rejected row (404) and an id that is not a project issue.
+  - name: ie-30-detail-pending
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_pending_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-31-detail-duplicate
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_duplicate_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-32-detail-snoozed
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_snoozed_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-33-detail-soft-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_rejected_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-34-detail-wrong-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{intake_issue_alpha_accepted_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # --------------------------------------------------------- description versions
+  - name: ie-35-versions-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-work-items/{{issue_alpha_commented}}/description-versions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-36-versions-page-one
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-work-items/{{issue_alpha_commented}}/description-versions/"
+    query:
+      cursor: "1:0:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-37-versions-page-two
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-work-items/{{issue_alpha_commented}}/description-versions/"
+    query:
+      cursor: "1:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `created_at`/`updated_at` are converted to the caller's timezone;
+  # `last_saved_at` is not.
+  - name: ie-38-versions-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-work-items/{{issue_alpha_commented}}/description-versions/"
+    jar: tz_kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: ie-39-version-detail-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-work-items/{{issue_alpha_commented}}/description-versions/{{issue_description_version_0}}/"
+    jar: tz_kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  # A version of another issue through this issue's route: 404.
+  - name: ie-40-version-wrong-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-work-items/{{issue_alpha}}/description-versions/{{issue_description_version_0}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # An issue that is not in the project: 404 before the version lookup.
+  - name: ie-41-versions-wrong-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-work-items/{{issue_alpha_commented}}/description-versions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-42-versions-cursor-malformed
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-work-items/{{issue_alpha_commented}}/description-versions/"
+    query:
+      cursor: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # -------------------------------------------------------------- intake-state
+  - name: ie-43-intake-state-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-state/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-44-intake-state-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/intake-state/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ie-45-intake-state-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-state/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # The guard answers 405 for a detail route of the view (registered so the
+  # guard is reachable, never dispatched).
+  - name: ie-46-inbox-detail-405
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inboxes/{{intake_alpha}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
