@@ -87,19 +87,19 @@ They were produced by counting `path()` calls, which is not the same as counting
 
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
-| 0 | `/api/workspaces/{slug}/analytics/` | GET | `plane.app.views.analytic.base.AnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
-| 1 | `/api/workspaces/{slug}/analytic-view/` | GET:list, POST:create | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | django | not-started |
-| 2 | `/api/workspaces/{slug}/analytic-view/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | django | not-started |
-| 3 | `/api/workspaces/{slug}/saved-analytic-view/{analytic_id}/` | GET | `plane.app.views.analytic.base.SavedAnalyticEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
+| 0 | `/api/workspaces/{slug}/analytics/` | GET | `plane.app.views.analytic.base.AnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
+| 1 | `/api/workspaces/{slug}/analytic-view/` | GET:list, POST:create | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | rust(GET) | verified |
+| 2 | `/api/workspaces/{slug}/analytic-view/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | rust(GET) | verified |
+| 3 | `/api/workspaces/{slug}/saved-analytic-view/{analytic_id}/` | GET | `plane.app.views.analytic.base.SavedAnalyticEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
 | 4 | `/api/workspaces/{slug}/export-analytics/` | POST | `plane.app.views.analytic.base.ExportAnalyticsEndpoint` | IsAuthenticated; POST allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
-| 5 | `/api/workspaces/{slug}/default-analytics/` | GET | `plane.app.views.analytic.base.DefaultAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
-| 6 | `/api/workspaces/{slug}/project-stats/` | GET | `plane.app.views.analytic.base.ProjectStatsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
-| 7 | `/api/workspaces/{slug}/advance-analytics/` | GET | `plane.app.views.analytic.advance.AdvanceAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
-| 8 | `/api/workspaces/{slug}/advance-analytics-stats/` | GET | `plane.app.views.analytic.advance.AdvanceAnalyticsStatsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
-| 9 | `/api/workspaces/{slug}/advance-analytics-charts/` | GET | `plane.app.views.analytic.advance.AdvanceAnalyticsChartEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
-| 10 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;PROJECT) | django | not-started |
-| 11 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics-stats/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsStatsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;PROJECT) | django | not-started |
-| 12 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics-charts/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsChartEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT) | django | not-started |
+| 5 | `/api/workspaces/{slug}/default-analytics/` | GET | `plane.app.views.analytic.base.DefaultAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
+| 6 | `/api/workspaces/{slug}/project-stats/` | GET | `plane.app.views.analytic.base.ProjectStatsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
+| 7 | `/api/workspaces/{slug}/advance-analytics/` | GET | `plane.app.views.analytic.advance.AdvanceAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
+| 8 | `/api/workspaces/{slug}/advance-analytics-stats/` | GET | `plane.app.views.analytic.advance.AdvanceAnalyticsStatsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
+| 9 | `/api/workspaces/{slug}/advance-analytics-charts/` | GET | `plane.app.views.analytic.advance.AdvanceAnalyticsChartEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
+| 10 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;PROJECT) | rust(GET) | verified |
+| 11 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics-stats/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsStatsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;PROJECT) | rust(GET) | verified |
+| 12 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics-charts/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsChartEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
 | 13 | `/api/workspaces/{slug}/file-assets/` | GET, POST, DELETE | `plane.app.views.asset.base.FileAssetEndpoint` | IsAuthenticated+WorkspaceMemberPermission | rust(GET) | verified |
 | 14 | `/api/workspaces/file-assets/{workspace_id}/{asset_key}/` | GET, DELETE | `plane.app.views.asset.base.FileAssetEndpoint` | IsAuthenticated+WorkspaceMemberPermission | rust(GET) | verified |
 | 15 | `/api/users/file-assets/` | GET, POST, DELETE | `plane.app.views.asset.base.UserAssetsEndpoint` | IsAuthenticated | rust(GET) | verified |
@@ -242,9 +242,9 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 152 | `/api/workspaces/{slug}/projects/{project_id}/project-deploy-boards/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.project.base.DeployBoardViewSet` | ProjectMemberPermission | rust(GET) | verified |
 | 153 | `/api/workspaces/{slug}/projects/{project_id}/archive/` | POST, DELETE | `plane.app.views.project.base.ProjectArchiveUnarchiveEndpoint` | IsAuthenticated; POST,DELETE allow(ADMIN,MEMBER;PROJECT) | django | not-started |
 | 154 | `/api/workspaces/{slug}/projects/{project_id}/preferences/member/{member_id}/` | GET, PATCH | `plane.app.views.project.member.ProjectMemberPreferenceEndpoint` | IsAuthenticated; GET,PATCH allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
-| 155 | `/api/workspaces/{slug}/search/` | GET | `plane.app.views.search.base.GlobalSearchEndpoint` | IsAuthenticated | django | not-started |
-| 156 | `/api/workspaces/{slug}/projects/{project_id}/search-issues/` | GET | `plane.app.views.search.issue.IssueSearchEndpoint` | IsAuthenticated | django | not-started |
-| 157 | `/api/workspaces/{slug}/entity-search/` | GET | `plane.app.views.search.base.SearchEndpoint` | WorkspaceUserPermission | django | not-started |
+| 155 | `/api/workspaces/{slug}/search/` | GET | `plane.app.views.search.base.GlobalSearchEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 156 | `/api/workspaces/{slug}/projects/{project_id}/search-issues/` | GET | `plane.app.views.search.issue.IssueSearchEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 157 | `/api/workspaces/{slug}/entity-search/` | GET | `plane.app.views.search.base.SearchEndpoint` | WorkspaceUserPermission | rust(GET) | verified |
 | 158 | `/api/workspaces/{slug}/projects/{project_id}/states/` | GET:list, POST:create | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); POST allow(ADMIN;PROJECT) | rust(GET) | verified |
 | 159 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); PATCH,DELETE allow(ADMIN;PROJECT) | rust(GET) | verified |
 | 160 | `/api/workspaces/{slug}/projects/{project_id}/intake-state/` | GET | `plane.app.views.state.base.IntakeStateEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
@@ -265,12 +265,12 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 175 | `/api/users/me/workspaces/{slug}/activity-graph/` | GET | `plane.app.views.workspace.user.UserActivityGraphEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 176 | `/api/users/me/workspaces/{slug}/issues-completed-graph/` | GET | `plane.app.views.workspace.user.UserIssueCompletedGraphEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 177 | `/api/users/me/workspaces/{slug}/dashboard/` | GET | `plane.app.views.workspace.base.UserWorkspaceDashboardEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 178 | `/api/workspaces/{slug}/projects/{project_id}/views/` | GET:list, POST:create | `plane.app.views.view.base.IssueViewViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;PROJECT) | django | not-started |
-| 179 | `/api/workspaces/{slug}/projects/{project_id}/views/{pk}/` | GET:retrieve, PUT:update [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.view.base.IssueViewViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); PATCH allow(-;PROJECT;creator=IssueView); DELETE allow(ADMIN;PROJECT;creator=IssueView) | django | not-started |
-| 180 | `/api/workspaces/{slug}/views/` | GET:list, POST:create | `plane.app.views.view.base.WorkspaceViewViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
-| 181 | `/api/workspaces/{slug}/views/{pk}/` | GET:retrieve, PUT:update [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.view.base.WorkspaceViewViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE); PATCH allow(-;WORKSPACE;creator=IssueView); DELETE allow(ADMIN;WORKSPACE;creator=IssueView) | django | not-started |
+| 178 | `/api/workspaces/{slug}/projects/{project_id}/views/` | GET:list, POST:create | `plane.app.views.view.base.IssueViewViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
+| 179 | `/api/workspaces/{slug}/projects/{project_id}/views/{pk}/` | GET:retrieve, PUT:update [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.view.base.IssueViewViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); PATCH allow(-;PROJECT;creator=IssueView); DELETE allow(ADMIN;PROJECT;creator=IssueView) | rust(GET) | verified |
+| 180 | `/api/workspaces/{slug}/views/` | GET:list, POST:create | `plane.app.views.view.base.WorkspaceViewViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
+| 181 | `/api/workspaces/{slug}/views/{pk}/` | GET:retrieve, PUT:update [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.view.base.WorkspaceViewViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE); PATCH allow(-;WORKSPACE;creator=IssueView); DELETE allow(ADMIN;WORKSPACE;creator=IssueView) | rust(GET) | verified |
 | 182 | `/api/workspaces/{slug}/issues/` | GET:list | `plane.app.views.view.base.WorkspaceViewIssuesViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
-| 183 | `/api/workspaces/{slug}/projects/{project_id}/user-favorite-views/` | GET:list [405], POST:create | `plane.app.views.view.base.IssueViewFavoriteViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER;PROJECT) | django | not-started |
+| 183 | `/api/workspaces/{slug}/projects/{project_id}/user-favorite-views/` | GET:list [405], POST:create | `plane.app.views.view.base.IssueViewFavoriteViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER;PROJECT) | rust(GET) | verified |
 | 184 | `/api/workspaces/{slug}/projects/{project_id}/user-favorite-views/{view_id}/` | DELETE:destroy | `plane.app.views.view.base.IssueViewFavoriteViewSet` | IsAuthenticated; DELETE allow(ADMIN,MEMBER;PROJECT) | django | not-started |
 | 185 | `/api/workspace-slug-check/` | GET | `plane.app.views.workspace.base.WorkSpaceAvailabilityCheckEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 186 | `/api/workspaces/` | GET:list, POST:create | `plane.app.views.workspace.base.WorkSpaceViewSet` | WorkSpaceBasePermission; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
@@ -310,15 +310,15 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 220 | `/api/workspaces/{slug}/home-preferences/` | GET, PATCH | `plane.app.views.workspace.home.WorkspaceHomePreferenceViewSet` | IsAuthenticated; GET,PATCH allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 221 | `/api/workspaces/{slug}/home-preferences/{key}/` | GET, PATCH | `plane.app.views.workspace.home.WorkspaceHomePreferenceViewSet` | IsAuthenticated; GET,PATCH allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 222 | `/api/workspaces/{slug}/recent-visits/` | GET:list | `plane.app.views.workspace.recent_visit.UserRecentVisitViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
-| 223 | `/api/workspaces/{slug}/stickies/` | GET:list, POST:create | `plane.app.views.workspace.sticky.WorkspaceStickyViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
-| 224 | `/api/workspaces/{slug}/stickies/{pk}/` | GET:retrieve [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.workspace.sticky.WorkspaceStickyViewSet` | IsAuthenticated; PATCH,DELETE allow(-;WORKSPACE;creator=Sticky) | django | not-started |
+| 223 | `/api/workspaces/{slug}/stickies/` | GET:list, POST:create | `plane.app.views.workspace.sticky.WorkspaceStickyViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
+| 224 | `/api/workspaces/{slug}/stickies/{pk}/` | GET:retrieve [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.workspace.sticky.WorkspaceStickyViewSet` | IsAuthenticated; PATCH,DELETE allow(-;WORKSPACE;creator=Sticky) | rust(GET) | verified |
 | 225 | `/api/workspaces/{slug}/sidebar-preferences/` | GET, PATCH | `plane.app.views.workspace.user_preference.WorkspaceUserPreferenceViewSet` | IsAuthenticated; GET,PATCH allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 226 | `/api/users/api-tokens/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 227 | `/api/users/api-tokens/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 228 | `/api/workspaces/{slug}/webhooks/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | django | not-started |
-| 229 | `/api/workspaces/{slug}/webhooks/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | django | not-started |
+| 228 | `/api/workspaces/{slug}/webhooks/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET) | verified |
+| 229 | `/api/workspaces/{slug}/webhooks/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET) | verified |
 | 230 | `/api/workspaces/{slug}/webhooks/{pk}/regenerate/` | POST | `plane.app.views.webhook.base.WebhookSecretRegenerateEndpoint` | IsAuthenticated; POST allow(ADMIN;WORKSPACE) | django | not-started |
-| 231 | `/api/workspaces/{slug}/webhook-logs/{webhook_id}/` | GET | `plane.app.views.webhook.base.WebhookLogsEndpoint` | IsAuthenticated; GET allow(ADMIN;WORKSPACE) | django | not-started |
+| 231 | `/api/workspaces/{slug}/webhook-logs/{webhook_id}/` | GET | `plane.app.views.webhook.base.WebhookLogsEndpoint` | IsAuthenticated; GET allow(ADMIN;WORKSPACE) | rust(GET) | verified |
 | 232 | `/api/timezones/` | GET | `plane.app.views.timezone.base.TimezoneEndpoint` | AllowAny | rust(GET) | verified |
 | 233 | `/api/workspaces/{slug}/export-issues/` | GET, POST | `plane.app.views.exporter.base.ExportIssuesEndpoint` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
 

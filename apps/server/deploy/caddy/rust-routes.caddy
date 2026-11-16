@@ -73,7 +73,7 @@
 # | users-me | `PLANE_RS_GROUP_USERS_ME` | 22 | 75 | yes |
 # | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | yes |
 # | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | yes |
-# | analytics | `PLANE_RS_GROUP_ANALYTICS` | 13 | 41 | no |
+# | analytics | `PLANE_RS_GROUP_ANALYTICS` | 13 | 41 | yes |
 # | projects | `PLANE_RS_GROUP_PROJECTS` | 17 | 65 | yes |
 # | states | `PLANE_RS_GROUP_STATES` | 4 | 14 | yes |
 # | labels | `PLANE_RS_GROUP_LABELS` | 4 | 15 | yes |
@@ -81,13 +81,13 @@
 # | issues | `PLANE_RS_GROUP_ISSUES` | 41 | 144 | yes |
 # | cycles | `PLANE_RS_GROUP_CYCLES` | 15 | 58 | yes |
 # | modules | `PLANE_RS_GROUP_MODULES` | 13 | 58 | yes |
-# | views | `PLANE_RS_GROUP_VIEWS` | 8 | 30 | no |
+# | views | `PLANE_RS_GROUP_VIEWS` | 8 | 30 | yes |
 # | pages | `PLANE_RS_GROUP_PAGES` | 12 | 38 | yes |
 # | intake | `PLANE_RS_GROUP_INTAKE` | 11 | 45 | yes |
 # | notifications | `PLANE_RS_GROUP_NOTIFICATIONS` | 7 | 23 | yes |
-# | search | `PLANE_RS_GROUP_SEARCH` | 3 | 9 | no |
-# | stickies | `PLANE_RS_GROUP_STICKIES` | 2 | 9 | no |
-# | webhooks | `PLANE_RS_GROUP_WEBHOOKS` | 4 | 17 | no |
+# | search | `PLANE_RS_GROUP_SEARCH` | 3 | 9 | yes |
+# | stickies | `PLANE_RS_GROUP_STICKIES` | 2 | 9 | yes |
+# | webhooks | `PLANE_RS_GROUP_WEBHOOKS` | 4 | 17 | yes |
 # | ai | `PLANE_RS_GROUP_AI` | 2 | 4 | no |
 # | auth-session | `PLANE_RS_GROUP_AUTH_SESSION` | 15 | 31 | no |
 # | auth-magic | `PLANE_RS_GROUP_AUTH_MAGIC` | 6 | 12 | no |
@@ -158,6 +158,22 @@ handle @plane_rs_assets {
 	CEL
 }
 handle @plane_rs_workspaces {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# analytics: Workspace and project analytics endpoints.
+# 13 route(s), 41 endpoint x method pair(s); PLANE_RS_GROUP_ANALYTICS=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_analytics {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_ANALYTICS} == "" ? "rust" : {env.PLANE_RS_GROUP_ANALYTICS}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/analytics/$") || path_regexp(r"^/api/workspaces/[^/]+/analytic-view/$") || path_regexp(r"^/api/workspaces/[^/]+/analytic-view/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/saved-analytic-view/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/default-analytics/$") || path_regexp(r"^/api/workspaces/[^/]+/project-stats/$") || path_regexp(r"^/api/workspaces/[^/]+/advance-analytics/$") || path_regexp(r"^/api/workspaces/[^/]+/advance-analytics-stats/$") || path_regexp(r"^/api/workspaces/[^/]+/advance-analytics-charts/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/advance-analytics/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/advance-analytics-stats/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/advance-analytics-charts/$")))
+		)
+	CEL
+}
+handle @plane_rs_analytics {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
 
@@ -274,6 +290,22 @@ handle @plane_rs_modules {
 }
 
 # --------------------------------------------------------------------------
+# views: Saved workspace and project views.
+# 8 route(s), 30 endpoint x method pair(s); PLANE_RS_GROUP_VIEWS=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_views {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_VIEWS} == "" ? "rust" : {env.PLANE_RS_GROUP_VIEWS}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/views/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/views/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/views/$") || path_regexp(r"^/api/workspaces/[^/]+/views/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/user-favorite-views/$")))
+		)
+	CEL
+}
+handle @plane_rs_views {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
 # pages: Pages, page versions and page lock/access actions.
 # 12 route(s), 38 endpoint x method pair(s); PLANE_RS_GROUP_PAGES=django sends them back.
 # --------------------------------------------------------------------------
@@ -318,5 +350,53 @@ handle @plane_rs_intake {
 	CEL
 }
 handle @plane_rs_notifications {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# search: Workspace search, entity search and issue search.
+# 3 route(s), 9 endpoint x method pair(s); PLANE_RS_GROUP_SEARCH=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_search {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_SEARCH} == "" ? "rust" : {env.PLANE_RS_GROUP_SEARCH}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/search/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/search-issues/$") || path_regexp(r"^/api/workspaces/[^/]+/entity-search/$")))
+		)
+	CEL
+}
+handle @plane_rs_search {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# stickies: Workspace stickies.
+# 2 route(s), 9 endpoint x method pair(s); PLANE_RS_GROUP_STICKIES=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_stickies {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_STICKIES} == "" ? "rust" : {env.PLANE_RS_GROUP_STICKIES}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/stickies/$") || path_regexp(r"^/api/workspaces/[^/]+/stickies/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+		)
+	CEL
+}
+handle @plane_rs_stickies {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# webhooks: Workspace webhooks and webhook delivery logs.
+# 4 route(s), 17 endpoint x method pair(s); PLANE_RS_GROUP_WEBHOOKS=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_webhooks {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_WEBHOOKS} == "" ? "rust" : {env.PLANE_RS_GROUP_WEBHOOKS}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/webhooks/$") || path_regexp(r"^/api/workspaces/[^/]+/webhooks/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/webhook-logs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+		)
+	CEL
+}
+handle @plane_rs_webhooks {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
