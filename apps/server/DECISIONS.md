@@ -24,6 +24,13 @@ workspace `Cargo.toml` and upgrade deliberately.
   and compares the result column names and types with the Rust row type. The test runs
   in CI against the template database.
 - Access result columns by index in hot paths, not by name.
+- Amended 2026-11-16: `prepare_cached` only for the static statements in the query
+  catalogs. Dynamic SQL (filters, ordering, grouping) uses unnamed statements
+  (`Client::prepare` / `query` with SQL text). deadpool's statement cache is unbounded
+  per connection and never deallocates: replaying ~800 distinct filter shapes cost about
+  0.4 MiB of Postgres backend memory each and got the dev backend OOM-killed. If a
+  dynamic shape turns out to be hot, parameterise it into a fixed shape first, then
+  cache it.
 
 ## D2. JSON output: `serde_json` with a DRF-compatible formatter (decided)
 
