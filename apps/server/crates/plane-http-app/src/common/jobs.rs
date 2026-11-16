@@ -26,6 +26,9 @@ use plane_drf::view::ViewCtx;
 use plane_jobs::celery::args::TaskArg;
 use plane_jobs::celery::tasks::{self, RecentVisitedTask};
 use plane_jobs::celery::{CeleryPublisher, Message};
+use plane_jobs::ownership::owner;
+use plane_jobs::queue::Job;
+use plane_jobs::route::{Delivery, dispatch};
 use uuid::Uuid;
 
 /// The process's Celery publisher.
@@ -43,15 +46,59 @@ pub fn publisher<'a>(ctx: &ViewCtx<'a>) -> Result<&'a CeleryPublisher, ViewError
     })
 }
 
-/// `task.delay(...)`: render the message and publish it, returning Celery's
-/// task id.
+/// The Phase 4 routing API: publish to Celery or enqueue to `plane_jobs`
+/// according to `plane_jobs::ownership`.
+///
+/// The Celery branch is the byte-identical coexistence path; it never touches
+/// Postgres. The Rust branch inserts the supplied [`Job`] using the request's
+/// checked-out connection, or a write-pool connection when the handler did not
+/// need one.
 ///
 /// # Errors
 ///
-/// [`ViewError::Unknown`] when the broker is unreachable after the publish
-/// retries — the 500 Django produces.
-pub async fn publish(ctx: &ViewCtx<'_>, message: &Message) -> Result<Uuid, ViewError> {
-    Ok(publisher(ctx)?.publish(message).await?)
+/// [`ViewError::Unknown`] for a broker failure (Django's 500), a missing
+/// publisher, or a Rust-owned task without a database.
+pub async fn dispatch_task(
+    ctx: &ViewCtx<'_>,
+    task: &str,
+    message: &Message,
+    job: Job,
+) -> Result<Option<Uuid>, ViewError> {
+    // A Celery-owned task must not touch Postgres, so only check out a pool
+    // connection when the ownership table says this task is Rust-owned.
+    let delivery = if owner(task).is_rust() {
+        match ctx.db {
+            Some(client) => {
+                dispatch::<tokio_postgres::Client>(
+                    task,
+                    &job,
+                    message,
+                    ctx.celery(),
+                    Some(&***client),
+                )
+                .await
+            }
+            None => {
+                let client = ctx.pools.write_pool().get().await.map_err(|error| {
+                    ViewError::Unknown(format!("checking out a job connection: {error}"))
+                })?;
+                dispatch::<tokio_postgres::Client>(
+                    task,
+                    &job,
+                    message,
+                    ctx.celery(),
+                    Some(&**client),
+                )
+                .await
+            }
+        }
+    } else {
+        dispatch::<tokio_postgres::Client>(task, &job, message, ctx.celery(), None).await
+    };
+    match delivery.map_err(|error| ViewError::Unknown(error.to_string()))? {
+        Delivery::Celery(id) | Delivery::Queued(Some(id)) => Ok(Some(id)),
+        Delivery::Queued(None) => Ok(None),
+    }
 }
 
 /// `request.user.id` as the `uuid.UUID` object the majority of call sites pass
@@ -96,15 +143,24 @@ pub async fn recent_visited_project(
     entity_identifier: TaskArg,
     project_id: Option<TaskArg>,
     user_id: TaskArg,
-) -> Result<Uuid, ViewError> {
+) -> Result<Option<Uuid>, ViewError> {
+    let slug = slug(ctx)?;
+    let job = recent_visited_job(
+        &slug,
+        entity_name,
+        &entity_identifier,
+        project_id.as_ref(),
+        &user_id,
+    );
     let call = RecentVisitedTask::ProjectKeyed {
-        slug: slug(ctx)?,
+        slug,
         project_id,
         entity_name: entity_name.to_string(),
         entity_identifier,
         user_id,
     };
-    publish(ctx, &tasks::recent_visited_task(call)).await
+    let message = tasks::recent_visited_task(call);
+    dispatch_task(ctx, message.task(), &message, job).await
 }
 
 /// `recent_visited_task.delay(slug=…, entity_name=…, entity_identifier=…,
@@ -128,15 +184,43 @@ pub async fn recent_visited_entity(
     entity_identifier: TaskArg,
     project_id: Option<TaskArg>,
     user_id: TaskArg,
-) -> Result<Uuid, ViewError> {
+) -> Result<Option<Uuid>, ViewError> {
+    let slug = slug(ctx)?;
+    let job = recent_visited_job(
+        &slug,
+        entity_name,
+        &entity_identifier,
+        project_id.as_ref(),
+        &user_id,
+    );
     let call = RecentVisitedTask::EntityKeyed {
-        slug: slug(ctx)?,
+        slug,
         entity_name: entity_name.to_string(),
         entity_identifier,
         user_id,
         project_id,
     };
-    publish(ctx, &tasks::recent_visited_task(call)).await
+    let message = tasks::recent_visited_task(call);
+    dispatch_task(ctx, message.task(), &message, job).await
+}
+
+/// The Rust-owned representation of a `recent_visited_task`. No production
+/// handler is registered in Phase 4; the payload is the future Rust handler's
+/// contract and keeps the call site honest when the task moves.
+fn recent_visited_job(
+    slug: &str,
+    entity_name: &str,
+    entity_identifier: &TaskArg,
+    project_id: Option<&TaskArg>,
+    user_id: &TaskArg,
+) -> Job {
+    Job::new("plane.bgtasks.recent_visited_task.recent_visited_task").payload(serde_json::json!({
+        "slug": slug,
+        "entity_name": entity_name,
+        "entity_identifier": entity_identifier,
+        "project_id": project_id,
+        "user_id": user_id,
+    }))
 }
 
 #[cfg(test)]

@@ -1,0 +1,35 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-worker"
+description = "Runs Rust-owned background jobs from the plane_jobs queue"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "plane-worker"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+plane-core = { path = "../../crates/plane-core" }
+plane-db = { path = "../../crates/plane-db" }
+plane-jobs = { path = "../../crates/plane-jobs" }
+serde_json.workspace = true
+tokio = { workspace = true, features = [
+  "macros",
+  "rt-multi-thread",
+  "signal",
+  "time",
+] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "json"] }
+uuid.workspace = true
+
+[lints]
+workspace = true

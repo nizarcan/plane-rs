@@ -1,0 +1,26 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-migrator"
+description = "Creates the Rust-owned Postgres schema (plane_jobs)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "plane-migrator"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+plane-core = { path = "../../crates/plane-core" }
+plane-db = { path = "../../crates/plane-db" }
+plane-jobs = { path = "../../crates/plane-jobs" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

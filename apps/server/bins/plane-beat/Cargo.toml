@@ -1,0 +1,33 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-beat"
+description = "The Postgres-backed replacement for django_celery_beat's DatabaseScheduler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "plane-beat"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+plane-core = { path = "../../crates/plane-core" }
+plane-db = { path = "../../crates/plane-db" }
+plane-jobs = { path = "../../crates/plane-jobs" }
+tokio = { workspace = true, features = [
+  "macros",
+  "rt-multi-thread",
+  "signal",
+  "time",
+] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "json"] }
+
+[lints]
+workspace = true

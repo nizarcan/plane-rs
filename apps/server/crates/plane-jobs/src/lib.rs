@@ -10,12 +10,27 @@
 //!   handler that needs a task still owned by Celery publishes a
 //!   Celery-protocol JSON message to RabbitMQ. [`celery`] is that publisher and
 //!   the typed task API that goes with it.
-//! * After cutover the crate owns a Postgres-backed queue
-//!   (`SELECT … FOR UPDATE SKIP LOCKED` in schema `plane_jobs`, DECISIONS.md
-//!   D8). That part does not exist yet.
+//! * The Postgres queue (`SELECT … FOR UPDATE SKIP LOCKED` in schema
+//!   `plane_jobs`, DECISIONS.md D8) is [`queue`], [`worker`] and [`beat`].
+//!   [`ownership`] decides which side owns a task; [`route::dispatch`] is the
+//!   one call site a handler uses.
 //!
 //! The Celery half is behind the `celery` cargo feature (D7), which is on by
-//! default while Django still runs the workers.
+//! default while Django still runs the workers. The queue half has no such
+//! feature: it is the cutover target.
 
 #[cfg(feature = "celery")]
 pub mod celery;
+
+pub mod beat;
+pub mod listener;
+pub mod ownership;
+pub mod queue;
+#[cfg(feature = "celery")]
+pub mod route;
+pub mod worker;
+
+pub use beat::{Beat, BeatConfig, REAL_SCHEDULES, ScheduleSeed};
+pub use ownership::{Owner, owner};
+pub use queue::{ClaimedJob, Failure, Job, QueueError, enqueue, migrate};
+pub use worker::{HandlerError, JobContext, TaskRegistry, Worker, WorkerConfig};
