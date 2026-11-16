@@ -23,6 +23,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -41,6 +42,7 @@ pub const FIELDS: &[FieldSpec] = &[
             write_only: false,
             allow_null: false,
             allow_blank: false,
+            allow_empty: true,
             default: None,
             max_length: None,
             min_length: None,
@@ -62,6 +64,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -80,6 +83,7 @@ pub const FIELDS: &[FieldSpec] = &[
             write_only: false,
             allow_null: false,
             allow_blank: false,
+            allow_empty: true,
             default: None,
             max_length: None,
             min_length: None,
@@ -101,6 +105,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -119,6 +124,7 @@ pub const FIELDS: &[FieldSpec] = &[
             write_only: false,
             allow_null: false,
             allow_blank: false,
+            allow_empty: true,
             default: None,
             max_length: None,
             min_length: None,
@@ -140,6 +146,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -300,6 +307,6 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     if s.missing_required("description_html") {
         s.push_error("description_html", Detail::required());
     }
-    let _ = client; // no primary-key field validates against a table
+    let _ = client; // no field validates against a table
     Ok(())
 }

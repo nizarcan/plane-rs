@@ -348,6 +348,12 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
         if let Some(sort_order) = values.float("sort_order") {
             sticky.sort_order = sort_order;
         }
+        // `ModelSerializer.update` assigns every validated key; H01 only
+        // overwrites `updated_by` on an update, so a body `created_by`
+        // (including an explicit null) is written.
+        if values.contains("created_by") {
+            sticky.created_by = values.uuid("created_by");
+        }
 
         // H23 on update: only `description_stripped` changes.
         sticky.description_stripped = hooks::sticky::before_update(&sticky.description_html);

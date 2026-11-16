@@ -7,7 +7,7 @@
 //! `tools/inventory/serializers.py --rust`; do not edit.
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
-use crate::write::{CharOptions, Detail, Serializer};
+use crate::write::{CharOptions, Detail, IntegerOptions, PrimaryKeyListOptions, Serializer};
 use deadpool_postgres::Client;
 use plane_drf::error::ViewError;
 
@@ -23,6 +23,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -43,6 +44,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -63,6 +65,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: true,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -81,6 +84,7 @@ pub const FIELDS: &[FieldSpec] = &[
             write_only: false,
             allow_null: false,
             allow_blank: false,
+            allow_empty: true,
             default: None,
             max_length: None,
             min_length: None,
@@ -102,6 +106,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: true,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -120,6 +125,7 @@ pub const FIELDS: &[FieldSpec] = &[
             write_only: false,
             allow_null: false,
             allow_blank: false,
+            allow_empty: true,
             default: None,
             max_length: None,
             min_length: None,
@@ -141,6 +147,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -161,6 +168,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: Some(255),
         min_length: None,
@@ -181,6 +189,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -201,6 +210,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: true,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -221,6 +231,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: true,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -241,6 +252,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -267,6 +279,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -287,6 +300,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -307,6 +321,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -327,6 +342,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: false,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -347,6 +363,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: true,
+        allow_empty: true,
         default: None,
         max_length: Some(255),
         min_length: None,
@@ -367,6 +384,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: true,
+        allow_empty: true,
         default: None,
         max_length: Some(255),
         min_length: None,
@@ -387,6 +405,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -407,6 +426,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -427,6 +447,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -447,6 +468,7 @@ pub const FIELDS: &[FieldSpec] = &[
         write_only: false,
         allow_null: true,
         allow_blank: false,
+        allow_empty: true,
         default: None,
         max_length: None,
         min_length: None,
@@ -584,9 +606,40 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     let _ = s
         .primary_key_field(client, "parent_id", true, "issues")
         .await?;
-    // TODO(list): label_ids
-    // TODO(list): assignee_ids
-    // TODO(integer): point
+    let _ = s
+        .primary_key_list_field(
+            client,
+            "label_ids",
+            PrimaryKeyListOptions {
+                allow_null: false,
+                allow_empty: true,
+                min_length: None,
+                max_length: None,
+                table: "labels",
+            },
+        )
+        .await?;
+    let _ = s
+        .primary_key_list_field(
+            client,
+            "assignee_ids",
+            PrimaryKeyListOptions {
+                allow_null: false,
+                allow_empty: true,
+                min_length: None,
+                max_length: None,
+                table: "users",
+            },
+        )
+        .await?;
+    let _ = s.integer_field(
+        "point",
+        true,
+        IntegerOptions {
+            min_value: Some(0),
+            max_value: Some(12),
+        },
+    );
     let _ = s.char_field(
         "name",
         CharOptions {
@@ -618,9 +671,14 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
             max_length: None,
         },
     );
-    // TODO(choice): priority
-    // TODO(date): start_date
-    // TODO(date): target_date
+    let _ = s.choice_field(
+        "priority",
+        false,
+        false,
+        &["urgent", "high", "medium", "low", "none"],
+    );
+    let _ = s.date_field("start_date", true, &["iso-8601"]);
+    let _ = s.date_field("target_date", true, &["iso-8601"]);
     let _ = s.float_field("sort_order", false);
     let _ = s.bool_field("is_draft");
     let _ = s.char_field(

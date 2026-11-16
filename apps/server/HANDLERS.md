@@ -618,14 +618,16 @@ it.
 
 When a field class has no helper in `write/`, `validate` emits a
 `// TODO(kind)` comment instead of guessing, and the generator's summary lists
-every TODO. Today that covers integers/length bounds (`IntegerField`), string
-choices (a custom `field` parser in the handlers), dates, UUIDs, list/many-
-related fields, nested serializers and file uploads. Primary keys are
-supported by `write::fields::primary_key` + `Serializer::primary_key_field`:
-`Invalid pk "{value}" - object does not exist.` (code `does_not_exist`) after
-the SELECT, and Django's UUID `“{value}” is not a valid UUID.` for a malformed
-value. Add the missing helper to `write/` first; do not hand-write around the
-TODO.
+every TODO. The field helpers now cover `primary_key` (one `SELECT 1 FROM <model table>
+WHERE id = $1`; DRF's `does_not_exist` and Django's UUID message),
+`primary_key_list_field`/`primary_key_many_field` (per-element lookups;
+`not_a_list`, `empty`, and the `ListField` per-index error object), `date`,
+string `choice`, and `integer` with `min_value`/`max_value`/
+`max_string_length`. Remaining TODOs are non-primary-key lists
+(`IssueCommentSerializer.attachments` is a URL list, the read serializers'
+`*_ids` are UUID lists), nested serializers and file uploads
+(`IssueAttachmentSerializer.asset`; the v1 route is multipart/S3, not JSON).
+Add the missing helper to `write/` first; do not hand-write around the TODO.
 
 The two hand-ported pilots are the calibration: `--write-equivalence` compares
 the generated table with `stickies/write.rs::apply_body` and

@@ -41,6 +41,7 @@ pub struct FieldSpec {
     pub write_only: bool,
     pub allow_null: bool,
     pub allow_blank: bool,
+    pub allow_empty: bool,
     pub default: Option<&'static str>,
     pub max_length: Option<usize>,
     pub min_length: Option<usize>,
@@ -70,6 +71,7 @@ pub struct ExtraKwarg {
 }
 
 pub mod comment_reaction_serializer;
+pub mod deploy_board_serializer;
 pub mod draft_issue_create_serializer;
 pub mod draft_issue_detail_serializer;
 pub mod draft_issue_serializer;
@@ -81,5 +83,8 @@ pub mod issue_reaction_serializer;
 pub mod issue_relation_serializer;
 pub mod issue_serializer;
 pub mod issue_subscriber_serializer;
+pub mod project_member_serializer;
 pub mod project_serializer;
+pub mod project_user_property_serializer;
+pub mod state_serializer;
 pub mod sticky_serializer;

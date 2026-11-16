@@ -209,6 +209,56 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 400
+  # `created_by` is writable and `ModelSerializer.update` assigns it; H01 only
+  # overwrites `updated_by` on an update. A row whose created_by moves away
+  # from the caller is no longer patchable (creator=True), so each case gets its
+  # own row.
+  - name: write-stickies-04i-create-created-by-audit
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created-by audit"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_audit
+        source: db
+        table: stickies
+        column: id
+  - name: write-stickies-04j-patch-created-by-existing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_audit}}/"
+    json:
+      created_by: "{{user_member_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-stickies-04k-create-created-by-null-audit
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created-by null audit"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_audit_null
+        source: db
+        table: stickies
+        column: id
+  - name: write-stickies-04l-patch-created-by-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_audit_null}}/"
+    json:
+      created_by: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
 
   # --- validation errors ---------------------------------------------------
   - name: write-stickies-05-create-null-description

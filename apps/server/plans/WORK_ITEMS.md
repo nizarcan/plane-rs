@@ -82,14 +82,16 @@ is base64/10 MB/suspicious-pattern validated → `{"description_binary": ["Inval
 Comments write a `Description` row from `IssueComment.save` (atomic, then a column-only
 `update_fields=["description_id"]` save) and keep it in sync on later saves.
 
-**e. `write::generated` kinds** (`write/generated/issue_*`, `draft_*`; TODOs today):
-`primary_key` (landing with stickies; note `state_id` uses `State.all_state_objects`, the
-other FKs their default managers; errors `Incorrect type…` / `Invalid pk "…" - object does
-not exist.`), `list` (of PKs; `Expected a list of items but got type "…".`, per-index errors,
-`write_only`; then `validate()` filters assignees to active project members role ≥ 15 and
-labels to the project), `date` (`DateField`, ISO), `choice` with strings (`priority`:
-urgent/high/medium/low/none), `integer` (exists; `point`). Do not edit generated files — the
-generator (`rs-p5-sergen`) owns them.
+**e. `write::generated` kinds** (`write/generated/issue_*`, `draft_*`): `primary_key`
+(landed; note `state_id` uses `State.all_state_objects`, the other FKs their default
+managers; errors `Incorrect type…` / `Invalid pk "…" - object does not exist.`), `list` of
+PKs (landed: `Expected a list of items but got type "…".`, per-index error object, one
+lookup per element; then `validate()` filters assignees to active project members role ≥ 15
+and labels to the project), `date` (landed, ISO), `choice` with strings (landed; `priority`:
+urgent/high/medium/low/none), `integer` (landed with min/max/max_string_length; `point`).
+Remaining `TODO`s are non-PK lists (`IssueCommentSerializer.attachments` URL list, the read
+serializers' UUID `*_ids`) and `IssueAttachmentSerializer.asset` (multipart/S3, not JSON).
+Do not edit generated files — the generator (`rs-p5-sergen`) owns them.
 
 **f. Response render.** Create returns **201** with the hand-built `.values(...)` flat row
 (the list projection + `issue_queryset_grouper` annotations + `user_timezone_converter`), not

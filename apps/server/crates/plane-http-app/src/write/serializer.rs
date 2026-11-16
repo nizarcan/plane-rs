@@ -23,6 +23,7 @@
 //! DRF's `Request._parse`: JSON text/`ParseError`, the 415 for a
 //! wrong `Content-Type`, forms and multipart as a `QueryDict`.
 
+use chrono::NaiveDate;
 use deadpool_postgres::Client;
 use plane_db::JsonText;
 use plane_drf::error::ViewError;
@@ -43,6 +44,8 @@ pub enum Value {
     Json(JsonText),
     Float(f64),
     DateTime(chrono::DateTime<chrono::Utc>),
+    Date(NaiveDate),
+    UuidList(Vec<uuid::Uuid>),
 }
 
 /// The `validated_data` dict, in the serializer's field order.
@@ -103,6 +106,22 @@ impl Validated {
         }
     }
 
+    /// A `DateField` value.
+    pub fn date(&self, name: &str) -> Option<NaiveDate> {
+        match self.get(name) {
+            Some(Value::Date(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// A `ListField`/`ManyRelatedField` of primary keys.
+    pub fn uuid_list(&self, name: &str) -> Option<&[uuid::Uuid]> {
+        match self.get(name) {
+            Some(Value::UuidList(value)) => Some(value),
+            _ => None,
+        }
+    }
+
     pub fn float(&self, name: &str) -> Option<f64> {
         match self.get(name) {
             Some(Value::Float(value)) => Some(*value),
@@ -159,23 +178,65 @@ impl From<uuid::Uuid> for Value {
     }
 }
 
-/// `serializer.errors`: ordered `(field, details)` pairs.
+impl From<NaiveDate> for Value {
+    fn from(value: NaiveDate) -> Self {
+        Self::Date(value)
+    }
+}
+
+/// The value of one field in `serializer.errors`.
 ///
-/// `Detail::code` is kept because DRF's "No data provided" rewrite depends on
-/// the only error being a `null` code (`serializers.py:589-596`).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ValidationErrors(Vec<(&'static str, Vec<Detail>)>);
+/// A `ListField` collects child errors as a dict keyed by the element's index
+/// (`{"1": ["…"]}` in the body); every other field is a list of messages.
+#[derive(Debug)]
+enum FieldErrors {
+    Messages(Vec<Detail>),
+    Indexed(Vec<(usize, Vec<Detail>)>),
+}
+
+/// Options for a `ListField` of primary keys.
+#[derive(Debug, Clone, Copy)]
+pub struct PrimaryKeyListOptions {
+    pub allow_null: bool,
+    pub allow_empty: bool,
+    pub min_length: Option<usize>,
+    pub max_length: Option<usize>,
+    pub table: &'static str,
+}
+
+/// `serializer.errors`: ordered `(field, details)` pairs.
+#[derive(Debug, Default)]
+pub struct ValidationErrors(Vec<(&'static str, FieldErrors)>);
 
 impl ValidationErrors {
     pub fn new(field: &'static str, detail: Detail) -> Self {
-        Self(vec![(field, vec![detail])])
+        Self(vec![(field, FieldErrors::Messages(vec![detail]))])
     }
 
     pub fn push(&mut self, field: &'static str, detail: Detail) {
         match self.0.iter_mut().find(|(name, _)| *name == field) {
-            Some((_, details)) => details.push(detail),
-            None => self.0.push((field, vec![detail])),
+            Some((_, FieldErrors::Messages(details))) => details.push(detail),
+            // A top-level list error returns before child validation, so the
+            // two shapes cannot coexist for one field; keep the first.
+            Some((_, FieldErrors::Indexed(_))) => {}
+            None => self.0.push((field, FieldErrors::Messages(vec![detail]))),
         }
+    }
+
+    /// A `ListField` child error: DRF raises `ValidationError({idx: detail})`
+    /// (`fields.py:1720-1735`), which renders as an object keyed by index.
+    pub fn push_indexed(&mut self, field: &'static str, index: usize, detail: Detail) {
+        if let Some((_, details)) = self.0.iter_mut().find(|(name, _)| *name == field) {
+            if let FieldErrors::Indexed(details) = details {
+                match details.iter_mut().find(|(slot, _)| *slot == index) {
+                    Some((_, slot)) => slot.push(detail),
+                    None => details.push((index, vec![detail])),
+                }
+            }
+            return;
+        }
+        self.0
+            .push((field, FieldErrors::Indexed(vec![(index, vec![detail])])));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -184,24 +245,35 @@ impl ValidationErrors {
 
     /// The 400 `Response(serializer.errors)` body.
     ///
-    /// Keys are in field order, each value is a JSON array of strings:
-    /// `{"color": ["Ensure this field has no more than 255 characters."]}`.
+    /// Keys are in field order, each value is a JSON array of strings (or, for
+    /// a list field's child errors, an object keyed by the element index):
+    /// `{"color": ["Ensure this field has no more than 255 characters."]}` or
+    /// `{"label_ids": {"0": ["Invalid pk \"…\" - object does not exist."]}}`.
     #[must_use]
     pub fn into_response(self) -> plane_drf::view::ViewResponse {
         use plane_query::json::Json as Doc;
+        let messages = |details: Vec<Detail>| -> Doc {
+            Doc::Array(
+                details
+                    .into_iter()
+                    .map(|detail| Doc::Str(detail.message))
+                    .collect(),
+            )
+        };
         let entries: Vec<(String, Doc)> = self
             .0
             .into_iter()
-            .map(|(field, details)| {
-                (
-                    field.to_owned(),
-                    Doc::Array(
-                        details
+            .map(|(field, errors)| {
+                let value = match errors {
+                    FieldErrors::Messages(details) => messages(details),
+                    FieldErrors::Indexed(items) => Doc::Object(
+                        items
                             .into_iter()
-                            .map(|detail| Doc::Str(detail.message))
+                            .map(|(index, details)| (index.to_string(), messages(details)))
                             .collect(),
                     ),
-                )
+                };
+                (field.to_owned(), value)
             })
             .collect();
         plane_drf::view::ViewResponse::raw(
@@ -433,6 +505,191 @@ impl<'a> Serializer<'a> {
         Ok(None)
     }
 
+    /// `IntegerField` (`rest_framework/fields.py:1080-1100`).
+    pub fn integer_field(
+        &mut self,
+        name: &'static str,
+        allow_null: bool,
+        options: fields::IntegerOptions,
+    ) -> Option<i64> {
+        let parsed = self.field(name, allow_null, move |raw| fields::integer(raw, &options))?;
+        Some(parsed)
+    }
+
+    /// `ChoiceField` over string choices (`rest_framework/fields.py:1930-1970`).
+    pub fn choice_field(
+        &mut self,
+        name: &'static str,
+        allow_null: bool,
+        allow_blank: bool,
+        allowed: &'static [&'static str],
+    ) -> Option<String> {
+        let parsed = self.field(name, allow_null, move |raw| {
+            fields::choice(raw, allow_blank, allowed)
+        })?;
+        Some(parsed)
+    }
+
+    /// `DateField` (`rest_framework/fields.py:1200-1240`).
+    pub fn date_field(
+        &mut self,
+        name: &'static str,
+        allow_null: bool,
+        formats: &'static [&'static str],
+    ) -> Option<NaiveDate> {
+        let parsed = self.field(name, allow_null, move |raw| {
+            fields::date(fields::DateInput::Raw(raw), formats)
+        })?;
+        Some(parsed)
+    }
+
+    /// `ListField` of `PrimaryKeyRelatedField` children
+    /// (`rest_framework/fields.py:1690-1740`): `not_a_list`/`empty`, then one
+    /// `queryset.get(pk=…)` per element. Child failures are rendered under the
+    /// element's index, as DRF's `errors[idx]` dict.
+    pub async fn primary_key_list_field(
+        &mut self,
+        client: &Client,
+        name: &'static str,
+        options: PrimaryKeyListOptions,
+    ) -> Result<Option<Vec<uuid::Uuid>>, ViewError> {
+        let PrimaryKeyListOptions {
+            allow_null,
+            allow_empty,
+            min_length,
+            max_length,
+            table,
+        } = options;
+        let Some(raw) = self.field_value(name, allow_null, Some(false)) else {
+            return Ok(None);
+        };
+        let items = match raw {
+            Raw::Json(Json::List(items)) => items,
+            other => {
+                self.errors
+                    .push(name, fields::not_a_list(raw_type_name(other)));
+                return Ok(None);
+            }
+        };
+        if items.is_empty() && !allow_empty {
+            self.errors.push(name, fields::empty_list());
+            return Ok(None);
+        }
+        let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
+        let mut values = Vec::with_capacity(items.len());
+        let mut failed = false;
+        for (index, item) in items.iter().enumerate() {
+            let raw = Raw::Json(item);
+            let value = match fields::primary_key(raw) {
+                Ok(value) => value,
+                Err(detail) => {
+                    self.errors.push_indexed(name, index, detail);
+                    failed = true;
+                    continue;
+                }
+            };
+            let exists = client
+                .query_opt(sql.as_str(), &[&value])
+                .await
+                .map_err(ViewError::from)?
+                .is_some();
+            if exists {
+                values.push(value);
+            } else {
+                self.errors.push_indexed(
+                    name,
+                    index,
+                    Detail::new(
+                        format!(
+                            "Invalid pk \"{}\" - object does not exist.",
+                            fields::primary_key_text(raw)
+                        ),
+                        "does_not_exist",
+                    ),
+                );
+                failed = true;
+            }
+        }
+        if failed {
+            return Ok(None);
+        }
+        if let Some(min) = min_length
+            && values.len() < min
+        {
+            self.errors.push(name, fields::list_min_length(min));
+            return Ok(None);
+        }
+        if let Some(max) = max_length
+            && values.len() > max
+        {
+            self.errors.push(name, fields::list_max_length(max));
+            return Ok(None);
+        }
+        self.values.push((name, Value::UuidList(values.clone())));
+        Ok(Some(values))
+    }
+
+    /// `ManyRelatedField` (`rest_framework/relations.py:480-560`): the child's
+    /// error propagates directly (no per-index dict), and validation stops at
+    /// the first failure.
+    pub async fn primary_key_many_field(
+        &mut self,
+        client: &Client,
+        name: &'static str,
+        allow_null: bool,
+        allow_empty: bool,
+        table: &'static str,
+    ) -> Result<Option<Vec<uuid::Uuid>>, ViewError> {
+        let Some(raw) = self.field_value(name, allow_null, Some(false)) else {
+            return Ok(None);
+        };
+        let items = match raw {
+            Raw::Json(Json::List(items)) => items,
+            other => {
+                self.errors
+                    .push(name, fields::not_a_list(raw_type_name(other)));
+                return Ok(None);
+            }
+        };
+        if items.is_empty() && !allow_empty {
+            self.errors.push(name, fields::empty_list());
+            return Ok(None);
+        }
+        let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
+        let mut values = Vec::with_capacity(items.len());
+        for item in items {
+            let raw = Raw::Json(item);
+            let value = match fields::primary_key(raw) {
+                Ok(value) => value,
+                Err(detail) => {
+                    self.errors.push(name, detail);
+                    return Ok(None);
+                }
+            };
+            let exists = client
+                .query_opt(sql.as_str(), &[&value])
+                .await
+                .map_err(ViewError::from)?
+                .is_some();
+            if !exists {
+                self.errors.push(
+                    name,
+                    Detail::new(
+                        format!(
+                            "Invalid pk \"{}\" - object does not exist.",
+                            fields::primary_key_text(raw)
+                        ),
+                        "does_not_exist",
+                    ),
+                );
+                return Ok(None);
+            }
+            values.push(value);
+        }
+        self.values.push((name, Value::UuidList(values.clone())));
+        Ok(Some(values))
+    }
+
     /// A field whose parser decides the message and whose value the caller
     /// keeps; the validated bag records it for `partial`-style presence tests.
     pub fn field<T>(
@@ -615,6 +872,20 @@ impl<'a> Serializer<'a> {
     }
 }
 
+/// Python's `type(value).__name__` for a `ListField`'s `not_a_list` message.
+fn raw_type_name(raw: Raw<'_>) -> &'static str {
+    match raw {
+        Raw::Text(_) => "str",
+        Raw::Json(Json::Bool(_)) => "bool",
+        Raw::Json(Json::Int(_)) => "int",
+        Raw::Json(Json::Float(_)) => "float",
+        Raw::Json(Json::Str(_)) => "str",
+        Raw::Json(Json::Null) => "NoneType",
+        Raw::Json(Json::List(_)) => "list",
+        Raw::Json(Json::Dict(_)) => "dict",
+    }
+}
+
 /// Python's `type(value).__name__` for the non-mapping body message.
 fn python_type_name(value: &Json) -> &'static str {
     match value {
@@ -632,4 +903,57 @@ fn python_type_name(value: &Json) -> &'static str {
 /// `plane_serde`.
 pub fn empty_dict() -> PyDict {
     pyjson::PyDict::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plane_drf::view::ViewResponse;
+
+    fn body(response: ViewResponse) -> serde_json::Value {
+        match response {
+            ViewResponse::Raw { body, .. } => serde_json::from_slice(&body).expect("json"),
+            other => panic!("expected a raw response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn list_child_errors_render_as_an_index_object() {
+        let mut errors = ValidationErrors::default();
+        errors.push_indexed(
+            "label_ids",
+            0,
+            Detail::new(
+                "Invalid pk \"x\" - object does not exist.",
+                "does_not_exist",
+            ),
+        );
+        errors.push_indexed(
+            "label_ids",
+            2,
+            Detail::new("\"bad\" is not a valid UUID.", "invalid"),
+        );
+        assert_eq!(
+            body(errors.into_response()),
+            serde_json::json!({
+                "label_ids": {
+                    "0": ["Invalid pk \"x\" - object does not exist."],
+                    "2": ["\"bad\" is not a valid UUID."]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn ordinary_field_errors_stay_a_list() {
+        let mut errors = ValidationErrors::new("name", Detail::required());
+        errors.push("color", Detail::blank());
+        assert_eq!(
+            body(errors.into_response()),
+            serde_json::json!({
+                "name": ["This field is required."],
+                "color": ["This field may not be blank."]
+            })
+        );
+    }
 }
