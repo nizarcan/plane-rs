@@ -713,10 +713,42 @@ and only `verified` rows are Rust-owned.
   `CARGO_INCREMENTAL=0`. Idle worktrees' `target/debug/incremental` can be dropped
   safely.
 
+### Phase 5: work items set A and cycles (2026-11-16)
+
+- Work items set A, issue core (merged `ac7d5b2819`, flipped `2e8e9691b6`): 64
+  `rust(GET,POST)`, 67 `rust(GET,PUT,PATCH,DELETE)`, 71 `rust(DELETE)`, 72/96
+  `rust(POST)`, 92 `rust(GET,POST,DELETE)`. `write/issues.yaml` 118/118 in both
+  directions; `issue_hooks` 11/11; the orchestrator's contract run is 121/121
+  Rust-touching; the full read sweep is clean. The contract runner now derives its vhost
+  from `PLANE_RS_CONTRACT_DB`. The agent used `git stash` against the rules; the
+  orchestrator dropped the stash after verifying.
+- Cycles set B, cycle issues and transfer (merged `7544b368b9`, flipped `062db8c74d`):
+  33 `rust(GET,POST)`, 34 `rust(GET,DELETE)`, 38 `rust(POST)`. `write/cycle-issues.yaml`
+  29/29; contract 124/124 Rust-touching. The Python `set()` order doesn't reach the wire
+  (`new_issues` is re-sorted by `-created_at`; Django vs Django matched with independent
+  hash seeds). A real Rust bug caught: one shared timestamp per batched insert made the
+  order arbitrary; Django's `bulk_create` gives each row its own `now`.
+  `write::django_serialize` reproduces `serializers.serialize("json", ...)`.
+- Cycles set A, cycle core (merged `d2d298caed`): 31 `rust(GET,POST)`, 32
+  `rust(GET,PUT,PATCH,DELETE)`, 35 `rust(POST)`, 36 `rust(GET,POST)`, 37 `rust(DELETE)`,
+  39 `rust(GET,PATCH)`, 40/41/42 `rust(GET,POST,DELETE)`. `write/cycles.yaml` 60/60,
+  covering every flipped method. **No app contract test reaches these routes** (the
+  same was true of labels), so the differential scenario is the only evidence.
+- Upstream quirks kept: 41/42 always 500; PATCH on a missing cycle 500s; archive deletes
+  all users' favourites; destroy hard-deletes all users' recent visits; one-sided PATCH
+  dates are stored unconverted.
+- Agents' full contract runs show 15 `test_authentication.py` magic-link failures that
+  reproduce with `--backend django`. Environmental; not yet explained.
+- Orchestration: new tasks now go to **fresh subagent sessions** with self-contained
+  briefs. Long-lived sessions had been compacted many times and carried stale context
+  (duplicate helpers, parallel harness fixes, unauthorised commits and stashes).
+  Running sessions only receive follow-ups on their own work.
+
 ## Next three steps
 
-1. Merge work items set A (catching up), then set D's draft-to-issue (217).
-2. Merge cycles sets A and B; then modules sets A and B, per `plans/MODULES.md`.
-3. Then views → pages → intake → notifications → favourites → webhooks → exports →
-   analytics → search, each planned read-only first. Re-measure the Phase 3 benchmark row
-   on a quiet stack once work items, cycles and modules are in.
+1. In progress, fresh agents: draft-to-issue (217, `rs-p5-wi-d`), and modules sets A
+   (103/104/112–115) and B (105–111) per `plans/MODULES.md`.
+2. Then views → pages → intake → notifications → favourites → webhooks → exports →
+   analytics → search, each planned read-only first.
+3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items and cycles
+   are in.
