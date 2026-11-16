@@ -26,6 +26,9 @@ use plane_serde::values::PyDate;
 use plane_serializers::FieldValue;
 use plane_serializers::fields::DrfUuid;
 use plane_serializers::generated::app_workspace::WorkSpaceSerializer;
+// `icontains`' LIKE escaping has one implementation, in `plane-query`
+// (`django/db/backends/base/operations.py:516-518`).
+use plane_query::sql::prep_for_like_query as escape_like;
 use serde::Serialize;
 
 use super::queries;
@@ -66,14 +69,6 @@ async fn validate_owner(ctx: &ViewCtx<'_>, value: &str) -> Result<Option<uuid::U
         )));
     }
     Ok(Some(id))
-}
-
-/// `django.db.models.fields.Field.get_prep_value`'s LIKE escaping, which
-/// `icontains` applies before wrapping the term in `%`.
-fn escape_like(term: &str) -> String {
-    term.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
 }
 
 /// `UserWorkSpacesEndpoint.get` (`plane/app/views/workspace/base.py:176-212`).

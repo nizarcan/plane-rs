@@ -12,7 +12,7 @@
 //! Issue.issue_objects
 //!   .filter(issue_cycle__cycle_id=…, issue_cycle__deleted_at__isnull=True)
 //! (.filter(project_id=…).filter(workspace__slug=…) for the cycle list;
-//!  ModuleIssueViewSet builds all three in get_queryset)
+//!  ModuleIssueViewSet builds all three in get_queryset and adds .distinct())
 //!   .filter(<ComplexFilterBackend: ?filters= only>)
 //!   .filter(**issue_filters(…))
 //!   .annotate(cycle_id, link_count, attachment_count, sub_issues_count)
@@ -21,12 +21,16 @@
 //!   paginate(…)
 //! ```
 //!
-//! Two facts about these views decide rows and are reproduced here:
+//! Three facts about these views decide rows and are reproduced through
+//! [`plane_query::ListOptions`]:
 //!
-//! * **No `.distinct()`.** `IssueViewSet.get_queryset` ends in `.distinct()`;
-//!   these two build `Issue.issue_objects.filter(...)` directly, so
-//!   `total_count_queryset.count()` counts joined rows and two issues sharing a
-//!   filter row can appear twice.
+//! * **`distinct`.** `CycleIssueViewSet.list` builds
+//!   `Issue.issue_objects.filter(...)` directly, so its counts are joined rows;
+//!   `ModuleIssueViewSet.get_queryset` ends in `.distinct()` and its counts
+//!   collapse them (`plane/app/views/module/issue.py:91-100`).
+//! * **The through-table scope is an inner join**, not an `EXISTS`: Django's
+//!   `filter(issue_cycle__cycle_id=…)` joins the through table, so an issue
+//!   with two matching rows would appear twice (`cycle/issue.py:107-112`).
 //! * **Only `?filters=` filters.** `filter_backends` is `(ComplexFilterBackend,)`
 //!   and `ComplexFilterBackend.filter_queryset` reads just the `filters` JSON
 //!   tree (`plane/utils/filters/filter_backend.py:31-53`); the
@@ -45,14 +49,11 @@ use plane_core::error::APPLICATION_JSON;
 use plane_drf::error::ViewError;
 use plane_drf::view::{ViewCtx, ViewResponse};
 use plane_query::error::QueryError;
-use plane_query::issue::filter::{FilterParams, LegacyFilters};
-use plane_query::issue::group_values::{self, GroupValues, GroupValuesRequest};
-use plane_query::issue::model::GroupField;
-use plane_query::issue::order::Ordering;
-use plane_query::issue::query::{GroupPlan, IssueQuery, IssueScope, render_group_value};
-use plane_query::issue::rich::{self, RichFilters};
-use plane_query::paginator::{PageQuery, issue_list_page};
-use plane_query::sql::{Frag, Select, Value};
+use plane_query::issue::model::manager_predicate;
+use plane_query::issue::query::{IssueScope, IssueScopeFilter};
+use plane_query::issue::values::Projection;
+use plane_query::issue::{FilterBackends, ListOptions, ListRequest};
+use plane_query::sql::{Frag, JoinKind, Value};
 use uuid::Uuid;
 
 use crate::cycles::base::Params;
@@ -79,6 +80,14 @@ impl ScopeKind {
             Self::Cycle(id) | Self::Module(id) => id,
         }
     }
+
+    /// The join the scope predicate needs (`issue_cycle` / `issue_module`).
+    fn relation(self) -> plane_query::issue::model::Relation {
+        match self {
+            Self::Cycle(_) => plane_query::issue::model::Relation::CycleIssues,
+            Self::Module(_) => plane_query::issue::model::Relation::ModuleIssues,
+        }
+    }
 }
 
 /// The request rows a list needs from `ViewCtx`.
@@ -92,6 +101,9 @@ pub(crate) struct Request<'a> {
     /// module list does (`module/issue.py:151`), the cycle list does not
     /// (`cycle/issue.py:162`).
     pub(crate) group_values_issues: bool,
+    /// `CycleIssueViewSet.list` never calls `.distinct()`;
+    /// `ModuleIssueViewSet.get_queryset` does (`module/issue.py:100`).
+    pub(crate) distinct: bool,
     pub(crate) timezone: chrono_tz::Tz,
     pub(crate) query: &'a plane_drf::QueryDict,
 }
@@ -102,6 +114,8 @@ pub(crate) struct Request<'a> {
 ///   `{"detail": …}`, a coded filter error its `{"message","code"[,"errors"]}`
 ///   dict (`plane/utils/filters/filter_backend.py:155-180`).
 /// * `BadRequest` — `Response({"error": …}, 400)` (`issue.py:147-150`).
+/// * `Validation` — Django's `ValidationError` from a lookup value, rendered by
+///   the family handler as `400 {"error": "Please provide valid detail"}`.
 /// * everything else — an upstream 500.
 pub(crate) fn query_error(error: QueryError) -> Result<ViewResponse, ViewError> {
     match error {
@@ -119,61 +133,22 @@ pub(crate) fn query_error(error: QueryError) -> Result<ViewResponse, ViewError> 
             ))
         }
         QueryError::BadRequest(message) => Ok(crate::cycles::base::error_body(400, &message)),
+        QueryError::Validation => Err(ViewError::Validation),
         other => Err(ViewError::Unknown(other.to_string())),
     }
 }
 
-/// Wrap the scope predicate in the `rich` filter slot, which is the only part
-/// of [`IssueQuery`] a handler can contribute to.
-fn scoped_rich(rich: Option<RichFilters>, scope: ScopeKind) -> RichFilters {
+/// `Issue.issue_objects.filter(<through-table scope>)` as a scope filter.
+///
+/// The manager's own exclusions are ANDed in explicitly, because
+/// [`IssueScopeFilter`] replaces the hardcoded manager predicate.
+fn scoped_filter(scope: ScopeKind) -> IssueScopeFilter {
     let (table, column) = scope.table();
-    let mut predicate = Frag::raw(format!(
-        "EXISTS (SELECT 1 FROM {table} WHERE {table}.issue_id = issues.id \
-         AND {table}.{column} = "
-    ));
+    let mut predicate = Frag::raw(format!("{table}.{column} = "));
     predicate.push(Frag::bind(Value::Uuid(scope.id())));
-    predicate.push_raw(&format!(" AND {table}.deleted_at IS NULL)"));
-    match rich {
-        Some(existing) => RichFilters {
-            joins: existing.joins,
-            predicate: existing.predicate.and(predicate),
-        },
-        None => RichFilters {
-            joins: Vec::new(),
-            predicate,
-        },
-    }
-}
-
-/// The group-key list for one field, with the trailing `"None"` the Python
-/// appends for the nullable fields and the duplicate collapse its dict does.
-async fn group_values_for(
-    client: &deadpool_postgres::Client,
-    request: GroupValuesRequest<'_>,
-    field: GroupField,
-) -> Result<Vec<String>, QueryError> {
-    match group_values::values(&request)? {
-        GroupValues::Static(values) => Ok(values),
-        GroupValues::Query { sql, append_none } => {
-            let statement = client.prepare(&sql.text).await.map_err(QueryError::from)?;
-            let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-                .params
-                .iter()
-                .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            let rows = client.query(&statement, &params).await?;
-            let mut values = Vec::with_capacity(rows.len() + 1);
-            for row in &rows {
-                values.push(render_group_value(row, field)?);
-            }
-            if append_none {
-                values.push("None".to_owned());
-            }
-            let mut seen = std::collections::HashSet::new();
-            values.retain(|value| seen.insert(value.clone()));
-            Ok(values)
-        }
-    }
+    predicate.push_raw(&format!(" AND {table}.deleted_at IS NULL"));
+    IssueScopeFilter::new(manager_predicate().and(predicate))
+        .with_join(scope.relation(), JoinKind::Inner)
 }
 
 /// `CycleIssueViewSet.list` / `ModuleIssueViewSet.list`.
@@ -182,270 +157,36 @@ pub(crate) async fn run(
     request: Request<'_>,
 ) -> Result<ViewResponse, ViewError> {
     let client = crate::common::client(ctx)?;
-    let query = request.query;
-    let group_by_param = query.get("group_by").filter(|value| !value.is_empty());
-    let sub_group_by_param = query.get("sub_group_by").filter(|value| !value.is_empty());
-
-    let page = match PageQuery::parse(query, group_by_param, sub_group_by_param) {
-        Ok(page) => page,
-        Err(error) => return query_error(error),
-    };
-    let legacy = match LegacyFilters::parse(&FilterParams::Get(query), Utc::now().date_naive()) {
-        Ok(filters) => filters,
-        Err(error) => return query_error(error),
-    };
-    let rich = match rich::parse_complex_query(query, request.timezone) {
-        Ok(rich) => rich,
-        Err(error) => return query_error(error),
-    };
-    let ordering = Ordering::resolve(query.get_or("order_by", request.default_order));
-    let group_by = group_by_param.and_then(GroupField::parse);
-    let sub_group_by = sub_group_by_param.and_then(GroupField::parse);
-
-    if group_by.is_some() && group_by == sub_group_by {
-        // `issue.py:146-150`: a bare `{"error": …}` body.
-        return query_error(QueryError::BadRequest(
-            "Group by and sub group by cannot have same parameters".to_owned(),
-        ));
-    }
-
-    let issue_query = IssueQuery {
-        scope: IssueScope {
+    let options = ListOptions {
+        filter_backends: FilterBackends::ComplexOnly,
+        scope: Some(scoped_filter(request.scope)),
+        projection: Projection::Aggregate,
+        group_values_queryset: request.group_values_issues,
+        default_order_by: request.default_order,
+        // Cycles/modules/archive filter first and paginate second, like
+        // `IssueViewSet.list`.
+        validate_page_first: false,
+        grouping: true,
+        scope_override: Some(IssueScope {
             workspace_slug: request.params.slug.clone(),
             project_id: Some(request.params.project_id),
-            // `CycleIssueViewSet`/`ModuleIssueViewSet` never call `.distinct()`.
-            distinct: false,
+            distinct: request.distinct,
             created_by: None,
-        },
-        filters: legacy,
-        rich: Some(scoped_rich(rich, request.scope)),
-        ordering,
-        group_by,
-        sub_group_by,
+        }),
+    };
+    let list_request = ListRequest {
+        query: request.query,
+        workspace_slug: &request.params.slug,
+        project_id: request.params.project_id,
         timezone: request.timezone,
+        now: Utc::now(),
+        user_id: Some(request.params.user_id),
+        // No guest restriction on these two views.
+        guest_view_all_features: true,
+        is_guest: false,
     };
-
-    let plan = match group_by {
-        Some(field) => {
-            let filtered: Select = issue_query.filtered_base();
-            let issues = if request.group_values_issues {
-                Some(&filtered)
-            } else {
-                None
-            };
-            let group_request = GroupValuesRequest {
-                field,
-                workspace_slug: &request.params.slug,
-                project_id: Some(request.params.project_id),
-                user: None,
-                issues,
-            };
-            let fields = match group_values_for(client, group_request, field).await {
-                Ok(values) => values,
-                Err(error) => return query_error(error),
-            };
-            let (sub_group_by, sub_group_fields) = match sub_group_by {
-                Some(sub) => {
-                    let sub_request = GroupValuesRequest {
-                        field: sub,
-                        workspace_slug: &request.params.slug,
-                        project_id: Some(request.params.project_id),
-                        user: None,
-                        issues,
-                    };
-                    let values = match group_values_for(client, sub_request, sub).await {
-                        Ok(values) => values,
-                        Err(error) => return query_error(error),
-                    };
-                    (Some(sub), values)
-                }
-                None => (None, Vec::new()),
-            };
-            Some(GroupPlan {
-                group_by: field,
-                group_fields: fields,
-                sub_group_by,
-                sub_group_fields,
-            })
-        }
-        None => None,
-    };
-
-    match issue_list_page(client, &issue_query, plan.as_ref(), &page).await {
-        Ok(mut body) => {
-            zero_counts(&mut body);
-            // `plane-query`'s grouped counts replay `IssueViewSet`'s
-            // `.distinct()` model projection; these two views have no
-            // `.distinct()`, so a base join that duplicates an issue makes
-            // Django count joined rows. One statement replaces both numbers
-            // (Django issues the same two counts as separate queries).
-            if let Some(field) = plan.as_ref() {
-                let limit = i64::from(page.per_page.min(plane_query::paginator::MAX_LIMIT));
-                let offset = page.cursor.offset * limit;
-                if let Some((hits, page_count)) = joined_counts(
-                    client,
-                    &issue_query,
-                    field.group_by,
-                    field.sub_group_by,
-                    limit,
-                    offset,
-                )
-                .await?
-                {
-                    patch_counts(&mut body, hits, page_count);
-                }
-            }
-            // `GroupedOffsetPaginator.process_results` returns `{}` (not the
-            // pre-populated group dict) when the *page* is empty
-            // (`paginator.py:380-389`); `plane-query` always shapes the groups.
-            if plan.is_some() && envelope_count(&body) == Some(0) {
-                clear_results(&mut body);
-            }
-            Ok(ViewResponse::raw(200, APPLICATION_JSON, body.to_drf()))
-        }
+    match plane_query::issue::run_with(client, &list_request, &options).await {
+        Ok(body) => Ok(ViewResponse::raw(200, APPLICATION_JSON, body.to_drf())),
         Err(error) => query_error(error),
-    }
-}
-
-/// The two counts Django's grouped paginator reports when the queryset has no
-/// `.distinct()`:
-///
-/// * `total_count`/`total_results` — `queryset.count()` over the windowed
-///   queryset (every joined row);
-/// * `count` — `len(CursorResult)`, the joined rows inside the page window.
-///
-/// One statement, because both are the same inner select with a different row
-/// number predicate. `None` when the query orders by a min-value field, whose
-/// `GROUP BY issues.id` makes the join rows collapse — `plane-query`'s counts
-/// are already right there (both sides count groups).
-async fn joined_counts(
-    client: &deadpool_postgres::Client,
-    query: &IssueQuery,
-    group: GroupField,
-    sub_group: Option<GroupField>,
-    limit: i64,
-    offset: i64,
-) -> Result<Option<(i64, i64)>, ViewError> {
-    if query.ordering.group_by_issue {
-        return Ok(None);
-    }
-    let mut inner = query.filtered_select();
-    let mut projection = vec![Frag::raw("issues.id")];
-    let mut window = Frag::raw("ROW_NUMBER() OVER (PARTITION BY ");
-    let partitions: Vec<GroupField> = [Some(group), sub_group].into_iter().flatten().collect();
-    for (index, field) in partitions.iter().enumerate() {
-        if index > 0 {
-            window.push_raw(", ");
-        }
-        window.push(field.expression());
-    }
-    window.push_raw(" ORDER BY ");
-    for (index, expression) in query.ordering.paginator_order().iter().enumerate() {
-        if index > 0 {
-            window.push_raw(", ");
-        }
-        window.push(expression.clone());
-    }
-    window.push_raw(")");
-    projection.push(window.append(Frag::raw(" AS \"__row_number\"")));
-    inner.projection = projection;
-    let inner = inner.to_frag();
-    let stop = offset + limit + 1;
-    let mut outer = plane_query::sql::Select::from_frag(Frag {
-        sql: format!("({}) AS \"qualify\"", inner.sql),
-        params: inner.params,
-    });
-    outer.projection = vec![
-        Frag::raw("count(*) AS \"__hits\""),
-        Frag::raw(format!(
-            "count(*) FILTER (WHERE \"__row_number\" > {offset} AND \"__row_number\" < {stop}) AS \"__page\""
-        )),
-    ];
-    let sql = outer.into_sql();
-    let statement = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    let row = client
-        .query_one(&statement, &params)
-        .await
-        .map_err(ViewError::from)?;
-    let hits: i64 = row.try_get(0).map_err(ViewError::from)?;
-    let page_count: i64 = row.try_get(1).map_err(ViewError::from)?;
-    Ok(Some((hits, page_count)))
-}
-
-/// The envelope's `count` (rows on this page).
-fn envelope_count(body: &plane_query::Json) -> Option<i64> {
-    let plane_query::Json::Object(entries) = body else {
-        return None;
-    };
-    entries
-        .iter()
-        .find_map(|(key, value)| match (key.as_str(), value) {
-            ("count", plane_query::Json::Int(value)) => Some(*value),
-            _ => None,
-        })
-}
-
-/// `results: {}` for an empty grouped page.
-fn clear_results(body: &mut plane_query::Json) {
-    let plane_query::Json::Object(entries) = body else {
-        return;
-    };
-    for (key, value) in entries.iter_mut() {
-        if key == "results" {
-            *value = plane_query::Json::Object(Vec::new());
-        }
-    }
-}
-
-/// Replace the envelope's row counts, keeping every other key and the order.
-fn patch_counts(body: &mut plane_query::Json, hits: i64, page_count: i64) {
-    let plane_query::Json::Object(entries) = body else {
-        return;
-    };
-    for (key, value) in entries.iter_mut() {
-        match key.as_str() {
-            "total_count" | "total_results" => *value = plane_query::Json::Int(hits),
-            "count" => *value = plane_query::Json::Int(page_count),
-            _ => {}
-        }
-    }
-}
-
-/// `sub_issues_count`, `attachment_count` and `link_count` are
-/// `(SELECT Count(U0.id) …)` subqueries **without** a `GROUP BY` in these two
-/// views (`cycle/issue.py:55-105`, `module/issue.py:54-82`), so an issue with
-/// none of them gets `0`, not `NULL` like `IssueViewSet.list`'s
-/// `… values("count")`-with-`GROUP BY` variant (which `plane-query` models
-/// after that view). The paginator is shared, so the difference is applied to
-/// the decoded body.
-fn zero_counts(value: &mut plane_query::Json) {
-    use plane_query::Json;
-    match value {
-        Json::Object(entries) => {
-            for (key, value) in entries.iter_mut() {
-                let is_count = matches!(
-                    key.as_str(),
-                    "sub_issues_count" | "attachment_count" | "link_count"
-                );
-                if is_count {
-                    if matches!(value, Json::Null) {
-                        *value = Json::Int(0);
-                    }
-                } else {
-                    zero_counts(value);
-                }
-            }
-        }
-        Json::Array(items) => {
-            for item in items {
-                zero_counts(item);
-            }
-        }
-        _ => {}
     }
 }

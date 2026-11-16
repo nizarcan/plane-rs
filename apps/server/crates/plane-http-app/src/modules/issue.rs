@@ -23,6 +23,7 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         let params = params(ctx)?;
         let module_id: Uuid = uuid_kwarg(ctx, "module_id")?;
         let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
+        // `ModuleIssueViewSet.get_queryset` ends in `.distinct()` (`module/issue.py:100`).
         issue_list::run(
             ctx,
             Request {
@@ -30,6 +31,7 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
                 scope: ScopeKind::Module(module_id),
                 default_order: "created_at",
                 group_values_issues: true,
+                distinct: true,
                 timezone,
                 query: ctx.query(),
             },

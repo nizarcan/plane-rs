@@ -44,8 +44,8 @@ use uuid::Uuid;
 use crate::common::RequestRender;
 use crate::common::jobs;
 use crate::issues::lists::list_common::{
-    self, ListRequest, client, error_body, kwarg_text, kwarg_uuid, legacy_date_error,
-    prevalidate_list_filters, query_error, query_error_response, rendered, user_id, user_timezone,
+    self, ListRequest, client, error_body, kwarg_text, kwarg_uuid, prevalidate_list_filters,
+    query_error, query_error_response, rendered, user_id, user_timezone,
 };
 
 /// `IssueListEndpoint`'s `.values(...)` list, in Python's order
@@ -143,6 +143,15 @@ plane_query! {
     [("exists", Int4)]
 }
 
+/// `IssueListEndpoint.filter_backends = (ComplexFilterBackend,)`
+/// (`plane/app/views/issue/base.py:82`).
+fn list_options() -> plane_query::ListOptions {
+    plane_query::ListOptions {
+        filter_backends: plane_query::FilterBackends::ComplexOnly,
+        ..plane_query::ListOptions::default()
+    }
+}
+
 /// Register `IssueListEndpoint.get`.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
@@ -171,10 +180,6 @@ fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError
         let client = client(ctx)?;
         let timezone = user_timezone(ctx);
         let now = plane_query::global::now();
-
-        if let Some(response) = legacy_date_error(ctx.query()) {
-            return Ok(response);
-        }
 
         // `ProjectMember.objects.filter(..., project__guest_view_all_features=False)`
         // (`:102-111`), a single statement.
@@ -238,6 +243,7 @@ fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError
             timezone,
             now,
             extra,
+            options: list_options(),
         };
         // `run_issue_list` is the paginated shape; the values projection and
         // the ordering differ, so the pieces are composed here instead.
@@ -291,6 +297,7 @@ async fn serialized<'a>(
         timezone,
         now,
         extra,
+        options: list_options(),
     };
     let query = list_common::build_issue_query(&request)
         .map_err(|error| ViewError::Unknown(error.message()))?;

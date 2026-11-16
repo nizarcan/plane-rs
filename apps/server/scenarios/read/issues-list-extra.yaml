@@ -413,6 +413,81 @@ steps:
     headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
 
   # ---------------------------------------------------------------------
+  # LIKE escaping: `icontains` escapes `\`, `%` and `_` before wrapping the
+  # term in `%` (django/db/backends/base/operations.py:516-518). Without the
+  # escaping `name=_` matches every non-empty name and `name=%` every name at
+  # all; the fixture has no name with a literal `%`/`_`/`\`, so the escaped
+  # forms match nothing while the unescaped ones would match hundreds of rows.
+  # `extra-like-name-plain` proves the filter still matches a real name.
+  # ---------------------------------------------------------------------
+  - name: extra-like-name-plain
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { name: "work item", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-name-percent
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { name: "%", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-name-underscore
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { name: "_", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-name-backslash
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { name: "\\", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-name-100-percent
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { name: "100%", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-name-percent-underscore
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query: { name: "%_", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-name-workspace-percent
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query: { name: "%", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-draft-name-plain
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    query: { name: "Draft", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-draft-name-percent
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    query: { name: "%", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-draft-name-underscore
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    query: { name: "_", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: extra-like-draft-name-backslash
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    query: { name: "\\", per_page: "5" }
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # ---------------------------------------------------------------------
   # fields= and expand=.
   # ---------------------------------------------------------------------
   - name: extra-fields-subset

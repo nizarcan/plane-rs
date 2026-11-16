@@ -375,9 +375,22 @@ workspace `Cargo.toml` and upgrade deliberately.
   restart. It is not a contract any client can rely on.
 - Rust emits these values in ascending order (stable and cheap) and does not try to
   reproduce one particular seed's order. The differential harness compares exactly these
-  fields as multisets, through path-scoped rules that still fail on a missing, extra or
-  duplicated element. Everything else, including group key order where Django builds it
-  from an ordered dict or a queryset, stays an exact comparison.
+  fields as multisets, through path-scoped rules (`scenarios/normalize.yaml`,
+  `unordered_json_paths`) that still fail on a missing, extra or duplicated element.
+  Everything else, including group key order where Django builds it from an ordered dict
+  or an **ordered** queryset, stays an exact comparison.
+- Three shapes are covered, each named by a JSON-document path (and, for the ones that
+  only one endpoint produces, a request glob):
+  - `mode: array` — the `label_ids` / `assignee_ids` / `module_ids` arrays of a grouped
+    or sub-grouped page, inside a group's (or a sub-group's) `results`;
+  - `mode: object_keys` — the group keys of a single m2m-grouped page
+    (`paginator.py:355-365`, built by iterating that same set) and the sub-group cell
+    keys (`paginator.py:511-518`, whose query has no `ORDER BY`); the key set and every
+    value are still compared exactly;
+  - `mode: parent_key` — the raw group column of a row that the page copies into every
+    group the issue belongs to (`paginator.py:355`), whose value is whichever of the
+    issue's rows the database returned first; it is canonicalised to the group the row is
+    filed under, because the membership array carries the real data.
 - The scenarios keep `PYTHONHASHSEED=0` for Django so Django-vs-Django runs stay
   reproducible; Rust never depends on it.
 

@@ -81,11 +81,35 @@ impl std::fmt::Display for PaginateCursor {
     }
 }
 
+/// An extra projected column the caller appends after `fields`, in the order
+/// the Python's `required_fields` list puts it.
+///
+/// `IssuePaginatedViewSet.list` appends `description_html` when
+/// `?description=true` (`plane/app/views/issue/base.py:900-902`), after
+/// `sub_issues_count` — the end of the caller's list, not a fixed position.
+#[derive(Debug, Clone)]
+pub struct ExtraColumn {
+    pub key: &'static str,
+    pub expression: crate::sql::Frag,
+}
+
 /// `paginate(base_queryset, queryset, cursor, on_result)`.
 pub async fn page(
     client: &Client,
     query: &IssueQuery,
     fields: &[ValueField],
+    cursor: Option<&str>,
+    timezone: Tz,
+) -> Result<Json, QueryError> {
+    page_with(client, query, fields, &[], cursor, timezone).await
+}
+
+/// [`page`] with the columns the caller appends after its `required_fields`.
+pub async fn page_with(
+    client: &Client,
+    query: &IssueQuery,
+    fields: &[ValueField],
+    extra: &[ExtraColumn],
     cursor: Option<&str>,
     timezone: Tz,
 ) -> Result<Json, QueryError> {
@@ -117,6 +141,13 @@ pub async fn page(
     // `order_by` parameter, so the page keeps the queryset's own ordering.
     let mut select = query.filtered_select();
     select.projection = values::projection_with(values::Projection::IssueListEndpoint, fields);
+    for column in extra {
+        let mut frag = column.expression.clone();
+        frag.push_raw(" AS \"");
+        frag.push_raw(column.key);
+        frag.push_raw("\"");
+        select.projection.push(frag);
+    }
     select.order_by = vec![crate::sql::Frag::raw("issues.updated_at ASC")];
     select.distinct = false;
     select.limit = Some((end_index - start_index).max(0));
@@ -124,8 +155,17 @@ pub async fn page(
     let rows = fetch(client, &select.into_sql()).await?;
     let decoded = rows
         .iter()
-        .map(|row| values::decode(row, fields))
-        .map(|row| row.map(|value| shift_timezone(value, timezone)))
+        .map(|row| {
+            let mut value = values::decode(row, fields)?;
+            for (index, column) in extra.iter().enumerate() {
+                let text: Option<String> = row.try_get(fields.len() + index)?;
+                let Json::Object(entries) = &mut value else {
+                    continue;
+                };
+                entries.push((column.key.to_owned(), Json::opt_string(text)));
+            }
+            Ok(shift_timezone(value, timezone))
+        })
         .collect::<Result<Vec<_>, QueryError>>()?;
 
     let prev_cursor = format!("{page_size}:{}:0", cursor_object.current_page - 1);

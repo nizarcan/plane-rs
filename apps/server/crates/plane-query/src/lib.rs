@@ -83,6 +83,6 @@ pub mod pyfloat;
 pub mod sql;
 
 pub use error::{ApiError, QueryError};
-pub use issue::{ListRequest, run};
+pub use issue::{FilterBackends, ListOptions, ListRequest, run, run_with};
 pub use json::Json;
-pub use paginator::{Cursor, PageQuery, issue_list_page, per_page};
+pub use paginator::{Cursor, PageQuery, issue_list_page, issue_list_page_with, per_page};

@@ -44,6 +44,12 @@ pub enum Relation {
     IntakeIssues,
     /// `issues.issue_mention` through `issue_mentions`.
     IssueMentions,
+    /// `issues.project`'s `project_members` rows, for the workspace-wide issue
+    /// list's permission predicate (`plane/app/views/view/base.py:177-197`).
+    ProjectMembers,
+    /// `issues.type` (`issue_types`), for the archived list's epic filter
+    /// (`plane/app/views/issue/archive.py:78-86`).
+    IssueTypes,
 }
 
 impl Relation {
@@ -62,6 +68,8 @@ impl Relation {
             Self::IssueSubscribers => "issue_subscribers",
             Self::IntakeIssues => "intake_issues",
             Self::IssueMentions => "issue_mentions",
+            Self::ProjectMembers => "project_members",
+            Self::IssueTypes => "issue_types",
         }
     }
 
@@ -75,6 +83,7 @@ impl Relation {
             Self::Labels => Some(Self::IssueLabels),
             Self::Users => Some(Self::IssueAssignees),
             Self::Modules => Some(Self::ModuleIssues),
+            Self::ProjectMembers => Some(Self::Projects),
             _ => None,
         }
     }
@@ -95,13 +104,18 @@ impl Relation {
             Self::IssueSubscribers => Frag::raw("issues.id = issue_subscribers.issue_id"),
             Self::IntakeIssues => Frag::raw("issues.id = intake_issues.issue_id"),
             Self::IssueMentions => Frag::raw("issues.id = issue_mentions.issue_id"),
+            Self::ProjectMembers => Frag::raw("projects.id = project_members.project_id"),
+            Self::IssueTypes => Frag::raw("issues.type_id = issue_types.id"),
         }
     }
 
     /// The join kind to use when nothing has required a match yet.
     pub fn default_kind(self) -> JoinKind {
         match self {
-            Self::Projects | Self::Workspaces => JoinKind::Inner,
+            // The through tables are `LEFT` until a filter needs a match; the
+            // workspace-wide permission filter and the project/workspace scope
+            // are inner joins in Django's SQL.
+            Self::Projects | Self::Workspaces | Self::ProjectMembers => JoinKind::Inner,
             _ => JoinKind::Left,
         }
     }

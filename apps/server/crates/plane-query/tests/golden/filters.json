@@ -19089,6 +19089,118 @@
           "2025-03-01"
         ]
       }
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "created_at__date__gte": "after"
+      },
+      "id": 1054,
+      "message": "['“after” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "created_at=after;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "created_at__date__lte": "before"
+      },
+      "id": 1055,
+      "message": "['“before” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "created_at=before;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "updated_at__date__gte": "after"
+      },
+      "id": 1056,
+      "message": "['“after” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "updated_at=after;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "updated_at__date__lte": "before"
+      },
+      "id": 1057,
+      "message": "['“before” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "updated_at=before;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "completed_at__date__gte": "after"
+      },
+      "id": 1058,
+      "message": "['“after” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "completed_at=after;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "completed_at__date__lte": "before"
+      },
+      "id": 1059,
+      "message": "['“before” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "completed_at=before;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "start_date__gte": "after"
+      },
+      "id": 1060,
+      "message": "['“after” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "start_date=after;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "start_date__lte": "before"
+      },
+      "id": 1061,
+      "message": "['“before” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "start_date=before;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "target_date__gte": "after"
+      },
+      "id": 1062,
+      "message": "['“after” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "target_date=after;2025-01-01"
+    },
+    {
+      "error": "ValidationError",
+      "filters": {
+        "target_date__lte": "before"
+      },
+      "id": 1063,
+      "message": "['“before” value has an invalid date format. It must be in YYYY-MM-DD format.']",
+      "method": "GET",
+      "params": "target_date=before;2025-01-01"
+    },
+    {
+      "distinct_count": 104,
+      "filters": {
+        "created_at__date__gte": "2025-01-01",
+        "created_at__date__lte": "2026-01-01"
+      },
+      "id": 1064,
+      "ids": "002a1162-ddde-5436-8ca1-1d16f82a9ffa,0084d82e-0a6b-58a7-b4b1-fe724801107b,012cb759-431c-5bfe-b8bd-91e84efac0a2,01a60ae9-4df5-5777-834c-32974eaaaa9d,026b3532-4616-5d40-81f9-cc87f14a0769,05fcd42a-8f99-5802-8e2b-683951cb313c,09259d87-0a8c-52e3-a706-7f388015c272,0a2e8200-4805-55d0-ad4a-c7b0ba1e7a03,0a7143f1-fe63-5f58-b104-7a06581ce9f0,0e965438-d8df-5861-924b-8de7bd5742cc,105c01bd-1dc0-5522-96a4-4b468d81a919,13c360e7-a56d-5d54-8967-615b61105a0d,15167246-756f-5b57-b316-a7d5050c72d3,1599863a-11b7-5b0a-ac05-bd01afc70893,17286d76-337d-5c5c-acdf-ec22f3e6b5e3,17d2441e-59f7-5d03-b073-0f662a8844e0,1b067c95-6990-56b9-9a33-1347c78a8e2b,1f769c01-2504-55c0-aae4-12c37bd413fa,21596763-5c21-5c47-97b0-a3cc299ee94a,21d2d86d-412a-5776-a377-0178d36e81da,2396a286-ae9b-5726-83b0-3d9fee1cca0b,268a6c8f-8a65-516b-abe3-1629f3de5e64,285b9ce5-1215-5ddf-86d6-9370a60e37a0,28b090f1-8c38-53b1-a7d6-da7bfe4b294a,2c6ce3e4-7b63-5fad-856a-3ae911bdc5c2,2f7f3773-9db6-55f6-ab28-a01051957851,38589bfb-6cee-52db-99fc-366019700155,38843ee7-e21d-5dca-8abc-0f05344817e8,38f00bc3-0a34-58ca-9513-71dc556418af,3f8498e6-539b-5ef6-b3b9-7175a396ecee,3fbfb201-f935-5cc4-ba5e-3e3126e4160d,41f7bad9-ebc9-5394-a84d-f3b7268540e5,48010b92-518d-5d1d-a52c-a57e0eb42e1c,4a13fdd3-8cf9-5b2b-9112-7fbf8b14ad37,4a9d1805-d1c2-5039-afb5-01b657f9557c,4ac839c9-03dd-5cf6-b277-65f45d4bd176,4b2c600e-f077-5436-88ff-66714ad0974f,4dbb968d-332a-52bc-9c84-6c84d8570594,4de0f04b-618a-576e-a9f0-1edfcde0b9ae,5106fd4c-21c3-524e-b624-cb4a0e673725,568e5ca8-0292-5fa7-946d-30dc3a718f26,58d2aa04-010c-50a3-a20e-5c1ec2c04631,5e617df0-9049-5c1d-9a64-6e46f65eeb15,5f716db1-fb79-576c-8af1-e61ca0e5a04c,61b9a987-a2aa-5af5-b282-f2b02558c15b,61de5296-604b-5832-b8db-cd2f0daa59f4,637fbb72-4a32-59e8-8499-affcb3f6a2ce,64a4309a-c500-5bd9-9259-c76465ceb05a,65b7a15d-ff92-547a-8edf-63c32063d18e,6742eaed-1e98-5d0a-8afa-347ba918dbaa,686fa232-4d4a-56f5-a8ce-1e78f4b854ec,6cb9718d-bc17-506b-9b1b-e13b0403c930,6d589b75-1e98-5468-ae60-b40775842f28,6d80b16c-a07e-5cfd-9d75-bf7f522ba58c,6f0bc3b6-29bc-5396-8799-ed0a69ca9601,71197508-ecdc-5905-bc18-aa6025a83060,73bd153e-0a47-566a-9a02-0694c3faa841,74305be6-8acd-5a86-a382-47c8b55831b6,7503c9d1-cc39-5b7c-a185-943545501145,79704911-3a28-50bd-abf0-3212e707a005,800d2f79-68d6-5a88-9b36-849e2b3276bc,81764e0e-4721-5d8f-93b7-ea4992eb3322,89da5be8-d1cc-5690-879c-bbcd09b3d3c1,8d588dd3-0661-5685-a53e-0f53508c84a4,8d6b046c-7c4a-5b16-b144-ac5c60722d6f,8e746839-3bec-525e-9e64-c588fc838f49,912ed4ee-4498-5fd0-a8d5-5fe60a467f13,9481103c-e69b-5c89-b130-649adb5749b5,97203e22-e3c0-5609-8ed4-f891f85947d1,98164807-7d73-5b3b-96fa-ac34375c377b,9938f7c6-be39-50e1-80a9-bc5bfac81de8,9ef2ae6f-d0f4-5d26-badf-fcf78c2e7b83,9f032b13-3b43-5794-9e9d-28d7dc764534,a2a1d383-7757-52e0-b96e-a743b72471aa,a84bb97f-05bb-595c-af0a-46632980252f,abdab964-86f9-5e3b-97a5-6fb9aba9791e,adad9e74-5fe0-535d-8510-93aecc8e29e0,adcf5eaa-9153-535f-8aa6-e5ead08c2728,ae9fe8f0-6dad-5903-8be9-d0ec195099ea,af6b4e20-3691-5e63-a754-ba8f3176afa9,ba6be453-bce4-5ce3-8d85-36b9f456bb48,be15e2dc-8a6f-5226-8002-265a4397c57d,bf07018d-c67c-54e8-b26c-2b06d2f8019f,bfc3a237-41f4-5d76-9630-5844cb056eda,c0a25baf-5f2f-5ba3-a6bc-56184309c6fe,c631161b-d6cc-574a-b781-3863ee3e3af5,c7955a4c-5b28-5a18-9e1a-d7915c7fd079,cd92a6b0-caba-5f65-8fa2-6c3edc29844d,cda85951-d18f-5286-b400-aa1e79567a72,d09b3f04-553c-5e17-9f80-b85f3994e4c2,d1863786-f4d9-5796-a715-2408d061c40b,d28458e7-1f1b-519c-a3bb-7b5611958314,d311edba-eefa-5dec-a703-4930064269fa,d4961050-a093-5461-a1d0-0a954ddd7323,d7b0749c-501f-509a-97aa-8a6910a8297c,e137b895-41ae-52ba-bdbe-3700ca8204e4,e3163072-6304-5873-9dc9-5b0668b09af1,e90fb80f-73c6-504b-8611-02bd742b58d5,e94267b0-2daf-57cb-b226-23ac78e983e5,ef98ded4-4a2e-5ad3-8b22-c1e6d85e3e7e,f5b4c79a-4131-5eff-bc98-841d2f6ad042,f95f3cdc-0cb3-53ca-969b-9ba51b8ded9a,fa3d7522-7adb-5e69-9cc5-f774a6a1e739,ff71e7bf-2061-5d01-a6ab-24ec3a189c7e",
+      "method": "GET",
+      "params": "created_at=2025-01-01;after,2026-01-01;before",
+      "raw_count": 104
     }
   ]
 }

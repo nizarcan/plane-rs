@@ -74,6 +74,15 @@ pub enum QueryError {
     /// not a DRF `ParseError`, so the handler must render it differently.
     #[error("{0}")]
     BadRequest(String),
+    /// `django.core.exceptions.ValidationError`, which the ORM raises when a
+    /// lookup value cannot be converted to its column's type — a legacy date
+    /// lookup whose first `;`-segment is not a date, for example
+    /// (`django/db/models/fields/__init__.py:1602-1624`). It surfaces when the
+    /// queryset compiles, and the view family's `handle_exception` renders
+    /// `400 {"error": "Please provide valid detail"}`
+    /// (`plane/app/views/base.py:216-220`).
+    #[error("Please provide valid detail")]
+    Validation,
     /// A path Django answers with a 500, kept failing here.
     #[error("unsupported: {0}")]
     Unsupported(String),
@@ -98,6 +107,8 @@ impl QueryError {
     pub fn status(&self) -> Option<u16> {
         match self {
             Self::Api(error) => Some(error.status),
+            Self::BadRequest(_) => Some(400),
+            Self::Validation => Some(400),
             _ => None,
         }
     }
@@ -117,6 +128,7 @@ impl QueryError {
             Self::Unsupported(message) => message.clone(),
             Self::Db(message) => message.clone(),
             Self::Json(message) => message.clone(),
+            Self::Validation => "Please provide valid detail".to_owned(),
         }
     }
 }

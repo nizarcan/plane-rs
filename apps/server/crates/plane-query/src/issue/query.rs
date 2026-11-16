@@ -42,7 +42,7 @@ use crate::issue::order::Ordering;
 use crate::issue::rich::RichFilters;
 use crate::issue::values;
 use crate::json::Json;
-use crate::sql::{Frag, Select, Sql, Value};
+use crate::sql::{Frag, JoinKind, Select, Sql, Value};
 
 /// The scope `IssueViewSet.get_queryset` establishes.
 #[derive(Debug, Clone)]
@@ -77,6 +77,44 @@ impl IssueScope {
     }
 }
 
+/// A replacement for the `Issue.issue_objects` manager predicate.
+///
+/// `IssueQuery` hardcodes `Issue.issue_objects`' exclusions (`deleted_at`,
+/// triage state, archived, draft, archived project). Three views replace them:
+///
+/// * the archived-issues list uses `Issue.objects` plus `archived_at IS NOT
+///   NULL` and the epic exclusion (`plane/app/views/issue/archive.py:78-86`);
+/// * the module/cycle issue lists add their through-table scope as an inner
+///   join rather than an `EXISTS` subquery (`plane/app/views/module/issue.py`
+///   `get_queryset`, `plane/app/views/cycle/issue.py:107-112`);
+/// * the workspace-wide view list adds the caller's membership predicate, a
+///   join that can duplicate rows (`plane/app/views/view/base.py:177-197`).
+///
+/// `predicate` *replaces* `manager_predicate()`; a caller that wants the
+/// manager's exclusions plus its own condition ANDs them itself:
+/// `IssueScopeFilter::new(manager_predicate().and(extra))`.
+#[derive(Debug, Clone, Default)]
+pub struct IssueScopeFilter {
+    pub predicate: Frag,
+    /// Joins the predicate references, required in every statement.
+    pub joins: Vec<(Relation, JoinKind)>,
+}
+
+impl IssueScopeFilter {
+    pub fn new(predicate: Frag) -> Self {
+        Self {
+            predicate,
+            joins: Vec::new(),
+        }
+    }
+
+    /// Require `relation` in every statement that applies this scope.
+    pub fn with_join(mut self, relation: Relation, kind: JoinKind) -> Self {
+        self.joins.push((relation, kind));
+        self
+    }
+}
+
 /// Everything one issue-list request needs.
 #[derive(Debug, Clone)]
 pub struct IssueQuery {
@@ -91,7 +129,7 @@ pub struct IssueQuery {
 
 impl IssueQuery {
     /// The joins and predicate shared by every statement of one request.
-    fn build(&self) -> FilterBuilder {
+    fn build(&self, scope: Option<&IssueScopeFilter>) -> FilterBuilder {
         let mut builder = FilterBuilder::new();
 
         // The manager's joins come first, in the order Django adds them:
@@ -99,7 +137,15 @@ impl IssueQuery {
         builder.require_left(Relation::States);
         builder.require_inner(Relation::Projects);
         builder.require_inner(Relation::Workspaces);
-        builder.and(manager_predicate());
+        match scope {
+            Some(scope) => {
+                for (relation, kind) in &scope.joins {
+                    builder.require(*relation, *kind);
+                }
+                builder.and(scope.predicate.clone());
+            }
+            None => builder.and(manager_predicate()),
+        }
         if let Some(project_id) = self.scope.project_id {
             builder.and(Frag::compare(
                 "issues.project_id",
@@ -169,7 +215,13 @@ impl IssueQuery {
     /// `IssueViewSet.list` keeps a copy of exactly this as
     /// `total_count_queryset` (`plane/app/views/issue/base.py:287`).
     pub fn filtered_base(&self) -> Select {
-        let builder = self.build();
+        self.filtered_base_with(None)
+    }
+
+    /// [`IssueQuery::filtered_base`] with a replacement for the manager
+    /// predicate.
+    pub fn filtered_base_with(&self, scope: Option<&IssueScopeFilter>) -> Select {
+        let builder = self.build(scope);
         let mut select = Select::new("issues");
         select.joins = builder.joins.to_joins();
         select.predicate = Some(builder.predicate);
@@ -189,8 +241,23 @@ impl IssueQuery {
     /// `group_by=labels__id` reports 412 for 225 issues rather than the 444
     /// joined rows. Reproducing that requires the same window in the count.
     pub fn grouped_count(&self, fields: &[ValueField]) -> Sql {
-        let mut select = self.filtered_select();
-        select.distinct = true;
+        self.grouped_count_with(fields, None)
+    }
+
+    /// [`IssueQuery::grouped_count`] with a replacement for the manager
+    /// predicate.
+    ///
+    /// The inner `DISTINCT` is the **view's**: `IssueViewSet.list` ends its
+    /// `get_queryset()` in `.distinct()`, the cycle/module/archive lists do
+    /// not, and with no `DISTINCT` the windowed count is the number of joined
+    /// rows (`plane/utils/paginator.py:278`).
+    pub fn grouped_count_with(
+        &self,
+        fields: &[ValueField],
+        scope: Option<&IssueScopeFilter>,
+    ) -> Sql {
+        let mut select = self.filtered_select_with(scope);
+        select.distinct = self.scope.distinct;
         select.projection = vec![
             Frag::raw("issues.id"),
             self.window_expression()
@@ -214,8 +281,20 @@ impl IssueQuery {
     /// (92 vs 104 in the fixture). Both are computed the way Django computes
     /// them.
     pub fn grouped_page_count(&self, fields: &[ValueField], limit: i64, offset: i64) -> Sql {
-        let mut inner = self.filtered_select();
-        inner.distinct = true;
+        self.grouped_page_count_with(fields, limit, offset, None)
+    }
+
+    /// [`IssueQuery::grouped_page_count`] with a replacement for the manager
+    /// predicate.
+    pub fn grouped_page_count_with(
+        &self,
+        fields: &[ValueField],
+        limit: i64,
+        offset: i64,
+        scope: Option<&IssueScopeFilter>,
+    ) -> Sql {
+        let mut inner = self.filtered_select_with(scope);
+        inner.distinct = self.scope.distinct;
         inner.projection = vec![
             Frag::raw("issues.id"),
             self.window_expression()
@@ -267,7 +346,13 @@ impl IssueQuery {
     /// The joins, predicate and grouper predicate for the page queries. Public
     /// so the global paginator can build its own projection and ordering.
     pub fn filtered_select(&self) -> Select {
-        let mut builder = self.build();
+        self.filtered_select_with(None)
+    }
+
+    /// [`IssueQuery::filtered_select`] with a replacement for the manager
+    /// predicate.
+    pub fn filtered_select_with(&self, scope: Option<&IssueScopeFilter>) -> Select {
+        let mut builder = self.build(scope);
         builder.and(self.grouper_predicate());
         let mut select = Select::new("issues");
         select.joins = builder.joins.to_joins();
@@ -305,7 +390,18 @@ impl IssueQuery {
     /// `DISTINCT` applies to it. One extra row is fetched so `has_results` needs
     /// no second round trip.
     pub fn page(&self, fields: &[ValueField], limit: i64, offset: i64) -> Select {
-        let mut select = self.filtered_select();
+        self.page_with(fields, limit, offset, None)
+    }
+
+    /// [`IssueQuery::page`] with a replacement for the manager predicate.
+    pub fn page_with(
+        &self,
+        fields: &[ValueField],
+        limit: i64,
+        offset: i64,
+        scope: Option<&IssueScopeFilter>,
+    ) -> Select {
+        let mut select = self.filtered_select_with(scope);
         select.projection = values::projection(fields);
         if select.distinct {
             // `SELECT DISTINCT` requires the ordering expressions in the select
@@ -338,7 +434,20 @@ impl IssueQuery {
         offset: i64,
         extra_row: bool,
     ) -> Select {
-        let mut inner = self.filtered_select();
+        self.grouped_page_with(fields, limit, offset, extra_row, None)
+    }
+
+    /// [`IssueQuery::grouped_page`] with a replacement for the manager
+    /// predicate.
+    pub fn grouped_page_with(
+        &self,
+        fields: &[ValueField],
+        limit: i64,
+        offset: i64,
+        extra_row: bool,
+        scope: Option<&IssueScopeFilter>,
+    ) -> Select {
+        let mut inner = self.filtered_select_with(scope);
         inner.projection = values::projection(fields);
 
         let window = self.window_expression();
@@ -388,7 +497,12 @@ impl IssueQuery {
     /// The intake relation is `LEFT OUTER` because the filter is inside an
     /// aggregate and one branch accepts a missing row.
     pub fn totals(&self, group: GroupField) -> Sql {
-        let mut builder = self.build();
+        self.totals_with(group, None)
+    }
+
+    /// [`IssueQuery::totals`] with a replacement for the manager predicate.
+    pub fn totals_with(&self, group: GroupField, scope: Option<&IssueScopeFilter>) -> Sql {
+        let mut builder = self.build(scope);
         builder.and(self.grouper_predicate());
         builder.require_left(Relation::IntakeIssues);
         let mut select = Select::new("issues");
@@ -411,7 +525,17 @@ impl IssueQuery {
 
     /// `__get_subgroup_total_queryset`: `(group, subgroup, count)` rows.
     pub fn sub_totals(&self, group: GroupField, sub_group: GroupField) -> Sql {
-        let mut builder = self.build();
+        self.sub_totals_with(group, sub_group, None)
+    }
+
+    /// [`IssueQuery::sub_totals`] with a replacement for the manager predicate.
+    pub fn sub_totals_with(
+        &self,
+        group: GroupField,
+        sub_group: GroupField,
+        scope: Option<&IssueScopeFilter>,
+    ) -> Sql {
+        let mut builder = self.build(scope);
         builder.and(self.grouper_predicate());
         builder.require_left(Relation::IntakeIssues);
         let mut select = Select::new("issues");
@@ -438,6 +562,16 @@ impl IssueQuery {
     /// The group-key query for `field`. The issue-derived fields need the
     /// filtered queryset, which the caller owns for the duration of the call.
     pub fn group_value_request<'a>(
+        &'a self,
+        field: GroupField,
+        issues: &'a Select,
+    ) -> crate::issue::group_values::GroupValuesRequest<'a> {
+        self.group_value_request_with(field, issues)
+    }
+
+    /// [`IssueQuery::group_value_request`] with the same name and an explicit
+    /// alias; kept so handlers read the same as the Python's call sites.
+    pub fn group_value_request_with<'a>(
         &'a self,
         field: GroupField,
         issues: &'a Select,
@@ -537,6 +671,7 @@ pub fn group_key(value: &Json) -> String {
 #[cfg(test)]
 mod tests {
     use crate::issue::model::ValueField;
+    use crate::sql::Frag;
 
     #[test]
     fn base_manager_predicate_is_present() {
@@ -555,6 +690,60 @@ mod tests {
         assert!(sql.text.contains("projects.archived_at IS NULL"));
         assert!(sql.text.contains("workspaces.slug = $2"));
         assert!(sql.text.contains("issues.project_id = $1"));
+    }
+
+    #[test]
+    fn a_scope_filter_replaces_the_manager_predicate() {
+        // The archived-issues list uses `Issue.objects` plus its own predicate
+        // (`plane/app/views/issue/archive.py:78-86`), not `Issue.issue_objects`.
+        let query = super::IssueQuery {
+            scope: super::IssueScope::project("w", uuid::Uuid::nil()),
+            filters: Default::default(),
+            rich: None,
+            ordering: crate::issue::order::Ordering::resolve("-created_at"),
+            group_by: None,
+            sub_group_by: None,
+            timezone: chrono_tz::UTC,
+        };
+        let scope = super::IssueScopeFilter::new(Frag::raw("issues.archived_at IS NOT NULL"));
+        let scoped = query.filtered_base_with(Some(&scope)).into_sql();
+        assert!(scoped.text.contains("issues.archived_at IS NOT NULL"));
+        assert!(!scoped.text.contains("NOT issues.is_draft"));
+        // The unscoped statement still carries the manager's exclusions.
+        assert!(
+            query
+                .filtered_base()
+                .into_sql()
+                .text
+                .contains("NOT issues.is_draft")
+        );
+    }
+
+    #[test]
+    fn grouped_counts_honour_the_view_distinct() {
+        // `IssueViewSet.list` ends in `.distinct()`; the cycle, module and
+        // archived lists do not, and the windowed count then counts joined rows
+        // (`plane/utils/paginator.py:278`).
+        let mut query = super::IssueQuery {
+            scope: super::IssueScope::project("w", uuid::Uuid::nil()),
+            filters: Default::default(),
+            rich: None,
+            ordering: crate::issue::order::Ordering::resolve("-created_at"),
+            group_by: Some(crate::issue::model::GroupField::StateId),
+            sub_group_by: None,
+            timezone: chrono_tz::UTC,
+        };
+        let fields = ValueField::project(Some(crate::issue::model::GroupField::StateId), None);
+        query.scope.distinct = true;
+        assert!(query.grouped_count(&fields).text.contains("DISTINCT"));
+        query.scope.distinct = false;
+        assert!(!query.grouped_count(&fields).text.contains("DISTINCT"));
+        assert!(
+            !query
+                .grouped_page_count(&fields, 10, 0)
+                .text
+                .contains("DISTINCT")
+        );
     }
 
     #[test]

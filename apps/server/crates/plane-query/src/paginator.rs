@@ -49,11 +49,12 @@ use deadpool_postgres::Client;
 use uuid::Uuid;
 
 use crate::error::QueryError;
+use crate::issue::ListOptions;
 use crate::issue::model::{GroupField, ValueField};
 use crate::issue::query::{GroupPlan, IssueQuery, group_key};
-use crate::issue::values;
+use crate::issue::values::{self, Projection};
 use crate::json::Json;
-use crate::sql::Sql;
+use crate::sql::{Select, Sql};
 
 /// `MAX_LIMIT` (`paginator.py:87`).
 pub const MAX_LIMIT: u32 = 1000;
@@ -288,6 +289,103 @@ impl PageQuery {
     }
 }
 
+/// The window `OffsetPaginator.get_result` slices
+/// (`plane/utils/paginator.py:125-152`) for a queryset that is **not** an issue
+/// list.
+///
+/// The issue lists compose their statements in this crate, but other `/api/`
+/// lists paginate with the same paginator over their own SQL (the workspace
+/// activity feed is one). They parsed `per_page`/`cursor` and sliced by hand
+/// because the paginator was not exposed; this is that half, so the cursor
+/// format, the page arithmetic and the two `has_results` flags have one
+/// implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OffsetWindow {
+    pub limit: i64,
+    pub page_index: i64,
+    pub offset: i64,
+}
+
+impl OffsetWindow {
+    /// `limit = min(per_page, max_limit)`; `offset = page * limit`.
+    pub fn new(page: &PageQuery, max_limit: u32) -> Self {
+        let limit = i64::from(page.per_page.min(max_limit));
+        Self {
+            limit,
+            page_index: page.cursor.offset,
+            offset: page.cursor.offset * limit,
+        }
+    }
+
+    /// Django fetches `queryset[offset:stop]` with `stop = offset + limit + 1`
+    /// and uses the extra row for `next_page_results`.
+    pub fn stop(&self) -> i64 {
+        self.offset + self.limit + 1
+    }
+
+    /// `queryset[offset:offset + limit]`.
+    pub fn row_limit(&self) -> i64 {
+        self.limit
+    }
+
+    /// The two cursors, given how many rows the `limit + 1` row query returned.
+    pub fn cursors(&self, fetched_rows: usize) -> (Cursor, Cursor) {
+        let next = Cursor::new(
+            self.limit,
+            self.page_index + 1,
+            false,
+            fetched_rows as i64 > self.limit,
+        );
+        let prev = Cursor::new(self.limit, self.page_index - 1, true, self.page_index > 0);
+        (next, prev)
+    }
+}
+
+/// One `OffsetPaginator` page over a caller-composed statement.
+#[derive(Debug)]
+pub struct OffsetPage {
+    /// The page's rows (`limit` of them at most; the `limit + 1`th is dropped).
+    pub rows: Vec<tokio_postgres::Row>,
+    /// `total_count_queryset.count()`.
+    pub total: i64,
+    pub window: OffsetWindow,
+    pub next: Cursor,
+    pub prev: Cursor,
+}
+
+/// `OffsetPaginator.get_result` (`plane/utils/paginator.py:125-189`) for a
+/// list that is not an issue list.
+///
+/// `total` is the queryset `total_count_queryset` (the unannotated filtered
+/// one, exactly as the Python keeps a copy); `total_distinct_key` is the
+/// column Django's `.distinct()` would collapse duplicates on, if the queryset
+/// has one. `rows` is the annotated page queryset — the function sets its
+/// `LIMIT`/`OFFSET`, runs it, drops the extra row and builds both cursors.
+pub async fn offset_page(
+    client: &Client,
+    page: &PageQuery,
+    max_limit: u32,
+    total: &Select,
+    total_distinct_key: Option<&str>,
+    mut rows: Select,
+) -> Result<OffsetPage, QueryError> {
+    let window = OffsetWindow::new(page, max_limit);
+    rows.limit = Some(window.row_limit() + 1);
+    rows.offset = Some(window.offset);
+    let fetched = fetch(client, &rows.into_sql()).await?;
+    let (next, prev) = window.cursors(fetched.len());
+    let mut fetched = fetched;
+    fetched.truncate(window.row_limit() as usize);
+    let total = fetch_count(client, &total.count_sql(total_distinct_key, None)).await?;
+    Ok(OffsetPage {
+        rows: fetched,
+        total,
+        window,
+        next,
+        prev,
+    })
+}
+
 fn params_of(sql: &Sql) -> Vec<&(dyn tokio_postgres::types::ToSql + Sync)> {
     sql.params
         .iter()
@@ -318,13 +416,26 @@ pub async fn issue_list_page(
     group: Option<&GroupPlan>,
     page: &PageQuery,
 ) -> Result<Json, QueryError> {
+    issue_list_page_with(client, query, group, page, &ListOptions::default()).await
+}
+
+/// [`issue_list_page`] with the view's own scope, annotation shape and filter
+/// backends.
+pub async fn issue_list_page_with(
+    client: &Client,
+    query: &IssueQuery,
+    group: Option<&GroupPlan>,
+    page: &PageQuery,
+    options: &ListOptions,
+) -> Result<Json, QueryError> {
+    let scope = options.scope.as_ref();
     let limit = i64::from(page.per_page.min(MAX_LIMIT));
     let page_index = page.cursor.offset;
     let offset = page_index * limit;
 
     let Some(plan) = group else {
         let fields = ValueField::project(None, None);
-        let select = query.page(&fields, limit, offset);
+        let select = query.page_with(&fields, limit, offset, scope);
         let rows = fetch(client, &select.into_sql()).await?;
         let has_results = rows.len() as i64 > limit;
         let rows = truncate(rows, limit as usize);
@@ -333,8 +444,15 @@ pub async fn issue_list_page(
         } else {
             None
         };
-        let total = fetch_count(client, &query.filtered_base().count_sql(distinct, None)).await?;
-        let results = decode_rows(&rows, &fields)?;
+        let total = fetch_count(
+            client,
+            &query.filtered_base_with(scope).count_sql(distinct, None),
+        )
+        .await?;
+        let mut results = decode_rows(&rows, &fields)?;
+        if options.projection == Projection::Aggregate {
+            zero_empty_counts(&mut results);
+        }
         let count = results.len();
         return Ok(envelope(
             None,
@@ -351,7 +469,7 @@ pub async fn issue_list_page(
     let group_field = plan.group_by;
     let sub_group_field = plan.sub_group_by;
     let fields = ValueField::project(Some(group_field), sub_group_field);
-    let select = query.grouped_page(&fields, limit, offset, true);
+    let select = query.grouped_page_with(&fields, limit, offset, true, scope);
     let rows = fetch(client, &select.into_sql()).await?;
 
     // One extra row per partition answers `queryset.filter(row_number__gte=stop).exists()`.
@@ -392,24 +510,36 @@ pub async fn issue_list_page(
         kept.push(row);
     }
 
-    let hits = fetch_count(client, &query.grouped_count(&fields)).await?;
-    let page_count = fetch_count(client, &query.grouped_page_count(&fields, limit, offset)).await?;
-    let totals = fetch(client, &query.totals(group_field)).await?;
-    let group_totals: Vec<(String, i64)> = totals
+    let hits = fetch_count(client, &query.grouped_count_with(&fields, scope)).await?;
+    let page_count = fetch_count(
+        client,
+        &query.grouped_page_count_with(&fields, limit, offset, scope),
+    )
+    .await?;
+    let totals = fetch(client, &query.totals_with(group_field, scope)).await?;
+    // The `COUNT(DISTINCT id) FILTER (…)` value, before `__get_total_dict`'s
+    // zero-to-one adjustment: `max_hits` divides the *raw* count
+    // (`paginator.py:283-288,486-491`).
+    let raw_totals: Vec<(String, i64)> = totals
         .iter()
         .map(|row| {
             // The group column keeps its SQL type (uuid, text or date), so it
             // is rendered by the same helper the group-value queries use.
             let key = crate::issue::query::render_group_value_at(row, 0, group_field)?;
             let count: i64 = row.try_get(1).map_err(QueryError::from)?;
-            // `paginator.py:313`: a group whose filtered count is 0 reports 1.
-            Ok((key, if count == 0 { 1 } else { count }))
+            Ok((key, count))
         })
         .collect::<Result<Vec<_>, QueryError>>()?;
+    // `paginator.py:311-313`: `total_group_dict[key] += 1 if count == 0 else
+    // count`, so an empty group reports `total_results: 1`.
+    let group_totals: Vec<(String, i64)> = raw_totals
+        .iter()
+        .map(|(key, count)| (key.clone(), if *count == 0 { 1 } else { *count }))
+        .collect();
 
     let sub_totals: Vec<(String, String, i64)> = match sub_group_field {
         Some(sub) => {
-            let rows = fetch(client, &query.sub_totals(group_field, sub)).await?;
+            let rows = fetch(client, &query.sub_totals_with(group_field, sub, scope)).await?;
             rows.iter()
                 .map(|row| {
                     let group = crate::issue::query::render_group_value_at(row, 0, group_field)?;
@@ -422,7 +552,25 @@ pub async fn issue_list_page(
         None => Vec::new(),
     };
 
-    let decoded = decode_rows(&kept, &fields)?;
+    let mut decoded = decode_rows(&kept, &fields)?;
+    if options.projection == Projection::Aggregate {
+        zero_empty_counts(&mut decoded);
+    }
+    // `GroupedOffsetPaginator.process_results` / `SubGroupedOffsetPaginator
+    // .process_results`: an empty page is `{}`, not the pre-created group dict
+    // (`plane/utils/paginator.py:380-389,622-632`).
+    if decoded.is_empty() {
+        return Ok(envelope(
+            Some(group_field),
+            sub_group_field,
+            hits,
+            Cursor::new(limit, page_index + 1, false, has_results),
+            Cursor::new(limit, page_index - 1, true, page_index > 0),
+            0,
+            0,
+            Json::Object(Vec::new()),
+        ));
+    }
     let results = shape_results(
         plan,
         group_field,
@@ -432,7 +580,7 @@ pub async fn issue_list_page(
         &sub_totals,
     )?;
 
-    let max_group = group_totals
+    let max_group = raw_totals
         .iter()
         .map(|(_, count)| *count)
         .max()
@@ -472,6 +620,26 @@ fn decode_rows(
     fields: &[ValueField],
 ) -> Result<Vec<Json>, QueryError> {
     rows.iter().map(|row| values::decode(row, fields)).collect()
+}
+
+/// `Projection::Aggregate`'s `COUNT(...)` subqueries have no `GROUP BY`, so an
+/// empty relation is `0` rather than SQL `NULL`. Applied to the decoded rows so
+/// the row decoder stays one function.
+fn zero_empty_counts(rows: &mut [Json]) {
+    for row in rows {
+        let Json::Object(entries) = row else {
+            continue;
+        };
+        for (key, value) in entries.iter_mut() {
+            let is_count = matches!(
+                key.as_str(),
+                "sub_issues_count" | "attachment_count" | "link_count"
+            );
+            if is_count && matches!(value, Json::Null) {
+                *value = Json::Int(0);
+            }
+        }
+    }
 }
 
 fn group_key_of(
@@ -1050,6 +1218,45 @@ mod tests {
                 .message(),
             "Invalid per_page value. Cannot exceed 20."
         );
+    }
+
+    #[test]
+    fn the_offset_window_matches_the_python() {
+        // `OffsetPaginator.get_result`: `limit = min(per_page, max_limit)`,
+        // `offset = page * limit`, `stop = offset + limit + 1`
+        // (`plane/utils/paginator.py:132,144-145`).
+        let dict = plane_drf::QueryDict::parse("per_page=13&cursor=13:2:0", None).expect("query");
+        let page = PageQuery::parse(&dict, None, None).expect("page");
+        let window = OffsetWindow::new(&page, MAX_LIMIT);
+        assert_eq!(window.limit, 13);
+        assert_eq!(window.page_index, 2);
+        assert_eq!(window.offset, 26);
+        assert_eq!(window.stop(), 40);
+        assert_eq!(window.row_limit(), 13);
+
+        // `next_page_results` is "the slice held limit + 1 rows"; the previous
+        // cursor exists only when the page index is positive
+        // (`paginator.py:165-167`).
+        let (next, prev) = window.cursors(14);
+        assert_eq!(next.to_string(), "13:3:0");
+        assert!(next.has_results);
+        assert_eq!(prev.to_string(), "13:1:1");
+        assert!(prev.has_results);
+
+        let (next, prev) = OffsetWindow::new(
+            &PageQuery::parse(
+                &plane_drf::QueryDict::parse("per_page=13&cursor=13:0:0", None).expect("query"),
+                None,
+                None,
+            )
+            .expect("page"),
+            MAX_LIMIT,
+        )
+        .cursors(3);
+        assert_eq!(next.to_string(), "13:1:0");
+        assert!(!next.has_results);
+        assert_eq!(prev.to_string(), "13:-1:1");
+        assert!(!prev.has_results);
     }
 
     #[test]

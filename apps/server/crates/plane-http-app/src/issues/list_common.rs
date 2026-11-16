@@ -58,6 +58,10 @@ pub fn query_error_response(error: &QueryError) -> Option<ViewResponse> {
             Some(rendered(api.status, &body))
         }
         QueryError::BadRequest(message) => Some(error_body(400, message)),
+        // `django.core.exceptions.ValidationError` from a lookup value; the
+        // family handler's body (`plane/app/views/base.py:216-220`) is the
+        // `{"error": …}` dialect, not DRF's `{"detail": …}`.
+        QueryError::Validation => Some(error_body(400, "Please provide valid detail")),
         _ => None,
     }
 }
@@ -355,224 +359,52 @@ pub struct ListRequest<'a> {
     pub now: DateTime<Utc>,
     /// A predicate every statement must also apply.
     ///
-    /// `plane_query::issue::run` has no hook for the extra lookups two views
-    /// add (`updated_at__gt` in `IssueViewSet.list`, `pk__in` and
+    /// The views add lookups that are not `IssueFilterSet` fields
+    /// (`updated_at__gt` in `IssueViewSet.list`, `pk__in` and
     /// `state__deleted_at__isnull=True` in `IssueListEndpoint`). It is ANDed
     /// into the rich-filter predicate, so every statement `build()` feeds —
     /// page, counts, totals, group values — applies it.
     pub extra: Frag,
+    /// The view's switches: which filter backends it declares, the annotation
+    /// shape, `distinct`, and the `order_by` default.
+    pub options: plane_query::ListOptions,
 }
 
-/// `plane_query::issue::run`, plus [`ListRequest::extra`].
+/// `plane_query::issue::run_with`, with [`ListRequest::extra`] folded in and
+/// the view's own [`plane_query::ListOptions`].
 ///
-/// The only difference from the crate's `run` is the predicate hook; the
-/// parsing order is the Python's (`IssueViewSet.list`):
-/// legacy `issue_filters` → `filter_queryset` → ordering → grouper.
+/// `run_with` reproduces the Python's parse order (`IssueViewSet.list`):
+/// filterset/JSON tree → group/sub-group equality → paginator parameters →
+/// the compile-time filter errors. The extra predicate is the one thing the
+/// crate has no view hook for; it becomes part of the scope filter (which
+/// *replaces* the manager predicate, so the two are ANDed).
 pub async fn run_issue_list(
     client: &Client,
     request: &ListRequest<'_>,
 ) -> Result<Json, QueryError> {
-    use plane_query::issue::filter::{FilterParams, LegacyFilters};
-    use plane_query::issue::model::GroupField;
-    use plane_query::issue::order::Ordering;
-    use plane_query::issue::query::{GroupPlan, IssueQuery};
-    use plane_query::issue::rich;
-    use plane_query::paginator::{PageQuery, issue_list_page};
-
-    let page_query = request.query;
-    let group_by_param = page_query.get("group_by").filter(|value| !value.is_empty());
-    let sub_group_by_param = page_query
-        .get("sub_group_by")
-        .filter(|value| !value.is_empty());
-    let page = PageQuery::parse(page_query, group_by_param, sub_group_by_param)?;
-
-    let legacy = LegacyFilters::parse(&FilterParams::Get(page_query), request.now.date_naive())?;
-    // Only `?filters=` is applied. `IssueViewSet.filter_backends` is
-    // `(ComplexFilterBackend,)` (`plane/app/views/issue/base.py:274`), so the
-    // `IssueFilterSet` is never run over the query parameters — it only
-    // validates the field names of the JSON tree. `plane_query`'s `run` applies
-    // `parse_filterset` as well, which turns e.g. `priority=urgent,high` into a
-    // 400 that Django answers with the legacy filter's rows.
-    let rich = rich::parse_complex_query(page_query, request.timezone)?;
-    let rich = combine_rich(rich, request.extra.clone());
-
-    let ordering = Ordering::resolve(page_query.get_or("order_by", "-created_at"));
-    let group_by = group_by_param.and_then(GroupField::parse);
-    let sub_group_by = sub_group_by_param.and_then(GroupField::parse);
-
-    if group_by.is_some() && group_by == sub_group_by {
-        // `plane/app/views/issue/base.py:327`: a bare `{"error": …}` body.
-        return Err(QueryError::BadRequest(
-            "Group by and sub group by cannot have same parameters".to_owned(),
+    let mut options = request.options.clone();
+    options.scope_override = Some(request.scope.clone());
+    if !request.extra.is_empty() {
+        let base = options
+            .scope
+            .take()
+            .map(|scope| scope.predicate)
+            .unwrap_or_else(plane_query::issue::model::manager_predicate);
+        options.scope = Some(plane_query::issue::query::IssueScopeFilter::new(
+            base.and(request.extra.clone()),
         ));
     }
-
-    let query = IssueQuery {
-        scope: request.scope.clone(),
-        filters: legacy,
-        rich,
-        ordering,
-        group_by,
-        sub_group_by,
+    let list_request = plane_query::issue::ListRequest {
+        query: request.query,
+        workspace_slug: &request.scope.workspace_slug,
+        project_id: request.scope.project_id.unwrap_or_default(),
         timezone: request.timezone,
+        now: request.now,
+        user_id: request.scope.created_by,
+        guest_view_all_features: true,
+        is_guest: false,
     };
-
-    let plan = match group_by {
-        Some(field) => {
-            let group_fields = fetch_group_values(client, &query, field).await?;
-            let (sub_group_by, sub_group_fields) = match sub_group_by {
-                Some(sub) => (Some(sub), fetch_group_values(client, &query, sub).await?),
-                None => (None, Vec::new()),
-            };
-            Some(GroupPlan {
-                group_by: field,
-                group_fields,
-                sub_group_by,
-                sub_group_fields,
-            })
-        }
-        None => None,
-    };
-
-    let mut body = issue_list_page(client, &query, plan.as_ref(), &page).await?;
-    if let Some(plan) = plan.as_ref() {
-        fix_multi_group_arrays(client, &query, plan, &page, &mut body).await?;
-    }
-    Ok(body)
-}
-
-/// Rewrite the `assignee_ids` / `label_ids` / `module_ids` arrays of an
-/// m2m-grouped response into CPython's `list(set(...))` order.
-///
-/// `__query_multi_grouper` (`plane/utils/paginator.py:601-618`) replaces the
-/// issue's id array with `list(set(map(str, group_values)))`, inserted in page
-/// row order. `plane-query` sorts those arrays (its golden corpus normalises
-/// the difference), so the port re-derives the order here: it re-runs the same
-/// page statement (one extra statement, only for `group_by`/`sub_group_by` on
-/// `labels__id`, `assignees__id` or `issue_module__module_id`) and rebuilds
-/// each issue's list in row order.
-async fn fix_multi_group_arrays(
-    client: &Client,
-    query: &plane_query::issue::query::IssueQuery,
-    plan: &plane_query::issue::query::GroupPlan,
-    page: &plane_query::paginator::PageQuery,
-    body: &mut Json,
-) -> Result<(), QueryError> {
-    use plane_query::issue::model::{GroupField, ValueField};
-
-    let mapped: Vec<(GroupField, &'static str)> = [Some(plan.group_by), plan.sub_group_by]
-        .into_iter()
-        .flatten()
-        .filter_map(|field| field.mapper().map(|mapper| (field, mapper)))
-        .collect();
-    if mapped.is_empty() {
-        return Ok(());
-    }
-
-    let limit = i64::from(page.per_page.min(plane_query::paginator::MAX_LIMIT));
-    let offset = page.cursor.offset * limit;
-    let fields = ValueField::project(Some(plan.group_by), plan.sub_group_by);
-    let sql = query.grouped_page(&fields, limit, offset, true).into_sql();
-    let statement = client.prepare(&sql.text).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    let rows = client.query(&statement, &params).await?;
-
-    let id_index = fields
-        .iter()
-        .position(|field| *field == ValueField::Id)
-        .unwrap_or(0);
-    // issue id → mapper → group values in page order.
-    #[allow(clippy::type_complexity)]
-    let mut per_issue: Vec<(String, Vec<(&'static str, Vec<String>)>)> = Vec::new();
-    for row in &rows {
-        let id: uuid::Uuid = row.try_get(id_index)?;
-        let id = id.to_string();
-        let issue_index = match per_issue.iter().position(|(existing, _)| *existing == id) {
-            Some(index) => index,
-            None => {
-                per_issue.push((id, Vec::new()));
-                per_issue.len() - 1
-            }
-        };
-        for (field, mapper) in &mapped {
-            let Some(index) = fields
-                .iter()
-                .position(|candidate| *candidate == ValueField::Group(*field))
-            else {
-                continue;
-            };
-            let value = plane_query::issue::query::render_group_value_at(row, index, *field)?;
-            let arrays = &mut per_issue[issue_index].1;
-            let slot = match arrays.iter().position(|(name, _)| name == mapper) {
-                Some(slot) => slot,
-                None => {
-                    arrays.push((mapper, Vec::new()));
-                    arrays.len() - 1
-                }
-            };
-            if !arrays[slot].1.contains(&value) {
-                arrays[slot].1.push(value);
-            }
-        }
-    }
-
-    let mut replacements: Vec<(String, &'static str, Json)> = Vec::new();
-    for (id, arrays) in &per_issue {
-        for (mapper, values) in arrays {
-            if values.iter().any(|value| value == "None") {
-                replacements.push((id.clone(), mapper, Json::Array(Vec::new())));
-            } else {
-                let order = super::list_pyset::python_set_order(values);
-                replacements.push((
-                    id.clone(),
-                    mapper,
-                    Json::Array(order.into_iter().map(Json::Str).collect()),
-                ));
-            }
-        }
-    }
-
-    apply_arrays(body, &replacements);
-    Ok(())
-}
-
-/// Replace `row[mapper]` for every object carrying `id`, recursively.
-fn apply_arrays(value: &mut Json, replacements: &[(String, &'static str, Json)]) {
-    match value {
-        Json::Array(items) => {
-            for item in items {
-                apply_arrays(item, replacements);
-            }
-        }
-        Json::Object(entries) => {
-            let id =
-                entries
-                    .iter()
-                    .find(|(key, _)| key == "id")
-                    .and_then(|(_, value)| match value {
-                        Json::Str(id) => Some(id.clone()),
-                        _ => None,
-                    });
-            if let Some(id) = id {
-                for (key, slot) in entries.iter_mut() {
-                    if let Some((_, _, replacement)) = replacements
-                        .iter()
-                        .find(|(target, mapper, _)| *target == id && *mapper == key)
-                    {
-                        *slot = replacement.clone();
-                    }
-                }
-            }
-            for (_, child) in entries.iter_mut() {
-                apply_arrays(child, replacements);
-            }
-        }
-        _ => {}
-    }
+    plane_query::issue::run_with(client, &list_request, &options).await
 }
 
 /// Build the [`IssueQuery`](plane_query::issue::query::IssueQuery) without
@@ -590,21 +422,43 @@ pub fn build_issue_query(
     use plane_query::issue::query::IssueQuery;
     use plane_query::issue::rich;
 
+    // The parse order is the Python's: the filter tree first (its 400 wins over
+    // a bad `order_by`), then the queryset's own `-created_at` default.
     let legacy = LegacyFilters::parse(&FilterParams::Get(request.query), request.now.date_naive())?;
-    // Only `?filters=`; see the note in `run_issue_list`.
-    let rich = rich::parse_complex_query(request.query, request.timezone)?;
+    let rich = match request.options.filter_backends {
+        plane_query::FilterBackends::LegacyAndComplex => {
+            let rich = rich::parse_filterset(request.query, request.timezone)?;
+            match rich::parse_complex_query(request.query, request.timezone)? {
+                Some(complex) => Some(complex),
+                None => rich,
+            }
+        }
+        plane_query::FilterBackends::ComplexOnly => {
+            rich::parse_complex_query(request.query, request.timezone)?
+        }
+    };
     let rich = combine_rich(rich, request.extra.clone());
-    let ordering = Ordering::resolve(request.query.get_or("order_by", "-created_at"));
-    let group_by = request
-        .query
-        .get("group_by")
-        .filter(|value| !value.is_empty())
-        .and_then(GroupField::parse);
-    let sub_group_by = request
-        .query
-        .get("sub_group_by")
-        .filter(|value| !value.is_empty())
-        .and_then(GroupField::parse);
+    let ordering = Ordering::resolve(
+        request
+            .query
+            .get_or("order_by", request.options.default_order_by),
+    );
+    let (group_by, sub_group_by) = if request.options.grouping {
+        (
+            request
+                .query
+                .get("group_by")
+                .filter(|value| !value.is_empty())
+                .and_then(GroupField::parse),
+            request
+                .query
+                .get("sub_group_by")
+                .filter(|value| !value.is_empty())
+                .and_then(GroupField::parse),
+        )
+    } else {
+        (None, None)
+    };
     Ok(IssueQuery {
         scope: request.scope.clone(),
         filters: legacy,
@@ -631,75 +485,16 @@ pub fn prevalidate_list_filters(
     use plane_query::issue::filter::{FilterParams, LegacyFilters};
     use plane_query::issue::rich;
 
+    // `issue_filters` itself cannot fail, but `queryset.filter(**filters)` is
+    // built right after it and `DateField.get_prep_value` raises there — before
+    // `recent_visited_task.delay` (`base.py:284,304`) — so a bad legacy date is
+    // a 400 that must not enqueue the task.
     LegacyFilters::parse(&FilterParams::Get(query), now.date_naive())?;
+    // `filter_queryset` runs before the task (`base.py:281-284`).
     if let Some(complex) = rich::parse_complex_query(query, timezone)? {
         drop(complex);
     }
     Ok(())
-}
-
-/// The date parameters `issue_filters` feeds to `date_filter`
-/// (`plane/utils/issue_filters.py:63-81,198-296`).
-const LEGACY_DATE_KEYS: [&str; 5] = [
-    "created_at",
-    "updated_at",
-    "completed_at",
-    "start_date",
-    "target_date",
-];
-
-/// The 400 Django raises for a legacy date lookup whose first segment is not a
-/// date.
-///
-/// `date_filter` writes `{term}__gte = date_query[0]` whenever the query is not
-/// a relative range, so `start_date=after;2026-10-02` (the term before the
-/// date) reaches the ORM as the string `"after"`; `DateField` raises
-/// `ValidationError` when the queryset compiles, and the family handler renders
-/// `{"error": "Please provide valid detail"}` (`plane/app/views/base.py:216-220`).
-///
-/// `plane-query` refuses the same input as an upstream 500 because its golden
-/// corpus never contained the inverted form. Detecting it here keeps Django's
-/// 400 without editing the query crate.
-pub fn legacy_date_error(query: &plane_drf::QueryDict) -> Option<ViewResponse> {
-    for key in LEGACY_DATE_KEYS {
-        let Some(raw) = query.get(key) else { continue };
-        for item in raw.split(',') {
-            if item.is_empty() {
-                continue;
-            }
-            let parts: Vec<&str> = item.split(';').collect();
-            if parts.len() < 2 {
-                continue;
-            }
-            // `\d+_(weeks|months)` is the relative form, which never reaches
-            // the ORM as a date string.
-            let relative = parts[0].rsplit_once('_').is_some_and(|(digits, unit)| {
-                !digits.is_empty()
-                    && digits.bytes().all(|byte| byte.is_ascii_digit())
-                    && matches!(unit, "weeks" | "months")
-            });
-            if relative {
-                continue;
-            }
-            if !is_django_date(parts[0]) {
-                return Some(error_body(400, "Please provide valid detail"));
-            }
-        }
-    }
-    None
-}
-
-/// `django.utils.dateparse.parse_date`: `YYYY-MM-DD` only.
-fn is_django_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes
-            .iter()
-            .enumerate()
-            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
-        && chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
 }
 
 /// AND a predicate into a parsed filterset, keeping its joins.
@@ -719,39 +514,6 @@ pub fn combine_rich(
             joins: Vec::new(),
             predicate: extra,
         }),
-    }
-}
-
-async fn fetch_group_values(
-    client: &Client,
-    query: &plane_query::issue::query::IssueQuery,
-    field: plane_query::issue::model::GroupField,
-) -> Result<Vec<String>, QueryError> {
-    use plane_query::issue::group_values::{self, GroupValues};
-
-    let filtered = query.filtered_base();
-    let plan = group_values::values(&query.group_value_request(field, &filtered))?;
-    match plan {
-        GroupValues::Static(values) => Ok(values),
-        GroupValues::Query { sql, append_none } => {
-            let statement = client.prepare(&sql.text).await?;
-            let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-                .params
-                .iter()
-                .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            let rows = client.query(&statement, &params).await?;
-            let mut values = Vec::with_capacity(rows.len() + 1);
-            for row in &rows {
-                values.push(plane_query::issue::query::render_group_value(row, field)?);
-            }
-            if append_none {
-                values.push("None".to_owned());
-            }
-            let mut seen = std::collections::HashSet::new();
-            values.retain(|value| seen.insert(value.clone()));
-            Ok(values)
-        }
     }
 }
 
