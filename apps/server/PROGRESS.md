@@ -4,8 +4,11 @@ Read at the start of every session; update at the end.
 
 ## Current phase
 
-Phase 3: Read paths. Exit check passed on 2026-11-16 (every app-group GET on Rust, see
-below); the Phase 3 benchmark row is still running. Phase 4 (job plumbing) is next.
+Phase 3: Read paths. The **differential half** of the exit check passed on 2026-11-16
+(every app-group GET on Rust and verified). The **contract half** is still open:
+`plane/tests/contract` (94 files) has never been run against `plane-api`. A mixed-backend
+contract runner is being built. Phase 4 doesn't start until both halves pass (brief:
+"do not start a phase early").
 
 ## Upstream reference
 
@@ -158,10 +161,9 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
-### Phase 3 exit (2026-11-16)
+### Phase 3 exit, differential half (2026-11-16)
 
-Exit check passed: every app-group route with a GET is `rust(GET)` / `verified` (187
-routes). Only the later-phase groups (v1, public, instances, auth, web) are left on
+Every app-group route with a GET is `rust(GET)` / `verified` (187 routes). Only the later-phase groups (v1, public, instances, auth, web) are left on
 Django. The full read suite on `c48b145a13` has 0 diffs on every ported group:
 `issues` 239, `issues-groups-extra` 176, `issues-list-extra` 102, analytics 340, and so
 on. It differs only on v1/public/instances/auth (501, not ported).
@@ -421,12 +423,13 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. Merge the one-exchange dynamic SQL sweep and the D17/pyset follow-ups after
-   re-verifying them. Then add the Phase 3 benchmark row to `BENCH.md` (Linux containers,
-   equal CPU/memory limits, a quiet dev stack), re-measured after those perf changes.
-2. Phase 4 (job plumbing): the Postgres queue in `plane-jobs`, `plane-worker`, and
-   `plane-beat` with advisory locks. The Celery publisher already exists. Inventory
-   `TASKS.md` against what Phase 5 writes will enqueue.
-3. Phase 5 (write paths) planning: the order of the domains, the model hooks
-   (`MODEL_HOOKS.md`), and the write-scenario fixture and harness support for DB diffs on
-   POST/PATCH/DELETE.
+1. The contract half of the Phase 3 exit: a mixed-backend runner for
+   `plane/tests/contract`, without changing `apps/api`. Every request goes to Rust or
+   Django according to `ROUTES.md`, as the proxy does; forced authentication becomes a
+   real session; databases are transactional so `plane-api` sees the test's rows. Then
+   every contract test that touches a Rust-owned route must pass.
+2. Merge the one-exchange dynamic SQL sweep after re-verifying it. Then profile
+   `plane-api`'s memory after sustained load, and re-measure the Phase 3 row in
+   `BENCH.md` on a quiet stack.
+3. Phase 4 (job plumbing), only after step 1: the Postgres queue in `plane-jobs`,
+   `plane-worker`, and `plane-beat` with advisory locks.
