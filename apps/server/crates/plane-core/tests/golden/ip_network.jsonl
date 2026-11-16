@@ -1,0 +1,697 @@
+{"address_hex": "a000005", "id": "n0001", "input": "10.0.0.5", "network": "10.0.0.5/32", "ok": true, "prefix": 32, "version": 4}
+{"address_hex": "7f000001", "id": "n0002", "input": "127.0.0.1", "network": "127.0.0.1/32", "ok": true, "prefix": 32, "version": 4}
+{"address_hex": "0", "id": "n0003", "input": "0.0.0.0", "network": "0.0.0.0/32", "ok": true, "prefix": 32, "version": 4}
+{"address_hex": "ffffffff", "id": "n0004", "input": "255.255.255.255", "network": "255.255.255.255/32", "ok": true, "prefix": 32, "version": 4}
+{"address_hex": "1", "id": "n0005", "input": "::1", "network": "::1/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "0", "id": "n0006", "input": "::", "network": "::/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "20010db8000000000000000000000001", "id": "n0007", "input": "2001:db8::1", "network": "2001:db8::1/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "fe800000000000000000000000000001", "id": "n0008", "input": "fe80::1", "network": "fe80::1/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "a000000", "id": "n0009", "input": "10.0.0.0/8", "network": "10.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "a000000", "id": "n0010", "input": "10.0.0.5/8", "network": "10.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "c0a80100", "id": "n0011", "input": "192.168.1.7/24", "network": "192.168.1.0/24", "ok": true, "prefix": 24, "version": 4}
+{"address_hex": "ac100000", "id": "n0012", "input": "172.16.0.0/12", "network": "172.16.0.0/12", "ok": true, "prefix": 12, "version": 4}
+{"address_hex": "0", "id": "n0013", "input": "0.0.0.0/0", "network": "0.0.0.0/0", "ok": true, "prefix": 0, "version": 4}
+{"address_hex": "ffffffff", "id": "n0014", "input": "255.255.255.255/32", "network": "255.255.255.255/32", "ok": true, "prefix": 32, "version": 4}
+{"address_hex": "8080808", "id": "n0015", "input": "8.8.8.8/31", "network": "8.8.8.8/31", "ok": true, "prefix": 31, "version": 4}
+{"address_hex": "1020304", "id": "n0016", "input": "1.2.3.4/30", "network": "1.2.3.4/30", "ok": true, "prefix": 30, "version": 4}
+{"address_hex": "0", "id": "n0017", "input": "1.2.3.4/1", "network": "0.0.0.0/1", "ok": true, "prefix": 1, "version": 4}
+{"address_hex": "1000000", "id": "n0018", "input": "1.2.3.4/08", "network": "1.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "1000000", "id": "n0019", "input": "1.2.3.4/008", "network": "1.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "1000000", "id": "n0020", "input": "1.2.3.4/0000000000000000000008", "network": "1.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "1020304", "id": "n0021", "input": "1.2.3.4/032", "network": "1.2.3.4/32", "ok": true, "prefix": 32, "version": 4}
+{"address_hex": "0", "id": "n0022", "input": "1.2.3.4/00", "network": "0.0.0.0/0", "ok": true, "prefix": 0, "version": 4}
+{"error": "'1.2.3.4/33' does not appear to be an IPv4 or IPv6 network", "id": "n0023", "input": "1.2.3.4/33", "ok": false}
+{"error": "'1.2.3.4/-1' does not appear to be an IPv4 or IPv6 network", "id": "n0024", "input": "1.2.3.4/-1", "ok": false}
+{"error": "'1.2.3.4/+8' does not appear to be an IPv4 or IPv6 network", "id": "n0025", "input": "1.2.3.4/+8", "ok": false}
+{"error": "'1.2.3.4/' does not appear to be an IPv4 or IPv6 network", "id": "n0026", "input": "1.2.3.4/", "ok": false}
+{"error": "'1.2.3.4//8' does not appear to be an IPv4 or IPv6 network", "id": "n0027", "input": "1.2.3.4//8", "ok": false}
+{"error": "'10.0.0.0/255.0.0.0/8' does not appear to be an IPv4 or IPv6 network", "id": "n0028", "input": "10.0.0.0/255.0.0.0/8", "ok": false}
+{"error": "'/8' does not appear to be an IPv4 or IPv6 network", "id": "n0029", "input": "/8", "ok": false}
+{"address_hex": "a000000", "id": "n0030", "input": "10.0.0.0/255.0.0.0", "network": "10.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "a000000", "id": "n0031", "input": "10.0.0.0/0.255.255.255", "network": "10.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "1020300", "id": "n0032", "input": "1.2.3.4/255.255.255.0", "network": "1.2.3.0/24", "ok": true, "prefix": 24, "version": 4}
+{"address_hex": "1020304", "id": "n0033", "input": "1.2.3.4/255.255.255.255", "network": "1.2.3.4/32", "ok": true, "prefix": 32, "version": 4}
+{"address_hex": "0", "id": "n0034", "input": "1.2.3.4/0.0.0.0", "network": "0.0.0.0/0", "ok": true, "prefix": 0, "version": 4}
+{"address_hex": "1020304", "id": "n0035", "input": "1.2.3.4/0.0.0.1", "network": "1.2.3.4/31", "ok": true, "prefix": 31, "version": 4}
+{"address_hex": "1020304", "id": "n0036", "input": "1.2.3.4/0.0.0.3", "network": "1.2.3.4/30", "ok": true, "prefix": 30, "version": 4}
+{"address_hex": "1020300", "id": "n0037", "input": "1.2.3.4/0.0.0.255", "network": "1.2.3.0/24", "ok": true, "prefix": 24, "version": 4}
+{"error": "'1.2.3.4/0.0.0.254' does not appear to be an IPv4 or IPv6 network", "id": "n0038", "input": "1.2.3.4/0.0.0.254", "ok": false}
+{"address_hex": "0", "id": "n0039", "input": "1.2.3.4/128.0.0.0", "network": "0.0.0.0/1", "ok": true, "prefix": 1, "version": 4}
+{"address_hex": "0", "id": "n0040", "input": "1.2.3.4/192.0.0.0", "network": "0.0.0.0/2", "ok": true, "prefix": 2, "version": 4}
+{"error": "'1.2.3.4/255.255.255.1' does not appear to be an IPv4 or IPv6 network", "id": "n0041", "input": "1.2.3.4/255.255.255.1", "ok": false}
+{"error": "'1.2.3.4/255.0.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0042", "input": "1.2.3.4/255.0.255.0", "ok": false}
+{"error": "'1.2.3.4/0.255.0.255' does not appear to be an IPv4 or IPv6 network", "id": "n0043", "input": "1.2.3.4/0.255.0.255", "ok": false}
+{"error": "'1.2.3.4/255.255.255.256' does not appear to be an IPv4 or IPv6 network", "id": "n0044", "input": "1.2.3.4/255.255.255.256", "ok": false}
+{"error": "'1.2.3.4/1.2.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0045", "input": "1.2.3.4/1.2.3.4", "ok": false}
+{"error": "'1.2.3.4/0xFF' does not appear to be an IPv4 or IPv6 network", "id": "n0046", "input": "1.2.3.4/0xFF", "ok": false}
+{"error": "'1.2.3' does not appear to be an IPv4 or IPv6 network", "id": "n0047", "input": "1.2.3", "ok": false}
+{"error": "'1.2.3.4.5' does not appear to be an IPv4 or IPv6 network", "id": "n0048", "input": "1.2.3.4.5", "ok": false}
+{"error": "'1.2.3.256' does not appear to be an IPv4 or IPv6 network", "id": "n0049", "input": "1.2.3.256", "ok": false}
+{"error": "'1.2.3.1000' does not appear to be an IPv4 or IPv6 network", "id": "n0050", "input": "1.2.3.1000", "ok": false}
+{"error": "'1.2.3.04' does not appear to be an IPv4 or IPv6 network", "id": "n0051", "input": "1.2.3.04", "ok": false}
+{"error": "'1.2.3.00' does not appear to be an IPv4 or IPv6 network", "id": "n0052", "input": "1.2.3.00", "ok": false}
+{"error": "'01.2.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0053", "input": "01.2.3.4", "ok": false}
+{"error": "'000.0.0.0' does not appear to be an IPv4 or IPv6 network", "id": "n0054", "input": "000.0.0.0", "ok": false}
+{"error": "'1.2.3.' does not appear to be an IPv4 or IPv6 network", "id": "n0055", "input": "1.2.3.", "ok": false}
+{"error": "'.1.2.3' does not appear to be an IPv4 or IPv6 network", "id": "n0056", "input": ".1.2.3", "ok": false}
+{"error": "'..1.2' does not appear to be an IPv4 or IPv6 network", "id": "n0057", "input": "..1.2", "ok": false}
+{"error": "'1..2.3' does not appear to be an IPv4 or IPv6 network", "id": "n0058", "input": "1..2.3", "ok": false}
+{"error": "' 1.2.3.4/8' does not appear to be an IPv4 or IPv6 network", "id": "n0059", "input": " 1.2.3.4/8", "ok": false}
+{"error": "'1.2.3.4/8 ' does not appear to be an IPv4 or IPv6 network", "id": "n0060", "input": "1.2.3.4/8 ", "ok": false}
+{"error": "'1.2.3.4/ 8' does not appear to be an IPv4 or IPv6 network", "id": "n0061", "input": "1.2.3.4/ 8", "ok": false}
+{"error": "'1.2.3.4\\n' does not appear to be an IPv4 or IPv6 network", "id": "n0062", "input": "1.2.3.4\n", "ok": false}
+{"error": "'1.2.3.4\\t/8' does not appear to be an IPv4 or IPv6 network", "id": "n0063", "input": "1.2.3.4\t/8", "ok": false}
+{"error": "'10.0.0.0/8\\n' does not appear to be an IPv4 or IPv6 network", "id": "n0064", "input": "10.0.0.0/8\n", "ok": false}
+{"error": "'\\n10.0.0.0/8' does not appear to be an IPv4 or IPv6 network", "id": "n0065", "input": "\n10.0.0.0/8", "ok": false}
+{"address_hex": "0", "id": "n0066", "input": "::/0", "network": "::/0", "ok": true, "prefix": 0, "version": 6}
+{"address_hex": "0", "id": "n0067", "input": "::/128", "network": "::/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0068", "input": "2001:db8::/32", "network": "2001:db8::/32", "ok": true, "prefix": 32, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0069", "input": "2001:DB8::/32", "network": "2001:db8::/32", "ok": true, "prefix": 32, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0070", "input": "2001:0db8:0000:0000:0000:0000:0000:0000/32", "network": "2001:db8::/32", "ok": true, "prefix": 32, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0071", "input": "2001:db8::1/64", "network": "2001:db8::/64", "ok": true, "prefix": 64, "version": 6}
+{"address_hex": "fe800000000000000000000000000000", "id": "n0072", "input": "fe80::1/10", "network": "fe80::/10", "ok": true, "prefix": 10, "version": 6}
+{"address_hex": "ff020000000000000000000000000000", "id": "n0073", "input": "ff02::1/16", "network": "ff02::/16", "ok": true, "prefix": 16, "version": 6}
+{"address_hex": "10002000300040000000000000000", "id": "n0074", "input": "1:2:3:4:5:6:7:8/64", "network": "1:2:3:4::/64", "ok": true, "prefix": 64, "version": 6}
+{"address_hex": "10002000300040000000000000000", "id": "n0075", "input": "1:2:3:4:5:6:7::/64", "network": "1:2:3:4::/64", "ok": true, "prefix": 64, "version": 6}
+{"address_hex": "2000300040000000000000000", "id": "n0076", "input": "::2:3:4:5:6:7:8/64", "network": "0:2:3:4::/64", "ok": true, "prefix": 64, "version": 6}
+{"address_hex": "10000000000000000000000000008", "id": "n0077", "input": "1::8", "network": "1::8/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "10000000000000000000000000000", "id": "n0078", "input": "1::", "network": "1::/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "8", "id": "n0079", "input": "::8", "network": "::8/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "20010db8000000000001000000000001", "id": "n0080", "input": "2001:db8:0:0:1:0:0:1/128", "network": "2001:db8::1:0:0:1/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0081", "input": "2001:db8::1/127", "network": "2001:db8::/127", "ok": true, "prefix": 127, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0082", "input": "2001:db8::/0128", "network": "2001:db8::/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0083", "input": "2001:db8::/000000000000000000000000000000128", "network": "2001:db8::/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'2001:db8::/129' does not appear to be an IPv4 or IPv6 network", "id": "n0084", "input": "2001:db8::/129", "ok": false}
+{"error": "'2001:db8::/-1' does not appear to be an IPv4 or IPv6 network", "id": "n0085", "input": "2001:db8::/-1", "ok": false}
+{"error": "'2001:db8::/' does not appear to be an IPv4 or IPv6 network", "id": "n0086", "input": "2001:db8::/", "ok": false}
+{"error": "'2001:db8::/ 128' does not appear to be an IPv4 or IPv6 network", "id": "n0087", "input": "2001:db8::/ 128", "ok": false}
+{"error": "'2001:db8:: /64' does not appear to be an IPv4 or IPv6 network", "id": "n0088", "input": "2001:db8:: /64", "ok": false}
+{"error": "'2001:db8::/ffff:ffff::' does not appear to be an IPv4 or IPv6 network", "id": "n0089", "input": "2001:db8::/ffff:ffff::", "ok": false}
+{"error": "'2001:db8::/ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' does not appear to be an IPv4 or IPv6 network", "id": "n0090", "input": "2001:db8::/ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "ok": false}
+{"error": "'2001:db8::/::' does not appear to be an IPv4 or IPv6 network", "id": "n0091", "input": "2001:db8::/::", "ok": false}
+{"error": "'2001:db8::/255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0092", "input": "2001:db8::/255.255.255.0", "ok": false}
+{"address_hex": "ffff0a000000", "id": "n0093", "input": "::ffff:10.0.0.0/104", "network": "::ffff:10.0.0.0/104", "ok": true, "prefix": 104, "version": 6}
+{"address_hex": "ffff0a000000", "id": "n0094", "input": "::ffff:10.0.0.5/104", "network": "::ffff:10.0.0.0/104", "ok": true, "prefix": 104, "version": 6}
+{"address_hex": "ffff01020300", "id": "n0095", "input": "::ffff:1.2.3.4/120", "network": "::ffff:1.2.3.0/120", "ok": true, "prefix": 120, "version": 6}
+{"address_hex": "ffff00000000", "id": "n0096", "input": "::ffff:1.2.3.4/96", "network": "::ffff:0.0.0.0/96", "ok": true, "prefix": 96, "version": 6}
+{"address_hex": "ffff01020304", "id": "n0097", "input": "::FFFF:1.2.3.4/128", "network": "::ffff:1.2.3.4/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "ffff00000000", "id": "n0098", "input": "::ffff:0:0/96", "network": "::ffff:0.0.0.0/96", "ok": true, "prefix": 96, "version": 6}
+{"address_hex": "0", "id": "n0099", "input": "::ffff:0:0/0", "network": "::/0", "ok": true, "prefix": 0, "version": 6}
+{"address_hex": "1020304", "id": "n0100", "input": "::1.2.3.4", "network": "::102:304/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "1020304", "id": "n0101", "input": "::1.2.3.4/128", "network": "::102:304/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'::1.2.3.4/129' does not appear to be an IPv4 or IPv6 network", "id": "n0102", "input": "::1.2.3.4/129", "ok": false}
+{"error": "'::1.2.3.4/255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0103", "input": "::1.2.3.4/255.255.255.0", "ok": false}
+{"address_hex": "64ff9b000000000000000000000000", "id": "n0104", "input": "64:ff9b::192.0.2.33/96", "network": "64:ff9b::/96", "ok": true, "prefix": 96, "version": 6}
+{"address_hex": "64ff9b000000000000000000000000", "id": "n0105", "input": "64:ff9b::/96", "network": "64:ff9b::/96", "ok": true, "prefix": 96, "version": 6}
+{"address_hex": "10002000300040005000601020304", "id": "n0106", "input": "1:2:3:4:5:6:1.2.3.4/128", "network": "1:2:3:4:5:6:102:304/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "10002000300040000000000000000", "id": "n0107", "input": "1:2:3:4:5:6:1.2.3.4/64", "network": "1:2:3:4::/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'::1.2.3.256' does not appear to be an IPv4 or IPv6 network", "id": "n0108", "input": "::1.2.3.256", "ok": false}
+{"error": "'::01.2.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0109", "input": "::01.2.3.4", "ok": false}
+{"error": "'::1.2.3.4.5' does not appear to be an IPv4 or IPv6 network", "id": "n0110", "input": "::1.2.3.4.5", "ok": false}
+{"error": "'::1.2.3.' does not appear to be an IPv4 or IPv6 network", "id": "n0111", "input": "::1.2.3.", "ok": false}
+{"error": "'1:2:3:4:5:6:7:8:9/128' does not appear to be an IPv4 or IPv6 network", "id": "n0112", "input": "1:2:3:4:5:6:7:8:9/128", "ok": false}
+{"error": "'1:2:3:4:5:6:7/128' does not appear to be an IPv4 or IPv6 network", "id": "n0113", "input": "1:2:3:4:5:6:7/128", "ok": false}
+{"error": "'1::2::3' does not appear to be an IPv4 or IPv6 network", "id": "n0114", "input": "1::2::3", "ok": false}
+{"error": "':::1' does not appear to be an IPv4 or IPv6 network", "id": "n0115", "input": ":::1", "ok": false}
+{"error": "'1:::2' does not appear to be an IPv4 or IPv6 network", "id": "n0116", "input": "1:::2", "ok": false}
+{"error": "':1:2:3:4:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0117", "input": ":1:2:3:4:5:6:7", "ok": false}
+{"error": "'1:2:3:4:5:6:7:' does not appear to be an IPv4 or IPv6 network", "id": "n0118", "input": "1:2:3:4:5:6:7:", "ok": false}
+{"error": "'1:2:3:4:5:6:7:8:' does not appear to be an IPv4 or IPv6 network", "id": "n0119", "input": "1:2:3:4:5:6:7:8:", "ok": false}
+{"error": "'1:2:3:4:5:6:7:8::' does not appear to be an IPv4 or IPv6 network", "id": "n0120", "input": "1:2:3:4:5:6:7:8::", "ok": false}
+{"error": "'::1::' does not appear to be an IPv4 or IPv6 network", "id": "n0121", "input": "::1::", "ok": false}
+{"error": "'12345::' does not appear to be an IPv4 or IPv6 network", "id": "n0122", "input": "12345::", "ok": false}
+{"error": "'::gggg' does not appear to be an IPv4 or IPv6 network", "id": "n0123", "input": "::gggg", "ok": false}
+{"error": "'::12345' does not appear to be an IPv4 or IPv6 network", "id": "n0124", "input": "::12345", "ok": false}
+{"error": "'1:2:3:4:5:6:7:8:9:a:b' does not appear to be an IPv4 or IPv6 network", "id": "n0125", "input": "1:2:3:4:5:6:7:8:9:a:b", "ok": false}
+{"address_hex": "fe800000000000000000000000000000", "id": "n0126", "input": "fe80::1%eth0/64", "network": "fe80::/64", "ok": true, "prefix": 64, "version": 6}
+{"address_hex": "fe800000000000000000000000000000", "id": "n0127", "input": "fe80::%eth0/64", "network": "fe80::%eth0/64", "ok": true, "prefix": 64, "version": 6}
+{"address_hex": "1", "id": "n0128", "input": "::1%lo", "network": "::1%lo/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "1", "id": "n0129", "input": "::1%lo/128", "network": "::1%lo/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "0", "id": "n0130", "input": "::1%eth0/0", "network": "::/0", "ok": true, "prefix": 0, "version": 6}
+{"error": "'%eth0' does not appear to be an IPv4 or IPv6 network", "id": "n0131", "input": "%eth0", "ok": false}
+{"error": "'fe80::1%/64' does not appear to be an IPv4 or IPv6 network", "id": "n0132", "input": "fe80::1%/64", "ok": false}
+{"error": "'fe80::1%eth0%x/64' does not appear to be an IPv4 or IPv6 network", "id": "n0133", "input": "fe80::1%eth0%x/64", "ok": false}
+{"error": "'::1/64%eth0' does not appear to be an IPv4 or IPv6 network", "id": "n0134", "input": "::1/64%eth0", "ok": false}
+{"address_hex": "1", "id": "n0135", "input": "::1%25eth0/128", "network": "::1%25eth0/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'１２７.0.0.1' does not appear to be an IPv4 or IPv6 network", "id": "n0136", "input": "１２７.0.0.1", "ok": false}
+{"error": "'1.2.3.٤' does not appear to be an IPv4 or IPv6 network", "id": "n0137", "input": "1.2.3.٤", "ok": false}
+{"error": "'::١' does not appear to be an IPv4 or IPv6 network", "id": "n0138", "input": "::١", "ok": false}
+{"error": "'1.2.3.4/١' does not appear to be an IPv4 or IPv6 network", "id": "n0139", "input": "1.2.3.4/١", "ok": false}
+{"error": "'1.2.3.4/１２' does not appear to be an IPv4 or IPv6 network", "id": "n0140", "input": "1.2.3.4/１２", "ok": false}
+{"error": "'1.2.3.4/①' does not appear to be an IPv4 or IPv6 network", "id": "n0141", "input": "1.2.3.4/①", "ok": false}
+{"error": "'１::1' does not appear to be an IPv4 or IPv6 network", "id": "n0142", "input": "１::1", "ok": false}
+{"error": "'::１' does not appear to be an IPv4 or IPv6 network", "id": "n0143", "input": "::１", "ok": false}
+{"error": "'' does not appear to be an IPv4 or IPv6 network", "id": "n0144", "input": "", "ok": false}
+{"error": "' ' does not appear to be an IPv4 or IPv6 network", "id": "n0145", "input": " ", "ok": false}
+{"error": "'abc' does not appear to be an IPv4 or IPv6 network", "id": "n0146", "input": "abc", "ok": false}
+{"error": "'localhost' does not appear to be an IPv4 or IPv6 network", "id": "n0147", "input": "localhost", "ok": false}
+{"error": "'10.0.0.0/8,192.168.0.0/16' does not appear to be an IPv4 or IPv6 network", "id": "n0148", "input": "10.0.0.0/8,192.168.0.0/16", "ok": false}
+{"error": "'10.0.0.0 /8' does not appear to be an IPv4 or IPv6 network", "id": "n0149", "input": "10.0.0.0 /8", "ok": false}
+{"error": "'10.0.0.0/8 ' does not appear to be an IPv4 or IPv6 network", "id": "n0150", "input": "10.0.0.0/8 ", "ok": false}
+{"address_hex": "0", "id": "n0151", "input": "10.1.2.3/0", "network": "0.0.0.0/0", "ok": true, "prefix": 0, "version": 4}
+{"address_hex": "0", "id": "n0152", "input": "10.1.2.3/1", "network": "0.0.0.0/1", "ok": true, "prefix": 1, "version": 4}
+{"address_hex": "0", "id": "n0153", "input": "10.1.2.3/2", "network": "0.0.0.0/2", "ok": true, "prefix": 2, "version": 4}
+{"address_hex": "0", "id": "n0154", "input": "10.1.2.3/3", "network": "0.0.0.0/3", "ok": true, "prefix": 3, "version": 4}
+{"address_hex": "0", "id": "n0155", "input": "10.1.2.3/4", "network": "0.0.0.0/4", "ok": true, "prefix": 4, "version": 4}
+{"address_hex": "8000000", "id": "n0156", "input": "10.1.2.3/5", "network": "8.0.0.0/5", "ok": true, "prefix": 5, "version": 4}
+{"address_hex": "8000000", "id": "n0157", "input": "10.1.2.3/6", "network": "8.0.0.0/6", "ok": true, "prefix": 6, "version": 4}
+{"address_hex": "a000000", "id": "n0158", "input": "10.1.2.3/7", "network": "10.0.0.0/7", "ok": true, "prefix": 7, "version": 4}
+{"address_hex": "a000000", "id": "n0159", "input": "10.1.2.3/8", "network": "10.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"address_hex": "a000000", "id": "n0160", "input": "10.1.2.3/9", "network": "10.0.0.0/9", "ok": true, "prefix": 9, "version": 4}
+{"address_hex": "a000000", "id": "n0161", "input": "10.1.2.3/10", "network": "10.0.0.0/10", "ok": true, "prefix": 10, "version": 4}
+{"address_hex": "a000000", "id": "n0162", "input": "10.1.2.3/11", "network": "10.0.0.0/11", "ok": true, "prefix": 11, "version": 4}
+{"address_hex": "a000000", "id": "n0163", "input": "10.1.2.3/12", "network": "10.0.0.0/12", "ok": true, "prefix": 12, "version": 4}
+{"address_hex": "a000000", "id": "n0164", "input": "10.1.2.3/13", "network": "10.0.0.0/13", "ok": true, "prefix": 13, "version": 4}
+{"address_hex": "a000000", "id": "n0165", "input": "10.1.2.3/14", "network": "10.0.0.0/14", "ok": true, "prefix": 14, "version": 4}
+{"address_hex": "a000000", "id": "n0166", "input": "10.1.2.3/15", "network": "10.0.0.0/15", "ok": true, "prefix": 15, "version": 4}
+{"address_hex": "a010000", "id": "n0167", "input": "10.1.2.3/16", "network": "10.1.0.0/16", "ok": true, "prefix": 16, "version": 4}
+{"address_hex": "a010000", "id": "n0168", "input": "10.1.2.3/17", "network": "10.1.0.0/17", "ok": true, "prefix": 17, "version": 4}
+{"address_hex": "a010000", "id": "n0169", "input": "10.1.2.3/18", "network": "10.1.0.0/18", "ok": true, "prefix": 18, "version": 4}
+{"address_hex": "a010000", "id": "n0170", "input": "10.1.2.3/19", "network": "10.1.0.0/19", "ok": true, "prefix": 19, "version": 4}
+{"address_hex": "a010000", "id": "n0171", "input": "10.1.2.3/20", "network": "10.1.0.0/20", "ok": true, "prefix": 20, "version": 4}
+{"address_hex": "a010000", "id": "n0172", "input": "10.1.2.3/21", "network": "10.1.0.0/21", "ok": true, "prefix": 21, "version": 4}
+{"address_hex": "a010000", "id": "n0173", "input": "10.1.2.3/22", "network": "10.1.0.0/22", "ok": true, "prefix": 22, "version": 4}
+{"address_hex": "a010200", "id": "n0174", "input": "10.1.2.3/23", "network": "10.1.2.0/23", "ok": true, "prefix": 23, "version": 4}
+{"address_hex": "a010200", "id": "n0175", "input": "10.1.2.3/24", "network": "10.1.2.0/24", "ok": true, "prefix": 24, "version": 4}
+{"address_hex": "a010200", "id": "n0176", "input": "10.1.2.3/25", "network": "10.1.2.0/25", "ok": true, "prefix": 25, "version": 4}
+{"address_hex": "a010200", "id": "n0177", "input": "10.1.2.3/26", "network": "10.1.2.0/26", "ok": true, "prefix": 26, "version": 4}
+{"address_hex": "a010200", "id": "n0178", "input": "10.1.2.3/27", "network": "10.1.2.0/27", "ok": true, "prefix": 27, "version": 4}
+{"address_hex": "a010200", "id": "n0179", "input": "10.1.2.3/28", "network": "10.1.2.0/28", "ok": true, "prefix": 28, "version": 4}
+{"address_hex": "a010200", "id": "n0180", "input": "10.1.2.3/29", "network": "10.1.2.0/29", "ok": true, "prefix": 29, "version": 4}
+{"address_hex": "a010200", "id": "n0181", "input": "10.1.2.3/30", "network": "10.1.2.0/30", "ok": true, "prefix": 30, "version": 4}
+{"address_hex": "a010202", "id": "n0182", "input": "10.1.2.3/31", "network": "10.1.2.2/31", "ok": true, "prefix": 31, "version": 4}
+{"address_hex": "a010203", "id": "n0183", "input": "10.1.2.3/32", "network": "10.1.2.3/32", "ok": true, "prefix": 32, "version": 4}
+{"error": "'10.1.2.3/33' does not appear to be an IPv4 or IPv6 network", "id": "n0184", "input": "10.1.2.3/33", "ok": false}
+{"address_hex": "0", "id": "n0185", "input": "2001:db8::abcd/0", "network": "::/0", "ok": true, "prefix": 0, "version": 6}
+{"address_hex": "0", "id": "n0186", "input": "2001:db8::abcd/1", "network": "::/1", "ok": true, "prefix": 1, "version": 6}
+{"address_hex": "0", "id": "n0187", "input": "2001:db8::abcd/2", "network": "::/2", "ok": true, "prefix": 2, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0188", "input": "2001:db8::abcd/3", "network": "2000::/3", "ok": true, "prefix": 3, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0189", "input": "2001:db8::abcd/4", "network": "2000::/4", "ok": true, "prefix": 4, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0190", "input": "2001:db8::abcd/5", "network": "2000::/5", "ok": true, "prefix": 5, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0191", "input": "2001:db8::abcd/6", "network": "2000::/6", "ok": true, "prefix": 6, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0192", "input": "2001:db8::abcd/7", "network": "2000::/7", "ok": true, "prefix": 7, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0193", "input": "2001:db8::abcd/8", "network": "2000::/8", "ok": true, "prefix": 8, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0194", "input": "2001:db8::abcd/9", "network": "2000::/9", "ok": true, "prefix": 9, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0195", "input": "2001:db8::abcd/10", "network": "2000::/10", "ok": true, "prefix": 10, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0196", "input": "2001:db8::abcd/11", "network": "2000::/11", "ok": true, "prefix": 11, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0197", "input": "2001:db8::abcd/12", "network": "2000::/12", "ok": true, "prefix": 12, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0198", "input": "2001:db8::abcd/13", "network": "2000::/13", "ok": true, "prefix": 13, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0199", "input": "2001:db8::abcd/14", "network": "2000::/14", "ok": true, "prefix": 14, "version": 6}
+{"address_hex": "20000000000000000000000000000000", "id": "n0200", "input": "2001:db8::abcd/15", "network": "2000::/15", "ok": true, "prefix": 15, "version": 6}
+{"address_hex": "20010000000000000000000000000000", "id": "n0201", "input": "2001:db8::abcd/16", "network": "2001::/16", "ok": true, "prefix": 16, "version": 6}
+{"address_hex": "20010000000000000000000000000000", "id": "n0202", "input": "2001:db8::abcd/17", "network": "2001::/17", "ok": true, "prefix": 17, "version": 6}
+{"address_hex": "20010000000000000000000000000000", "id": "n0203", "input": "2001:db8::abcd/18", "network": "2001::/18", "ok": true, "prefix": 18, "version": 6}
+{"address_hex": "20010000000000000000000000000000", "id": "n0204", "input": "2001:db8::abcd/19", "network": "2001::/19", "ok": true, "prefix": 19, "version": 6}
+{"address_hex": "20010000000000000000000000000000", "id": "n0205", "input": "2001:db8::abcd/20", "network": "2001::/20", "ok": true, "prefix": 20, "version": 6}
+{"address_hex": "20010800000000000000000000000000", "id": "n0206", "input": "2001:db8::abcd/21", "network": "2001:800::/21", "ok": true, "prefix": 21, "version": 6}
+{"address_hex": "20010c00000000000000000000000000", "id": "n0207", "input": "2001:db8::abcd/22", "network": "2001:c00::/22", "ok": true, "prefix": 22, "version": 6}
+{"address_hex": "20010c00000000000000000000000000", "id": "n0208", "input": "2001:db8::abcd/23", "network": "2001:c00::/23", "ok": true, "prefix": 23, "version": 6}
+{"address_hex": "20010d00000000000000000000000000", "id": "n0209", "input": "2001:db8::abcd/24", "network": "2001:d00::/24", "ok": true, "prefix": 24, "version": 6}
+{"address_hex": "20010d80000000000000000000000000", "id": "n0210", "input": "2001:db8::abcd/25", "network": "2001:d80::/25", "ok": true, "prefix": 25, "version": 6}
+{"address_hex": "20010d80000000000000000000000000", "id": "n0211", "input": "2001:db8::abcd/26", "network": "2001:d80::/26", "ok": true, "prefix": 26, "version": 6}
+{"address_hex": "20010da0000000000000000000000000", "id": "n0212", "input": "2001:db8::abcd/27", "network": "2001:da0::/27", "ok": true, "prefix": 27, "version": 6}
+{"address_hex": "20010db0000000000000000000000000", "id": "n0213", "input": "2001:db8::abcd/28", "network": "2001:db0::/28", "ok": true, "prefix": 28, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0214", "input": "2001:db8::abcd/29", "network": "2001:db8::/29", "ok": true, "prefix": 29, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0215", "input": "2001:db8::abcd/30", "network": "2001:db8::/30", "ok": true, "prefix": 30, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0216", "input": "2001:db8::abcd/31", "network": "2001:db8::/31", "ok": true, "prefix": 31, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0217", "input": "2001:db8::abcd/32", "network": "2001:db8::/32", "ok": true, "prefix": 32, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0218", "input": "2001:db8::abcd/33", "network": "2001:db8::/33", "ok": true, "prefix": 33, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0219", "input": "2001:db8::abcd/34", "network": "2001:db8::/34", "ok": true, "prefix": 34, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0220", "input": "2001:db8::abcd/35", "network": "2001:db8::/35", "ok": true, "prefix": 35, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0221", "input": "2001:db8::abcd/36", "network": "2001:db8::/36", "ok": true, "prefix": 36, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0222", "input": "2001:db8::abcd/37", "network": "2001:db8::/37", "ok": true, "prefix": 37, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0223", "input": "2001:db8::abcd/38", "network": "2001:db8::/38", "ok": true, "prefix": 38, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0224", "input": "2001:db8::abcd/39", "network": "2001:db8::/39", "ok": true, "prefix": 39, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0225", "input": "2001:db8::abcd/40", "network": "2001:db8::/40", "ok": true, "prefix": 40, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0226", "input": "2001:db8::abcd/41", "network": "2001:db8::/41", "ok": true, "prefix": 41, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0227", "input": "2001:db8::abcd/42", "network": "2001:db8::/42", "ok": true, "prefix": 42, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0228", "input": "2001:db8::abcd/43", "network": "2001:db8::/43", "ok": true, "prefix": 43, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0229", "input": "2001:db8::abcd/44", "network": "2001:db8::/44", "ok": true, "prefix": 44, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0230", "input": "2001:db8::abcd/45", "network": "2001:db8::/45", "ok": true, "prefix": 45, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0231", "input": "2001:db8::abcd/46", "network": "2001:db8::/46", "ok": true, "prefix": 46, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0232", "input": "2001:db8::abcd/47", "network": "2001:db8::/47", "ok": true, "prefix": 47, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0233", "input": "2001:db8::abcd/48", "network": "2001:db8::/48", "ok": true, "prefix": 48, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0234", "input": "2001:db8::abcd/49", "network": "2001:db8::/49", "ok": true, "prefix": 49, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0235", "input": "2001:db8::abcd/50", "network": "2001:db8::/50", "ok": true, "prefix": 50, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0236", "input": "2001:db8::abcd/51", "network": "2001:db8::/51", "ok": true, "prefix": 51, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0237", "input": "2001:db8::abcd/52", "network": "2001:db8::/52", "ok": true, "prefix": 52, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0238", "input": "2001:db8::abcd/53", "network": "2001:db8::/53", "ok": true, "prefix": 53, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0239", "input": "2001:db8::abcd/54", "network": "2001:db8::/54", "ok": true, "prefix": 54, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0240", "input": "2001:db8::abcd/55", "network": "2001:db8::/55", "ok": true, "prefix": 55, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0241", "input": "2001:db8::abcd/56", "network": "2001:db8::/56", "ok": true, "prefix": 56, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0242", "input": "2001:db8::abcd/57", "network": "2001:db8::/57", "ok": true, "prefix": 57, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0243", "input": "2001:db8::abcd/58", "network": "2001:db8::/58", "ok": true, "prefix": 58, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0244", "input": "2001:db8::abcd/59", "network": "2001:db8::/59", "ok": true, "prefix": 59, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0245", "input": "2001:db8::abcd/60", "network": "2001:db8::/60", "ok": true, "prefix": 60, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0246", "input": "2001:db8::abcd/61", "network": "2001:db8::/61", "ok": true, "prefix": 61, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0247", "input": "2001:db8::abcd/62", "network": "2001:db8::/62", "ok": true, "prefix": 62, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0248", "input": "2001:db8::abcd/63", "network": "2001:db8::/63", "ok": true, "prefix": 63, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0249", "input": "2001:db8::abcd/64", "network": "2001:db8::/64", "ok": true, "prefix": 64, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0250", "input": "2001:db8::abcd/65", "network": "2001:db8::/65", "ok": true, "prefix": 65, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0251", "input": "2001:db8::abcd/66", "network": "2001:db8::/66", "ok": true, "prefix": 66, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0252", "input": "2001:db8::abcd/67", "network": "2001:db8::/67", "ok": true, "prefix": 67, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0253", "input": "2001:db8::abcd/68", "network": "2001:db8::/68", "ok": true, "prefix": 68, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0254", "input": "2001:db8::abcd/69", "network": "2001:db8::/69", "ok": true, "prefix": 69, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0255", "input": "2001:db8::abcd/70", "network": "2001:db8::/70", "ok": true, "prefix": 70, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0256", "input": "2001:db8::abcd/71", "network": "2001:db8::/71", "ok": true, "prefix": 71, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0257", "input": "2001:db8::abcd/72", "network": "2001:db8::/72", "ok": true, "prefix": 72, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0258", "input": "2001:db8::abcd/73", "network": "2001:db8::/73", "ok": true, "prefix": 73, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0259", "input": "2001:db8::abcd/74", "network": "2001:db8::/74", "ok": true, "prefix": 74, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0260", "input": "2001:db8::abcd/75", "network": "2001:db8::/75", "ok": true, "prefix": 75, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0261", "input": "2001:db8::abcd/76", "network": "2001:db8::/76", "ok": true, "prefix": 76, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0262", "input": "2001:db8::abcd/77", "network": "2001:db8::/77", "ok": true, "prefix": 77, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0263", "input": "2001:db8::abcd/78", "network": "2001:db8::/78", "ok": true, "prefix": 78, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0264", "input": "2001:db8::abcd/79", "network": "2001:db8::/79", "ok": true, "prefix": 79, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0265", "input": "2001:db8::abcd/80", "network": "2001:db8::/80", "ok": true, "prefix": 80, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0266", "input": "2001:db8::abcd/81", "network": "2001:db8::/81", "ok": true, "prefix": 81, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0267", "input": "2001:db8::abcd/82", "network": "2001:db8::/82", "ok": true, "prefix": 82, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0268", "input": "2001:db8::abcd/83", "network": "2001:db8::/83", "ok": true, "prefix": 83, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0269", "input": "2001:db8::abcd/84", "network": "2001:db8::/84", "ok": true, "prefix": 84, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0270", "input": "2001:db8::abcd/85", "network": "2001:db8::/85", "ok": true, "prefix": 85, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0271", "input": "2001:db8::abcd/86", "network": "2001:db8::/86", "ok": true, "prefix": 86, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0272", "input": "2001:db8::abcd/87", "network": "2001:db8::/87", "ok": true, "prefix": 87, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0273", "input": "2001:db8::abcd/88", "network": "2001:db8::/88", "ok": true, "prefix": 88, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0274", "input": "2001:db8::abcd/89", "network": "2001:db8::/89", "ok": true, "prefix": 89, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0275", "input": "2001:db8::abcd/90", "network": "2001:db8::/90", "ok": true, "prefix": 90, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0276", "input": "2001:db8::abcd/91", "network": "2001:db8::/91", "ok": true, "prefix": 91, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0277", "input": "2001:db8::abcd/92", "network": "2001:db8::/92", "ok": true, "prefix": 92, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0278", "input": "2001:db8::abcd/93", "network": "2001:db8::/93", "ok": true, "prefix": 93, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0279", "input": "2001:db8::abcd/94", "network": "2001:db8::/94", "ok": true, "prefix": 94, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0280", "input": "2001:db8::abcd/95", "network": "2001:db8::/95", "ok": true, "prefix": 95, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0281", "input": "2001:db8::abcd/96", "network": "2001:db8::/96", "ok": true, "prefix": 96, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0282", "input": "2001:db8::abcd/97", "network": "2001:db8::/97", "ok": true, "prefix": 97, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0283", "input": "2001:db8::abcd/98", "network": "2001:db8::/98", "ok": true, "prefix": 98, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0284", "input": "2001:db8::abcd/99", "network": "2001:db8::/99", "ok": true, "prefix": 99, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0285", "input": "2001:db8::abcd/100", "network": "2001:db8::/100", "ok": true, "prefix": 100, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0286", "input": "2001:db8::abcd/101", "network": "2001:db8::/101", "ok": true, "prefix": 101, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0287", "input": "2001:db8::abcd/102", "network": "2001:db8::/102", "ok": true, "prefix": 102, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0288", "input": "2001:db8::abcd/103", "network": "2001:db8::/103", "ok": true, "prefix": 103, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0289", "input": "2001:db8::abcd/104", "network": "2001:db8::/104", "ok": true, "prefix": 104, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0290", "input": "2001:db8::abcd/105", "network": "2001:db8::/105", "ok": true, "prefix": 105, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0291", "input": "2001:db8::abcd/106", "network": "2001:db8::/106", "ok": true, "prefix": 106, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0292", "input": "2001:db8::abcd/107", "network": "2001:db8::/107", "ok": true, "prefix": 107, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0293", "input": "2001:db8::abcd/108", "network": "2001:db8::/108", "ok": true, "prefix": 108, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0294", "input": "2001:db8::abcd/109", "network": "2001:db8::/109", "ok": true, "prefix": 109, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0295", "input": "2001:db8::abcd/110", "network": "2001:db8::/110", "ok": true, "prefix": 110, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0296", "input": "2001:db8::abcd/111", "network": "2001:db8::/111", "ok": true, "prefix": 111, "version": 6}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0297", "input": "2001:db8::abcd/112", "network": "2001:db8::/112", "ok": true, "prefix": 112, "version": 6}
+{"address_hex": "20010db8000000000000000000008000", "id": "n0298", "input": "2001:db8::abcd/113", "network": "2001:db8::8000/113", "ok": true, "prefix": 113, "version": 6}
+{"address_hex": "20010db8000000000000000000008000", "id": "n0299", "input": "2001:db8::abcd/114", "network": "2001:db8::8000/114", "ok": true, "prefix": 114, "version": 6}
+{"address_hex": "20010db800000000000000000000a000", "id": "n0300", "input": "2001:db8::abcd/115", "network": "2001:db8::a000/115", "ok": true, "prefix": 115, "version": 6}
+{"address_hex": "20010db800000000000000000000a000", "id": "n0301", "input": "2001:db8::abcd/116", "network": "2001:db8::a000/116", "ok": true, "prefix": 116, "version": 6}
+{"address_hex": "20010db800000000000000000000a800", "id": "n0302", "input": "2001:db8::abcd/117", "network": "2001:db8::a800/117", "ok": true, "prefix": 117, "version": 6}
+{"address_hex": "20010db800000000000000000000a800", "id": "n0303", "input": "2001:db8::abcd/118", "network": "2001:db8::a800/118", "ok": true, "prefix": 118, "version": 6}
+{"address_hex": "20010db800000000000000000000aa00", "id": "n0304", "input": "2001:db8::abcd/119", "network": "2001:db8::aa00/119", "ok": true, "prefix": 119, "version": 6}
+{"address_hex": "20010db800000000000000000000ab00", "id": "n0305", "input": "2001:db8::abcd/120", "network": "2001:db8::ab00/120", "ok": true, "prefix": 120, "version": 6}
+{"address_hex": "20010db800000000000000000000ab80", "id": "n0306", "input": "2001:db8::abcd/121", "network": "2001:db8::ab80/121", "ok": true, "prefix": 121, "version": 6}
+{"address_hex": "20010db800000000000000000000abc0", "id": "n0307", "input": "2001:db8::abcd/122", "network": "2001:db8::abc0/122", "ok": true, "prefix": 122, "version": 6}
+{"address_hex": "20010db800000000000000000000abc0", "id": "n0308", "input": "2001:db8::abcd/123", "network": "2001:db8::abc0/123", "ok": true, "prefix": 123, "version": 6}
+{"address_hex": "20010db800000000000000000000abc0", "id": "n0309", "input": "2001:db8::abcd/124", "network": "2001:db8::abc0/124", "ok": true, "prefix": 124, "version": 6}
+{"address_hex": "20010db800000000000000000000abc8", "id": "n0310", "input": "2001:db8::abcd/125", "network": "2001:db8::abc8/125", "ok": true, "prefix": 125, "version": 6}
+{"address_hex": "20010db800000000000000000000abcc", "id": "n0311", "input": "2001:db8::abcd/126", "network": "2001:db8::abcc/126", "ok": true, "prefix": 126, "version": 6}
+{"address_hex": "20010db800000000000000000000abcc", "id": "n0312", "input": "2001:db8::abcd/127", "network": "2001:db8::abcc/127", "ok": true, "prefix": 127, "version": 6}
+{"address_hex": "20010db800000000000000000000abcd", "id": "n0313", "input": "2001:db8::abcd/128", "network": "2001:db8::abcd/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'2001:db8::abcd/129' does not appear to be an IPv4 or IPv6 network", "id": "n0314", "input": "2001:db8::abcd/129", "ok": false}
+{"error": "'2001:db8::abcd/130' does not appear to be an IPv4 or IPv6 network", "id": "n0315", "input": "2001:db8::abcd/130", "ok": false}
+{"error": "'::1/604F' does not appear to be an IPv4 or IPv6 network", "id": "n0316", "input": "::1/604F", "ok": false}
+{"error": "'1::2:3:4:5:é6١:7' does not appear to be an IPv4 or IPv6 network", "id": "n0317", "input": "1::2:3:4:5:é6١:7", "ok": false}
+{"error": "'g::1-A4' does not appear to be an IPv4 or IPv6 network", "id": "n0318", "input": "g::1-A4", "ok": false}
+{"error": "'0:164' does not appear to be an IPv4 or IPv6 network", "id": "n0319", "input": "0:164", "ok": false}
+{"address_hex": "10283000400000000000600070008", "id": "n0320", "input": "1:283:4::6:7:8", "network": "1:283:4::6:7:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "':b510C/64' does not appear to be an IPv4 or IPv6 network", "id": "n0321", "input": ":b510C/64", "ok": false}
+{"error": "':7%' does not appear to be an IPv4 or IPv6 network", "id": "n0322", "input": ":7%", "ok": false}
+{"error": "'3:%' does not appear to be an IPv4 or IPv6 network", "id": "n0323", "input": "3:%", "ok": false}
+{"address_hex": "0", "id": "n0324", "input": "::f/64", "network": "::/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'::ffff:1.2.3-34/120' does not appear to be an IPv4 or IPv6 network", "id": "n0325", "input": "::ffff:1.2.3-34/120", "ok": false}
+{"error": "'D.2.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0326", "input": "D.2.3.4", "ok": false}
+{"error": "'1١:2:3:4:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0327", "input": "1١:2:3:4:5:6:7", "ok": false}
+{"error": "'::4 f' does not appear to be an IPv4 or IPv6 network", "id": "n0328", "input": "::4 f", "ok": false}
+{"error": "'::ffff:12.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0329", "input": "::ffff:12.3.4/120", "ok": false}
+{"error": "':6' does not appear to be an IPv4 or IPv6 network", "id": "n0330", "input": ":6", "ok": false}
+{"error": "':A/64' does not appear to be an IPv4 or IPv6 network", "id": "n0331", "input": ":A/64", "ok": false}
+{"error": "':B:' does not appear to be an IPv4 or IPv6 network", "id": "n0332", "input": ":B:", "ok": false}
+{"error": "':F:2:3:4:5:6:7.' does not appear to be an IPv4 or IPv6 network", "id": "n0333", "input": ":F:2:3:4:5:6:7.", "ok": false}
+{"error": "'C' does not appear to be an IPv4 or IPv6 network", "id": "n0334", "input": "C", "ok": false}
+{"error": "'1/:2:3:a:5:6\\n7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0335", "input": "1/:2:3:a:5:6\n7:8", "ok": false}
+{"error": "'2001:db8::aEbc3/32' does not appear to be an IPv4 or IPv6 network", "id": "n0336", "input": "2001:db8::aEbc3/32", "ok": false}
+{"error": "'.:ffff:.2.3.4/1210' does not appear to be an IPv4 or IPv6 network", "id": "n0337", "input": ".:ffff:.2.3.4/1210", "ok": false}
+{"error": "'10.0._.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0338", "input": "10.0._.5/8", "ok": false}
+{"error": "':8/ 4' does not appear to be an IPv4 or IPv6 network", "id": "n0339", "input": ":8/ 4", "ok": false}
+{"error": "'10.0205D8' does not appear to be an IPv4 or IPv6 network", "id": "n0340", "input": "10.0205D8", "ok": false}
+{"error": "'e80:: %eth\\n/44' does not appear to be an IPv4 or IPv6 network", "id": "n0341", "input": "e80:: %eth\n/44", "ok": false}
+{"error": "'255.255.2E5.255/255.2565.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0342", "input": "255.255.2E5.255/255.2565.255.0", "ok": false}
+{"error": "'1::2:3:4:5.:7.' does not appear to be an IPv4 or IPv6 network", "id": "n0343", "input": "1::2:3:4:5.:7.", "ok": false}
+{"error": "'255.255.255.255/255.25.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0344", "input": "255.255.255.255/255.25.255.0", "ok": false}
+{"error": "':/1' does not appear to be an IPv4 or IPv6 network", "id": "n0345", "input": ":/1", "ok": false}
+{"address_hex": "10000000000020003004500060007", "id": "n0346", "input": "1::2:3:45:6:7", "network": "1::2:3:45:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "10002000300000005000600070008", "id": "n0347", "input": "1:2:3::5:6:7:8", "network": "1:2:3:0:5:6:7:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'255.255./55.255/255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0348", "input": "255.255./55.255/255.255.255.0", "ok": false}
+{"error": "'fe80::\\n%eAh0/646' does not appear to be an IPv4 or IPv6 network", "id": "n0349", "input": "fe80::\n%eAh0/646", "ok": false}
+{"error": "'E92' does not appear to be an IPv4 or IPv6 network", "id": "n0350", "input": "E92", "ok": false}
+{"error": "'1:١2:3:4:5:6:7D8' does not appear to be an IPv4 or IPv6 network", "id": "n0351", "input": "1:١2:3:4:5:6:7D8", "ok": false}
+{"address_hex": "10000002d00030004000500060007", "id": "n0352", "input": "1::2d:3:4:5:6:7", "network": "1:0:2d:3:4:5:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'e80:2%eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0353", "input": "e80:2%eth0/64", "ok": false}
+{"error": "'255255.255.25/255.255.255.60' does not appear to be an IPv4 or IPv6 network", "id": "n0354", "input": "255255.255.25/255.255.255.60", "ok": false}
+{"error": "'255.255.255.5/255.25:5.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0355", "input": "255.255.255.5/255.25:5.255.0", "ok": false}
+{"address_hex": "d0000000000000000000000000014", "id": "n0356", "input": "d::14", "network": "d::14/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'1.e2.3.4/80.0.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0357", "input": "1.e2.3.4/80.0.15.255", "ok": false}
+{"error": "'::ff\\nf:1.02.3.4\\t120' does not appear to be an IPv4 or IPv6 network", "id": "n0358", "input": "::ff\nf:1.02.3.4\t120", "ok": false}
+{"address_hex": "fff011c0300", "id": "n0359", "input": "::fff:1.28.3.4/120", "network": "::fff:11c:300/120", "ok": true, "prefix": 120, "version": 6}
+{"error": "'\\t' does not appear to be an IPv4 or IPv6 network", "id": "n0360", "input": "\t", "ok": false}
+{"error": "'1.00.5/' does not appear to be an IPv4 or IPv6 network", "id": "n0361", "input": "1.00.5/", "ok": false}
+{"error": "'1.2/.3:١' does not appear to be an IPv4 or IPv6 network", "id": "n0362", "input": "1.2/.3:١", "ok": false}
+{"error": "'١://64' does not appear to be an IPv4 or IPv6 network", "id": "n0363", "input": "١://64", "ok": false}
+{"error": "':' does not appear to be an IPv4 or IPv6 network", "id": "n0364", "input": ":", "ok": false}
+{"error": "'255.255.25\\n5.2557555.255b.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0365", "input": "255.255.25\n5.2557555.255b.255.0", "ok": false}
+{"error": "'1.2aE.F' does not appear to be an IPv4 or IPv6 network", "id": "n0366", "input": "1.2aE.F", "ok": false}
+{"error": "':f1' does not appear to be an IPv4 or IPv6 network", "id": "n0367", "input": ":f1", "ok": false}
+{"address_hex": "2fff01020300", "id": "n0368", "input": "::2fff:1.2.3.4/120", "network": "::2fff:102:300/120", "ok": true, "prefix": 120, "version": 6}
+{"error": "'feC0:\\n:1%et0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0369", "input": "feC0:\n:1%et0/64", "ok": false}
+{"error": "'fe80::1%eth0/64 ' does not appear to be an IPv4 or IPv6 network", "id": "n0370", "input": "fe80::1%eth0/64 ", "ok": false}
+{"error": "'255./55.2B55.255/a55.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0371", "input": "255./55.2B55.255/a55.255.255.0", "ok": false}
+{"address_hex": "10000000000020024000500060007", "id": "n0372", "input": "1::2:24:5:6:7", "network": "1::2:24:5:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'2001:db8::abcd/302' does not appear to be an IPv4 or IPv6 network", "id": "n0373", "input": "2001:db8::abcd/302", "ok": false}
+{"error": "'6:14' does not appear to be an IPv4 or IPv6 network", "id": "n0374", "input": "6:14", "ok": false}
+{"error": "'255.255.255.255/55.25:.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0375", "input": "255.255.255.255/55.25:.255.0", "ok": false}
+{"error": "'2001:db8::abcd9/32' does not appear to be an IPv4 or IPv6 network", "id": "n0376", "input": "2001:db8::abcd9/32", "ok": false}
+{"error": "'D1/64' does not appear to be an IPv4 or IPv6 network", "id": "n0377", "input": "D1/64", "ok": false}
+{"error": "':2:3_4:5:6:7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0378", "input": ":2:3_4:5:6:7:8", "ok": false}
+{"error": "' :' does not appear to be an IPv4 or IPv6 network", "id": "n0379", "input": " :", "ok": false}
+{"error": "'1.00.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0380", "input": "1.00.5/8", "ok": false}
+{"error": "'2001:dB8::afbcd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0381", "input": "2001:dB8::afbcd/32", "ok": false}
+{"error": "'f2001:db8::abcd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0382", "input": "f2001:db8::abcd/32", "ok": false}
+{"error": "':D:' does not appear to be an IPv4 or IPv6 network", "id": "n0383", "input": ":D:", "ok": false}
+{"error": "'1.2.3.4/0.0.15.55' does not appear to be an IPv4 or IPv6 network", "id": "n0384", "input": "1.2.3.4/0.0.15.55", "ok": false}
+{"error": "'701:db8:%abcd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0385", "input": "701:db8:%abcd/32", "ok": false}
+{"address_hex": "fdff01020300", "id": "n0386", "input": "::fdff:1.2.3.4/120", "network": "::fdff:102:300/120", "ok": true, "prefix": 120, "version": 6}
+{"error": "'5' does not appear to be an IPv4 or IPv6 network", "id": "n0387", "input": "5", "ok": false}
+{"error": "'1.2.3\\t.4-/0.0.15.c5c5' does not appear to be an IPv4 or IPv6 network", "id": "n0388", "input": "1.2.3\t.4-/0.0.15.c5c5", "ok": false}
+{"error": "':9:١' does not appear to be an IPv4 or IPv6 network", "id": "n0389", "input": ":9:١", "ok": false}
+{"error": "':65fff:1.2.3.4120' does not appear to be an IPv4 or IPv6 network", "id": "n0390", "input": ":65fff:1.2.3.4120", "ok": false}
+{"error": "'a:c' does not appear to be an IPv4 or IPv6 network", "id": "n0391", "input": "a:c", "ok": false}
+{"error": "'1.2.3.4/0.0.15.25g' does not appear to be an IPv4 or IPv6 network", "id": "n0392", "input": "1.2.3.4/0.0.15.25g", "ok": false}
+{"error": "'B.2é\\n3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0393", "input": "B.2é\n3.4", "ok": false}
+{"error": "'a11' does not appear to be an IPv4 or IPv6 network", "id": "n0394", "input": "a11", "ok": false}
+{"error": "'1.2.3.b/0.0.15.55' does not appear to be an IPv4 or IPv6 network", "id": "n0395", "input": "1.2.3.b/0.0.15.55", "ok": false}
+{"error": "'1.2.3.4/0.0.15f125 ' does not appear to be an IPv4 or IPv6 network", "id": "n0396", "input": "1.2.3.4/0.0.15f125 ", "ok": false}
+{"error": "'1:2:3:e/5:6:78a' does not appear to be an IPv4 or IPv6 network", "id": "n0397", "input": "1:2:3:e/5:6:78a", "ok": false}
+{"error": "'g:1' does not appear to be an IPv4 or IPv6 network", "id": "n0398", "input": "g:1", "ok": false}
+{"error": "'12.١' does not appear to be an IPv4 or IPv6 network", "id": "n0399", "input": "12.١", "ok": false}
+{"error": "'fe0::13eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0400", "input": "fe0::13eth0/64", "ok": false}
+{"address_hex": "0", "id": "n0401", "input": "0.0.0.5/8", "network": "0.0.0.0/8", "ok": true, "prefix": 8, "version": 4}
+{"error": "':ffff:1.2.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0402", "input": ":ffff:1.2.3.4/120", "ok": false}
+{"address_hex": "f0002000300040000000600070008", "id": "n0403", "input": "f:2:3:4::6:7:8", "network": "f:2:3:4:0:6:7:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'::ffff:1.2.3/.4/12C0' does not appear to be an IPv4 or IPv6 network", "id": "n0404", "input": "::ffff:1.2.3/.4/12C0", "ok": false}
+{"error": "'-0' does not appear to be an IPv4 or IPv6 network", "id": "n0405", "input": "-0", "ok": false}
+{"error": "'255.255.25525D/255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0406", "input": "255.255.25525D/255.255.255.0", "ok": false}
+{"error": "'c' does not appear to be an IPv4 or IPv6 network", "id": "n0407", "input": "c", "ok": false}
+{"error": "'255.255.255.255/205.255.25B0' does not appear to be an IPv4 or IPv6 network", "id": "n0408", "input": "255.255.255.255/205.255.25B0", "ok": false}
+{"error": "'2001:5db8:5abcdd32' does not appear to be an IPv4 or IPv6 network", "id": "n0409", "input": "2001:5db8:5abcdd32", "ok": false}
+{"error": "'.2.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0410", "input": ".2.3.4", "ok": false}
+{"error": "':0.0.0.é/' does not appear to be an IPv4 or IPv6 network", "id": "n0411", "input": ":0.0.0.é/", "ok": false}
+{"error": "'1.2.0.4/ 0.0A.15.254' does not appear to be an IPv4 or IPv6 network", "id": "n0412", "input": "1.2.0.4/ 0.0A.15.254", "ok": false}
+{"error": "':b' does not appear to be an IPv4 or IPv6 network", "id": "n0413", "input": ":b", "ok": false}
+{"error": "'12.3.4/00.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0414", "input": "12.3.4/00.15.255", "ok": false}
+{"address_hex": "100003a", "id": "n0415", "input": "1.0.0.58", "network": "1.0.0.58/32", "ok": true, "prefix": 32, "version": 4}
+{"error": "':f/6' does not appear to be an IPv4 or IPv6 network", "id": "n0416", "input": ":f/6", "ok": false}
+{"error": "':.fff :1.2.3.4/1_d0' does not appear to be an IPv4 or IPv6 network", "id": "n0417", "input": ":.fff :1.2.3.4/1_d0", "ok": false}
+{"error": "'1:2:2::5::7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0418", "input": "1:2:2::5::7:8", "ok": false}
+{"error": "'B \\n::1-' does not appear to be an IPv4 or IPv6 network", "id": "n0419", "input": "B \n::1-", "ok": false}
+{"error": "'10.0.F0.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0420", "input": "10.0.F0.5/8", "ok": false}
+{"error": "'2.2.3.-4' does not appear to be an IPv4 or IPv6 network", "id": "n0421", "input": "2.2.3.-4", "ok": false}
+{"error": "'::11/Ec' does not appear to be an IPv4 or IPv6 network", "id": "n0422", "input": "::11/Ec", "ok": false}
+{"error": "'2001:db8::bc/322' does not appear to be an IPv4 or IPv6 network", "id": "n0423", "input": "2001:db8::bc/322", "ok": false}
+{"error": "'/:f9ff:1.%.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0424", "input": "/:f9ff:1.%.3.4/120", "ok": false}
+{"error": "'c:' does not appear to be an IPv4 or IPv6 network", "id": "n0425", "input": "c:", "ok": false}
+{"error": "'fe-0:1%h0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0426", "input": "fe-0:1%h0/64", "ok": false}
+{"error": "'10.0.025/b' does not appear to be an IPv4 or IPv6 network", "id": "n0427", "input": "10.0.025/b", "ok": false}
+{"error": "'1.213.4' does not appear to be an IPv4 or IPv6 network", "id": "n0428", "input": "1.213.4", "ok": false}
+{"error": "'f::2:3:/:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0429", "input": "f::2:3:/:5:6:7", "ok": false}
+{"address_hex": "fee00000000000000000000000000000", "id": "n0430", "input": "fee0::1%et:h0/64", "network": "fee0::/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'.2.3.4/0.015.255' does not appear to be an IPv4 or IPv6 network", "id": "n0431", "input": ".2.3.4/0.015.255", "ok": false}
+{"error": "'F.2.394' does not appear to be an IPv4 or IPv6 network", "id": "n0432", "input": "F.2.394", "ok": false}
+{"error": "'e:1' does not appear to be an IPv4 or IPv6 network", "id": "n0433", "input": "e:1", "ok": false}
+{"address_hex": "10002000300040005000600000008", "id": "n0434", "input": "1:2:3:4:5:6::8", "network": "1:2:3:4:5:6:0:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'1::2:3:4:f:6_:7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0435", "input": "1::2:3:4:f:6_:7:8", "ok": false}
+{"error": "':fffff:102.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0436", "input": ":fffff:102.3.4/120", "ok": false}
+{"error": "'1.A2.3.4/0./0.15.2557' does not appear to be an IPv4 or IPv6 network", "id": "n0437", "input": "1.A2.3.4/0./0.15.2557", "ok": false}
+{"error": "'::-26' does not appear to be an IPv4 or IPv6 network", "id": "n0438", "input": "::-26", "ok": false}
+{"error": "':1' does not appear to be an IPv4 or IPv6 network", "id": "n0439", "input": ":1", "ok": false}
+{"error": "'::ffff:1.2...d7/120' does not appear to be an IPv4 or IPv6 network", "id": "n0440", "input": "::ffff:1.2...d7/120", "ok": false}
+{"error": "':1/64' does not appear to be an IPv4 or IPv6 network", "id": "n0441", "input": ":1/64", "ok": false}
+{"error": "'éA%' does not appear to be an IPv4 or IPv6 network", "id": "n0442", "input": "éA%", "ok": false}
+{"error": "'::fffa:1.2.E.4_120' does not appear to be an IPv4 or IPv6 network", "id": "n0443", "input": "::fffa:1.2.E.4_120", "ok": false}
+{"error": "'.0:7g' does not appear to be an IPv4 or IPv6 network", "id": "n0444", "input": ".0:7g", "ok": false}
+{"error": "'fe80::1eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0445", "input": "fe80::1eth0/64", "ok": false}
+{"error": "'1.2.3.4/0..8.15.23' does not appear to be an IPv4 or IPv6 network", "id": "n0446", "input": "1.2.3.4/0..8.15.23", "ok": false}
+{"error": "':c:' does not appear to be an IPv4 or IPv6 network", "id": "n0447", "input": ":c:", "ok": false}
+{"address_hex": "10023000400050006000700000008", "id": "n0448", "input": "1:23:4:5:6:7::8", "network": "1:23:4:5:6:7:0:8/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "fe800000000000000000000000000000", "id": "n0449", "input": "fe80::c1%eh0/64", "network": "fe80::/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'2001:db8::abcd/312' does not appear to be an IPv4 or IPv6 network", "id": "n0450", "input": "2001:db8::abcd/312", "ok": false}
+{"error": "'255.255.25.255/255.255.25.0' does not appear to be an IPv4 or IPv6 network", "id": "n0451", "input": "255.255.25.255/255.255.25.0", "ok": false}
+{"error": "'255%.255.2557255/255.2552255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0452", "input": "255%.255.2557255/255.2552255.0", "ok": false}
+{"error": "'10.0.0.5/80' does not appear to be an IPv4 or IPv6 network", "id": "n0453", "input": "10.0.0.5/80", "ok": false}
+{"error": "':9' does not appear to be an IPv4 or IPv6 network", "id": "n0454", "input": ":9", "ok": false}
+{"error": "'2001:db8-:abcd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0455", "input": "2001:db8-:abcd/32", "ok": false}
+{"error": "'1:2:34:5:6:7:08' does not appear to be an IPv4 or IPv6 network", "id": "n0456", "input": "1:2:34:5:6:7:08", "ok": false}
+{"address_hex": "10000000000c30004000500060007", "id": "n0457", "input": "1::C3:4:5:6:7", "network": "1::c3:4:5:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'::gfff:1.2. .412١0' does not appear to be an IPv4 or IPv6 network", "id": "n0458", "input": "::gfff:1.2. .412١0", "ok": false}
+{"address_hex": "fe800000000000000000000000000001", "id": "n0459", "input": "fe80::1%eth0DC4", "network": "fe80::1%eth0DC4/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'255.255.255.255/255.2a5.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0460", "input": "255.255.255.255/255.2a5.255.0", "ok": false}
+{"error": "'10.0.0.8bg' does not appear to be an IPv4 or IPv6 network", "id": "n0461", "input": "10.0.0.8bg", "ok": false}
+{"error": "'_1::23:4:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0462", "input": "_1::23:4:5:6:7", "ok": false}
+{"error": "'1.c.384' does not appear to be an IPv4 or IPv6 network", "id": "n0463", "input": "1.c.384", "ok": false}
+{"error": "'10.e.0.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0464", "input": "10.e.0.5/8", "ok": false}
+{"error": "'1-0.0.0.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0465", "input": "1-0.0.0.5/8", "ok": false}
+{"address_hex": "10000000200030004000500050007", "id": "n0466", "input": "1::2:3:4:5:5:7", "network": "1:0:2:3:4:5:5:7/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "b0000000000000000000000000001", "id": "n0467", "input": "B::1", "network": "b::1/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'::ffff:1.2b.3.4/F1g20' does not appear to be an IPv4 or IPv6 network", "id": "n0468", "input": "::ffff:1.2b.3.4/F1g20", "ok": false}
+{"error": "':8:1/é4' does not appear to be an IPv4 or IPv6 network", "id": "n0469", "input": ":8:1/é4", "ok": false}
+{"error": "'::dffff:.2.3.4/12F0' does not appear to be an IPv4 or IPv6 network", "id": "n0470", "input": "::dffff:.2.3.4/12F0", "ok": false}
+{"error": "'fe80:1%eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0471", "input": "fe80:1%eth0/64", "ok": false}
+{"error": "'::fff7:1.2.3.4/1\\n0' does not appear to be an IPv4 or IPv6 network", "id": "n0472", "input": "::fff7:1.2.3.4/1\n0", "ok": false}
+{"error": "':c:ffff:1.2.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0473", "input": ":c:ffff:1.2.3.4/120", "ok": false}
+{"error": "'1١.2.3.4/0.0b15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0474", "input": "1١.2.3.4/0.0b15.255", "ok": false}
+{"error": "':0' does not appear to be an IPv4 or IPv6 network", "id": "n0475", "input": ":0", "ok": false}
+{"error": "'1.27.' does not appear to be an IPv4 or IPv6 network", "id": "n0476", "input": "1.27.", "ok": false}
+{"error": "'2001:-db8::ab١d/3C2C' does not appear to be an IPv4 or IPv6 network", "id": "n0477", "input": "2001:-db8::ab١d/3C2C", "ok": false}
+{"address_hex": "f0000000000000000000000000000000", "id": "n0478", "input": "feD8::1%et.0/4", "network": "f000::/4", "ok": true, "prefix": 4, "version": 6}
+{"error": "'1b.234' does not appear to be an IPv4 or IPv6 network", "id": "n0479", "input": "1b.234", "ok": false}
+{"address_hex": "10000000002b30004000500060001", "id": "n0480", "input": "1::2b3:4:5:6:1", "network": "1::2b3:4:5:6:1/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'10.0.g%5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0481", "input": "10.0.g%5/8", "ok": false}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0482", "input": "2001:db8::abd/32", "network": "2001:db8::/32", "ok": true, "prefix": 32, "version": 6}
+{"error": "'1.2.3.4/0.b0.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0483", "input": "1.2.3.4/0.b0.15.255", "ok": false}
+{"error": "'255.255.255.255/255.255.25.0' does not appear to be an IPv4 or IPv6 network", "id": "n0484", "input": "255.255.255.255/255.255.25.0", "ok": false}
+{"error": "'255.255.F55.255/255.255.25_.0' does not appear to be an IPv4 or IPv6 network", "id": "n0485", "input": "255.255.F55.255/255.255.25_.0", "ok": false}
+{"address_hex": "20010db8000000000000000000000000", "id": "n0486", "input": "2001:db8::a5cf/32", "network": "2001:db8::/32", "ok": true, "prefix": 32, "version": 6}
+{"error": "'12.34/0.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0487", "input": "12.34/0.15.255", "ok": false}
+{"error": "':d:ffff:.2.3.4/10' does not appear to be an IPv4 or IPv6 network", "id": "n0488", "input": ":d:ffff:.2.3.4/10", "ok": false}
+{"error": "'1::23:4:5:6:' does not appear to be an IPv4 or IPv6 network", "id": "n0489", "input": "1::23:4:5:6:", "ok": false}
+{"error": "'::\\t' does not appear to be an IPv4 or IPv6 network", "id": "n0490", "input": "::\t", "ok": false}
+{"error": "'255.253f255.255/255.255.255/0' does not appear to be an IPv4 or IPv6 network", "id": "n0491", "input": "255.253f255.255/255.255.255/0", "ok": false}
+{"error": "'1:2:3:4:5:6:7:\\n' does not appear to be an IPv4 or IPv6 network", "id": "n0492", "input": "1:2:3:4:5:6:7:\n", "ok": false}
+{"error": "'d:8' does not appear to be an IPv4 or IPv6 network", "id": "n0493", "input": "d:8", "ok": false}
+{"error": "'b:0' does not appear to be an IPv4 or IPv6 network", "id": "n0494", "input": "b:0", "ok": false}
+{"error": "'255.255.255.255/255.25255é0' does not appear to be an IPv4 or IPv6 network", "id": "n0495", "input": "255.255.255.255/255.25255é0", "ok": false}
+{"error": "'1.2.E9%f' does not appear to be an IPv4 or IPv6 network", "id": "n0496", "input": "1.2.E9%f", "ok": false}
+{"error": "'1::5:3:4-56:7' does not appear to be an IPv4 or IPv6 network", "id": "n0497", "input": "1::5:3:4-56:7", "ok": false}
+{"address_hex": "10002000300040005000600170008", "id": "n0498", "input": "1:2:3:4:5:6:17:8", "network": "1:2:3:4:5:6:17:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'::ffff:1.2.3C4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0499", "input": "::ffff:1.2.3C4/120", "ok": false}
+{"error": "'555.255.255.53/255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0500", "input": "555.255.255.53/255.255.255.0", "ok": false}
+{"error": "'255.255.255.255/f255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0501", "input": "255.255.255.255/f255.255.255.0", "ok": false}
+{"error": "'10.0.0f/8é' does not appear to be an IPv4 or IPv6 network", "id": "n0502", "input": "10.0.0f/8é", "ok": false}
+{"error": "'fe80:1%th0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0503", "input": "fe80:1%th0/64", "ok": false}
+{"error": "'1:2:3:4E5:6:7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0504", "input": "1:2:3:4E5:6:7:8", "ok": false}
+{"error": "'10.d0.5/' does not appear to be an IPv4 or IPv6 network", "id": "n0505", "input": "10.d0.5/", "ok": false}
+{"error": "'1:2:3:4:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0506", "input": "1:2:3:4:5:6:7", "ok": false}
+{"error": "'::é/64' does not appear to be an IPv4 or IPv6 network", "id": "n0507", "input": "::é/64", "ok": false}
+{"error": "'a:1' does not appear to be an IPv4 or IPv6 network", "id": "n0508", "input": "a:1", "ok": false}
+{"address_hex": "fe800000000000000000000000000000", "id": "n0509", "input": "Fe80::1%eth0/64", "network": "fe80::/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'5:1' does not appear to be an IPv4 or IPv6 network", "id": "n0510", "input": "5:1", "ok": false}
+{"error": "'fe8:1%eth/64' does not appear to be an IPv4 or IPv6 network", "id": "n0511", "input": "fe8:1%eth/64", "ok": false}
+{"error": "'::ffff:1.2.3../120' does not appear to be an IPv4 or IPv6 network", "id": "n0512", "input": "::ffff:1.2.3../120", "ok": false}
+{"error": "'10.7.0D5/38' does not appear to be an IPv4 or IPv6 network", "id": "n0513", "input": "10.7.0D5/38", "ok": false}
+{"error": "'1A2.3-4' does not appear to be an IPv4 or IPv6 network", "id": "n0514", "input": "1A2.3-4", "ok": false}
+{"error": "'255.255.25%.255/255١.255.25c0' does not appear to be an IPv4 or IPv6 network", "id": "n0515", "input": "255.255.25%.255/255١.255.25c0", "ok": false}
+{"error": "'g1' does not appear to be an IPv4 or IPv6 network", "id": "n0516", "input": "g1", "ok": false}
+{"error": "'fe80::19 eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0517", "input": "fe80::19 eth0/64", "ok": false}
+{"error": "'::_fff:/1.2.3.4/d2a' does not appear to be an IPv4 or IPv6 network", "id": "n0518", "input": "::_fff:/1.2.3.4/d2a", "ok": false}
+{"error": "'-:fffcf:1.2.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0519", "input": "-:fffcf:1.2.3.4/120", "ok": false}
+{"error": "'1b2b.3.4/0.0.1.255' does not appear to be an IPv4 or IPv6 network", "id": "n0520", "input": "1b2b.3.4/0.0.1.255", "ok": false}
+{"address_hex": "fe800000000000000000000000000001", "id": "n0521", "input": "fe80::1%eth0F64", "network": "fe80::1%eth0F64/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'g255.255.255.255/255.245.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0522", "input": "g255.255.255.255/255.245.255.0", "ok": false}
+{"error": "':\\nA' does not appear to be an IPv4 or IPv6 network", "id": "n0523", "input": ":\nA", "ok": false}
+{"error": "'70.0f.0.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0524", "input": "70.0f.0.5/8", "ok": false}
+{"error": "'255.255.255.9255255.255.255.١0' does not appear to be an IPv4 or IPv6 network", "id": "n0525", "input": "255.255.255.9255255.255.255.١0", "ok": false}
+{"error": "'fe80:1%eth064' does not appear to be an IPv4 or IPv6 network", "id": "n0526", "input": "fe80:1%eth064", "ok": false}
+{"error": "'::fff:112.374/1200' does not appear to be an IPv4 or IPv6 network", "id": "n0527", "input": "::fff:112.374/1200", "ok": false}
+{"error": "'١.12.3.4/0.0.5.25b5' does not appear to be an IPv4 or IPv6 network", "id": "n0528", "input": "١.12.3.4/0.0.5.25b5", "ok": false}
+{"error": "'2b01:db8::abc _32' does not appear to be an IPv4 or IPv6 network", "id": "n0529", "input": "2b01:db8::abc _32", "ok": false}
+{"error": "':2:3:4_5:6:7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0530", "input": ":2:3:4_5:6:7:8", "ok": false}
+{"address_hex": "f", "id": "n0531", "input": "::f%f8ff:1.2.3.4١120", "network": "::f%f8ff:1.2.3.4١120/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'\\t:١3/6' does not appear to be an IPv4 or IPv6 network", "id": "n0532", "input": "\t:١3/6", "ok": false}
+{"address_hex": "ffff", "id": "n0533", "input": "::ffff%:1.2.3.4120", "network": "::ffff%:1.2.3.4120/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'1.g.3. 4' does not appear to be an IPv4 or IPv6 network", "id": "n0534", "input": "1.g.3. 4", "ok": false}
+{"error": "'::fff:1.23.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0535", "input": "::fff:1.23.4/120", "ok": false}
+{"error": "'fe880::1%et%h0/64B' does not appear to be an IPv4 or IPv6 network", "id": "n0536", "input": "fe880::1%et%h0/64B", "ok": false}
+{"error": "'_fe0::1%et0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0537", "input": "_fe0::1%et0/64", "ok": false}
+{"error": "':\\tfff:1.21.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0538", "input": ":\tfff:1.21.3.4/120", "ok": false}
+{"error": "'.2.:4' does not appear to be an IPv4 or IPv6 network", "id": "n0539", "input": ".2.:4", "ok": false}
+{"error": "'255.255.255.Bg5/255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0540", "input": "255.255.255.Bg5/255.255.255.0", "ok": false}
+{"error": "'fe-0::1%eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0541", "input": "fe-0::1%eth0/64", "ok": false}
+{"error": "'-١-:2:3:4:\\t:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0542", "input": "-١-:2:3:4:\t:6:7", "ok": false}
+{"error": "'255.25A5.6255.255/255.:255.255.' does not appear to be an IPv4 or IPv6 network", "id": "n0543", "input": "255.25A5.6255.255/255.:255.255.", "ok": false}
+{"error": "'1.2.9%4' does not appear to be an IPv4 or IPv6 network", "id": "n0544", "input": "1.2.9%4", "ok": false}
+{"error": "'dé:1' does not appear to be an IPv4 or IPv6 network", "id": "n0545", "input": "dé:1", "ok": false}
+{"error": "'0::c:3:4:5:%:7' does not appear to be an IPv4 or IPv6 network", "id": "n0546", "input": "0::c:3:4:5:%:7", "ok": false}
+{"error": "'255.255.255.25/255.25E5.255.4' does not appear to be an IPv4 or IPv6 network", "id": "n0547", "input": "255.255.255.25/255.25E5.255.4", "ok": false}
+{"error": "'1f90.05/8' does not appear to be an IPv4 or IPv6 network", "id": "n0548", "input": "1f90.05/8", "ok": false}
+{"error": "'::ffff:1..3.4/1E0' does not appear to be an IPv4 or IPv6 network", "id": "n0549", "input": "::ffff:1..3.4/1E0", "ok": false}
+{"address_hex": "200100db000000000000000000000000", "id": "n0550", "input": "2001:db::accd/32", "network": "2001:db::/32", "ok": true, "prefix": 32, "version": 6}
+{"error": "'e8B::1eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0551", "input": "e8B::1eth0/64", "ok": false}
+{"address_hex": "1060000", "id": "n0552", "input": "1.6.3.4/0.0.15.255", "network": "1.6.0.0/20", "ok": true, "prefix": 20, "version": 4}
+{"error": "'255.2a55/255.255/255.55.55.0' does not appear to be an IPv4 or IPv6 network", "id": "n0553", "input": "255.2a55/255.255/255.55.55.0", "ok": false}
+{"address_hex": "16", "id": "n0554", "input": "::16", "network": "::16/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'é7F.00.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0555", "input": "é7F.00.5/8", "ok": false}
+{"error": "'::ffff:1.2.3.4/1220' does not appear to be an IPv4 or IPv6 network", "id": "n0556", "input": "::ffff:1.2.3.4/1220", "ok": false}
+{"error": "'1.2F.3.4/0.0.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0557", "input": "1.2F.3.4/0.0.15.255", "ok": false}
+{"error": "'10..0.5/B' does not appear to be an IPv4 or IPv6 network", "id": "n0558", "input": "10..0.5/B", "ok": false}
+{"address_hex": "b0000000000000000000000000000", "id": "n0559", "input": "B::", "network": "b::/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'10.0.g%0.5/8١' does not appear to be an IPv4 or IPv6 network", "id": "n0560", "input": "10.0.g%0.5/8١", "ok": false}
+{"error": "'::ffff:١.2.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0561", "input": "::ffff:١.2.3.4/120", "ok": false}
+{"error": "'d:1/64' does not appear to be an IPv4 or IPv6 network", "id": "n0562", "input": "d:1/64", "ok": false}
+{"error": "'8e:' does not appear to be an IPv4 or IPv6 network", "id": "n0563", "input": "8e:", "ok": false}
+{"error": "'1::2.3:4:5:6:' does not appear to be an IPv4 or IPv6 network", "id": "n0564", "input": "1::2.3:4:5:6:", "ok": false}
+{"address_hex": "1810000000000000000000000000000", "id": "n0565", "input": "181::1%eth0/64", "network": "181::/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'255A255.255.255/d255.255.25Ad0' does not appear to be an IPv4 or IPv6 network", "id": "n0566", "input": "255A255.255.255/d255.255.25Ad0", "ok": false}
+{"error": "':1.2.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0567", "input": ":1.2.3.4", "ok": false}
+{"error": "'1.' does not appear to be an IPv4 or IPv6 network", "id": "n0568", "input": "1.", "ok": false}
+{"error": "'1::2:3::5:6:5' does not appear to be an IPv4 or IPv6 network", "id": "n0569", "input": "1::2:3::5:6:5", "ok": false}
+{"error": "': 7' does not appear to be an IPv4 or IPv6 network", "id": "n0570", "input": ": 7", "ok": false}
+{"error": "'9f.2.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0571", "input": "9f.2.3.4", "ok": false}
+{"error": "'::ffF.f:1.2.3.4/12g' does not appear to be an IPv4 or IPv6 network", "id": "n0572", "input": "::ffF.f:1.2.3.4/12g", "ok": false}
+{"error": "'-::1' does not appear to be an IPv4 or IPv6 network", "id": "n0573", "input": "-::1", "ok": false}
+{"error": "'1.203g4' does not appear to be an IPv4 or IPv6 network", "id": "n0574", "input": "1.203g4", "ok": false}
+{"error": "'1:2:3:4546:7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0575", "input": "1:2:3:4546:7:8", "ok": false}
+{"error": "'1::\\n:3:4e:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0576", "input": "1::\n:3:4e:6:7", "ok": false}
+{"error": "'1.2B\\t' does not appear to be an IPv4 or IPv6 network", "id": "n0577", "input": "1.2B\t", "ok": false}
+{"error": "'ee.3.4' does not appear to be an IPv4 or IPv6 network", "id": "n0578", "input": "ee.3.4", "ok": false}
+{"error": "'1::g2:3\\n45:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0579", "input": "1::g2:3\n45:6:7", "ok": false}
+{"error": "':é:e' does not appear to be an IPv4 or IPv6 network", "id": "n0580", "input": ":é:e", "ok": false}
+{"error": "'.f1' does not appear to be an IPv4 or IPv6 network", "id": "n0581", "input": ".f1", "ok": false}
+{"error": "'255.255.255.255/255B.255.255.6' does not appear to be an IPv4 or IPv6 network", "id": "n0582", "input": "255.255.255.255/255B.255.255.6", "ok": false}
+{"error": "'\\n:' does not appear to be an IPv4 or IPv6 network", "id": "n0583", "input": "\n:", "ok": false}
+{"address_hex": "f1020b000300040005000600070008", "id": "n0584", "input": "f1:20B:3:4:05:6:7:8", "network": "f1:20b:3:4:5:6:7:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'255.255.255.255/255.255.25580' does not appear to be an IPv4 or IPv6 network", "id": "n0585", "input": "255.255.255.255/255.255.25580", "ok": false}
+{"error": "'2001:db8:5:abcd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0586", "input": "2001:db8:5:abcd/32", "ok": false}
+{"address_hex": "1000000020003000a000500060007", "id": "n0587", "input": "1::2:3:a:5:6:7", "network": "1:0:2:3:a:5:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "20010d98000000000000000000000000", "id": "n0588", "input": "2001:d98::abcd/32", "network": "2001:d98::/32", "ok": true, "prefix": 32, "version": 6}
+{"error": "'255.2/5.255.255/255.55.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0589", "input": "255.2/5.255.255/255.55.255.0", "ok": false}
+{"error": "'1.2.3.4/\\n0.0C5.255' does not appear to be an IPv4 or IPv6 network", "id": "n0590", "input": "1.2.3.4/\n0.0C5.255", "ok": false}
+{"address_hex": "10002000300040005000000070008", "id": "n0591", "input": "1:2:3:4:5::7:8", "network": "1:2:3:4:5:0:7:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'fe80:21%eth0//4' does not appear to be an IPv4 or IPv6 network", "id": "n0592", "input": "fe80:21%eth0//4", "ok": false}
+{"error": "'1:2:3:4:56:7:8' does not appear to be an IPv4 or IPv6 network", "id": "n0593", "input": "1:2:3:4:56:7:8", "ok": false}
+{"error": "'::1/864' does not appear to be an IPv4 or IPv6 network", "id": "n0594", "input": "::1/864", "ok": false}
+{"error": "'150.0-0.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0595", "input": "150.0-0.5/8", "ok": false}
+{"error": "'1:2:3:4:5:6:7:.8' does not appear to be an IPv4 or IPv6 network", "id": "n0596", "input": "1:2:3:4:5:6:7:.8", "ok": false}
+{"error": "'7:b1' does not appear to be an IPv4 or IPv6 network", "id": "n0597", "input": "7:b1", "ok": false}
+{"error": "'10.A0.0.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0598", "input": "10.A0.0.5/8", "ok": false}
+{"error": "'255.255.255.:55/255.255b255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0599", "input": "255.255.255.:55/255.255b255.0", "ok": false}
+{"error": "'10.0.F03.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0600", "input": "10.0.F03.5/8", "ok": false}
+{"error": "'255.2255.25f5.255/255.255.2554.0c' does not appear to be an IPv4 or IPv6 network", "id": "n0601", "input": "255.2255.25f5.255/255.255.2554.0c", "ok": false}
+{"error": "'::16/é4' does not appear to be an IPv4 or IPv6 network", "id": "n0602", "input": "::16/é4", "ok": false}
+{"error": "'1::2::4f::7' does not appear to be an IPv4 or IPv6 network", "id": "n0603", "input": "1::2::4f::7", "ok": false}
+{"error": "'fe\\n83::1%eth1/64' does not appear to be an IPv4 or IPv6 network", "id": "n0604", "input": "fe\n83::1%eth1/64", "ok": false}
+{"error": "'1:2:3f4:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0605", "input": "1:2:3f4:5:6:7", "ok": false}
+{"error": "':9/6' does not appear to be an IPv4 or IPv6 network", "id": "n0606", "input": ":9/6", "ok": false}
+{"error": "'10.0..5/1' does not appear to be an IPv4 or IPv6 network", "id": "n0607", "input": "10.0..5/1", "ok": false}
+{"error": "'fe81:17eth0/64' does not appear to be an IPv4 or IPv6 network", "id": "n0608", "input": "fe81:17eth0/64", "ok": false}
+{"error": "':fg' does not appear to be an IPv4 or IPv6 network", "id": "n0609", "input": ":fg", "ok": false}
+{"error": "'255.255.6.255.255/255255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0610", "input": "255.255.6.255.255/255255.255.0", "ok": false}
+{"error": "'::ffff:1..34/120' does not appear to be an IPv4 or IPv6 network", "id": "n0611", "input": "::ffff:1..34/120", "ok": false}
+{"error": "':16' does not appear to be an IPv4 or IPv6 network", "id": "n0612", "input": ":16", "ok": false}
+{"error": "'D\\t5.255255.255/255.255.255.02' does not appear to be an IPv4 or IPv6 network", "id": "n0613", "input": "D\t5.255255.255/255.255.255.02", "ok": false}
+{"error": "'1.23.4' does not appear to be an IPv4 or IPv6 network", "id": "n0614", "input": "1.23.4", "ok": false}
+{"error": "'201:db8::a8bcd/.2' does not appear to be an IPv4 or IPv6 network", "id": "n0615", "input": "201:db8::a8bcd/.2", "ok": false}
+{"address_hex": "fe500000000000000000000000000000", "id": "n0616", "input": "fe50::1%e6\th0/64", "network": "fe50::/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'2B55.255255c.255/255.255.D255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0617", "input": "2B55.255255c.255/255.255.D255.0", "ok": false}
+{"error": "'::ffff:b.2.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0618", "input": "::ffff:b.2.3.4/120", "ok": false}
+{"error": "':f' does not appear to be an IPv4 or IPv6 network", "id": "n0619", "input": ":f", "ok": false}
+{"error": "':1D6AA4' does not appear to be an IPv4 or IPv6 network", "id": "n0620", "input": ":1D6AA4", "ok": false}
+{"address_hex": "10000000200030041000500060007", "id": "n0621", "input": "1::2:3:41:5:6:7", "network": "1:0:2:3:41:5:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'2001:db8::a.bc\\n/3B' does not appear to be an IPv4 or IPv6 network", "id": "n0622", "input": "2001:db8::a.bc\n/3B", "ok": false}
+{"error": "'.2.3.4/0.0.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0623", "input": ".2.3.4/0.0.15.255", "ok": false}
+{"error": "'255.255.255255/2155.245.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0624", "input": "255.255.255255/2155.245.255.0", "ok": false}
+{"error": "'١D:1' does not appear to be an IPv4 or IPv6 network", "id": "n0625", "input": "١D:1", "ok": false}
+{"error": "'10.8.F054/8' does not appear to be an IPv4 or IPv6 network", "id": "n0626", "input": "10.8.F054/8", "ok": false}
+{"error": "':://64' does not appear to be an IPv4 or IPv6 network", "id": "n0627", "input": ":://64", "ok": false}
+{"error": "'255.255.255.255/25.25b5.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0628", "input": "255.255.255.255/25.25b5.255.0", "ok": false}
+{"error": "'30..0b._/8' does not appear to be an IPv4 or IPv6 network", "id": "n0629", "input": "30..0b._/8", "ok": false}
+{"error": "'::ffff:1f.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0630", "input": "::ffff:1f.3.4/120", "ok": false}
+{"error": "'0\\t0.05/8' does not appear to be an IPv4 or IPv6 network", "id": "n0631", "input": "0\t0.05/8", "ok": false}
+{"error": "'1:b2:3:4:5:67' does not appear to be an IPv4 or IPv6 network", "id": "n0632", "input": "1:b2:3:4:5:67", "ok": false}
+{"error": "'::ffff1.2.3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0633", "input": "::ffff1.2.3.4/120", "ok": false}
+{"address_hex": "30004000500060008", "id": "n0634", "input": "::3:4:5:6:8", "network": "::3:4:5:6:8/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'1:::C3:4:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0635", "input": "1:::C3:4:5:6:7", "ok": false}
+{"error": "'B1/64' does not appear to be an IPv4 or IPv6 network", "id": "n0636", "input": "B1/64", "ok": false}
+{"error": "'.3.A.4/0.0.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0637", "input": ".3.A.4/0.0.15.255", "ok": false}
+{"address_hex": "100000002000300040005000f0007", "id": "n0638", "input": "1::2:3:4:5:f:7", "network": "1:0:2:3:4:5:f:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'255.255.255.2558/255.255.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0639", "input": "255.255.255.2558/255.255.255.0", "ok": false}
+{"error": "'2001:db8١:abcd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0640", "input": "2001:db8١:abcd/32", "ok": false}
+{"error": "':2ffff:1c.253.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0641", "input": ":2ffff:1c.253.4/120", "ok": false}
+{"error": "'1:2:3:4:5:6:7-:8' does not appear to be an IPv4 or IPv6 network", "id": "n0642", "input": "1:2:3:4:5:6:7-:8", "ok": false}
+{"error": "'2001:db8::abcfd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0643", "input": "2001:db8::abcfd/32", "ok": false}
+{"error": "'E:1' does not appear to be an IPv4 or IPv6 network", "id": "n0644", "input": "E:1", "ok": false}
+{"error": "'1.2..4/0.0b15255' does not appear to be an IPv4 or IPv6 network", "id": "n0645", "input": "1.2..4/0.0b15255", "ok": false}
+{"error": "'1B0.05/8' does not appear to be an IPv4 or IPv6 network", "id": "n0646", "input": "1B0.05/8", "ok": false}
+{"error": "'2.3.4/2é.0.15.255' does not appear to be an IPv4 or IPv6 network", "id": "n0647", "input": "2.3.4/2é.0.15.255", "ok": false}
+{"error": "'1/:2:3:E4:5:6:7' does not appear to be an IPv4 or IPv6 network", "id": "n0648", "input": "1/:2:3:E4:5:6:7", "ok": false}
+{"error": "'\\t:ffff:1.2.3.4/920' does not appear to be an IPv4 or IPv6 network", "id": "n0649", "input": "\t:ffff:1.2.3.4/920", "ok": false}
+{"error": "'1.g2.3c4' does not appear to be an IPv4 or IPv6 network", "id": "n0650", "input": "1.g2.3c4", "ok": false}
+{"error": "'10g.A25/8' does not appear to be an IPv4 or IPv6 network", "id": "n0651", "input": "10g.A25/8", "ok": false}
+{"error": "'12.3.4\\n6/0.0.15255' does not appear to be an IPv4 or IPv6 network", "id": "n0652", "input": "12.3.4\n6/0.0.15255", "ok": false}
+{"address_hex": "90005000200030004000500060007", "id": "n0653", "input": "9:5:2:3:4:5:6:7", "network": "9:5:2:3:4:5:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'255.255.255._255/25582515.2/5.0' does not appear to be an IPv4 or IPv6 network", "id": "n0654", "input": "255.255.255._255/25582515.2/5.0", "ok": false}
+{"address_hex": "12020304", "id": "n0655", "input": "18.2.3.4", "network": "18.2.3.4/32", "ok": true, "prefix": 32, "version": 4}
+{"error": "'::fffa:1.F.\\t34/120' does not appear to be an IPv4 or IPv6 network", "id": "n0656", "input": "::fffa:1.F.\t34/120", "ok": false}
+{"error": "'1.00_5a8' does not appear to be an IPv4 or IPv6 network", "id": "n0657", "input": "1.00_5a8", "ok": false}
+{"error": "'4:_' does not appear to be an IPv4 or IPv6 network", "id": "n0658", "input": "4:_", "ok": false}
+{"address_hex": "164", "id": "n0659", "input": "::164", "network": "::164/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'255.255.f25.255/255.2%5.255.0' does not appear to be an IPv4 or IPv6 network", "id": "n0660", "input": "255.255.f25.255/255.2%5.255.0", "ok": false}
+{"error": "'180.0.f.5/8' does not appear to be an IPv4 or IPv6 network", "id": "n0661", "input": "180.0.f.5/8", "ok": false}
+{"error": "'6fe80::1%ethd/64' does not appear to be an IPv4 or IPv6 network", "id": "n0662", "input": "6fe80::1%ethd/64", "ok": false}
+{"error": "'010.0.5/-8' does not appear to be an IPv4 or IPv6 network", "id": "n0663", "input": "010.0.5/-8", "ok": false}
+{"error": "'1.2.3.4/0.0.15.25é' does not appear to be an IPv4 or IPv6 network", "id": "n0664", "input": "1.2.3.4/0.0.15.25é", "ok": false}
+{"error": "'d.2.3.40.0.785.255' does not appear to be an IPv4 or IPv6 network", "id": "n0665", "input": "d.2.3.40.0.785.255", "ok": false}
+{"error": "':81' does not appear to be an IPv4 or IPv6 network", "id": "n0666", "input": ":81", "ok": false}
+{"error": "':aC' does not appear to be an IPv4 or IPv6 network", "id": "n0667", "input": ":aC", "ok": false}
+{"address_hex": "fe800000000000000000000000000000", "id": "n0668", "input": "fE80::1%eth١f/24", "network": "fe80::/24", "ok": true, "prefix": 24, "version": 6}
+{"address_hex": "fe800000000000000000000000000000", "id": "n0669", "input": "fe80::%eth/64", "network": "fe80::%eth/64", "ok": true, "prefix": 64, "version": 6}
+{"error": "'.2.384' does not appear to be an IPv4 or IPv6 network", "id": "n0670", "input": ".2.384", "ok": false}
+{"error": "'::ffff1.2f3.4/120' does not appear to be an IPv4 or IPv6 network", "id": "n0671", "input": "::ffff1.2f3.4/120", "ok": false}
+{"error": "'E255.255.255.255/25F6255.255.04' does not appear to be an IPv4 or IPv6 network", "id": "n0672", "input": "E255.255.255.255/25F6255.255.04", "ok": false}
+{"error": "'/:2:3.4:55:6:3:8' does not appear to be an IPv4 or IPv6 network", "id": "n0673", "input": "/:2:3.4:55:6:3:8", "ok": false}
+{"error": "'.2.94' does not appear to be an IPv4 or IPv6 network", "id": "n0674", "input": ".2.94", "ok": false}
+{"error": "'2001:d 8:abcdD32' does not appear to be an IPv4 or IPv6 network", "id": "n0675", "input": "2001:d 8:abcdD32", "ok": false}
+{"address_hex": "d10000000000000002000300040005", "id": "n0676", "input": "d1::2:3:4:5%6:7", "network": "d1::2:3:4:5%6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'_:' does not appear to be an IPv4 or IPv6 network", "id": "n0677", "input": "_:", "ok": false}
+{"error": "'2١01:db8:abcd/32' does not appear to be an IPv4 or IPv6 network", "id": "n0678", "input": "2١01:db8:abcd/32", "ok": false}
+{"error": "'1:B2:31:4:5:67' does not appear to be an IPv4 or IPv6 network", "id": "n0679", "input": "1:B2:31:4:5:67", "ok": false}
+{"error": "'B:1' does not appear to be an IPv4 or IPv6 network", "id": "n0680", "input": "B:1", "ok": false}
+{"error": "'d:\\nf4' does not appear to be an IPv4 or IPv6 network", "id": "n0681", "input": "d:\nf4", "ok": false}
+{"error": "'::ffff:1.2E3.4/12-' does not appear to be an IPv4 or IPv6 network", "id": "n0682", "input": "::ffff:1.2E3.4/12-", "ok": false}
+{"error": "'12.31.4' does not appear to be an IPv4 or IPv6 network", "id": "n0683", "input": "12.31.4", "ok": false}
+{"address_hex": "10010d78000000000000000000000000", "id": "n0684", "input": "1001:d78::abcd/32", "network": "1001:d78::/32", "ok": true, "prefix": 32, "version": 6}
+{"error": "':.١64' does not appear to be an IPv4 or IPv6 network", "id": "n0685", "input": ":.١64", "ok": false}
+{"error": "':_' does not appear to be an IPv4 or IPv6 network", "id": "n0686", "input": ":_", "ok": false}
+{"error": "'1:::2:3:4aé5:6:79' does not appear to be an IPv4 or IPv6 network", "id": "n0687", "input": "1:::2:3:4aé5:6:79", "ok": false}
+{"address_hex": "10000000000020003000400060007", "id": "n0688", "input": "1::2:3:4:6:7", "network": "1::2:3:4:6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'D2001:db8::abcd/3\\tg2' does not appear to be an IPv4 or IPv6 network", "id": "n0689", "input": "D2001:db8::abcd/3\tg2", "ok": false}
+{"error": "'1:2::4:5:6:7:8_' does not appear to be an IPv4 or IPv6 network", "id": "n0690", "input": "1:2::4:5:6:7:8_", "ok": false}
+{"error": "'\\n51' does not appear to be an IPv4 or IPv6 network", "id": "n0691", "input": "\n51", "ok": false}
+{"error": "'1:9:3:F:5:6:' does not appear to be an IPv4 or IPv6 network", "id": "n0692", "input": "1:9:3:F:5:6:", "ok": false}
+{"error": "'١7:1' does not appear to be an IPv4 or IPv6 network", "id": "n0693", "input": "١7:1", "ok": false}
+{"address_hex": "fe800000000000000000000000000001", "id": "n0694", "input": "fe80::1%eh0é66", "network": "fe80::1%eh0é66/128", "ok": true, "prefix": 128, "version": 6}
+{"error": "'1.2.A.48' does not appear to be an IPv4 or IPv6 network", "id": "n0695", "input": "1.2.A.48", "ok": false}
+{"address_hex": "100020003004e0000000000060007", "id": "n0696", "input": "1:2:3:4e::6:7", "network": "1:2:3:4e::6:7/128", "ok": true, "prefix": 128, "version": 6}
+{"address_hex": "100000000000200030004056d0007", "id": "n0697", "input": "1::2:3:4:56d:7", "network": "1::2:3:4:56d:7/128", "ok": true, "prefix": 128, "version": 6}

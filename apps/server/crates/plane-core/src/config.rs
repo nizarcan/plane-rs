@@ -24,7 +24,7 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use ipnet::IpNet;
 
@@ -1265,15 +1265,267 @@ fn parse_networks<S: EnvSource>(env: &mut EnvReader<'_, S>, variable: &str) -> V
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
     {
-        match entry.parse::<IpNet>() {
-            Ok(network) => networks.push(network.trunc()),
-            Err(error) => env.warning(
-                variable,
-                format!("ignoring invalid network {entry:?}: {error}"),
-            ),
+        match parse_python_network(entry) {
+            Some(network) => networks.push(network),
+            // `common.py:62-69`: `logger.warning("...skipping invalid entry %r")`.
+            None => env.warning(variable, format!("ignoring invalid network {entry:?}")),
         }
     }
     networks
+}
+
+/// `ipaddress.ip_network(value, strict=False)` (`ipaddress.py:57`), returning
+/// `None` wherever CPython raises `ValueError`.
+///
+/// The settings loop (`plane/settings/common.py:62-69`) strips each entry
+/// before calling `ip_network`, and CPython itself rejects whitespace inside an
+/// address or prefix, so nothing is trimmed here. An IPv6 scope id
+/// (`fe80::1%eth0`) is accepted and dropped: `IpNet` has no scope field, and
+/// `IPv6Network.__contains__` compares only the 128-bit values, so the
+/// allowlist matches the same addresses.
+fn parse_python_network(value: &str) -> Option<IpNet> {
+    let mut pieces = value.split('/');
+    let address = pieces.next()?;
+    let mask = pieces.next();
+    if pieces.next().is_some() {
+        // `_split_optional_netmask` (`ipaddress.py:156`): at most one `/`.
+        return None;
+    }
+    // `ip_network` tries IPv4 first and falls back to IPv6 (`ipaddress.py:70-82`).
+    parse_ipv4_network(address, mask).or_else(|| parse_ipv6_network(address, mask))
+}
+
+/// `IPv4Network(address, strict=False)` (`ipaddress.py:1502`).
+fn parse_ipv4_network(address: &str, mask: Option<&str>) -> Option<IpNet> {
+    let address = parse_ipv4_int(address)?;
+    // No mask means /32 (`_BaseNetwork._split_addr_prefix`, `ipaddress.py:550`).
+    let prefix = match mask {
+        Some(mask) => parse_ipv4_prefix(mask)?,
+        None => 32,
+    };
+    let network = address & ipv4_netmask(prefix);
+    IpNet::new(IpAddr::V4(Ipv4Addr::from(network)), prefix).ok()
+}
+
+/// `IPv6Network(address, strict=False)` (`ipaddress.py:2306`).
+fn parse_ipv6_network(address: &str, mask: Option<&str>) -> Option<IpNet> {
+    let address = parse_ipv6_int(address)?;
+    // No mask means /128; `_BaseV6._make_netmask` (`ipaddress.py:1632`) accepts
+    // only a prefix length, never IPv6 netmask/hostmask notation.
+    let prefix = match mask {
+        Some(mask) => parse_prefix_length(mask, 128)?,
+        None => 128,
+    };
+    let network = address & ipv6_netmask(prefix);
+    IpNet::new(IpAddr::V6(Ipv6Addr::from(network)), prefix).ok()
+}
+
+/// `_BaseV4._make_netmask` (`ipaddress.py:1162`): a prefix length, a dotted
+/// netmask (`255.0.0.0`) or a dotted hostmask (`0.255.255.255`).
+fn parse_ipv4_prefix(mask: &str) -> Option<u8> {
+    if let Some(prefix) = parse_prefix_length(mask, 32) {
+        return Some(prefix);
+    }
+    let mask = parse_ipv4_int(mask)?;
+    // `_prefix_from_ip_string` (`ipaddress.py:500`): netmask first, then the
+    // inverted hostmask. An all-zero mask is a netmask (`/0`).
+    prefix_from_netmask(u128::from(mask), 32).or_else(|| prefix_from_netmask(u128::from(!mask), 32))
+}
+
+/// `_prefix_from_prefix_string` (`ipaddress.py:475`): ASCII digits only (no
+/// sign, no whitespace), leading zeros allowed, value in `0..=max`.
+fn parse_prefix_length(value: &str, max: u8) -> Option<u8> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    // Python integers have no width, so trim the zeros instead of overflowing.
+    let significant = value.trim_start_matches('0');
+    if significant.is_empty() {
+        return Some(0);
+    }
+    // Any significant value of four or more digits exceeds every prefix length.
+    if significant.len() > 3 {
+        return None;
+    }
+    let prefix: u16 = significant.parse().ok()?;
+    u8::try_from(prefix).ok().filter(|prefix| *prefix <= max)
+}
+
+/// `_prefix_from_ip_int` (`ipaddress.py:445`): a netmask is `prefix` one-bits
+/// followed by `bits - prefix` zero-bits. `None` when zeroes and ones mix.
+fn prefix_from_netmask(netmask: u128, bits: u32) -> Option<u8> {
+    if netmask == 0 {
+        // All-zero is a valid /0 netmask; avoid shifting by the full width.
+        return Some(0);
+    }
+    let trailing_zeroes = netmask.trailing_zeros().min(bits);
+    let prefix = bits - trailing_zeroes;
+    let leading_ones = netmask >> trailing_zeroes;
+    let all_ones = if prefix == 0 {
+        0
+    } else {
+        u128::MAX >> (128 - prefix)
+    };
+    (leading_ones == all_ones).then_some(prefix as u8)
+}
+
+fn ipv4_netmask(prefix: u8) -> u32 {
+    if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - u32::from(prefix))
+    }
+}
+
+fn ipv6_netmask(prefix: u8) -> u128 {
+    if prefix == 0 {
+        0
+    } else {
+        u128::MAX << (128 - u32::from(prefix))
+    }
+}
+
+/// `_BaseV4._ip_int_from_string` (`ipaddress.py:1188`): exactly four decimal
+/// octets.
+fn parse_ipv4_int(value: &str) -> Option<u32> {
+    let mut octets = value.split('.');
+    let mut bytes = [0u8; 4];
+    for byte in &mut bytes {
+        *byte = parse_ipv4_octet(octets.next()?)?;
+    }
+    // A fifth octet makes the address invalid.
+    if octets.next().is_some() {
+        return None;
+    }
+    Some(u32::from_be_bytes(bytes))
+}
+
+/// `_BaseV4._parse_octet` (`ipaddress.py:1214`): decimal, at most three digits,
+/// no leading zero unless the octet is exactly `"0"`, value in `0..=255`.
+fn parse_ipv4_octet(octet: &str) -> Option<u8> {
+    let bytes = octet.as_bytes();
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    if bytes.len() > 3 {
+        return None;
+    }
+    if bytes.len() > 1 && bytes[0] == b'0' {
+        return None;
+    }
+    // At most three digits, so this fits `u16`.
+    let value: u16 = octet.parse().ok()?;
+    (value <= u8::MAX.into()).then_some(value as u8)
+}
+
+/// `_BaseV6._ip_int_from_string` (`ipaddress.py:1652`), after
+/// `_split_scope_id` (`ipaddress.py:1895`) removed an optional `%scope`.
+fn parse_ipv6_int(value: &str) -> Option<u128> {
+    let address = match value.split_once('%') {
+        Some((_, scope)) if scope.is_empty() || scope.contains('%') => return None,
+        Some((address, _)) => address,
+        None => value,
+    };
+    // `if len(ip_str) > 45: raise` (`ipaddress.py:1666`). A longer string can
+    // only contain invalid characters, so bytes and code points agree here.
+    if address.len() > 45 {
+        return None;
+    }
+    let mut raw: Vec<&str> = address.splitn(10, ':').collect();
+    // `_min_parts = 3` (`ipaddress.py:1669`).
+    if raw.len() < 3 {
+        return None;
+    }
+    let mut parts: Vec<Option<u16>> = Vec::with_capacity(10);
+    let last = raw.pop()?;
+    for part in raw {
+        parts.push(parse_hextet(part)?);
+    }
+    // A dotted-quad suffix becomes two hextets before the part-count check
+    // (`ipaddress.py:1676-1684`).
+    if last.contains('.') {
+        let ipv4 = parse_ipv4_int(last)?;
+        parts.push(Some(((ipv4 >> 16) & 0xffff) as u16));
+        parts.push(Some((ipv4 & 0xffff) as u16));
+    } else {
+        parts.push(parse_hextet(last)?);
+    }
+    // `_max_parts = _HEXTET_COUNT + 1` (`ipaddress.py:1674`).
+    if parts.len() > 9 {
+        return None;
+    }
+
+    // Exactly one `::` is permitted, and only between the endpoints
+    // (`ipaddress.py:1690-1701`).
+    let mut skip_index: Option<usize> = None;
+    for (index, part) in parts.iter().enumerate().take(parts.len() - 1).skip(1) {
+        if part.is_none() {
+            if skip_index.is_some() {
+                return None;
+            }
+            skip_index = Some(index);
+        }
+    }
+    let last = parts.len() - 1;
+    let (parts_hi, parts_lo, parts_skipped) = match skip_index {
+        Some(index) => {
+            let mut parts_hi = index;
+            let mut parts_lo = last - index;
+            if parts[0].is_none() {
+                parts_hi -= 1;
+                if parts_hi != 0 {
+                    return None;
+                }
+            }
+            if parts[last].is_none() {
+                parts_lo -= 1;
+                if parts_lo != 0 {
+                    return None;
+                }
+            }
+            let parts_skipped = 8usize.checked_sub(parts_hi + parts_lo)?;
+            if parts_skipped == 0 {
+                return None;
+            }
+            (parts_hi, parts_lo, parts_skipped)
+        }
+        None => {
+            // Exactly eight parts, no empty endpoint (`ipaddress.py:1734-1747`).
+            if parts.len() != 8 || parts[0].is_none() || parts[last].is_none() {
+                return None;
+            }
+            (8, 0, 0)
+        }
+    };
+
+    let mut address: u128 = 0;
+    for part in &parts[..parts_hi] {
+        address = (address << 16) | u128::from((*part)?);
+    }
+    // `::` skips all eight hextets, and `address` is still 0; Python shifts a
+    // big integer by 128, Rust cannot (`hi + lo == 0` is the only such case).
+    if parts_skipped != 8 {
+        address <<= 16 * parts_skipped as u32;
+    }
+    for part in &parts[last + 1 - parts_lo..] {
+        address = (address << 16) | u128::from((*part)?);
+    }
+    Some(address)
+}
+
+/// `_BaseV6._parse_hextet` (`ipaddress.py:1778`). The outer `None` is invalid
+/// input; the inner `None` is an empty part, which is only meaningful as the
+/// `::` marker and is never parsed by CPython's algorithm.
+fn parse_hextet(part: &str) -> Option<Option<u16>> {
+    if part.is_empty() {
+        return Some(None);
+    }
+    let bytes = part.as_bytes();
+    if bytes.len() > 4 || !bytes.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    // At most four hex digits, so the value cannot overflow `u16`.
+    Some(Some(u16::from_str_radix(part, 16).ok()?))
 }
 
 /// `django.utils.http.urljoin` for an absolute base and a path.
