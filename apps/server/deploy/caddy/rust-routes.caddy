@@ -83,8 +83,8 @@
 # | modules | `PLANE_RS_GROUP_MODULES` | 13 | 58 | yes |
 # | views | `PLANE_RS_GROUP_VIEWS` | 8 | 30 | no |
 # | pages | `PLANE_RS_GROUP_PAGES` | 12 | 38 | yes |
-# | intake | `PLANE_RS_GROUP_INTAKE` | 11 | 45 | no |
-# | notifications | `PLANE_RS_GROUP_NOTIFICATIONS` | 7 | 23 | no |
+# | intake | `PLANE_RS_GROUP_INTAKE` | 11 | 45 | yes |
+# | notifications | `PLANE_RS_GROUP_NOTIFICATIONS` | 7 | 23 | yes |
 # | search | `PLANE_RS_GROUP_SEARCH` | 3 | 9 | no |
 # | stickies | `PLANE_RS_GROUP_STICKIES` | 2 | 9 | no |
 # | webhooks | `PLANE_RS_GROUP_WEBHOOKS` | 4 | 17 | no |
@@ -286,5 +286,37 @@ handle @plane_rs_modules {
 	CEL
 }
 handle @plane_rs_pages {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# intake: Intake, inboxes and their issues.
+# 11 route(s), 45 endpoint x method pair(s); PLANE_RS_GROUP_INTAKE=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_intake {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_INTAKE} == "" ? "rust" : {env.PLANE_RS_GROUP_INTAKE}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intakes/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/inboxes/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/inboxes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/inbox-issues/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/inbox-issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-work-items/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/description-versions/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-work-items/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/description-versions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-state/$")))
+		)
+	CEL
+}
+handle @plane_rs_intake {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# notifications: In-app notifications and notification preferences.
+# 7 route(s), 23 endpoint x method pair(s); PLANE_RS_GROUP_NOTIFICATIONS=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_notifications {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_NOTIFICATIONS} == "" ? "rust" : {env.PLANE_RS_GROUP_NOTIFICATIONS}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/users/notifications/$") || path_regexp(r"^/api/workspaces/[^/]+/users/notifications/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/users/notifications/unread/$") || path_regexp(r"^/api/users/me/notification-preferences/$")))
+		)
+	CEL
+}
+handle @plane_rs_notifications {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
