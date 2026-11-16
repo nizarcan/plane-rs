@@ -1,0 +1,300 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written extra steps for the `views` group (`scenarios/read/views.yaml`
+# is the generated baseline). What the generated file does not cover:
+#
+#   * every `order_by` value `VIEW_ORDER_BY_ALLOWLIST` permits, and the two
+#     fallbacks (an unknown field, a doubled `-`);
+#   * `fields=` on the two list routes and the fact that both `retrieve` routes
+#     ignore `fields=`/`expand=`;
+#   * timezones other than the caller's UTC/Asia-Kolkata pair (Asia/Tokyo,
+#     Europe/Berlin, America/New_York across the November DST boundary);
+#   * a workspace guest's 404 on retrieve, a project guest's 403, a non-member's
+#     403, a second workspace, and a soft-deleted project (404 from
+#     `Project.objects.get` although `allow_permission` accepts the membership);
+#   * wrong view ids: the workspace route's explicit 404 and the project route's
+#     upstream 500.
+
+name: read-views-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  view_ws_private: "0370f75d-2888-4151-ae08-634d1f46a2d7"
+  view_ws_public: "0e5e15ac-d652-4232-ac25-ac2dd1ead1c5"
+  view_alpha_high: "062b3259-338c-48e4-923c-32bdf03fb91a"
+  view_beta_bugs: "e0d49e2f-8d9c-4780-bc12-3b7c3264ce11"
+  unknown_view: "11111111-1111-4111-8111-111111111111"
+  unknown_project: "22222222-2222-4222-8222-222222222222"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- order_by allowlist ---------------------------------------------------
+  - name: views-x-order-name-asc
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      order_by: "name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-order-name-desc
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      order_by: "-name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-order-updated-asc
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      order_by: "updated_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-order-unknown-falls-back
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      order_by: "sort_order"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-order-double-dash-falls-back
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      order_by: "--created_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- fields= --------------------------------------------------------------
+  - name: views-x-workspace-fields-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-workspace-fields-empty-is-all
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      fields: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-workspace-fields-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    query:
+      fields: "does_not_exist"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-project-fields-id-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    query:
+      fields: "name,id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-workspace-retrieve-ignores-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_public}}/"
+    query:
+      fields: "id"
+      expand: "project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-project-retrieve-ignores-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_alpha_high}}/"
+    query:
+      fields: "id"
+      expand: "project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- timezones ------------------------------------------------------------
+  - name: views-x-workspace-tz-tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: views-x-workspace-retrieve-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_public}}/"
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: views-x-project-retrieve-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_alpha_high}}/"
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: views-x-project-list-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+
+  # --- guests, non-members, wrong ids --------------------------------------
+  - name: views-x-workspace-guest-retrieve-not-owned
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_public}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: views-x-workspace-guest2-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: views-x-workspace-guest-retrieve-private
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_private}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: views-x-workspace-member-retrieve-private
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_ws_private}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: views-x-workspace-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: views-x-workspace-unknown-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{unknown_view}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-second-workspace-list
+    method: GET
+    path: "/api/workspaces/{{ws2}}/views/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+  - name: views-x-project-guest-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: views-x-project-guest2-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: views-x-project-deleted-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-project-unknown-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{unknown_project}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-project-retrieve-other-project-view
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{view_beta_bugs}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-project-retrieve-unknown-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{unknown_view}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-project-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: views-x-project-guest-retrieve-unknown-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/{{unknown_view}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: views-x-workspace-retrieve-project-view
+    method: GET
+    path: "/api/workspaces/{{ws}}/views/{{view_alpha_high}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: views-x-project-list-empty-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

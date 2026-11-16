@@ -1,0 +1,105 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written extra steps for the `webhooks` group. What the generated file
+# does not cover:
+#
+#   * the inactive and internal webhooks (their boolean flags and `is_active`),
+#   * a webhook id that is not in the workspace (the family 404 body),
+#   * webhook logs for a webhook with no deliveries and for an unknown id,
+#   * `?fields=`/`?expand=` (both views pass fixed serializer arguments, so the
+#     response must be unchanged),
+#   * a second workspace with no webhooks,
+#   * a webhook id that is not a UUID (the route does not match).
+
+name: read-webhooks-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  webhook_active: "f8cfd225-6f45-442e-a86f-ec8317215958"
+  webhook_inactive: "b3167eff-f419-4108-8ed1-ed025c0a9d16"
+  webhook_internal: "9cffbfd4-5436-4466-b63c-771c4d2291d4"
+  unknown_webhook: "33333333-3333-4333-8333-333333333333"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  # The fixture's "nonmember" user is an *admin* of the second workspace.
+  session_ws2_admin: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: webhooks-x-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    query:
+      fields: "url"
+      expand: "project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: webhooks-x-inactive-detail
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: webhooks-x-internal-detail
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_internal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: webhooks-x-unknown-detail
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/{{unknown_webhook}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: webhooks-x-logs-inactive
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhook-logs/{{webhook_inactive}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: webhooks-x-logs-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhook-logs/{{unknown_webhook}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: webhooks-x-logs-not-a-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhook-logs/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: webhooks-x-second-workspace
+    method: GET
+    path: "/api/workspaces/{{ws2}}/webhooks/"
+    jar: ws2admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_ws2_admin}}"
+  - name: webhooks-x-second-workspace-logs
+    method: GET
+    path: "/api/workspaces/{{ws2}}/webhook-logs/{{webhook_active}}/"
+    jar: ws2admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_ws2_admin}}"
+  - name: webhooks-x-second-workspace-member-denied
+    method: GET
+    path: "/api/workspaces/{{ws2}}/webhooks/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"

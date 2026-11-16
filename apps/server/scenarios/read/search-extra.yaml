@@ -1,0 +1,493 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written extra steps for the `search` group. What the generated file does
+# not cover:
+#
+#   * a needle that matches (`search=bulk`, an identifier, a sequence id) versus
+#     one that matches nothing, `entities=` selection and its edge cases
+#     (empty, only commas, unknown names), and the `project_id` scope both
+#     applied and ignored (`workspace_search=true`);
+#   * the `sequence_id` half of the needle: an equality per numeric run in
+#     global search, and the `len(query) <= 20` gate that switches
+#     `search_issues` to `sequence_id__icontains`;
+#   * every `query_type` of `entity-search` in one request, a duplicate type,
+#     an unknown type, `count` (a valid one, a negative one, a non-numeric
+#     one), and both branches of every entity (project-scoped and workspace);
+#   * a non-member's 403 and a guest's restricted rows;
+#   * every `search-issues` filter: `target_date=none`, `cycle`, `module`, and
+#     the three `issue_id` helpers (`parent`, `sub_issue`, `issue_relation`),
+#     including the upstream `AttributeError` for a missing issue and the 400
+#     for a malformed uuid.
+
+name: read-search-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  unknown_project: "22222222-2222-4222-8222-222222222222"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_child: "42c68569-5178-4a34-8c17-0488d036ed0c"
+  unknown_issue: "44444444-4444-4444-8444-444444444444"
+  module_alpha_planned: "cac530e3-b832-4ca9-aef9-f4427b1a8f86"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- global search --------------------------------------------------------
+  - name: search-x-global-bulk
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      search: "bulk"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-identifier-and-sequence
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      search: "ALP-26"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-entities-two
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      search: "ALP-26"
+      entities: "issue,page"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-no-match
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      search: "xyzzy-no-such-entity"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-empty-needle
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      search: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-entities-empty-is-all
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-entities-only-commas
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: ", ,"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-entities-unknown-and-known
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "bogus,workspace"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-project-scoped
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "issue,cycle,module,issue_view,intake"
+      project_id: "{{project_beta}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-project-scoped-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "issue"
+      project_id: "{{project_beta}}"
+      workspace_search: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-page-project-scoped
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "page"
+      project_id: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-page-workspace
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "page"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-bad-project-unused
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "project"
+      project_id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-bad-project-used
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "issue"
+      project_id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-sequence-match
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      entities: "issue,intake"
+      search: "1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-global-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      search: "cache"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: search-x-global-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/search/"
+    query:
+      search: "cache"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+
+  # --- entity search --------------------------------------------------------
+  - name: search-x-entity-all-types
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query: "bulk"
+      query_type: "user_mention,project,issue,cycle,module,page"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-duplicate-type
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "user_mention,user_mention"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-unknown-type
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-count-two
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "issue"
+      count: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-count-negative
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "issue"
+      count: "-1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-count-not-a-number
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "issue"
+      count: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-cycle-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "cycle"
+      project_id: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-module-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "module"
+      project_id: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-page-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "page"
+      project_id: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-page-workspace
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "page"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-project-count
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "project"
+      count: "3"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-user-mention-unknown-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "user_mention"
+      project_id: "{{unknown_project}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-entity-guest-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "issue"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: search-x-entity-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/entity-search/"
+    query:
+      query_type: "issue"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+
+  # --- issue search ---------------------------------------------------------
+  - name: search-x-issues-identifier
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      search: "ALP"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-sequence
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      search: "1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-long-query
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      search: "ALP-123456789012345678901234"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-target-date-none
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      target_date: "none"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-cycle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      cycle: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      module: "{{module_alpha_planned}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-module-not-a-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      module: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-parent
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      issue_id: "{{issue_alpha}}"
+      parent: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-sub-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      issue_id: "{{issue_alpha}}"
+      sub_issue: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-sub-issue-child
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      issue_id: "{{issue_alpha_child}}"
+      sub_issue: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-sub-issue-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      issue_id: "{{unknown_issue}}"
+      sub_issue: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-relation
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      issue_id: "{{issue_alpha}}"
+      issue_relation: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-parent-not-a-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      issue_id: "not-a-uuid"
+      parent: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-no-needle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      search: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: search-x-issues-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      search: "cache"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: search-x-issues-second-request
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/search-issues/"
+    query:
+      search: "cache"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

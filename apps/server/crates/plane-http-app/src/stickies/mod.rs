@@ -8,22 +8,29 @@
 //!
 //! * `/api/workspaces/*/stickies/**`
 //!
-//! Nothing is registered yet: every route of this group still answers Django,
-//! so `register` is empty. It stops being empty one route at a time, each one
-//! only after its `scenarios/read/` (and, for a write, its write) scenario is
-//! clean against Django — `apps/server/HANDLERS.md` is the procedure. Once a
-//! group is fully ported, the orchestrator flips its `Owner` column in
-//! `ROUTES.md`; a domain agent never edits that file.
+//! One file per Python module under `plane/app/views/`:
+//!
+//! | Rust | Python |
+//! | --- | --- |
+//! | [`base`] | `workspace/sticky.py` — `WorkspaceStickyViewSet` |
+//!
+//! `GET …/stickies/` is ported; `GET …/stickies/{pk}/` is answered by the
+//! runtime's `BaseViewSet` guard (405) and registers a handler that can never
+//! run, exactly like the module/cycle viewsets do.
 
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod base;
 pub mod queries;
 
 /// Register this group's handlers, in the order they were ported.
-///
-/// `apps/server/HANDLERS.md` has the step list. Return the first
-/// [`RegistryError`]: a route that cannot be registered must fail startup
-/// rather than fall back to a 501 nobody notices.
-pub fn register(_registry: &mut Registry) -> Result<(), RegistryError> {
+pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    registry
+        .viewset("plane.app.views.workspace.sticky.WorkspaceStickyViewSet")?
+        .action("list", base::list)?
+        // `GET …/stickies/{pk}/`: `retrieve` is a DRF mixin action and the
+        // viewset's only permission class is `IsAuthenticated`, so the guard
+        // answers 405 (`plane/app/views/base.py:103-198`).
+        .action("retrieve", base::guard_only)?;
     Ok(())
 }
