@@ -3,15 +3,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 #
-# Clone the `plane_tpl` template database for isolated work.
+# Clone a template database for isolated work.
 #
 #   apps/server/dev/mkdb.sh t_task_1
 #   apps/server/dev/mkdb.sh t_task_1 --replace   # drop and re-clone
+#   apps/server/dev/mkdb.sh t_task_1 --template plane_fix_tpl
 #
-# The clone contains the migrated schema, one instance row and no users or
-# workspaces. Use a unique name per agent/run: `t_<task>_<n>`, lowercase.
-# Remember to pick a matching Redis DB index and RabbitMQ vhost as well; see
-# dev/README.md ("Isolation for concurrent agents").
+# The default `plane_tpl` contains the migrated schema, one instance row and no
+# users or workspaces. `plane_fix_tpl` is the rich deterministic fixture built
+# by `apps/server/dev/bootstrap-fixture.sh` (users, workspaces, issues, …);
+# `--template` accepts only those two names. Use a unique name per agent/run:
+# `t_<task>_<n>`, lowercase. Remember to pick a matching Redis DB index and
+# RabbitMQ vhost as well; see dev/README.md ("Isolation for concurrent agents").
 
 set -euo pipefail
 
@@ -21,28 +24,40 @@ source "$PLANE_DEV_DIR/lib.sh"
 
 usage() {
   cat <<'EOF'
-usage: mkdb.sh <name> [--replace]
+usage: mkdb.sh <name> [--replace] [--template <name>]
 
-  <name>       database to create, cloned from plane_tpl (e.g. t_task_1)
-  --replace    drop an existing database with that name first
+  <name>              database to create (e.g. t_task_1)
+  --replace           drop an existing database with that name first
+  --template <name>   template to clone: plane_tpl (default) or plane_fix_tpl
 EOF
 }
 
 name=""
 replace=0
-for arg in "$@"; do
-  case "$arg" in
-    --replace) replace=1 ;;
+template=""
+while (($#)); do
+  case "$1" in
+    --replace) replace=1; shift ;;
+    --template)
+      [[ $# -ge 2 ]] || die "--template needs a name (plane_tpl or plane_fix_tpl)"
+      template="$2"
+      shift 2
+      ;;
+    --template=*)
+      template="${1#*=}"
+      shift
+      ;;
     -h | --help)
       usage
       exit 0
       ;;
     -*)
-      die "unknown option '$arg'"
+      die "unknown option '$1'"
       ;;
     *)
-      [[ -z "$name" ]] || die "only one database name may be given (got '$name' and '$arg')"
-      name="$arg"
+      [[ -z "$name" ]] || die "only one database name may be given (got '$name' and '$1')"
+      name="$1"
+      shift
       ;;
   esac
 done
@@ -53,6 +68,13 @@ if [[ -z "$name" ]]; then
 fi
 
 validate_db_name "$name"
+
+if [[ -n "$template" ]]; then
+  case "$template" in
+    plane_tpl | plane_fix_tpl) PLANE_TEMPLATE_DB="$template" ;;
+    *) die "--template must be plane_tpl or plane_fix_tpl (got '$template')" ;;
+  esac
+fi
 
 if [[ "$(psql_dev postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$PLANE_TEMPLATE_DB'")" != "1" ]]; then
   die "template database '$PLANE_TEMPLATE_DB' does not exist; run apps/server/dev/bootstrap.sh first"
@@ -74,9 +96,13 @@ if [[ "$(psql_dev postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$nam
 fi
 
 # CREATE DATABASE ... TEMPLATE fails if any session is attached to the
-# template. It is ALLOW_CONNECTIONS false, so this is only a belt-and-braces
-# guard against a pre-existing session from an older bootstrap.
-terminate_connections "$PLANE_TEMPLATE_DB"
+# template. Both templates are created with ALLOW_CONNECTIONS false, so no
+# session can be attached and `pg_terminate_backend` has nothing to do; skip it
+# there (and in particular never touch `plane_fix_tpl`, which other agents
+# clone concurrently). A template that does allow connections keeps the guard.
+if [[ "$(psql_dev postgres -tAc "SELECT datallowconn FROM pg_database WHERE datname = '$PLANE_TEMPLATE_DB'")" == "t" ]]; then
+  terminate_connections "$PLANE_TEMPLATE_DB"
+fi
 
 note "cloning '$PLANE_TEMPLATE_DB' -> '$name'"
 psql_dev postgres -c "CREATE DATABASE \"$name\" TEMPLATE \"$PLANE_TEMPLATE_DB\""
