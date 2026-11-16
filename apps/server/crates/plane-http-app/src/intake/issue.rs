@@ -622,8 +622,11 @@ impl IssueIntakeRow {
     }
 }
 
-/// The nested issue of `retrieve`, decoded from column 20 onwards.
-fn decode_detail_issue<'a>(
+/// The nested issue of the detail shape, decoded from column 20 onwards.
+///
+/// Shared with the intake-issue create's own re-fetch
+/// (`intake/write_intake_issue.rs`), whose projection has the same layout.
+pub(super) fn decode_detail_issue<'a>(
     row: &tokio_postgres::Row,
     label_ids: &'a [Uuid],
     assignee_ids: &'a [Uuid],

@@ -1,0 +1,633 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5: intake-issue create (`plans/INTAKE.md` set B).
+#
+#   POST /api/workspaces/{slug}/projects/{project_id}/intake-issues/   (55)
+#   POST /api/workspaces/{slug}/projects/{project_id}/inbox-issues/    (59)
+#
+# Both paths reach the same `IntakeIssueViewSet.create`, so one handler serves
+# them and both are exercised here.
+#
+# Covers: a minimal create (the fallback default assignee and the triage state),
+# a full body (read-only fields ignored, `state_id` overwritten by the triage
+# state, label/assignee filtering, sanitised HTML), an explicit empty assignee
+# list (still the default assignee), assignees filtered down to none (the
+# default again), labels filtered to another project, a soft-deleted label, the
+# triage fallback in a project that has an intake but no triage state (H19's
+# `MAX(non-triage)+15000`), the same fallback on a body that then fails
+# serializer validation (a 400 that wrote a `states` row), the no-intake 500
+# after the work item is written, the `state` model field (triage and
+# soft-deleted are DRF's field error, a live non-triage state is the
+# `allow_triage_state` non-field error), the name/priority guards, a non-dict
+# `issue` (500), a urlencoded form body (500 when `issue` is a value, 400 when
+# it is absent), `inbox-issues/`, guest/non-member/soft-deleted-member callers,
+# a soft-deleted project (404, not 403), a foreign origin, a body-level
+# `snoozed_till` (ignored: the create path takes none), unknown keys, and an
+# `is_draft` work item (the link is created around it; unlike `POST issues/`
+# this route answers 200).
+#
+# Fixture anchors: ALPHA `b0063033…` (triage `8e4eb107…`, Backlog `5943efbb…`,
+# soft-deleted Blocked `2bdcaf4d…`, labels bug `51298d1d…`, feature `4e684b34…`,
+# deleted docs `f55108ee…`, default assignee member `78100240…`), BETA
+# `ca8f652c…`, DELTA soft-deleted `48ba2a14…`, EPSILON `2e199eb6…` (fixture
+# intake, no live triage state), GAMMA archived `4f9d99bc…` (same), ZETA
+# `95100651…` (no intake, no states). Sessions: admin `d44ae570…`, member
+# `78100240…`, guest `31a752d6…`, nonmember `e15c61cc…`, deleted member
+# `694f0d59…`.
+#
+# Every step's side effects matter: the DB diff shows the `issues`,
+# `issue_sequences`, `issue_assignees`/`issue_labels`, `intake_issues` and
+# `states` rows, and the Celery drain shows `issue.activity.created` (with the
+# mutated `requested_data`) followed by `issue_description_version_task`. There
+# is no `model_activity` on this route. The two 500 steps must publish nothing.
+
+name: write-intake-issues-create
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/intake-issues-create-fixture.sql"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  project_gamma_archived: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  project_delta_deleted: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  state_alpha_backlog: "5943efbb-5e08-4133-bf4a-e9547a8691ec"
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
+  state_alpha_blocked_deleted: "2bdcaf4d-d7f3-47f0-af9b-49c892445067"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  label_alpha_feature: "4e684b34-0406-4516-96ce-361f9f3f1665"
+  label_alpha_docs_deleted: "f55108ee-e5be-4439-afb8-7dbcb9b80b83"
+  label_beta_android: "84602ca2-8eb3-4240-910e-1032516ad452"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_member2_id: "bc437914-c250-4c9f-ac69-85003fdf6205"
+  user_guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- create: minimal, triage state present -------------------------------
+  # ALPHA has a live Triage state, so no `states` row is written; the issue
+  # takes that state, the project's default assignee (member) is added, and the
+  # response is the 21-key `IssueDetailSerializer` nested under the seven-key
+  # link, status 200.
+  - name: write-intake-issues-create-01-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Minimal"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: issue_minimal
+        source: db
+        table: issues
+        column: id
+      - name: link_minimal
+        source: db
+        table: intake_issues
+        column: id
+
+  # --- create: full body ---------------------------------------------------
+  # `id`, `project_id`, `workspace_id`, `created_by`, `updated_by`,
+  # `created_at`, `updated_at`, `sequence_id`, `completed_at`, `archived_at`
+  # are read-only and must be ignored. `state_id` is *overwritten* by the triage
+  # state before the serializer runs. `assignee_ids` keeps the two role>=15
+  # members (the guest is filtered); `label_ids` keeps ALPHA's bug label (the
+  # BETA label is filtered). `description_html` is sanitised and
+  # `description_stripped` recomputed; `sort_order` is then replaced by H10's
+  # `MAX+10000` because the triage state already has work items.
+  - name: write-intake-issues-create-02-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        id: "99999999-9999-4999-8999-999999999999"
+        project_id: "{{project_beta}}"
+        workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        created_by: "{{user_member_id}}"
+        updated_by: "{{user_member_id}}"
+        created_at: "2026-01-01T00:00:00Z"
+        updated_at: "2026-01-01T00:00:00Z"
+        completed_at: "2026-01-01T00:00:00Z"
+        archived_at: "2026-01-01"
+        sequence_id: 9999
+        name: "Intake Full"
+        state_id: "{{state_alpha_backlog}}"
+        priority: "high"
+        point: 3
+        start_date: "2026-02-01"
+        target_date: "2026-03-01"
+        sort_order: 12345.5
+        description_html: "<p onclick=\"x\">Hello <strong>world</strong>. This paragraph exists so the Celery kwargsrepr truncates inside literal text instead of inside the generated work-item id, and it also shows that the sanitiser keeps long paragraphs intact while dropping the script.<script>alert(1)</script></p>"
+        description_json:
+          type: "doc"
+          content: []
+        assignee_ids:
+          - "{{user_member_id}}"
+          - "{{user_member2_id}}"
+          - "{{user_guest_id}}"
+        label_ids:
+          - "{{label_alpha_bug}}"
+          - "{{label_beta_android}}"
+        external_source: "probe"
+        external_id: "full-1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: issue_full
+        source: db
+        table: issues
+        column: id
+
+  # --- create: an empty assignee list still gets the default assignee ------
+  # `IssueCreateSerializer.create`: `assignee_ids is not None and len(...)` is
+  # false for `[]`, so the `else` branch adds the project's default assignee.
+  - name: write-intake-issues-create-03-empty-assignees
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Empty Assignees"
+        assignee_ids: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- create: assignees filtered down to nothing --------------------------
+  # The guest is a project member with role 5, so `role__gte=15` drops the row
+  # and the filtered list is empty — which again falls into the default-assignee
+  # branch (an upstream quirk kept as it is).
+  - name: write-intake-issues-create-04-filtered-assignees
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Filtered Assignees"
+        assignee_ids:
+          - "{{user_guest_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- create: labels of another project are dropped -----------------------
+  - name: write-intake-issues-create-05-filtered-labels
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Filtered Labels"
+        label_ids:
+          - "{{label_beta_android}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A soft-deleted label is a `Label.objects` miss: DRF's declared field uses
+  # the default manager, so it is a field error with the per-index child shape.
+  - name: write-intake-issues-create-06-soft-deleted-label
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Deleted Label"
+        label_ids:
+          - "{{label_alpha_docs_deleted}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: the triage fallback (H19) -----------------------------------
+  # EPSILON has an intake (fixture) and five live non-triage states whose
+  # maximum sequence is 55000, but its Triage row is soft-deleted. The view
+  # creates `Triage`/`triage` with 55000+15000 = 70000 and `is_triage=False`,
+  # then the work item takes that state and the link is written.
+  - name: write-intake-issues-create-07-fallback-state
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Epsilon Fallback"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: issue_epsilon
+        source: db
+        table: issues
+        column: id
+      - name: state_epsilon_triage
+        source: db
+        table: states
+        column: id
+
+  # --- create: a 400 that already wrote the fallback state -----------------
+  # GAMMA (archived) has the same fixture shape. `start_date > target_date`
+  # fails in `IssueCreateSerializer.validate`, i.e. *after* the `states` INSERT:
+  # the step's DB diff must contain that one row and no issue. Archived projects
+  # are accepted by `Project.objects.get(pk=…)` and by `allow_permission`.
+  - name: write-intake-issues-create-08-fallback-then-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Gamma Invalid"
+        start_date: "2026-02-01"
+        target_date: "2026-01-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: state_gamma_triage
+        source: db
+        table: states
+        column: id
+
+  # --- create: a project without an intake ---------------------------------
+  # ZETA has no intake and no states. The order is: name/priority → project →
+  # triage fallback (65000, `MAX` is NULL) → serializer → issue, sequence,
+  # assignees → `Intake.objects.filter(...).first()` → `None.id` → 500. The DB
+  # diff therefore holds the state, the issue and its sequence row, and no link;
+  # both publishes are skipped.
+  - name: write-intake-issues-create-09-no-intake-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Zeta Orphan"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+    capture:
+      - name: issue_zeta
+        source: db
+        table: issues
+        column: id
+
+  # --- create: serializer validation, no state write -----------------------
+  - name: write-intake-issues-create-10-invalid-dates
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Alpha Invalid"
+        start_date: "2026-02-01"
+        target_date: "2026-01-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- the `state` model field, which loses to `state_id` in field order ---
+  # `state_id` is always overwritten with the triage state; `state` is the model
+  # field DRF validates last, with the *default* `State.objects` manager. The
+  # triage state is invisible to it (field error), even though the very same id
+  # under `state_id` is accepted.
+  - name: write-intake-issues-create-11-state-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake State Triage"
+        state: "{{state_alpha_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-intake-issues-create-12-state-non-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake State Backlog"
+        state: "{{state_alpha_backlog}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-intake-issues-create-13-state-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake State Deleted"
+        state: "{{state_alpha_blocked_deleted}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- the name and priority guards (`base.py:231-242`) --------------------
+  - name: write-intake-issues-create-14-name-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-intake-issues-create-15-name-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `5` is truthy, so the name guard passes and the serializer's CharField
+  # coerces it — the same `"5"` the issue-create route produces.
+  - name: write-intake-issues-create-16-name-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-intake-issues-create-17-priority-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Bad Priority"
+        priority: "lowish"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `null` is not in the view's list (`"none"` is the default for an *absent*
+  # key only), so it is the view's 400, not the serializer's choice error.
+  - name: write-intake-issues-create-18-priority-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Null Priority"
+        priority: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- a non-mapping `issue` is `.get` on a string/list → family 500 ------
+  - name: write-intake-issues-create-19-issue-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue: "not an object"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-intake-issues-create-20-issue-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # --- an absent `issue` reads as `{}` → its own 400 -----------------------
+  - name: write-intake-issues-create-21-issue-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- a form body: `issue` is a string → `.get` 500 ----------------------
+  - name: write-intake-issues-create-22-form-with-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    form:
+      issue: "not an object"
+      name: "form"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # ...and a form body without `issue` is the 400 (`{}`).
+  - name: write-intake-issues-create-23-form-without-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    form:
+      name: "form"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- the `inbox-issues/` alias (order 59) --------------------------------
+  - name: write-intake-issues-create-24-inbox-alias
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/inbox-issues/"
+    json:
+      issue:
+        name: "Inbox Alias"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: issue_inbox
+        source: db
+        table: issues
+        column: id
+
+  # --- a guest create is allowed (`@allow_permission` lists GUEST) ----------
+  # The response timestamps are rendered in the guest's own timezone, which is
+  # what `TimeZoneMixin` sets.
+  - name: write-intake-issues-create-25-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Guest"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 200
+
+  # A member of another workspace is not a project member: the decorator's 403
+  # precedes the view.
+  - name: write-intake-issues-create-26-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Nonmember"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # A soft-deleted `ProjectMember` row is invisible to `allow_permission`.
+  - name: write-intake-issues-create-27-deleted-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Deleted Member"
+    jar: deleted_member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    expect_status: 403
+
+  # A soft-deleted project still has live `ProjectMember` rows, so the decorator
+  # passes and `Project.objects.get(pk=…)` is the 404.
+  - name: write-intake-issues-create-28-soft-deleted-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta_deleted}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Deleted Project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # --- the origin check on an unsafe method --------------------------------
+  - name: write-intake-issues-create-29-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake CSRF"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- the create path takes no `snoozed_till` -----------------------------
+  # A top-level `snoozed_till` is only part of `request.data` (and therefore of
+  # `requested_data`); the nested one is an unknown serializer key. The link's
+  # `snoozed_till` stays NULL, so H16 never runs on this route.
+  - name: write-intake-issues-create-30-snooze-ignored
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Snooze Ignored"
+        snoozed_till: "2026-01-01T10:30:00Z"
+      snoozed_till: "2026-01-02T10:30:00Z"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: link_snooze
+        source: db
+        table: intake_issues
+        column: id
+
+  # --- unknown keys are ignored but still dumped into the task payload -----
+  - name: write-intake-issues-create-31-unknown-keys
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Unknown Keys"
+        mystery: 1
+      top_level: "kept"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- `is_draft` -----------------------------------------------------------
+  # Unlike `POST issues/` (which 500s after the INSERT because `issue_objects`
+  # hides drafts), the link is fetched through `IntakeIssue.objects` and the
+  # draft is rendered normally: 200.
+  - name: write-intake-issues-create-32-draft
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Draft"
+        is_draft: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- a member create ------------------------------------------------------
+  - name: write-intake-issues-create-33-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    json:
+      issue:
+        name: "Intake Member"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200

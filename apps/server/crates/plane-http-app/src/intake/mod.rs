@@ -42,8 +42,10 @@ pub mod render;
 pub mod state;
 pub mod versions;
 pub mod write_intake;
+pub mod write_intake_issue;
 pub mod write_intake_issue_delete;
 pub mod write_intake_issue_delete_queries;
+pub mod write_intake_issue_queries;
 pub mod write_intake_queries;
 pub mod write_queries;
 
@@ -51,6 +53,7 @@ pub mod write_queries;
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     base::register(registry)?;
     issue::register(registry)?;
+    write_intake_issue::register(registry)?;
     versions::register(registry)?;
     state::register(registry)?;
     // Set A: intake CRUD (53/54, and the `inboxes/` aliases 57/58).
