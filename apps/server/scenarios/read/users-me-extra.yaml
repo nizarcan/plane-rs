@@ -1,0 +1,673 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra read steps for the `users-me` route group. The generated
+# `users-me.yaml` covers each route once per identity; this file adds the
+# query-parameter and timezone shapes the views support:
+#
+#   * `fields=` / an empty `fields=` on the workspace list
+#   * `owner=` (present, invalid UUID, well-formed but missing) and `search=`
+#   * the activity paginator: every allowlisted `order_by`, `per_page`
+#     boundaries/errors, cursor errors, a previous page and a page past the
+#     end, and the negative-slice 500
+#   * `month=` on the two graphs and the dashboard (0, 3, 13 and a
+#     non-integer that Django answers with 500)
+#   * 404s for another user's account/token and a missing workspace
+#   * `Asia/Kolkata`, `Asia/Tokyo`, `America/New_York` and `Europe/Berlin`
+#     sessions, so the datetime fields are rendered in four offsets
+#
+# Run it Django vs Django first (determinism), then Django vs Rust:
+#
+#   ./target/debug/difftest run --scenario scenarios/read/users-me-extra.yaml \
+#     --a django --b django --a-redis-db 1 --b-redis-db 2
+
+name: read-users-me-extra
+template_db: plane_fix_tpl
+redis_db: [1, 2]
+target_env:
+  # Several views build a response from a Python `set`; pin the hash seed so
+  # both targets order it the same way (same reason as the generated file).
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_invitee: "bee2ce8d1b4c4779957ca8eae897f3a2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_no_workspace: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: users-me-extra-workspaces-fields-id-name
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      fields: "id,name"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-fields-empty
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      fields: ""
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-fields-logo-role
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      fields: "id,slug,logo_url,total_members,role"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-owner-admin
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      owner: "d44ae570-3de4-4413-af08-f686bf5b7235"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-owner-admin-member
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      owner: "d44ae570-3de4-4413-af08-f686bf5b7235"
+    jar: member
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: users-me-extra-workspaces-owner-invalid
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      owner: "not-a-uuid"
+    jar: admin
+    expect_status: 400
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-owner-missing
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      owner: "00000000-0000-0000-0000-000000000000"
+    jar: admin
+    expect_status: 400
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-search-case
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      search: "FIXTURE"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-search-two-terms
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      search: "fixture workspace"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-search-no-match
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      search: "second"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-search-empty
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      search: ""
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `UserWorkSpacesEndpoint` builds `WorkSpaceSerializer(fields=...)` and never
+  # passes `expand=`, so an expansion request must be ignored.
+  - name: users-me-extra-workspaces-search-percent
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      search: "%"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-search-underscore
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      search: "_"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-owner-uppercase
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      owner: "D44AE570-3DE4-4413-AF08-F686BF5B7235"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-expand-owner
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      expand: "owner"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-expand-members
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      expand: "members"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-workspaces-fields-and-expand
+    method: GET
+    path: "/api/users/me/workspaces/"
+    query:
+      fields: "id"
+      expand: "owner"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-order-asc
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      order_by: "created_at"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-order-updated
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      order_by: "updated_at"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-order-minus-updated
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      order_by: "-updated_at"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-order-double-dash
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      order_by: "--created_at"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-order-unknown
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      order_by: "verb"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-page-prev
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      per_page: "3"
+      cursor: "3:2:1"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-page-beyond
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      per_page: "2"
+      cursor: "2:4:0"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-per-page-zero
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      per_page: "0"
+    jar: admin
+    expect_status: 400
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-per-page-large
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      per_page: "1001"
+    jar: admin
+    expect_status: 400
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-per-page-text
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      per_page: "x"
+    jar: admin
+    expect_status: 400
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-per-page-empty
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      per_page: ""
+    jar: admin
+    expect_status: 400
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-cursor-invalid
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      cursor: "abc"
+    jar: admin
+    expect_status: 400
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-per-page-plus
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      per_page: "+2"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-cursor-float
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      cursor: "2.0:0:0"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-activities-cursor-negative-prev
+    method: GET
+    path: "/api/users/me/activities/"
+    query:
+      cursor: "1:0:1"
+    jar: admin
+    expect_status: 500
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-completed-graph-month-3
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/issues-completed-graph/"
+    query:
+      month: "3"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-completed-graph-month-0
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/issues-completed-graph/"
+    query:
+      month: "0"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-completed-graph-month-13
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/issues-completed-graph/"
+    query:
+      month: "13"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-completed-graph-month-negative
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/issues-completed-graph/"
+    query:
+      month: "-1"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-completed-graph-month-text
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/issues-completed-graph/"
+    query:
+      month: "abc"
+    jar: admin
+    expect_status: 500
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-completed-graph-member
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/issues-completed-graph/"
+    query:
+      month: "3"
+    jar: member
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: users-me-extra-dashboard-month-3
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/dashboard/"
+    query:
+      month: "3"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-dashboard-month-13
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/dashboard/"
+    query:
+      month: "13"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-dashboard-month-negative
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/dashboard/"
+    query:
+      month: "-1"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-dashboard-month-text
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/dashboard/"
+    query:
+      month: "abc"
+    jar: admin
+    expect_status: 500
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-dashboard-other-workspace
+    method: GET
+    path: "/api/users/me/workspaces/fix-second/dashboard/"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-dashboard-missing-workspace
+    method: GET
+    path: "/api/users/me/workspaces/no-such-workspace/dashboard/"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-project-roles-guest
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/project-roles/"
+    jar: guest
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: users-me-extra-project-roles-nonmember
+    method: GET
+    path: "/api/users/me/workspaces/fix-workspace/project-roles/"
+    jar: nonmember
+    expect_status: 403
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: users-me-extra-project-roles-second-member
+    method: GET
+    path: "/api/users/me/workspaces/fix-second/project-roles/"
+    jar: member
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: users-me-extra-project-roles-missing-workspace
+    method: GET
+    path: "/api/users/me/workspaces/no-such-workspace/project-roles/"
+    jar: member
+    expect_status: 403
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: users-me-extra-invitations-invitee
+    method: GET
+    path: "/api/users/me/workspaces/invitations/"
+    jar: invitee
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_invitee}}"
+  - name: users-me-extra-invitations-admin
+    method: GET
+    path: "/api/users/me/workspaces/invitations/"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-api-token-expired
+    method: GET
+    path: "/api/users/api-tokens/05b6a01e-29a4-4b7d-b126-3e900002a8fb/"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-api-token-other-user
+    method: GET
+    path: "/api/users/api-tokens/e7768911-cb2b-4351-bfc0-8af8b22d5a98/"
+    jar: admin
+    expect_status: 404
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-api-token-own
+    method: GET
+    path: "/api/users/api-tokens/e7768911-cb2b-4351-bfc0-8af8b22d5a98/"
+    jar: member
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: users-me-extra-account-other-user
+    method: GET
+    path: "/api/users/me/accounts/6e93a842-d0a5-4d11-8566-6da291636ba6/"
+    jar: admin
+    expect_status: 404
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-account-own
+    method: GET
+    path: "/api/users/me/accounts/6e93a842-d0a5-4d11-8566-6da291636ba6/"
+    jar: member
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: users-me-extra-me-tz-kolkata
+    method: GET
+    path: "/api/users/me/"
+    jar: tz_kolkata
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: users-me-extra-me-tz-tokyo
+    method: GET
+    path: "/api/users/me/"
+    jar: tz_tokyo
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: users-me-extra-me-tz-newyork
+    method: GET
+    path: "/api/users/me/"
+    jar: tz_newyork
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  - name: users-me-extra-me-fields-ignored
+    method: GET
+    path: "/api/users/me/"
+    query:
+      fields: "id,email"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-profile-tz-newyork
+    method: GET
+    path: "/api/users/me/profile/"
+    jar: tz_newyork
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  - name: users-me-extra-profile-guest
+    method: GET
+    path: "/api/users/me/profile/"
+    jar: guest
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: users-me-extra-profile-fields-ignored
+    method: GET
+    path: "/api/users/me/profile/"
+    query:
+      fields: "id,user"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-settings-tz-tokyo
+    method: GET
+    path: "/api/users/me/settings/"
+    jar: tz_tokyo
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: users-me-extra-session-member2
+    method: GET
+    path: "/api/users/session/"
+    jar: member2
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+  - name: users-me-extra-session-nonmember
+    method: GET
+    path: "/api/users/session/"
+    jar: nonmember
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: users-me-extra-instance-admin-admin
+    method: GET
+    path: "/api/users/me/instance-admin/"
+    jar: admin
+    expect_status: 200
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: users-me-extra-last-visited-member
+    method: GET
+    path: "/api/users/last-visited-workspace/"
+    jar: member
+    expect_status: 500
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
