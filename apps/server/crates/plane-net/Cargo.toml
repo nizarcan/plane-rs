@@ -1,0 +1,54 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-net"
+description = "Plane's SSRF-guarded outbound HTTP: Python-compatible URL parsing, IP classification, IP-pinned reqwest transport and per-call-site presets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Versions are declared here rather than in the workspace table because this
+# crate was added by a domain agent that owns only `crates/plane-net/`; the
+# orchestrator can hoist them into `[workspace.dependencies]` unchanged.
+[dependencies]
+base64.workspace = true
+idna = "1.1.0"
+ipnet.workspace = true
+plane-core = { path = "../plane-core" }
+reqwest = { version = "0.13.5", default-features = false, features = [
+  "rustls",
+  "gzip",
+  "deflate",
+] }
+rustls = { workspace = true, default-features = false, features = [
+  "aws_lc_rs",
+  "std",
+  "tls12",
+] }
+rustls-pemfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "time"] }
+tracing.workspace = true
+webpki-roots.workspace = true
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json.workspace = true
+tokio = { workspace = true, features = [
+  "macros",
+  "rt-multi-thread",
+  "io-util",
+  "net",
+  "time",
+] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = [
+  "aws_lc_rs",
+  "tls12",
+] }
+
+[lints]
+workspace = true
