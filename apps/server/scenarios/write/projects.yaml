@@ -901,3 +901,22 @@ steps:
       Cookie: "session-id={{session_admin}}"
     jar: admin
     expect_status: 500
+
+  # A multipart file part named like a serializer field: DRF merges
+  # `request.FILES` into `request.data`, so `{**request.data}` carries
+  # `name: [<InMemoryUploadedFile>]` and the CharField rejects the list with
+  # "Not a valid string." (the bytes themselves never reach the serializer).
+  - name: write-projects-73-patch-multipart-file-name-collision
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta_empty}}/"
+    multipart:
+      files:
+        - field: name
+          filename: name.txt
+          content_type: text/plain
+          content: "hello"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    jar: admin
+    expect_status: 400

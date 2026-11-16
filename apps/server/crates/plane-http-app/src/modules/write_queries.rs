@@ -408,12 +408,16 @@ plane_query! {
     /// `UserRecentVisit.objects.filter(project_id, workspace__slug,
     /// entity_identifier, entity_name="module").delete(soft=False)` in
     /// `ModuleViewSet.destroy` (`module/base.py:754-759`): a hard DELETE for
-    /// every user.
+    /// every user. `UserRecentVisit` is a `SoftDeleteModel`, so `objects` is
+    /// the `SoftDeletionManager`: its queryset already carries
+    /// `deleted_at IS NULL` (`plane/db/mixins.py:57-58`) and `delete(soft=False)`
+    /// keeps that predicate — an already-soft-deleted visit survives.
     ///
     /// Bind order: `$1` project id, `$2` module id, `$3` slug.
     USER_RECENT_VISIT_HARD_DELETE = "modules_write_recent_visit_delete",
     "DELETE FROM user_recent_visits \
-     WHERE project_id = $1 AND entity_identifier = $2 AND entity_name = 'module' \
+     WHERE deleted_at IS NULL AND project_id = $1 AND entity_identifier = $2 \
+       AND entity_name = 'module' \
        AND workspace_id IN (SELECT id FROM workspaces WHERE slug = $3)",
     []
 }

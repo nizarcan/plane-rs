@@ -16,6 +16,10 @@
 //! request only publishes the task; `plane-http-app`'s
 //! `write::publish_soft_delete_cascade` does that with `plane-jobs`.
 //!
+//! The statement keys on the primary key only, like Django's instance save: a
+//! `SoftDeleteModel.delete()` is **not** a queryset delete, so the manager's
+//! `deleted_at IS NULL` predicate is not part of the SQL.
+//!
 //! H04 (`Model.objects.filter(...).delete()`, the queryset form) is different:
 //! it is a bare `UPDATE ... SET deleted_at=now` with no save hook, no
 //! `updated_at` and no task. No GET route needs it yet; a write route that
@@ -45,7 +49,7 @@ pub async fn delete_instance(
 ) -> Result<(), DbError> {
     let sql = format!(
         "UPDATE {table} SET deleted_at = $1, updated_at = $1, updated_by_id = $2 \
-         WHERE {key} = $3 AND deleted_at IS NULL"
+         WHERE {key} = $3"
     );
     let statement = client.prepare(&sql).await?;
     client

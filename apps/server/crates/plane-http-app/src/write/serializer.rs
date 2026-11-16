@@ -460,6 +460,14 @@ impl<'a> Serializer<'a> {
                         .collect::<Vec<_>>();
                     dict.insert(PyStr::new(key), Json::List(values));
                 }
+                // `_full_data.update(self._files)`: a file part replaces any
+                // same-named field's values with a one-element list holding
+                // the file object. The bytes are not retained; a non-string
+                // element is all the field parsers need (a `CharField` answers
+                // "Not a valid string.").
+                for key in query.file_keys() {
+                    dict.insert(PyStr::new(key.as_str()), Json::List(vec![Json::Null]));
+                }
                 serializer.body = Some(Body::Expanded(Box::new(dict)));
             }
             Data::Json(value) => {
@@ -687,6 +695,14 @@ impl<'a> Serializer<'a> {
         let mut values = Vec::with_capacity(items.len());
         let mut failed = false;
         for (index, item) in items.iter().enumerate() {
+            // The child is `PrimaryKeyRelatedField(required=…)` with
+            // `allow_null=False` by default: DRF's `validate_empty_values`
+            // rejects an explicit `null` before the pk coercion.
+            if item.is_null() {
+                self.errors.push_indexed(name, index, Detail::null());
+                failed = true;
+                continue;
+            }
             let raw = Raw::Json(item);
             let value = match fields::primary_key(raw) {
                 Ok(value) => value,
@@ -766,6 +782,13 @@ impl<'a> Serializer<'a> {
         let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
         let mut values = Vec::with_capacity(items.len());
         for item in &items {
+            // `ManyRelatedField` delegates to the child's
+            // `validate_empty_values`, so `null` is the child's null error and
+            // propagates without the per-index wrapper.
+            if item.is_null() {
+                self.errors.push(name, Detail::null());
+                return Ok(None);
+            }
             let raw = Raw::Json(item);
             let value = match fields::primary_key(raw) {
                 Ok(value) => value,
