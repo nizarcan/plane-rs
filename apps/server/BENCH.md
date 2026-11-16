@@ -629,6 +629,100 @@ building, records `pg_stat_activity` per database every 5 s into
   fresh database clone; per-row idle reflects the process's warm state at that
   point, not a single run-wide baseline.
 
+#### Phase 3: memory after sustained load (2026-11-16)
+
+The preliminary table above reports `plane-api` at 176 MiB after the full
+five-scenario matrix (cache excluded), more than Django's 157 MiB, so the
+memory claim could not be made. This subsection is the follow-up: one load
+profile, one long-running process, no restarts, current code (`9a0b72ccec`,
+which includes the `prepare_cached` preamble fix).
+
+**Setup.** `reads-mixed` at concurrency 32, unchanged from the preliminary
+scenario; `plane-rs-mem-api` built from `deploy/docker/Dockerfile.plane-api`,
+`--cpus 2 --memory 512m --memory-swap 512m`, 2 tokio threads
+(`PLANE_RS_WORKER_THREADS=2`), 16-connection
+pool, its own clone `t_rsmem_api` of `plane_fix_tpl`, Redis DB 4, vhost
+`rsmem_api`, port 18360. Memory is sampled at 1 Hz from cgroup v2
+(`memory.current - inactive_file`, the same cache-excluded figure as above).
+One run per configuration; the shared dev Postgres carried other agents'
+differential and contract runs during both runs (`pg-load.log`: 198 of 254
+samples in the first run, 21 of 31 in the second), so the server side is noted
+but not attributed. Commands: `tools/bench/memstudy.sh up|stats`,
+`tools/bench/memcurve.sh`, `tools/bench/memcurve.py`.
+
+The system-allocator and jemalloc binaries in this table were built from a
+**temporary study branch** (a cargo feature per allocator plus a
+`runtime-all` Docker target). That branch is not merged: the production image
+is the mimalloc binary only, with no allocator features, and `memstudy.sh`
+runs the mimalloc binary with or without `MIMALLOC_PURGE_DELAY`.
+
+| allocator / options | checkpoint | requests | rps | p50 ms | p95 ms | RSS | growth since previous |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| mimalloc (default) | start | 0 | — | — | — | 54.2 MiB | — |
+| mimalloc (default) | checkpoint | 55,758 | 1,114 | 19.2 | 56.0 | 88.2 MiB | +34.0 MiB |
+| mimalloc (default) | checkpoint | 193,707 | 1,069 | 18.6 | 54.5 | 87.8 MiB | −0.4 MiB |
+| mimalloc (default) | checkpoint | 487,570 | 1,025 | 18.0 | 53.5 | 84.8 MiB | −3.1 MiB |
+| mimalloc (default) | checkpoint | 1,082,381 | 1,192 | 14.6 | 43.6 | 89.1 MiB | +4.3 MiB |
+| mimalloc (default) | idle, +5 min | 1,082,381 | — | — | — | 89.1 MiB | +0.0 MiB |
+| mimalloc, `MIMALLOC_PURGE_DELAY=0` | start | 0 | — | — | — | 28.8 MiB | — |
+| mimalloc, `MIMALLOC_PURGE_DELAY=0` | checkpoint | 26,095 | 1,203 | 14.8 | 41.7 | 51.5 MiB | +22.7 MiB |
+| mimalloc, `MIMALLOC_PURGE_DELAY=0` | checkpoint | 102,857 | 1,258 | 14.8 | 44.0 | 51.4 MiB | −0.1 MiB |
+| mimalloc, `MIMALLOC_PURGE_DELAY=0` | idle, +1 min | 102,857 | — | — | — | 51.4 MiB | +0.0 MiB |
+
+All requests answered 200 (0 errors, 0 reconnects). Host 1-minute load average
+went 14.24 → 7.10 during the first run and 3.96 → 9.69 during the second.
+
+**It plateaus; there is no leak.** `plane-api` reaches 88.2 MiB after 56k
+requests and is at 84.8–89.1 MiB after 194k, 488k and 1.08M — a flat curve, and
+the same 89.1 MiB five minutes after the load stops. The 176 MiB in the
+preliminary table came from the run whose `reads-cycles`/`reads-mixed` rows were
+invalidated by the RabbitMQ vhost loss (514 publish errors in `reads-mixed`);
+the valid re-measurement ended at 93.1 MiB, consistent with this curve. The
+"more than Django" comparison was therefore an artefact of a discarded run.
+
+**The retained memory is the allocator, not a data structure.** With
+`MIMALLOC_PURGE_DELAY=0` the same binary, workload and request rate plateau at
+**51.4 MiB instead of 89.1** (−37.7 MiB, −42%) with no throughput loss (1,258 vs
+1,114–1,192 rps; the load average differed, so read the ratio as "not slower").
+That difference is freed-but-not-returned mimalloc arena memory; the code path
+is identical.
+
+**Reading the code for growth.** There is no process-wide map that grows with
+requests: no `static Mutex<HashMap>`/`DashMap`, `OnceLock`/`LazyLock` hold only
+configuration (`meta/unsplash.rs`, `common/fernet.rs`, `assets/support.rs`),
+per-request `HashMap`s (project/lite/estimates serialisation) are dropped with
+the response, `PyInterner` is per serialisation, Redis uses one connection
+manager, lapin one connection/channel, and the DB pool is fixed at
+`PLANE_RS_DB_POOL_SIZE` (16). The 28.8 → 51.4 MiB difference in the purge run
+is the live set: 16 pool connections, per-connection buffers, the Redis/lapin
+handles and the per-thread allocator state.
+
+**Prepared statements.** `plane-query::Sql::prepare` calls
+`tokio_postgres::Client::prepare`, which sends a **named** `Parse` (`s<n>`,
+tokio-postgres' `prepare.rs`); the server keeps that plan until the connection
+closes, because deadpool's default recycling method is `Fast` (only
+`is_closed`). The client drops the returned `Statement` after the query, so
+this cannot explain the API's RSS — and it does not show in the server either:
+the shared Postgres container's `anon` went 26.4 → 286 MiB during the first
+chunk and stayed at 270–296 MiB through 1.08M requests, i.e. no linear growth
+over the run (that container also holds other agents' statements, so this is
+suggestive, not proof). Since this study the dynamic SQL has been changed to a
+truly unnamed statement (`query_typed_raw`, merged as `04fb9a250b`), so the
+server-side statement question is closed.
+
+**Decision (D3).** D3 stays **mimalloc**. Its post-load plateau falls below
+the 60 MiB target once freed arenas are returned, so the `runtime` stage of
+`deploy/docker/Dockerfile.plane-api` now sets `MIMALLOC_PURGE_DELAY=0`
+(mimalloc's default is 10 ms; `ENV.md` §1.14). No allocator change is justified
+by this data — the system allocator and jemalloc were not measured, because the
+default already meets the target with one image variable and jemalloc would add
+a C dependency (scope cut, 2026-11-16).
+
+**Next step if needed.** None for the client-side claim. If the server's share
+of memory ever needs isolating, `tools/bench/memstudy-pg.sh` starts a private
+Postgres so other agents' load is out of the cgroup; the prepared-statement
+question itself is resolved by `query_typed_raw`.
+
 ### Phase 4 baseline: Django's Celery worker and beat
 
 `plane-worker` and `plane-beat` must beat these numbers, so they were measured before any

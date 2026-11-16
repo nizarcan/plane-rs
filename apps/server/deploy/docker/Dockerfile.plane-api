@@ -103,6 +103,16 @@ COPY --from=builder /out/plane-api /usr/local/bin/plane-api
 # semantics when `PLANE_RS_BIND` is unset (ENV.md), so compose can keep setting
 # only `PORT`.
 ENV PORT=8000
+
+# mimalloc (DECISIONS.md D3) keeps a freed segment for `purge_delay`
+# milliseconds before returning it to the OS; mimalloc's own default is 10 ms,
+# and whole arenas wait 10x that. Under sustained read load that retention is
+# the difference between the 89.1 MiB and 51.4 MiB plateaus measured in
+# BENCH.md ("Phase 3: memory after sustained load"), with no throughput cost.
+# 0 purges immediately; -1 would never purge. It is read by mimalloc, not by
+# Plane code (ENV.md §1.14).
+ENV MIMALLOC_PURGE_DELAY=0
+
 EXPOSE 8000
 
 # `:nonroot` is UID 65532 with no home directory. The server writes nothing to
