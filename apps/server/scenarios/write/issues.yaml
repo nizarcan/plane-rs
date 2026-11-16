@@ -1,0 +1,1550 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5: the issue-core write routes (`plans/WORK_ITEMS.md` set A).
+#
+#   POST   /api/workspaces/{slug}/projects/{project_id}/issues/             (64)
+#   PATCH  /api/workspaces/{slug}/projects/{project_id}/issues/{pk}/        (67)
+#   DELETE /api/workspaces/{slug}/projects/{project_id}/issues/{pk}/        (67)
+#   PUT    /api/workspaces/{slug}/projects/{project_id}/issues/{pk}/        (67, 405)
+#   DELETE /api/workspaces/{slug}/projects/{project_id}/bulk-delete-issues/ (71)
+#   POST   /api/workspaces/{slug}/projects/{project_id}/bulk-archive-issues/ (72)
+#   POST   /api/workspaces/{slug}/projects/{project_id}/issues/{pk}/archive/ (92)
+#   DELETE /api/workspaces/{slug}/projects/{project_id}/issues/{pk}/archive/ (92)
+#   POST   /api/workspaces/{slug}/projects/{project_id}/issue-dates/        (96)
+#
+# Covers: minimal/full creates (defaults, default state, default assignee,
+# empty/filtered assignees, filtered labels, read-only fields, sanitised HTML),
+# the validation matrix (required/blank/length, point/priority/date choices,
+# start>target, state/parent/estimate project checks, triage and soft-deleted
+# state/parent, list-field indexed errors, null/list bodies), sequences across
+# several creates, the permission matrix, and the origin check.
+#
+# PATCH: state transitions (completed -> completed_at set, away -> cleared,
+# NULL -> untouched), assignee/label replacement (including empty), HTML
+# sanitisation, read-only fields including `is_draft`, `skip_activity` with and
+# without `description_html`, the three tasks in order, empty and unknown-key
+# bodies, the member/guest matrix, foreign-project/soft-deleted/unknown 404s,
+# a non-mapping 500, and PUT's 405.
+#
+# DELETE: creator shortcut, member/guest refusals, archived/soft-deleted
+# lookups, hard-deleted recent visits, and GET after delete.
+# archive/unarchive: the completed/cancelled rule, the issue_objects lookup
+# (triage/draft/archived/archived-project 404s) and the Issue.objects unarchive
+# lookup. bulk archive: partial-then-400 (the first activity is published and
+# no archived_at update), success, unknown/empty ids, triage 400, member/guest.
+# bulk delete: cycle/module/issue soft deletes in one request, GET after.
+# issue-dates: both fields, one field, current-value validation, start>target
+# 400, unknown/missing ids, duplicate-id mutation, and an invalid date's 500.
+#
+# Fixture anchors: ALPHA `b0063033…` (default state Backlog `5943efbb…`,
+# default assignee member `78100240…`), BETA `ca8f652c…`, archived GAMMA
+# `4f9d99bc…`. Completed ALPHA issue `b5ca265c…`, started `292d4433…`,
+# cancelled+archived `e956b8e9…`, triage `85385456…`, draft `e069169e…`,
+# soft-deleted `0c82df87…`. Sessions: admin `d44ae570…`, member `78100240…`,
+# guest `31a752d6…`, nonmember `e15c61cc…`.
+
+name: write-issues
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma_archived: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  unknown_issue: "55555555-5555-4555-8555-555555555555"
+  unknown_state: "66666666-6666-4666-8666-666666666666"
+  unknown_user: "77777777-7777-4777-8777-777777777777"
+  unknown_label: "88888888-8888-4888-8888-888888888888"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_child: "42c68569-5178-4a34-8c17-0488d036ed0c"
+  issue_alpha_completed: "b5ca265c-52ee-4ee7-bfbd-c7b546fa4065"
+  issue_alpha_archived: "e956b8e9-1f3f-408d-98b1-b33fc15ce144"
+  issue_alpha_triage: "85385456-c0a6-4848-bd3e-fdccafc4581c"
+  issue_alpha_draft: "e069169e-25e6-4db6-a049-8e1141ca95d2"
+  issue_alpha_deleted: "0c82df87-27e2-4961-9b88-c5446b1d5f02"
+  issue_alpha_completed_2: "8f1b845d-b3d7-438c-bee4-f430d1776cf9"
+  issue_beta: "2039d0ab-2732-436d-8b51-eecfa854c8fe"
+  issue_beta_completed: "fa3fbcbc-791f-4321-b900-66d11543611b"
+  issue_beta_archived: "8da71f0c-b6e5-4457-a99f-a3e9f5ac3508"
+  issue_beta_deleted: "40388dc9-4afe-4bed-9710-782573b6f03e"
+  issue_gamma: "57f663a9-c4d7-4b66-b322-444bbc3d8e9f"
+  state_alpha_backlog: "5943efbb-5e08-4133-bf4a-e9547a8691ec"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  state_alpha_in_progress: "e0762b37-5583-4ee0-8b94-17fafb01dfc0"
+  state_alpha_done: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+  state_alpha_cancelled: "6d6e10f2-040a-477b-8b93-963ceedd5676"
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
+  state_alpha_blocked_deleted: "2bdcaf4d-d7f3-47f0-af9b-49c892445067"
+  state_beta_backlog: "85defd20-a58b-40d3-953f-0bba411719e1"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  label_alpha_feature: "4e684b34-0406-4516-96ce-361f9f3f1665"
+  label_alpha_docs_deleted: "f55108ee-e5be-4439-afb8-7dbcb9b80b83"
+  label_beta_android: "84602ca2-8eb3-4240-910e-1032516ad452"
+  label_cross_cutting: "6a68d88a-c0eb-4f42-9cab-84c915488824"
+  estimate_alpha_3: "ddea004d-0068-44bb-90c6-7197c8b915e6"
+  estimate_beta_3: "5b7d7c62-5dd5-49bc-8e59-08b69215ea12"
+  issue_type_bug: "ca3e8409-b3e2-45bb-85df-af13d40c578d"
+  user_admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_member2_id: "bc437914-c250-4c9f-ac69-85003fdf6205"
+  user_guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  user_nonmember_id: "e15c61cc-f495-4e69-a88f-9c2cf5cdca7b"
+  user_inactive_id: "f724e69d-fc64-47a2-a4f9-bf0567f03f7b"
+  user_deleted_member_id: "694f0d59-2adc-43cf-b1a0-76b5ad08e5ce"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- create: minimal / defaults / through rows ---------------------------
+  - name: write-issues-01-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write Minimal"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: issue_minimal
+        source: db
+        table: issues
+        column: id
+
+  - name: write-issues-02-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      id: "99999999-9999-4999-8999-999999999999"
+      project_id: "{{project_beta}}"
+      workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      created_by: "{{user_member_id}}"
+      updated_by: "{{user_member_id}}"
+      created_at: "2026-01-01T00:00:00Z"
+      updated_at: "2026-01-01T00:00:00Z"
+      completed_at: "2026-01-01T00:00:00Z"
+      archived_at: "2026-01-01"
+      sequence_id: 9999
+      name: "Write Full"
+      state_id: "{{state_alpha_todo}}"
+      parent_id: "{{issue_alpha}}"
+      label_ids:
+        - "{{label_alpha_bug}}"
+        - "{{label_alpha_feature}}"
+        - "{{label_beta_android}}"
+      assignee_ids:
+        - "{{user_member_id}}"
+        - "{{user_guest_id}}"
+        - "{{user_nonmember_id}}"
+        - "{{user_deleted_member_id}}"
+        - "{{user_inactive_id}}"
+      point: 7
+      description_json:
+        type: "doc"
+        content:
+          - type: "paragraph"
+      description_html: "<p onclick=\"x\">Hello <strong>world</strong></p><script>bad()</script>"
+      description_stripped: "ignored by H12"
+      description_binary: "not base64"
+      priority: "high"
+      start_date: "2026-11-10"
+      target_date: "2026-11-20"
+      sort_order: 12.5
+      is_draft: false
+      external_source: "fixture"
+      external_id: "write-full"
+      estimate_point: "{{estimate_alpha_3}}"
+      type: "{{issue_type_bug}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: issue_full
+        source: db
+        table: issues
+        column: id
+
+  - name: write-issues-03-create-default-assignee
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write Default Assignee"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: write-issues-04-create-empty-assignees
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write Empty Assignees"
+      assignee_ids: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # The only requested assignee is a guest (role 5), so the filtered list is
+  # empty and the serializer falls back to the project default assignee.
+  - name: write-issues-05-create-filtered-assignees
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write Filtered Assignees"
+      assignee_ids:
+        - "{{user_guest_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: write-issues-06-create-labels
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write Labels"
+      label_ids:
+        - "{{label_alpha_bug}}"
+        - "{{label_beta_android}}"
+        - "{{label_cross_cutting}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: write-issues-07-create-state-only
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write State Only"
+      state_id: "{{state_alpha_todo}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # Upstream bug: the row is created, but `Issue.issue_objects` excludes drafts,
+  # so the `values(...).first()` body is None and `user_timezone_converter`
+  # raises -> 500 after the INSERT and the issue_activity message.
+  - name: write-issues-08-create-draft
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write Draft"
+      is_draft: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-issues-09-create-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Write Member Created"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 201
+    capture:
+      - name: issue_member
+        source: db
+        table: issues
+        column: id
+
+  - name: write-issues-10-create-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/"
+    json:
+      name: "Write Beta"
+      state_id: "{{state_beta_backlog}}"
+      label_ids:
+        - "{{label_beta_android}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: issue_beta_created
+        source: db
+        table: issues
+        column: id
+
+  # --- create: validation -------------------------------------------------
+  - name: write-issues-11-create-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-12-create-null-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-13-create-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-14-create-name-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-15-create-name-blank
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "   "
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-16-create-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-17-create-several-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: ""
+      point: 13
+      priority: "nope"
+      start_date: "2026-02-30"
+      description_json: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-18-create-point-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Bad point"
+      point: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-19-create-date-range
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Bad range"
+      start_date: "2026-12-20"
+      target_date: "2026-12-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-20-create-state-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Triage state"
+      state_id: "{{state_alpha_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-21-create-state-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Beta state"
+      state_id: "{{state_beta_backlog}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-22-create-state-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Deleted state"
+      state_id: "{{state_alpha_blocked_deleted}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-23-create-parent-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Beta parent"
+      parent_id: "{{issue_beta}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-24-create-parent-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Deleted parent"
+      parent_id: "{{issue_alpha_deleted}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-25-create-estimate-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Beta estimate"
+      estimate_point: "{{estimate_beta_3}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-26-create-unknown-state
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Unknown state"
+      state_id: "{{unknown_state}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `Label.objects` is the default soft-deletion manager, so the declared
+  # `label_ids` child rejects the fixture's soft-deleted Docs label before the
+  # project filter runs.
+  - name: write-issues-26b-create-soft-deleted-label
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Deleted label"
+      label_ids:
+        - "{{label_alpha_docs_deleted}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-27-create-unknown-label
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Unknown label"
+      label_ids:
+        - "{{label_alpha_bug}}"
+        - "{{unknown_label}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-28-create-unknown-assignee
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Unknown assignee"
+      assignee_ids:
+        - "{{unknown_user}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-29-create-label-not-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Label not list"
+      label_ids: "{{label_alpha_bug}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: permission matrix and origin --------------------------------
+  - name: write-issues-30-create-guest-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Guest issue"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-issues-31-create-nonmember-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Nonmember issue"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: write-issues-32-create-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "CSRF issue"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- PATCH --------------------------------------------------------------
+  - name: write-issues-33-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    json:
+      name: "Write Renamed"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-34-patch-state-completed
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      state_id: "{{state_alpha_done}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-35-patch-state-back
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      state_id: "{{state_alpha_todo}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-36-patch-assignees-labels
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      assignee_ids:
+        - "{{user_member2_id}}"
+        - "{{user_guest_id}}"
+        - "{{user_nonmember_id}}"
+      label_ids:
+        - "{{label_alpha_feature}}"
+        - "{{label_beta_android}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-37-patch-empty-assignees-labels
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      assignee_ids: []
+      label_ids: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # H10b returns early for a NULL state: `completed_at` is left untouched.
+  - name: write-issues-38-patch-state-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_child}}/"
+    json:
+      state_id: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-39-patch-state-triage
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      state_id: "{{state_alpha_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-40-patch-unknown-state
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      state_id: "{{unknown_state}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-41-patch-date-range
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      start_date: "2026-12-20"
+      target_date: "2026-12-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-42-patch-name-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      name: "   "
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-43-patch-point-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      point: 13
+      priority: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `is_draft` is read-only on PATCH (`IssueCreateSerializer.get_fields`), so
+  # even an invalid value is skipped without a field error or a write.
+  - name: write-issues-44-patch-is-draft-read-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      is_draft: "not a boolean"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-45-patch-read-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      id: "99999999-9999-4999-8999-999999999999"
+      project_id: "{{project_beta}}"
+      workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      created_at: "2026-01-01T00:00:00Z"
+      updated_at: "2026-01-01T00:00:00Z"
+      completed_at: "2026-01-01T00:00:00Z"
+      archived_at: "2026-01-01"
+      sequence_id: 9999
+      created_by: "{{user_member_id}}"
+      updated_by: "{{user_member_id}}"
+      description_binary: "not base64"
+      name: "Write Still"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-46-patch-html-sanitised
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      description_html: "<p onclick=\"x\">Safe <strong>text</strong></p><script>bad()</script>"
+      description_json:
+        type: "doc"
+        content:
+          - type: "paragraph"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # `skip_activity` + `description_html` suppresses all three PATCH tasks; the
+  # save still runs (`base.py:686-712`).
+  - name: write-issues-47-patch-skip-activity
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      skip_activity: true
+      description_html: "<p>Silent migration</p>"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # `skip_activity` without `description_html` is not a migration update: the
+  # three tasks are published.
+  - name: write-issues-48-patch-skip-activity-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      skip_activity: true
+      name: "Write Tasks"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-49-patch-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-50-patch-unknown-key
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    json:
+      future_field: "kept in accepted_data"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-51-patch-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      name: "Member patched"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: write-issues-52-patch-guest-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      name: "Guest patch"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-issues-53-patch-nonmember-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      name: "Nonmember patch"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: write-issues-54-patch-other-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_alpha}}/"
+    json:
+      name: "Foreign patch"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-55-patch-soft-deleted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_deleted}}/"
+    json:
+      name: "Deleted patch"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-56-patch-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_issue}}/"
+    json:
+      name: "Unknown patch"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-57-patch-wrong-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json:
+      name: "CSRF patch"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: write-issues-58-patch-null-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-issues-59-patch-list-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-issues-60-put
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_full}}/"
+    json:
+      name: "PUT"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  # --- DELETE -------------------------------------------------------------
+  # The creator shortcut in `allow_permission(creator=True, model=Issue)`
+  # lets the member delete the issue they created despite the ADMIN-only role
+  # list (`plane/app/permissions/base.py:23-53`).
+  - name: write-issues-61-delete-member-creator
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: write-issues-62-delete-member-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: write-issues-63-delete-guest-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-issues-64-delete-soft-deleted
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-65-delete-other-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-66-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-67-delete-wrong-origin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: write-issues-68-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-69-get-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The DELETE lookup is the soft-deletion manager only, so an archived issue
+  # is deletable.
+  - name: write-issues-70-delete-archived
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # --- archive / unarchive ------------------------------------------------
+  - name: write-issues-71-archive-completed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-72-archive-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-73-unarchive
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-issues-74-unarchive-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-75-archive-not-completed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-76-archive-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_triage}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-77-archive-draft
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_draft}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-78-archive-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_deleted}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-79-archive-existing-archived
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_archived}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-80-archive-archived-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/issues/{{issue_gamma}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-81-archive-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_beta_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-82-archive-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: write-issues-83-archive-guest-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-issues-84-archive-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: write-issues-85-unarchive-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_completed}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # --- bulk archive -------------------------------------------------------
+  # Created_at descending puts the completed issue first; its activity is
+  # published before the started issue returns 400, and the bulk_update never
+  # runs (`archive.py:311-339`).
+  - name: write-issues-86-bulk-archive-partial
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha_completed}}"
+        - "{{issue_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-87-bulk-archive-success
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha_completed}}"
+        - "{{issue_alpha_completed_2}}"
+        - "{{issue_alpha_archived}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-88-bulk-archive-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-89-bulk-archive-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-90-bulk-archive-unknown
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "{{unknown_issue}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-91-bulk-archive-invalid-id
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-92-bulk-archive-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha_completed}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: write-issues-93-bulk-archive-guest-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha_completed}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-issues-94-bulk-archive-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-archive-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha_completed}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- bulk delete --------------------------------------------------------
+  # `292d4433…` has one cycle and one module link, so the request exercises the
+  # two cascade updates plus the issue update.
+  - name: write-issues-95-bulk-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha}}"
+        - "{{issue_alpha_child}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-96-get-after-bulk-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-issues-97-bulk-delete-empty
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-98-bulk-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "{{unknown_issue}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-99-bulk-delete-soft-deleted
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "{{issue_alpha_deleted}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-100-bulk-delete-other-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "{{issue_beta_created}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-101-bulk-delete-member-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "{{issue_full}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: write-issues-102-bulk-delete-guest-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "{{issue_full}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-issues-103-bulk-delete-wrong-origin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "{{issue_full}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: write-issues-104-bulk-delete-invalid-id
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-delete-issues/"
+    json:
+      issue_ids:
+        - "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- issue dates --------------------------------------------------------
+  - name: write-issues-105-issue-dates-both
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          start_date: "2026-11-01"
+          target_date: "2026-11-30"
+        - id: "{{issue_alpha_completed}}"
+          start_date: "2026-12-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-106-issue-dates-start-after-target
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          start_date: "2026-12-20"
+          target_date: "2026-12-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-107-issue-dates-start-after-current-target
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          start_date: "2026-12-15"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-108-issue-dates-target-only
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          target_date: "2026-12-10"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The same in-memory issue is mutated by the first update, so the second
+  # activity's `current_instance.start_date` is the first update's value.
+  - name: write-issues-109-issue-dates-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed}}"
+          start_date: "2026-12-05"
+        - id: "{{issue_alpha_completed}}"
+          target_date: "2026-12-10"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-110-issue-dates-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-111-issue-dates-unknown
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{unknown_issue}}"
+          start_date: "2026-12-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-issues-112-issue-dates-missing-id
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - start_date: "2026-12-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-113-issue-dates-invalid-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          start_date: "not-a-date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-issues-114-issue-dates-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          target_date: "2026-12-20"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: write-issues-115-issue-dates-guest-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          target_date: "2026-12-20"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-issues-116-issue-dates-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-dates/"
+    json:
+      updates:
+        - id: "{{issue_alpha_completed_2}}"
+          target_date: "2026-12-20"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- follow-up reads ----------------------------------------------------
+  - name: write-issues-117-detail-after-writes
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

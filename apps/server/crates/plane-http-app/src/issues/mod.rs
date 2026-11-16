@@ -38,6 +38,10 @@ pub mod queries;
 pub mod row;
 
 mod sub_resources;
+/// The issue-core write routes (`plans/WORK_ITEMS.md` set A).
+mod write_issue;
+pub mod write_issue_queries;
+mod write_support;
 
 // Set B: comments and reactions.
 pub mod write_comment;
@@ -100,5 +104,27 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .action("partial_update", write_draft::partial_update)?
         .action("destroy", write_draft::destroy)?;
     write_attachment::register(registry)?;
+
+    // `plans/WORK_ITEMS.md` set A — issue core writes (orders 64, 67, 71, 72,
+    // 92 and 96), registered in one block so parallel sets only add their own.
+    registry
+        .viewset("plane.app.views.issue.base.IssueViewSet")?
+        .action("create", write_issue::create)?
+        .action("update", write_issue::guard_only)?
+        .action("partial_update", write_issue::patch)?
+        .action("destroy", write_issue::destroy)?;
+    registry
+        .viewset("plane.app.views.issue.archive.IssueArchiveViewSet")?
+        .action("archive", write_issue::archive)?
+        .action("unarchive", write_issue::unarchive)?;
+    registry
+        .api_view("plane.app.views.issue.base.BulkDeleteIssuesEndpoint")?
+        .method(http::Method::DELETE, write_issue::bulk_delete)?;
+    registry
+        .api_view("plane.app.views.issue.archive.BulkArchiveIssuesEndpoint")?
+        .method(http::Method::POST, write_issue::bulk_archive)?;
+    registry
+        .api_view("plane.app.views.issue.base.IssueBulkUpdateDateEndpoint")?
+        .method(http::Method::POST, write_issue::issue_dates)?;
     Ok(())
 }

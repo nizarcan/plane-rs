@@ -30,7 +30,7 @@ mod list_list_endpoint;
 #[path = "list_paginated.rs"]
 mod list_paginated;
 #[path = "list_retrieve.rs"]
-mod list_retrieve;
+pub(crate) mod list_retrieve;
 #[path = "list_small.rs"]
 mod list_small;
 #[path = "list_sub_issues.rs"]

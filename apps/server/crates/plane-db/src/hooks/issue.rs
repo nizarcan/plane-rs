@@ -375,12 +375,16 @@ pub async fn update_issue_row(
     user: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> Result<(), DbError> {
-    if state_changed {
-        issue.completed_at = match issue.state_id {
-            Some(state_id) => match state_group(client, state_id).await? {
-                Some(group) => sync_completed_at(&group, now),
-                None => None,
-            },
+    // H10a runs on every save, update included (`issue.py:214`):
+    // `_ensure_default_state()` replaces a NULL state before H10b.
+    if issue.state_id.is_none() {
+        issue.state_id = ensure_default_state(client, issue.project_id).await?;
+    }
+    // H10b returns early when `self.state` is falsy (`issue.py:240-246`), so a
+    // PATCH that sets `state_id` to NULL leaves `completed_at` untouched.
+    if state_changed && let Some(state_id) = issue.state_id {
+        issue.completed_at = match state_group(client, state_id).await? {
+            Some(group) => sync_completed_at(&group, now),
             None => None,
         };
     }

@@ -93,9 +93,13 @@ esac
 
 # The dev environment (SECRET_KEY, DATABASE_URL, REDIS_URL, RABBITMQ_*,
 # WEB_URL, AWS_*) is defined in one place; source it rather than duplicating it.
-export PLANE_DB="${PLANE_RS_CONTRACT_DB:-t_rsct_contract}"
+contract_db="${PLANE_RS_CONTRACT_DB:-t_rsct_contract}"
+export PLANE_DB="$contract_db"
 export PLANE_REDIS_DB="${PLANE_RS_CONTRACT_REDIS_DB:-1}"
-export PLANE_MQ_VHOST="${PLANE_RS_CONTRACT_VHOST:-rsct_contract}"
+# One vhost per contract database: separate DBs can run side by side without
+# deleting each other's broker state. An explicit value still wins.
+export PLANE_RS_CONTRACT_VHOST="${PLANE_RS_CONTRACT_VHOST:-$contract_db}"
+export PLANE_MQ_VHOST="$PLANE_RS_CONTRACT_VHOST"
 # shellcheck source=../../dev/django-env.sh
 source "$SERVER_DIR/dev/django-env.sh"
 

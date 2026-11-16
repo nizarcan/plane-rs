@@ -68,7 +68,7 @@ Both options apply to the dry selection pass as well
 | `PLANE_RS_CONTRACT_DB` | `t_rsct_contract` | test database (must start with `t_rsct`) |
 | `PLANE_RS_CONTRACT_PORT` | `18200` | `plane-api` bind port (18200–18299) |
 | `PLANE_RS_CONTRACT_REDIS_DB` | `1` | Redis database shared by Django's cache and `plane-api` |
-| `PLANE_RS_CONTRACT_VHOST` | `rsct_contract` | RabbitMQ vhost created for the run |
+| `PLANE_RS_CONTRACT_VHOST` | the contract DB name | RabbitMQ vhost created for the run; defaults to `PLANE_RS_CONTRACT_DB`, so separate DBs never share one |
 | `PLANE_RS_CONTRACT_REPORT` | `apps/server/target/contract-<backend>.json` | JSON report path |
 | `PLANE_RS_CONTRACT_DEBUG` | unset | `1` prints each drain and each replay decision to stderr |
 | `PLANE_RS_CONTRACT_ASSUME_RUST` | unset | route orders whose unsafe methods are treated as Rust-owned (`--assume-rust`) |
@@ -193,7 +193,7 @@ pytest-django would otherwise use its default `test_` prefix):
 
 ```sh
 cd apps/api
-PLANE_DB=t_rsct_plain PLANE_REDIS_DB=1 PLANE_MQ_VHOST=rsct_contract \
+PLANE_DB=t_rsct_plain PLANE_REDIS_DB=1 PLANE_MQ_VHOST=t_rsct_plain \
   DJANGO_SETTINGS_MODULE=plane.settings.test .venv/bin/python -m pytest plane/tests/contract -q
 ```
 
