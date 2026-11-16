@@ -595,6 +595,23 @@ and only `verified` rows are Rust-owned.
   group value; grouped `total_count` counts model rows, not issues.
 - Celery `saferepr` truncation can emit unbalanced brackets in `argsrepr`.
 
+### Phase 5: work-items shared pieces §2a–c (merged `26fc1b1b25`)
+
+- `plane_db::hooks::issue`: the advisory-lock key (byte-equal to
+  `convert_uuid_to_integer`, tested on 5 UUIDs), `create_issue_row`/`update_issue_row`
+  (default state, `completed_at`, `MAX(sequence)+1`, `sort_order`, issues and
+  issue_sequences in one transaction behind the lock).
+- `plane_db::hooks::issue_m2m`: assignee and label writes. One transaction per
+  `bulk_create` call, all or nothing, as Django's `atomic(savepoint=False)` does. The
+  first version dropped only the failing batch; found in review.
+- `plane_jobs::celery::tasks`: the issue-activity publisher, pinned by Python-captured
+  messages for 4 call-site shapes (`tools/inventory/issue_activity_capture.py`).
+- Verified on the merge commit: gates, 849 tests, schema_check, and `issue_hooks` 11/11
+  DB tests against a `plane_fix_tpl` clone. Follow-up: the test header says to use
+  `dev/mkdb.sh`, but that clones `plane_tpl` (no fixture) whatever
+  `PLANE_TEMPLATE_DB` says; use `CREATE DATABASE … TEMPLATE plane_fix_tpl`, or add a
+  `--template` option to `mkdb.sh`.
+
 ### Phase 5: live stickies fix via the generated serializer table (merged `589ed34708`)
 
 - The generator's equivalence check found two real differences on live routes. Rust
