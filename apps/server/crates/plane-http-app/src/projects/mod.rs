@@ -40,17 +40,26 @@ use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 
+pub mod archive_write;
 pub mod base;
 pub mod board;
+pub mod deploy_board_write;
+pub mod favorite_write;
 pub mod identifier;
 pub mod invite;
+pub mod invite_write;
 pub mod joined;
 pub mod lite;
 pub mod member;
+pub mod member_queries;
+pub mod member_write;
 pub mod not_found;
 pub mod queries;
 pub mod serializer;
+pub mod settings_write;
 pub mod write;
+pub mod write_queries;
+pub mod write_support;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -71,16 +80,23 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.project.invite.ProjectInvitationsViewset")?
         .action("list", invite::list)?
-        .action("retrieve", invite::retrieve)?;
+        .action("retrieve", invite::retrieve)?
+        .action("create", invite_write::create)?
+        .action("destroy", invite_write::destroy)?;
 
     registry
         .api_view("plane.app.views.project.invite.ProjectJoinEndpoint")?
-        .method(http::Method::GET, invite::join)?;
+        .method(http::Method::GET, invite::join)?
+        .method(http::Method::POST, invite_write::join)?;
 
     registry
         .viewset("plane.app.views.project.member.ProjectMemberViewSet")?
         .action("list", member::list)?
-        .action("retrieve", member::retrieve)?;
+        .action("retrieve", member::retrieve)?
+        .action("create", member_write::create)?
+        .action("partial_update", member_write::partial_update)?
+        .action("destroy", member_write::destroy)?
+        .action("leave", member_write::leave)?;
 
     registry
         .api_view("plane.app.views.project.member.ProjectMemberUserEndpoint")?
@@ -96,11 +112,15 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.project.base.ProjectFavoritesViewSet")?
         .action("list", favorites_list)?;
+    favorite_write::register(registry)?;
 
     registry
         .viewset("plane.app.views.project.base.DeployBoardViewSet")?
         .action("list", board::list)?
         .action("retrieve", board::retrieve)?;
+    deploy_board_write::register(registry)?;
+    archive_write::register(registry)?;
+    settings_write::register(registry)?;
     Ok(())
 }
 

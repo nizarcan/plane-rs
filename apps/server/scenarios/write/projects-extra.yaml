@@ -1,0 +1,390 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Write steps for the project satellite routes (orders 153, 147, 149, 150, 90,
+# 154, 151, 152). Started from
+# `tools/scenarios/gen_write.py --orders 153,147,149,150,90,154,151,152` and
+# curated: the generator emits empty bodies and guesses the statuses, and it
+# does not know the view rules (the duplicate favourite, the intake check, the
+# two collection routes).
+#
+# Coverage per route:
+#   * 153 archive/unarchive: both directions, the `str(datetime)` body, the
+#     favourites sweep, a non-member 403 and a guest 403;
+#   * 147 project-views: a body that replaces all four columns, the 403 for a
+#     workspace member with no project membership, and a non-member 403;
+#   * 149 favourite create: success, the duplicate `IntegrityError` 400, an
+#     unknown project 404, a project the caller cannot see 404;
+#   * 150 favourite destroy: success after 149, then the 404;
+#   * 90 user-properties: a partial update on the fixture row, an invalid
+#     `sort_order` 400, a guest success;
+#   * 154 preferences: the merge, the empty body, another member's id 403;
+#   * 151/152 deploy boards: create over the fixture board, create with the
+#     flags, an unknown project 404, an intake from another project 400, a
+#     PATCH, a PATCH with a foreign intake, a DELETE and the follow-up GET;
+#   * one foreign-origin 403.
+
+name: write-projects-extra
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  intake_alpha: "826885ac-00cd-47cd-b54a-77a52004021c"
+  intake_beta: "d32f147b-0b3c-4086-a617-2fe4ec3f4b27"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- 90 user-properties -------------------------------------------------
+  - name: px-01-user-properties-patch
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      display_properties: { key: false }
+    expect_status: 200
+  - name: px-02-user-properties-invalid-sort-order
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      sort_order: "not-a-number"
+    expect_status: 400
+  - name: px-03-user-properties-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+    json:
+      filters: { priority: "urgent" }
+    expect_status: 200
+  - name: px-04-user-properties-non-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+    expect_status: 403
+  - name: px-05-user-properties-follow-up-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # --- 147 project-views --------------------------------------------------
+  - name: px-06-project-views-post
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-views/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      view_props: { layout: "kanban" }
+      sort_order: 10000.0
+    expect_status: 204
+  - name: px-07-project-views-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-views/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      default_props: { filters: { state: ["backlog"] } }
+    expect_status: 204
+  # a workspace member with no project membership: the view's own 403
+  - name: px-08-project-views-without-project-membership
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-views/"
+    jar: onboarded
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_onboarded}}" }
+    json: {}
+    expect_status: 403
+  - name: px-09-project-views-null-column
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-views/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      view_props: null
+    expect_status: 400
+
+  # --- 149/150 favourites -------------------------------------------------
+  - name: px-10-favorite-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      project: "{{project_alpha}}"
+    capture:
+      - name: favourite_id
+        source: db
+        table: user_favorites
+        column: id
+    expect_status: 204
+  # no uniqueness guard: the partial unique constraint answers IntegrityError
+  - name: px-11-favorite-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      project: "{{project_alpha}}"
+    expect_status: 400
+  - name: px-12-favorite-create-unknown-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      project: "00000000-0000-4000-8000-000000000000"
+    expect_status: 404
+  # the caller is not a project member of Epsilon
+  - name: px-13-favorite-create-not-visible
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      project: "{{project_epsilon}}"
+    expect_status: 404
+  - name: px-14-favorite-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Origin: "http://evil.example"
+    json:
+      project: "{{project_alpha}}"
+    expect_status: 403
+  - name: px-15-favorite-destroy
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/{{project_alpha}}/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    expect_status: 204
+  - name: px-16-favorite-destroy-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorite-projects/{{project_alpha}}/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    expect_status: 404
+
+  # --- 151/152 deploy boards ---------------------------------------------
+  - name: px-17-deploy-board-create-defaults
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 200
+  - name: px-18-deploy-board-create-flags
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      is_comments_enabled: true
+      is_reactions_enabled: true
+      is_votes_enabled: true
+      views: { list: false, kanban: true }
+    capture:
+      # The fixture already has a board for Alpha, so `get_or_create` updates
+      # instead of inserting; capture the id from the body.
+      - name: board_id
+        source: json
+        pointer: /id
+    expect_status: 200
+  # `allow_permission(level="PROJECT")` rejects an unknown project before the
+  # handler runs, so the view's own `Project does not exist` 404 is dead code.
+  - name: px-19-deploy-board-unknown-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/00000000-0000-4000-8000-000000000000/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 403
+  - name: px-20-deploy-board-patch
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      is_comments_enabled: false
+      view_props: { list: true }
+    expect_status: 200
+  - name: px-21-deploy-board-patch-unknown-intake
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      intake: "00000000-0000-4000-8000-000000000000"
+    expect_status: 400
+  - name: px-22-deploy-board-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+  - name: px-23-deploy-board-list-follow-up
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # --- 154 preferences ---------------------------------------------------
+  - name: px-24-preferences-patch
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/preferences/member/{{admin_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      pages: { block_display: false }
+    expect_status: 200
+  - name: px-25-preferences-other-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/preferences/member/{{member_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      pages: { block_display: false }
+    expect_status: 403
+  - name: px-26-preferences-follow-up-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/preferences/member/{{admin_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # --- 153 archive / unarchive (last: it changes the project's visibility) -
+  - name: px-27-archive-post
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archive/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 200
+  - name: px-28-archive-project-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  - name: px-29-archive-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archive/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+    expect_status: 403
+  - name: px-30-unarchive-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archive/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+  - name: px-31-unarchive-non-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archive/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+    expect_status: 403
+
+  # --- 151/152 on Beta's fixture board ------------------------------------
+  # `get_or_create`'s **create** branch: Zeta has no fixture board, so the first
+  # POST below INSERTs and the second takes the update branch now that the row
+  # exists. A created board's `anchor` is `uuid4().hex`
+  # (`plane/db/models/deploy_board.py:14-15`), which `scenarios/normalize.yaml`'s
+  # scoped `anchor` rule placeholders (DECISIONS.md D16 — a fixture anchor stays
+  # literal, a generated one becomes `<anchor:N>` in the body, the DB diff and
+  # every later step).
+  - name: px-37-deploy-board-create-new-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      is_comments_enabled: true
+      views: { list: true, kanban: false }
+    capture:
+      - name: zeta_board_id
+        source: json
+        pointer: /id
+    expect_status: 200
+  - name: px-38-deploy-board-new-project-follow-up-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  # The board now exists: the same POST takes `get_or_create`'s update branch and
+  # must keep the anchor it wrote.
+  - name: px-39-deploy-board-second-post-updates
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      is_votes_enabled: true
+      views: { list: false }
+    expect_status: 200
+  - name: px-40-deploy-board-new-project-get-after-update
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # Everything below runs on Beta's fixture board, whose anchor is fixed.
+  #
+  # A project *member* publishes (the second contract failure's shape: the
+  # caller is an active project member, not a workspace admin).
+  - name: px-32-deploy-board-member-publishes
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      is_reactions_enabled: true
+      views: { list: true, kanban: false }
+    expect_status: 200
+  # A board can publish an intake from its own project (`intake_beta`).
+  - name: px-33-deploy-board-create-with-own-intake
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      intake: "{{intake_beta}}"
+      views: { list: true }
+    expect_status: 200
+  # …and never one from another project (`intake_alpha`).
+  - name: px-34-deploy-board-create-foreign-intake
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      intake: "{{intake_alpha}}"
+    expect_status: 400
+  # A workspace member with no project membership is refused before the body.
+  - name: px-35-deploy-board-without-project-membership
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: onboarded
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_onboarded}}" }
+    json: {}
+    expect_status: 403
+  # The follow-up GET shows the intake and the flags the two POSTs wrote.
+  - name: px-36-deploy-board-beta-follow-up-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }

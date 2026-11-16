@@ -51,7 +51,7 @@ use crate::db::DbDiff;
 use crate::password;
 use crate::redis::{RedisDiff, RedisEntry};
 use crate::session;
-use crate::timeparse::{is_uuid, parse_http_date, parse_timestamp, timestamp_regex, uuid_regex};
+use crate::timeparse::{parse_http_date, parse_timestamp, timestamp_regex, uuid_regex};
 
 pub const UUID_WHY: &str =
     "UUID generated during the run and not present in the baseline database snapshot";
@@ -901,6 +901,7 @@ impl TargetNormalizer {
             RuleMode::Placeholder | RuleMode::PlaceholderIfNonEmpty => {
                 self.apply_placeholder(rule, value, label, path);
             }
+            RuleMode::PlaceholderIfNew => self.apply_placeholder_if_new(rule, value, label, path),
             RuleMode::RelativeTime => {
                 if let Value::String(text) = value
                     && let Some(relative) = self.relative_timestamp(text)
@@ -953,6 +954,33 @@ impl TargetNormalizer {
             .unwrap_or("volatile")
             .to_string();
         *value = Value::String(self.placeholder_for(&kind, &text, &rule.why));
+    }
+
+    /// `placeholder_if_new`: a baseline literal stays, a generated value is
+    /// placeholdered (DECISIONS.md D16, the same principle as generated ids).
+    fn apply_placeholder_if_new(
+        &mut self,
+        rule: &Rule,
+        value: &mut Value,
+        label: &str,
+        path: &str,
+    ) {
+        let baseline = match value {
+            Value::String(text) => Some(text.clone()),
+            Value::Null => return,
+            Value::Number(number) => Some(number.to_string()),
+            _ => None,
+        };
+        if let Some(text) = &baseline
+            && (self.known_uuids.contains(text)
+                || self.known_uuids.contains(&text.to_ascii_lowercase()))
+        {
+            // A fixture literal is compared as it is; the shape only gates the
+            // *generated* values this rule exists to recognise (the fixture's
+            // anchors are human-readable, not `uuid4().hex`).
+            return;
+        }
+        self.apply_placeholder(rule, value, label, path);
     }
 
     /// DECISIONS.md D17: verify a presigned S3 URL against this target's own
@@ -1273,7 +1301,9 @@ impl TargetNormalizer {
             out.push('=');
             match self.db_columns.get(&format!("{bare_table}.{column}")) {
                 Some(rule) => out.push_str(match rule.mode {
-                    RuleMode::Placeholder | RuleMode::PlaceholderIfNonEmpty => "<volatile>",
+                    RuleMode::Placeholder
+                    | RuleMode::PlaceholderIfNonEmpty
+                    | RuleMode::PlaceholderIfNew => "<volatile>",
                     RuleMode::Password => "<password>",
                     RuleMode::SessionPayload => "<session>",
                     RuleMode::RelativeTime => "<relative>",
@@ -1677,8 +1707,16 @@ pub fn content_type_is_json(headers: &[(String, String)]) -> bool {
         })
 }
 
-/// Collect every UUID that already exists in a baseline snapshot. Generated
-/// ids are recognised as "not in this set".
+/// Collect every string that already exists in a baseline snapshot. A value in
+/// this set is a fixture literal and is compared as it is; a value outside it
+/// was generated during the run.
+///
+/// Two rules consult it: the generated-id rule (`<id:N>`, a UUID not in the set
+/// — the fixture check keeps a seeded id literal) and `placeholder_if_new`
+/// (DECISIONS.md D16), which is how a deploy board's `anchor` works — the
+/// fixture's anchors are human-readable, a board created during the run gets
+/// `uuid4().hex` (`plane/db/models/deploy_board.py:14-15`). Short strings only:
+/// a fixture anchor or id is short, and a long text column cannot be an id.
 pub fn collect_known_uuids(diffs: impl IntoIterator<Item = Value>) -> HashSet<String> {
     let mut uuids = HashSet::new();
     for value in diffs {
@@ -1690,7 +1728,7 @@ pub fn collect_known_uuids(diffs: impl IntoIterator<Item = Value>) -> HashSet<St
 fn collect_uuids_from(value: &Value, out: &mut HashSet<String>) {
     match value {
         Value::String(text) => {
-            if is_uuid(text) {
+            if text.len() <= 128 {
                 out.insert(text.to_ascii_lowercase());
             }
         }

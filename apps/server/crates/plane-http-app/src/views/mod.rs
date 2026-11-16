@@ -30,5 +30,15 @@ pub mod queries;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
-    base::register(registry)
+    base::register(registry)?;
+    // `…/projects/{project_id}/project-views/` matches this group's
+    // `projects/*/project-views/**` selector, so the route is registered here
+    // even though the handler lives with the other project settings writes.
+    registry
+        .api_view("plane.app.views.project.base.ProjectUserViewsEndpoint")?
+        .method(
+            http::Method::POST,
+            crate::projects::settings_write::project_views,
+        )?;
+    Ok(())
 }

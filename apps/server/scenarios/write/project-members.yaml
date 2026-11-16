@@ -1,0 +1,570 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Write scenario for the project-member routes (139, 140, 141, 143, 144, 145,
+# 146). Generated from routes 139,140,141,143,144,145,146 by
+# `tools/scenarios/gen_write.py`, then curated: each step exercises one branch
+# of the view the generated placeholder skipped.
+#
+# Runs Django vs Django until the write methods flip to Rust, then Django vs
+# Rust. `pe-` = project members / invitations.
+
+name: write-project-members
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  user_admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_member2_id: "bc437914-c250-4c9f-ac69-85003fdf6205"
+  user_guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  user_guest2_id: "8e40753c-7792-49be-8620-598e938b1a71"
+  user_onboarded_id: "7ae351b7-90a1-488c-ab91-5ea3623b3640"
+  user_nonmember_id: "e15c61cc-f495-4e69-a88f-9c2cf5cdca7b"
+  member_row_alpha_admin: "f513601e-1f4b-42e6-98e6-9e31c8de6d09"
+  member_row_alpha_member2: "e49871fe-1e0b-402c-b4ac-061f4d7f8799"
+  member_row_alpha_guest2: "f013f644-6b3f-42cc-a9a9-f3cdef45329d"
+  member_row_beta_member: "7cf7fad5-ba70-4dcb-b463-cc356e93a966"
+  invite_alpha: "bb13fc14-7c2b-4ce9-8e0d-d1eead45f53c"
+  invite_beta: "627166f9-ce2e-4e82-84a0-c5462773f553"
+  invite_token_alpha: "6e356a0fb63b4de29bb2b37d77989935c71934e09f104b99a17c0f4952ae3ab3"
+  invite_token_beta: "e65d4e2658bb41698c7677978e79866d485801ddab49406583ebf95849e714e9"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_invitee: "bee2ce8d1b4c4779957ca8eae897f3a2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  - name: pe-01-members-create-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": []}
+    expect_status: 400
+
+  - name: pe-02-members-create-lower-role
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": [{"member_id": "{{user_admin_id}}", "role": 15}]}
+    expect_status: 400
+
+  - name: pe-03-members-create-higher-role
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": [{"member_id": "{{user_guest_id}}", "role": 15}]}
+    expect_status: 400
+
+  - name: pe-04-members-create-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": [{"member_id": "{{user_nonmember_id}}", "role": 15}]}
+    expect_status: 404
+
+  - name: pe-05-members-create-new
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": [{"member_id": "{{user_onboarded_id}}", "role": 15}]}
+    capture:
+      - name: onboarded_row
+        source: db
+        table: project_members
+        column: id
+    expect_status: 201
+
+  - name: pe-06-members-create-readd
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": [{"member_id": "{{user_onboarded_id}}", "role": 5}]}
+    expect_status: 201
+
+  - name: pe-07-members-create-null-role
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": [{"member_id": "{{user_guest2_id}}", "role": null}]}
+    expect_status: 400
+
+  - name: pe-08-members-create-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"members": [{"member_id": "{{user_onboarded_id}}", "role": 15}]}
+    expect_status: 403
+
+  - name: pe-09-members-create-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: {"members": [{"member_id": "{{user_onboarded_id}}", "role": 15}]}
+    expect_status: 403
+
+  - name: pe-10-member-patch-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{onboarded_row}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"role": 15}
+    expect_status: 200
+
+  - name: pe-11-member-patch-own-preferences
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{member_row_alpha_admin}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"preferences": {"pages": {"block_display": false}, "navigation": {"default_tab": "cycles", "hide_in_more_menu": []}}}
+    expect_status: 200
+
+  - name: pe-12-member-patch-other-personal
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{onboarded_row}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"preferences": {}}
+    expect_status: 403
+
+  - name: pe-13-member-patch-role-nonnumeric
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{onboarded_row}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"role": "abc"}
+    expect_status: 500
+
+  - name: pe-14-member-patch-role-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{onboarded_row}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"role": null}
+    expect_status: 500
+
+  - name: pe-15-member-patch-role-invalid-choice
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{onboarded_row}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"role": 99}
+    expect_status: 400
+
+  - name: pe-16-member-patch-self-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/members/{{member_row_beta_member}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"role": 15}
+    expect_status: 400
+
+  - name: pe-17-member-patch-is-active
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{onboarded_row}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"is_active": false}
+    expect_status: 200
+
+  - name: pe-18-member-patch-guest-denied
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{onboarded_row}}/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    json: {"role": 15}
+    expect_status: 403
+
+  - name: pe-19-member-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/00000000-0000-0000-0000-000000000000/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"role": 15}
+    expect_status: 404
+
+  - name: pe-20-member-delete-self
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{member_row_alpha_admin}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: pe-21-member-delete-member2
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{member_row_alpha_member2}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: pe-22-member-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{member_row_alpha_member2}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: pe-23-member-delete-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{member_row_alpha_member2}}/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: pe-24-member-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/00000000-0000-0000-0000-000000000001/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: pe-25-member-readd-removed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"members": [{"member_id": "{{user_member2_id}}", "role": 15}, {"member_id": "{{user_onboarded_id}}", "role": 5}]}
+    expect_status: 201
+
+  - name: pe-26-leave-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/leave/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: pe-27-leave-last-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/leave/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: pe-28-leave-admin-with-peer
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/members/leave/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: pe-29-leave-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/leave/"
+    jar: nonmember
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: pe-30-leave-inactive
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/members/leave/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: pe-31-invite-create-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"emails": []}
+    expect_status: 400
+
+  - name: pe-32-invite-create-nonempty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"emails": [{"email": "new-invitee@example.com", "role": 5}]}
+    expect_status: 500
+
+  - name: pe-33-invite-create-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"emails": [{"email": "new-invitee@example.com", "role": 5}]}
+    expect_status: 403
+
+  - name: pe-37-join-zeta
+    method: POST
+    path: "/api/users/me/workspaces/{{ws}}/projects/invitations/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"project_ids": ["{{project_zeta}}"]}
+    capture:
+      - name: member_zeta_row
+        source: db
+        table: project_members
+        column: id
+    expect_status: 201
+
+  - name: pe-38-join-zeta-again
+    method: POST
+    path: "/api/users/me/workspaces/{{ws}}/projects/invitations/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"project_ids": ["{{project_zeta}}"]}
+    expect_status: 201
+
+  - name: pe-39-join-beta-private
+    method: POST
+    path: "/api/users/me/workspaces/{{ws}}/projects/invitations/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"project_ids": ["{{project_beta}}"]}
+    expect_status: 403
+
+  - name: pe-40-join-beta-admin
+    method: POST
+    path: "/api/users/me/workspaces/{{ws}}/projects/invitations/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"project_ids": ["{{project_beta}}"]}
+    expect_status: 201
+
+  - name: pe-41-join-invalid-id
+    method: POST
+    path: "/api/users/me/workspaces/{{ws}}/projects/invitations/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"project_ids": ["not-a-uuid"]}
+    expect_status: 400
+
+  - name: pe-42-join-unknown-project
+    method: POST
+    path: "/api/users/me/workspaces/{{ws}}/projects/invitations/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"project_ids": ["00000000-0000-0000-0000-000000000002"]}
+    expect_status: 201
+
+  - name: pe-43-join-nonmember
+    method: POST
+    path: "/api/users/me/workspaces/{{ws}}/projects/invitations/"
+    jar: nonmember
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_nonmember}}"
+    json: {"project_ids": ["{{project_zeta}}"]}
+    expect_status: 403
+
+  - name: pe-44-join-bad-token
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/join/{{invite_alpha}}/"
+    jar: invitee
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_invitee}}"
+    json: {"token": "not-the-token"}
+    expect_status: 403
+
+  - name: pe-45-join-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/join/{{invite_alpha}}/"
+    jar: anon
+    headers:
+        Host: plane-fixture.test
+    json: {"token": "{{invite_token_alpha}}", "accepted": true}
+    expect_status: 401
+
+  - name: pe-46-join-wrong-user
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/join/{{invite_alpha}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"token": "{{invite_token_alpha}}", "accepted": true}
+    expect_status: 403
+
+  - name: pe-47-join-invalid-accepted
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/join/{{invite_alpha}}/"
+    jar: invitee
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_invitee}}"
+    json: {"token": "{{invite_token_alpha}}", "accepted": "yes"}
+    expect_status: 400
+
+  - name: pe-48-join-reject
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/join/{{invite_alpha}}/"
+    jar: invitee
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_invitee}}"
+    json: {"token": "{{invite_token_alpha}}", "accepted": false}
+    expect_status: 200
+
+  - name: pe-49-join-already
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/join/{{invite_alpha}}/"
+    jar: invitee
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_invitee}}"
+    json: {"token": "{{invite_token_alpha}}", "accepted": true}
+    expect_status: 400
+
+  - name: pe-50-join-accept-beta
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/join/{{invite_beta}}/"
+    jar: invitee
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_invitee}}"
+    json: {"token": "{{invite_token_beta}}", "accepted": true}
+    capture:
+      - name: invitee_ws_member
+        source: db
+        table: workspace_members
+        column: id
+      - name: invitee_member_row
+        source: db
+        table: project_members
+        column: id
+    expect_status: 200
+
+  - name: pe-51-join-accept-beta-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/join/{{invite_beta}}/"
+    jar: invitee
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_invitee}}"
+    json: {"token": "{{invite_token_beta}}", "accepted": true}
+    expect_status: 400
+
+  - name: pe-52-join-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/join/{{invite_beta}}/"
+    jar: invitee
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_invitee}}"
+    origin: "http://evil.example"
+    json: {"token": "{{invite_token_beta}}", "accepted": true}
+    expect_status: 403
+
+  - name: pe-53-invite-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/{{invite_alpha}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: pe-54-invite-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/{{invite_alpha}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: pe-55-invite-delete-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/{{invite_beta}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 403
