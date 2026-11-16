@@ -853,8 +853,19 @@ and only `verified` rows are Rust-owned.
   `ProjectPagePermission` answers 403 first; `copy_s3_objects` gets the loop variable
   (the oldest live link), not the URL project; the body is never parsed, so malformed
   JSON still duplicates.
-- Running: set A, page core (124, 125, 127); set B, description, lock and access
-  (128, 129, 130); the projects/cycles favourite cascade fix.
+- Set B, lock, access and description (merged `789ac3bf84`, flipped with this entry):
+  128 `rust(POST,DELETE)`, 129 `rust(POST)`, 130 `rust(GET,PATCH)`.
+  `write/pages-actions.yaml` 71/71 in both directions; all 21 write scenarios DvR clean
+  on the merge, since `write/description.rs` is shared. No contract test reaches
+  128–130. The base64 decoder now follows CPython 3.12's non-strict `a2b_base64`,
+  stopping at the first completed pad quad. `views::write_support` is `pub(crate)` for
+  reuse. The 10 MB limits are unit-tested only.
+- Upstream quirks kept: `access` accepts any smallint, and `access = 2` passes the
+  permission check but 404s the description lookup; an empty access POST by the owner
+  makes a page public; lock/unlock have no archived guard; `description_binary: ""` is a
+  500 (`DataError`, str into bytea); `page_transaction` gets the raw request value, so
+  an int stays an int; `description_json: null` → 400 "The payload is not valid".
+- Running: set A, page core (124, 125, 127); the projects/cycles favourite cascade fix.
 
 ## Next three steps
 
