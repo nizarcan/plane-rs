@@ -470,6 +470,12 @@ class Fixture:
             ("ws", "fix-workspace", "Fixture Workspace", "admin", "Europe/Berlin", "51-100"),
             ("ws2", "fix-second", "Fixture Second", "nonmember", "America/New_York", "1-10"),
             ("ws_deleted", "fix-deleted", "Fixture Deleted", "admin", "UTC", "1-10"),
+            # A workspace with `logo = NULL`. `Workspace.logo` is nullable and
+            # `Workspace.logo_url` falls back to `self.logo`, which renders
+            # `logo_url: null`; every other fixture workspace sets `""`, so this
+            # is the only row that exercises the NULL branch of the nested
+            # `WorkspaceLiteSerializer` (see `projects-extra.yaml`).
+            ("ws_nologo", "fix-nologo", "Fixture No Logo", "admin", "UTC", "1-10"),
         ]
         workspaces: dict[str, Workspace] = {}
         for name, slug, title, owner, tz, size in specs:
@@ -481,7 +487,7 @@ class Fixture:
                 timezone=tz,
                 organization_size=size,
                 background_color="#e6e7eb",
-                logo="",
+                logo=None if name == "ws_nologo" else "",
             )
             workspace.save()
             self.remember("workspaces")
@@ -510,6 +516,7 @@ class Fixture:
             ("ws2", "tz_tokyo", 15, True),
             ("ws_deleted", "admin", 20, True),
             ("ws_deleted", "member", 15, True),
+            ("ws_nologo", "admin", 20, True),
         ]
         for workspace_name, user_name, role, active in memberships:
             membership = WorkspaceMember(
@@ -595,6 +602,7 @@ class Fixture:
         users = self.objects["users"]
         ws = self.objects["workspaces"]["ws"]
         ws2 = self.objects["workspaces"]["ws2"]
+        ws_nologo = self.objects["workspaces"]["ws_nologo"]
         specs = [
             # key, workspace, name, identifier, network, tz, archived, deleted
             ("alpha", ws, "Alpha Platform", "ALP", 2, "UTC", None, None),
@@ -604,6 +612,7 @@ class Fixture:
             ("epsilon", ws, "Epsilon Design", "EPS", 2, "Asia/Kolkata", None, None),
             ("zeta", ws, "Zeta Empty", "ZET", 2, "UTC", None, None),
             ("theta", ws2, "Theta Second", "THE", 2, "America/New_York", None, None),
+            ("nologo", ws_nologo, "No Logo Project", "NLG", 2, "UTC", None, None),
         ]
         projects: dict[str, Project] = {}
         for key, workspace, name, identifier, network, tz, archived_days, deleted_days in specs:
@@ -688,6 +697,7 @@ class Fixture:
             "epsilon": [("admin", 20, True), ("guest", 5, True), ("guest2", 5, True)],
             "zeta": [("admin", 20, True)],
             "theta": [("nonmember", 20, True), ("member", 15, True)],
+            "nologo": [("admin", 20, True)],
         }
         for project_key, entries in membership_specs.items():
             for user_name, role, active in entries:
@@ -2402,6 +2412,25 @@ class Fixture:
             )
             self.remember("user_favorites")
             self.var(f"favorite_{entity_type}", favorite.id)
+        # A page favourite **with** a project. `WorkspaceFavoriteEndpoint.get`
+        # drops page favourites without one (`favorite.py:27-35`), and the
+        # entity gate then needs an active `project_pages` link to that project
+        # (`serializer/favorite.py`); `page_project` has one, so this is the only
+        # row that reaches the page branch (see `workspaces-extra.yaml`).
+        page_favorite = UserFavorite.objects.create(
+            id=stable("favorite:page:with-project"),
+            workspace=ws,
+            user=users["member"],
+            entity_type="page",
+            entity_identifier=pages["project"].id,
+            name=pages["project"].name,
+            project=projects["alpha"],
+            sequence=65535,
+            created_by_id=users["admin"].id,
+        )
+        self.remember("user_favorites")
+        self.var("favorite_page_with_project", page_favorite.id)
+
         # A soft-deleted favourite.
         UserFavorite.objects.filter(entity_type="issue").update(deleted_at=self.base - timedelta(days=9))
         self.objects["favorites"] = {"folder": folder}

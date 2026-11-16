@@ -18,6 +18,11 @@ target_env:
   PYTHONHASHSEED: "0"
 vars:
   ws: "fix-workspace"
+  # A workspace whose `workspaces.logo` is NULL (`tools/fixtures/build.py`):
+  # the nested `WorkspaceLiteSerializer` must render `logo_url: null` instead
+  # of the handler reading the column as a non-null string.
+  ws_nologo: "fix-nologo"
+  project_nologo: "50ece154-81b8-47eb-9e66-ce507d74b36f"
   project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
   project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
   project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
@@ -328,3 +333,13 @@ steps:
     headers:
       Host: plane-fixture.test
       Cookie: "session-id={{session_member}}"
+  # The caller's own project membership: `ProjectMemberUserEndpoint` renders
+  # `WorkspaceLiteSerializer` for the project's workspace, which here has
+  # `logo = NULL`.
+  - name: pe-35-project-members-me-null-logo-workspace
+    method: GET
+    path: "/api/workspaces/{{ws_nologo}}/projects/{{project_nologo}}/project-members/me/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
