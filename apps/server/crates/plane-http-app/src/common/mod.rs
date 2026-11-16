@@ -16,9 +16,13 @@
 //! | [`queries`] | the catalog entries those lookups need (`schema_check`ed) |
 //! | [`cache`] | `@cache_response` / `@invalidate_cache`: the request half of `plane/utils/cache.py` |
 //! | [`jobs`] | publishing a Celery task (`task.delay`) and the `recent_visited_task` call-site shapes |
-//! | [`request`] | `request.build_absolute_uri()`, the value a page-cache key is built from |
+//! | [`request`] | `request.build_absolute_uri()`: the page-cache key and DRF's `FileField` |
+//! | [`asset_url`] | `FileAsset.asset_url` and the `avatar_url` / `logo_url` / `cover_image_url` properties |
+//! | [`fernet`] | `decrypt_data`: the Fernet token in an encrypted `instance_configurations` row |
 
+pub mod asset_url;
 pub mod cache;
+pub mod fernet;
 pub mod jobs;
 pub mod lookup;
 pub mod queries;

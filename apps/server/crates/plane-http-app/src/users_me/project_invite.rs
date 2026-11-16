@@ -30,7 +30,8 @@ use plane_serializers::generated::app_workspace::WorkspaceLiteSerializer;
 use uuid::Uuid;
 
 use super::queries;
-use super::support::{self, AssetRef};
+use super::support;
+use crate::common::asset_url::{self, AssetRef};
 
 /// Register this module's handler.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -102,11 +103,11 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
         let mut project_cover_urls: Vec<Option<String>> = Vec::with_capacity(invites.len());
         let mut workspace_logo_urls: Vec<Option<String>> = Vec::with_capacity(invites.len());
         for invite in &invites {
-            project_cover_urls.push(support::project_cover_image_url(
+            project_cover_urls.push(asset_url::project_cover_image_url(
                 invite.project.cover_image.as_deref(),
                 &invite.project_asset,
             )?);
-            workspace_logo_urls.push(support::workspace_logo_url(
+            workspace_logo_urls.push(asset_url::workspace_logo_url(
                 invite.workspace.logo.as_deref(),
                 &invite.workspace_asset,
             )?);

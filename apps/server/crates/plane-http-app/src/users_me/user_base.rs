@@ -55,7 +55,8 @@ use plane_serializers::{PgJson, RenderCtx};
 use uuid::Uuid;
 
 use super::queries;
-use super::support::{self, AssetRef};
+use super::support;
+use crate::common::asset_url::{self, AssetRef};
 
 /// Register every handler this Python module owns.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -175,8 +176,8 @@ struct UserMeParts {
 
 fn user_me_parts(loaded: &LoadedUser) -> Result<UserMeParts, ViewError> {
     Ok(UserMeParts {
-        avatar_url: support::user_avatar_url(&loaded.user.avatar, &loaded.avatar)?,
-        cover_image_url: support::user_cover_image_url(
+        avatar_url: asset_url::user_avatar_url(&loaded.user.avatar, &loaded.avatar)?,
+        cover_image_url: asset_url::user_cover_image_url(
             loaded.user.cover_image.as_deref(),
             &loaded.cover,
         )?,
@@ -736,10 +737,10 @@ impl ActivityRow {
         let project_asset = AssetRef::from_row(row, 53)?;
         let workspace_asset = AssetRef::from_row(row, 58)?;
         let project_cover_image_url =
-            support::project_cover_image_url(project.cover_image.as_deref(), &project_asset)?;
+            asset_url::project_cover_image_url(project.cover_image.as_deref(), &project_asset)?;
         let workspace_logo_url =
-            support::workspace_logo_url(workspace.logo.as_deref(), &workspace_asset)?;
-        let actor_avatar_url = support::user_avatar_url(&actor.avatar, &actor_asset)?;
+            asset_url::workspace_logo_url(workspace.logo.as_deref(), &workspace_asset)?;
+        let actor_avatar_url = asset_url::user_avatar_url(&actor.avatar, &actor_asset)?;
         Ok(Self {
             activity,
             project,

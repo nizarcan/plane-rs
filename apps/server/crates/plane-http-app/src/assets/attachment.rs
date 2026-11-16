@@ -35,6 +35,7 @@ use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 
+use crate::common::asset_url::file_asset_url;
 use crate::common::{RequestRender, client, render_list};
 
 use super::queries;
@@ -76,8 +77,16 @@ fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError
             let urls: Vec<Option<String>> = assets
                 .iter()
                 .zip(&slugs)
-                .map(|(asset, slug)| support::asset_url(asset.entity_type.as_deref(), slug, asset))
-                .collect();
+                .map(|(asset, slug)| {
+                    file_asset_url(
+                        asset.id,
+                        asset.entity_type.as_deref(),
+                        Some(slug),
+                        asset.project_id,
+                        asset.issue_id,
+                    )
+                })
+                .collect::<Result<_, _>>()?;
             let serializers: Vec<_> = assets
                 .iter()
                 .zip(&urls)

@@ -31,6 +31,7 @@ use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_serializers::generated::app_asset::FileAssetSerializer;
 
+use crate::common::request::build_absolute_uri;
 use crate::common::{RequestRender, client};
 
 use super::queries;
@@ -90,7 +91,7 @@ fn file_asset_get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse
         // (`base.py:32-33`): the absolute URI is DRF's `FileField`.
         let absolute: Vec<String> = files
             .iter()
-            .map(|asset| support::build_absolute_uri(ctx, &asset.asset))
+            .map(|asset| build_absolute_uri(ctx, &asset.asset))
             .collect();
         let serializers: Vec<FileAssetSerializer<'_>> = files
             .iter()

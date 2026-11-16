@@ -9,13 +9,12 @@
 //! Ported from `apps/api`:
 //!
 //! * `FileAsset.is_project_accessible_to` (`plane/db/models/asset.py:106-146`);
-//! * `FileAsset.asset_url` (`plane/db/models/asset.py:83-104`);
 //! * `issue_hidden_from_guest` (`plane/app/permissions/base.py:106-141`);
-//! * `S3Storage.generate_presigned_url` (`plane/settings/storage.py:114-151`);
-//! * `request.build_absolute_uri` (`django/http/request.py:256-302`), which
-//!   DRF's `FileField.to_representation` calls for an asset on the one route
-//!   whose serializer is built with `context={"request": request}`
-//!   (`plane/app/views/asset/base.py:32`).
+//! * `S3Storage.generate_presigned_url` (`plane/settings/storage.py:114-151`).
+//!
+//! `FileAsset.asset_url` and `request.build_absolute_uri` are generic model and
+//! Django rules, so they live in [`crate::common::asset_url`] and
+//! [`crate::common::request`]; this module only wires them to the asset rows.
 //!
 //! ## Object storage
 //!
@@ -42,7 +41,6 @@ use deadpool_postgres::Client;
 use plane_core::config::Settings;
 use plane_core::error::{APPLICATION_JSON, ApiError};
 use plane_core::json::Object;
-use plane_core::py;
 use plane_db::models::asset::FileAsset;
 use plane_drf::error::ViewError;
 use plane_drf::view::{ViewCtx, ViewResponse};
@@ -114,89 +112,6 @@ impl Attributes {
     /// `attributes.get("type")`.
     pub(super) fn mime_type(&self) -> Option<&str> {
         self.0.get("type").and_then(serde_json::Value::as_str)
-    }
-}
-
-/// `request.build_absolute_uri(location)` (`django/http/request.py:256-302`)
-/// for a relative `location`.
-///
-/// DRF's `FileField.to_representation` calls this when the serializer has a
-/// request context (`rest_framework/fields.py:1252-1265`). With
-/// `S3Storage.url()` returning the object name unchanged
-/// (`plane/settings/storage.py:23-24`), the result is the request path with the
-/// asset name appended: the name is relative, and Django's
-/// `urljoin(scheme_host + path, location)` keeps the whole path when it ends in
-/// `/`, which is the only shape these routes have.
-pub(super) fn build_absolute_uri(ctx: &ViewCtx<'_>, location: &str) -> String {
-    let scheme = if ctx.ctx.is_secure { "https" } else { "http" };
-    absolute_uri_for(
-        scheme,
-        ctx.ctx.header("host").unwrap_or_default(),
-        ctx.path(),
-        location,
-    )
-}
-
-/// [`build_absolute_uri`] without a request, so the URL rules are testable.
-fn absolute_uri_for(scheme: &str, host: &str, path: &str, location: &str) -> String {
-    let scheme_host = format!("{scheme}://{host}");
-
-    let resolved = match plane_net::pyurl::urlsplit(location) {
-        Ok(bits) if !bits.scheme.is_empty() && !bits.netloc.is_empty() => location.to_string(),
-        Ok(bits)
-            if bits.scheme.is_empty()
-                && bits.netloc.is_empty()
-                && bits.path.starts_with('/')
-                && !bits.path.contains("/./")
-                && !bits.path.contains("/../") =>
-        {
-            // `location.removeprefix("//")` keeps the request's authority.
-            let rest = location.strip_prefix("//").unwrap_or(location);
-            format!("{scheme_host}{rest}")
-        }
-        _ => {
-            let base = format!("{scheme_host}{path}");
-            plane_net::pyurl::urljoin(&base, location).unwrap_or_else(|_| location.to_string())
-        }
-    };
-    py::iri_to_uri(&resolved)
-}
-
-/// `FileAsset.asset_url` (`plane/db/models/asset.py:83-104`).
-///
-/// `workspace_slug` is `self.workspace.slug`; the Python raises
-/// `AttributeError` (a 500) when the asset has no workspace, which the queries
-/// that read this property cannot produce (they join `workspaces`).
-pub(super) fn asset_url(
-    entity_type: Option<&str>,
-    workspace_slug: &str,
-    asset: &FileAsset,
-) -> Option<String> {
-    // `str(None)` is "None" inside an f-string, and the model has no guard.
-    fn id_or_none(id: Option<Uuid>) -> String {
-        id.map_or_else(|| "None".to_string(), |id| id.to_string())
-    }
-    match entity_type {
-        Some("WORKSPACE_LOGO" | "USER_AVATAR" | "USER_COVER" | "PROJECT_COVER") => {
-            Some(format!("/api/assets/v2/static/{}/", asset.id))
-        }
-        Some("ISSUE_ATTACHMENT") => Some(format!(
-            "/api/assets/v2/workspaces/{workspace_slug}/projects/{}/issues/{}/attachments/{}/",
-            id_or_none(asset.project_id),
-            id_or_none(asset.issue_id),
-            asset.id
-        )),
-        Some(
-            "ISSUE_DESCRIPTION"
-            | "COMMENT_DESCRIPTION"
-            | "PAGE_DESCRIPTION"
-            | "DRAFT_ISSUE_DESCRIPTION",
-        ) => Some(format!(
-            "/api/assets/v2/workspaces/{workspace_slug}/projects/{}/{}/",
-            id_or_none(asset.project_id),
-            asset.id
-        )),
-        _ => None,
     }
 }
 
@@ -536,48 +451,6 @@ pub(super) async fn issue_hidden_from_guest(
 mod tests {
     use super::*;
 
-    /// `request.build_absolute_uri(name)` for the shapes an asset name can have.
-    /// The interesting ones are the filenames with a space and a non-ASCII
-    /// character: `iri_to_uri` escapes them here, and the presigned URL's
-    /// `Content-Disposition` is percent-encoded separately by
-    /// `crates/plane-storage` (whose golden corpus pins that side).
-    #[test]
-    fn absolute_uri_matches_django_for_asset_names() {
-        let path = "/api/workspaces/file-assets/ws/47ef-spec.pdf/";
-        // A relative name against a path that ends in `/`: the whole path stays,
-        // because `urljoin` treats the last segment as a directory.
-        assert_eq!(
-            absolute_uri_for("http", "plane-fixture.test", path, "ws/47ef-spec.pdf"),
-            "http://plane-fixture.test/api/workspaces/file-assets/ws/47ef-spec.pdf/ws/47ef-spec.pdf"
-        );
-        // `iri_to_uri` keeps `()` — Python's `quote` safe set includes them.
-        assert_eq!(
-            absolute_uri_for("http", "h", "/a/b/", "ws/1-my file (1).pdf"),
-            "http://h/a/b/ws/1-my%20file%20(1).pdf"
-        );
-        assert_eq!(
-            absolute_uri_for("http", "h", "/a/b/", "ws/1-caf\u{e9}.png"),
-            "http://h/a/b/ws/1-caf%C3%A9.png"
-        );
-        // A root-relative location replaces the path (`location.startswith("/")`).
-        assert_eq!(
-            absolute_uri_for("https", "h:8443", "/a/b/", "/static/x.png"),
-            "https://h:8443/static/x.png"
-        );
-        // An absolute location is returned unchanged (after `iri_to_uri`).
-        assert_eq!(
-            absolute_uri_for("http", "h", "/a/b/", "https://cdn.test/x.png"),
-            "https://cdn.test/x.png"
-        );
-        // A base path without a trailing slash loses its last segment, which is
-        // `urljoin`'s rule. No asset route has that shape; the branch is shared
-        // with Django's.
-        assert_eq!(
-            absolute_uri_for("http", "h", "/a/b", "ws/x.png"),
-            "http://h/a/ws/x.png"
-        );
-    }
-
     #[test]
     fn attributes_read_only_non_empty_string_members() {
         let attributes =
@@ -590,59 +463,5 @@ mod tests {
         assert_eq!(Attributes::parse(r#"{"name":7}"#).name(), None);
         assert_eq!(Attributes::parse("[]").name(), None);
         assert_eq!(Attributes::parse("not json").mime_type(), None);
-    }
-
-    #[test]
-    fn asset_url_matches_the_model_property() {
-        let asset = FileAsset {
-            id: Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("uuid"),
-            created_at: plane_core::clock::now(),
-            updated_at: plane_core::clock::now(),
-            created_by_id: None,
-            updated_by_id: None,
-            deleted_at: None,
-            attributes: plane_db::JsonText::new("{}"),
-            asset: String::new(),
-            user_id: None,
-            workspace_id: None,
-            draft_issue_id: None,
-            project_id: Some(
-                Uuid::parse_str("22222222-2222-4222-8222-222222222222").expect("uuid"),
-            ),
-            issue_id: Some(Uuid::parse_str("33333333-3333-4333-8333-333333333333").expect("uuid")),
-            comment_id: None,
-            page_id: None,
-            entity_type: None,
-            entity_identifier: None,
-            is_deleted: false,
-            is_archived: false,
-            external_id: None,
-            external_source: None,
-            size: 0.0,
-            is_uploaded: true,
-            storage_metadata: None,
-        };
-        assert_eq!(
-            asset_url(Some("ISSUE_ATTACHMENT"), "ws", &asset).as_deref(),
-            Some(
-                "/api/assets/v2/workspaces/ws/projects/22222222-2222-4222-8222-222222222222/issues/33333333-3333-4333-8333-333333333333/attachments/11111111-1111-4111-8111-111111111111/"
-            )
-        );
-        assert_eq!(
-            asset_url(Some("PROJECT_COVER"), "ws", &asset).as_deref(),
-            Some("/api/assets/v2/static/11111111-1111-4111-8111-111111111111/")
-        );
-        assert_eq!(
-            asset_url(Some("COMMENT_DESCRIPTION"), "ws", &asset).as_deref(),
-            Some(
-                "/api/assets/v2/workspaces/ws/projects/22222222-2222-4222-8222-222222222222/11111111-1111-4111-8111-111111111111/"
-            )
-        );
-        // An entity type outside the eight the property knows renders `null`.
-        assert_eq!(
-            asset_url(Some("DRAFT_ISSUE_ATTACHMENT"), "ws", &asset),
-            None
-        );
-        assert_eq!(asset_url(None, "ws", &asset), None);
     }
 }

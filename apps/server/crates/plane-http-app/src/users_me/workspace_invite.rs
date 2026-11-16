@@ -25,7 +25,8 @@ use plane_serializers::generated::app_workspace::{
 };
 
 use super::queries;
-use super::support::{self, AssetRef};
+use super::support;
+use crate::common::asset_url::{self, AssetRef};
 
 /// Register this module's handler.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -60,7 +61,7 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
                 row,
                 WorkspaceMemberInvite::COLUMN_COUNT + Workspace::COLUMN_COUNT,
             )?;
-            logo_urls.push(support::workspace_logo_url(
+            logo_urls.push(asset_url::workspace_logo_url(
                 workspace.logo.as_deref(),
                 &logo,
             )?);
