@@ -101,7 +101,9 @@ impl<'a, 'db> Authenticator<'a, 'db> {
         }
     }
 
-    fn session_accessed(&self) -> bool {
+    /// `request.session.accessed` at this point, for both the success and the
+    /// `_not_authenticated()` path.
+    pub fn session_accessed(&self) -> bool {
         self.session.accessed
     }
 

@@ -40,7 +40,7 @@
 //! | 8 | `crum.CurrentRequestUserMiddleware` | no-op (explicit user argument) |
 //! | 9 | `django.middleware.gzip.GZipMiddleware` | full |
 //! | 10 | `RequestBodySizeLimitMiddleware` | full |
-//! | 11 | `APITokenLogMiddleware` | no-op until the logger task is ported |
+//! | 11 | `APITokenLogMiddleware` | full (`process_logs` published, failures swallowed) |
 //! | 12 | `RequestLoggerMiddleware` | full (and evaluates the lazy user) |
 //!
 //! Layer 6 has no request-phase work in Django either: it installs a
@@ -414,7 +414,8 @@ async fn response_phase(
         LAYER_XFRAME => Ok(xframe::response(resp)),
         LAYER_GZIP => Ok(gzip::response(ctx, resp)),
         LAYER_TOKEN_LOG => {
-            extensions::api_token_log_response(&state.settings, ctx, &resp);
+            extensions::api_token_log_response(&state.settings, ctx, &resp, state.drf.celery())
+                .await;
             Ok(resp)
         }
         LAYER_LOGGER => {
@@ -465,7 +466,7 @@ mod tests {
             .expect("registry")
             .finish()
             .expect("finish");
-        let drf = plane_drf::dispatch::Runtime::new(registry, None).expect("runtime");
+        let drf = plane_drf::dispatch::Runtime::new(registry, None, None).expect("runtime");
         Arc::new(AppState {
             settings: settings.clone(),
             routes: RouteTable::load().expect("route table"),

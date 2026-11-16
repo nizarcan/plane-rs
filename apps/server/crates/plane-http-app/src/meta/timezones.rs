@@ -32,35 +32,38 @@
 //!   **at the current instant**, which is what this port computes from
 //!   `clock::now()`.
 //!
-//! ## The cache decorator, and what is not ported yet
+//! ## The page cache (`cache_page(60 * 60 * 2)`)
 //!
-//! `get` carries `@method_decorator(cache_page(60 * 60 * 2))`
-//! (`base.py:23`). `cache_page` is Django's `CacheMiddleware`, which for a
-//! response that can be rendered:
+//! `get` carries `@method_decorator(cache_page(60 * 60 * 2))` (`base.py:23`).
+//! Through `decorator_from_middleware_with_args` that is Django's
+//! `CacheMiddleware` around **the method**, i.e. inside `APIView.dispatch`, and
+//! this module reproduces what a client can observe with `plane_cache::page`
+//! (DECISIONS.md D5a):
 //!
-//! 1. patches `Expires` and `Cache-Control: max-age=7200` onto the response
-//!    (`django/utils/cache.py:patch_response_headers`);
-//! 2. writes two django-redis keys — `views.decorators.cache.cache_header…`
-//!    (the `Vary` header list, here `[]`) and
-//!    `views.decorators.cache.cache_page..GET.<md5(url)>.<md5(headers)>` with
-//!    the suffix `.<language>.<timezone>` — each with a 7200 s TTL, through a
-//!    post-render callback (`django/middleware/cache.py:108-131`);
-//! 3. serves the second request for the same URL from that cache without
-//!    running the view.
+//! 1. on a miss: `patch_response_headers(response, 7200)` adds `Expires`
+//!    (`http_date(now + 7200)`) and `Cache-Control: max-age=7200`; the entry is
+//!    stored for 7200 s with the same key the next request will look up;
+//! 2. on a hit: the stored status, headers and body are served unchanged plus
+//!    `Age = max(0, max_age - (expires - now))`
+//!    (`django/middleware/cache.py:196-203`);
+//! 3. only `GET`/`HEAD` read it, only a `200` is stored, and the
+//!    `private`/`no-cache`/`no-store`/`Vary: *`/cookie guards suppress a store.
 //!
-//! This port reproduces (1), because those two headers are visible to the
-//! client, and does **not** reproduce (2) or (3): the cached value is a Python
-//! pickle of the `rest_framework.response.Response` object, which needs the
-//! django-redis page cache from `plane-cache`. Consequences to know about:
+//! The key is `_generate_cache_key`'s (`django/utils/cache.py:350-364`):
+//! `plane_rs.cache_page.<method>.<md5(absolute_uri)>.<md5(vary values)>.
+//! <language>.<timezone>` in `plane-cache`'s private namespace, so a Django
+//! process never unpickles a Rust value and vice versa. Two facts make the
+//! `Vary` list empty for this view, as it is for Django:
 //!
-//! * a second request for the same URL re-renders the table instead of reading
-//!   it back (a few microseconds) and does **not** send the `Age` header
-//!   `FetchFromCacheMiddleware` sets on a hit (`django/middleware/cache.py:196-203`);
-//! * a differential run compares Redis, so this route reports one extra
-//!   key pair on the Django side, and the second step of a scenario also
-//!   differs by that `Age` header, until `plane-cache` lands. `HANDLERS.md`
-//!   ("side effects") has the rule: a route is not marked `verified` in
-//!   `ROUTES.md` while a cache it writes is unported.
+//! * `learn_cache_key` runs on the response **before** `finalize_response`
+//!   (`rest_framework/views.py:437-446` copies `default_response_headers`,
+//!   which is where `Vary: Accept` comes from, only after the handler
+//!   returns), so `response.has_header("Vary")` is false and the header list is
+//!   `[]`;
+//! * the language is `settings.LANGUAGE_CODE` (`en-us`) and the timezone
+//!   `settings.TIME_ZONE` (`UTC`) because this route has no `TimezoneMixin`
+//!   and Plane does not install `LocaleMiddleware`
+//!   (`plane/settings/common.py:314,319`).
 //!
 //! Nothing is enqueued: the view touches no model and publishes no task.
 
@@ -69,14 +72,26 @@ use serde::Serialize;
 
 use chrono_tz::Tz;
 use http::Method;
+use plane_cache::page::{self, CachedPage, PageResponse};
 use plane_core::error::APPLICATION_JSON;
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_serde::Dialect;
 
+use crate::common::request::absolute_uri;
+
 /// `cache_page(60 * 60 * 2)` (`base.py:23`).
-const CACHE_SECONDS: u64 = 2 * 60 * 60;
+const CACHE_SECONDS: i64 = 2 * 60 * 60;
+
+/// `settings.LANGUAGE_CODE` (`plane/settings/common.py:314`).
+const LANGUAGE: &str = "en-us";
+/// `settings.TIME_ZONE` (`plane/settings/common.py:319`).
+const TIMEZONE: &str = "UTC";
+/// The response's `Vary` list at `learn_cache_key` time — empty, because
+/// `finalize_response` adds `Vary: Accept` only after the decorated handler
+/// returned (`rest_framework/views.py:437-446`). See the module docs.
+const VARY: &[&str] = &[];
 
 /// Register `TimezoneEndpoint`'s `GET`.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -85,25 +100,65 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     Ok(())
 }
 
-/// `TimezoneEndpoint.get`.
-fn get<'a>(_ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+/// `TimezoneEndpoint.get`, behind Django's `cache_page`.
+fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
+        let redis = ctx.redis.ok_or_else(|| {
+            // `FetchFromCacheMiddleware.process_request` calls `cache.get`
+            // first; a process without a cache would raise there.
+            ViewError::Unknown(
+                "the process has no Redis cache handle; cache_page would fail the request"
+                    .to_string(),
+            )
+        })?;
         let now = plane_core::clock::now();
-        Ok(ViewResponse::raw(200, APPLICATION_JSON, render_body(now))
-            .with_header("Expires", http_date(now))
-            .with_header("Cache-Control", format!("max-age={CACHE_SECONDS}")))
+        let stored_at = now.timestamp();
+        let uri = absolute_uri(ctx);
+
+        // `FetchFromCacheMiddleware.process_request`: a `HEAD` first looks for
+        // the GET entry, then for its own (`django/middleware/cache.py:186-199`).
+        if *ctx.method() == Method::HEAD {
+            let key = page::page_key("GET", &uri, VARY, LANGUAGE, TIMEZONE);
+            if let Some(hit) = page::lookup(redis, &key).await? {
+                return serve(hit, stored_at);
+            }
+        }
+        let key = page::page_key(ctx.method().as_str(), &uri, VARY, LANGUAGE, TIMEZONE);
+        if let Some(hit) = page::lookup(redis, &key).await? {
+            return serve(hit, stored_at);
+        }
+
+        // A miss: build the view's response, then `patch_response_headers`
+        // (`django/middleware/cache.py:108-131`). `learn_cache_key` hashes the
+        // response's `Vary` list, which is empty here (see the module docs).
+        let mut response = PageResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: render_body(now),
+        };
+        page::patch_response_headers(&mut response, CACHE_SECONDS, stored_at);
+        if page::is_cacheable(&response, false) {
+            page::store(redis, &key, &response, CACHE_SECONDS, stored_at).await?;
+        }
+        Ok(
+            ViewResponse::raw(response.status, APPLICATION_JSON, response.body)
+                .with_headers(response.headers),
+        )
     })
 }
 
-/// `http_date(time.time() + timeout)`, the `Expires` value `cache_page` patches
-/// on (`django/utils/cache.py:patch_response_headers` →
-/// `django/utils/http.py:http_date` → `email.utils.formatdate(usegmt=True)`).
-///
-/// Second resolution, UTC, English abbreviations; chrono's `%a`/`%b` are the
-/// fixed C-locale names Django's `formatdate` uses.
-fn http_date(now: DateTime<Utc>) -> String {
-    let at = now + chrono::Duration::seconds(CACHE_SECONDS as i64);
-    at.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+/// `FetchFromCacheMiddleware.process_request`'s hit: the stored response plus
+/// `Age` (`django/middleware/cache.py:196-203`).
+fn serve(hit: CachedPage, now: i64) -> Result<ViewResponse, ViewError> {
+    // `Age` is only set when both `Cache-Control: max-age` and `Expires` are
+    // present and parsable; our own entries always carry both.
+    let age = hit.age(now);
+    let mut response =
+        ViewResponse::raw(hit.status, APPLICATION_JSON, hit.body).with_headers(hit.headers);
+    if let Some(age) = age {
+        response = response.with_header("Age", age.to_string());
+    }
+    Ok(response)
 }
 
 /// One rendered entry, in the key order Django's dict ends up with.
@@ -416,6 +471,35 @@ mod tests {
         // `patch_response_headers(response, 7200)` for the fixed instant:
         // `Expires` is now + 7200 s in HTTP-date form, `Cache-Control` is
         // `max-age=7200`.
-        assert_eq!(http_date(instant()), "Mon, 16 Nov 2026 02:00:00 GMT");
+        let mut response = PageResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        page::patch_response_headers(&mut response, CACHE_SECONDS, instant().timestamp());
+        assert_eq!(
+            response.header("Expires"),
+            Some("Mon, 16 Nov 2026 02:00:00 GMT")
+        );
+        assert_eq!(response.header("Cache-Control"), Some("max-age=7200"));
+        assert!(page::is_cacheable(&response, false));
+    }
+
+    #[test]
+    fn the_page_key_is_the_rust_namespace_and_names_the_method() {
+        let uri = "http://127.0.0.1:18100/api/timezones/";
+        let key = page::page_key("GET", uri, VARY, LANGUAGE, TIMEZONE);
+        assert!(key.starts_with("plane_rs.cache_page.GET."), "{key}");
+        assert!(key.ends_with(".en-us.UTC"), "{key}");
+        assert_ne!(
+            key,
+            page::page_key("HEAD", uri, VARY, LANGUAGE, TIMEZONE),
+            "HEAD stores under its own method"
+        );
+        // The `Vary` list is part of the key; this view's is empty.
+        assert_eq!(
+            page::page_key("GET", uri, &[], LANGUAGE, TIMEZONE),
+            page::page_key("GET", uri, VARY, LANGUAGE, TIMEZONE)
+        );
     }
 }

@@ -87,11 +87,25 @@ pub struct DispatchRequest<'a> {
     pub preloaded_user: Option<RequestUser>,
 }
 
-/// The DRF view runtime: the policy, the registered handlers and Redis.
-#[derive(Debug)]
+/// The DRF view runtime: the policy, the registered handlers and the process's
+/// shared side-effect handles.
 pub struct Runtime {
     registry: Registry,
-    redis: Option<plane_throttle::Redis>,
+    /// `django.core.cache.cache`: throttles and response caching share one
+    /// django-redis client, as they do in Django.
+    redis: Option<plane_cache::Redis>,
+    celery: Option<plane_jobs::celery::CeleryPublisher>,
+}
+
+impl std::fmt::Debug for Runtime {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Runtime")
+            .field("registry", &self.registry)
+            .field("redis", &self.redis.is_some())
+            .field("celery", &self.celery.is_some())
+            .finish()
+    }
 }
 
 /// A startup problem with the runtime wiring.
@@ -110,9 +124,16 @@ pub enum RuntimeError {
 
 impl Runtime {
     /// Build the runtime. The registry must already be finished.
+    ///
+    /// `redis` is the process's one django-redis handle: throttles and the
+    /// response cache read and write the same `:1:` keyspace in Django, so they
+    /// share it here too. `celery` is the coexistence publisher; both handles
+    /// are built at startup and connect lazily, so `/` still answers while
+    /// Redis and RabbitMQ are down.
     pub fn new(
         registry: Registry,
-        redis: Option<plane_throttle::Redis>,
+        redis: Option<plane_cache::Redis>,
+        celery: Option<plane_jobs::celery::CeleryPublisher>,
     ) -> Result<Self, RuntimeError> {
         let needs_throttle = registry.views().keys().any(|view| {
             registry.policy().routes().iter().any(|route| {
@@ -127,11 +148,21 @@ impl Runtime {
         if needs_throttle && redis.is_none() {
             return Err(RuntimeError::ThrottleWithoutRedis);
         }
-        Ok(Self { registry, redis })
+        Ok(Self {
+            registry,
+            redis,
+            celery,
+        })
     }
 
     pub fn registry(&self) -> &Registry {
         &self.registry
+    }
+
+    /// The Celery publisher, for the pipeline's token-log layer (which is not a
+    /// handler and so has no [`ViewCtx`]).
+    pub fn celery(&self) -> Option<&plane_jobs::celery::CeleryPublisher> {
+        self.celery.as_ref()
     }
 
     pub fn policy(&self) -> &PolicyTable {
@@ -253,7 +284,17 @@ impl Runtime {
         // handled CSRF, and `View.dispatch` is only method selection plus the
         // handler (`django/views/generic/base.py:134-162`).
         if !route.family.is_drf() {
-            return Self::run_plain(settings, pools, route, registered, request, method).await;
+            return Self::run_plain(
+                settings,
+                pools,
+                route,
+                registered,
+                request,
+                method,
+                self.redis.as_ref(),
+                self.celery.as_ref(),
+            )
+            .await;
         }
 
         // ---- initial(): content negotiation -------------------------------
@@ -262,9 +303,27 @@ impl Runtime {
         // ---- perform_authentication ---------------------------------------
         let (auth, user_evaluated) = {
             let mut authenticator = Authenticator::new(settings, session, conn, preloaded_user);
-            let auth = authenticator
+            let auth = match authenticator
                 .authenticate(&route.authentications, request)
-                .await?;
+                .await
+            {
+                Ok(auth) => auth,
+                Err(error) => {
+                    // `Request._authenticate` catches `APIException`, calls
+                    // `_not_authenticated()` and re-raises
+                    // (`rest_framework/request.py:389-396`). The replacement is
+                    // observable: the request logger no longer reads the
+                    // Django session, so `Vary: Cookie` is absent. An error
+                    // that is *not* an `APIException` (a database failure)
+                    // leaves `request.user` lazy.
+                    if matches!(error, ViewError::Api(_)) {
+                        state.replaced = true;
+                        state.user = Some(RequestUser::Anonymous);
+                    }
+                    state.session_accessed = authenticator.session_accessed();
+                    return Err(error);
+                }
+            };
             let evaluated = authenticator.user_was_evaluated();
             (auth, evaluated)
         };
@@ -457,6 +516,8 @@ impl Runtime {
             pools,
             settings,
             ctx: request.ctx,
+            redis: self.redis.as_ref(),
+            publisher: self.celery.as_ref(),
         };
         let response = handler(&ctx).await?;
         Ok(DrfResponse::render(response)?)
@@ -472,6 +533,8 @@ impl Runtime {
         registered: &RegisteredView,
         request: &mut ViewRequest<'_>,
         method: Method,
+        redis: Option<&plane_cache::Redis>,
+        publisher: Option<&plane_jobs::celery::CeleryPublisher>,
     ) -> Result<DrfResponse, ViewError> {
         // `View.options` answers when the class does not define `options`.
         if method == Method::OPTIONS
@@ -505,6 +568,8 @@ impl Runtime {
             pools,
             settings,
             ctx: request.ctx,
+            redis,
+            publisher,
         };
         Ok(DrfResponse::render(handler(&ctx).await?)?)
     }

@@ -11,7 +11,8 @@
 //! * `/api/unsplash/`
 //!
 //! `timezones` is the worked example of `apps/server/HANDLERS.md`: a read with
-//! no database, no serializer and one cache decorator, ported end to end.
+//! no database, no serializer and one cache decorator, ported end to end —
+//! including Django's page cache (`plane_cache::page`, DECISIONS.md D5a).
 //!
 //! `unsplash` is **not** ported and stays on Django. It reads the
 //! `UNSPLASH_ACCESS_KEY` instance configuration and, when a key is set, calls

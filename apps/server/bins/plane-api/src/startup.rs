@@ -59,18 +59,31 @@ pub fn build_runtime(settings: &Settings) -> anyhow::Result<Runtime> {
 
     let registry = registry.finish().context("finishing the DRF registry")?;
     let registered = registry.views().len();
-    let redis = match settings.redis.url.as_deref() {
-        Some(_) => Some(
-            plane_throttle::Redis::from_settings(settings)
-                .context("building the throttle Redis handle")?,
-        ),
-        None => None,
-    };
-    let runtime = Runtime::new(registry, redis).context("building the DRF runtime")?;
+
+    // The process's one django-redis handle. `Settings` requires `REDIS_URL`
+    // for the api role (`plane-core::config`), so a missing one has already
+    // aborted startup; building the handle opens no connection (the
+    // `ConnectionManager` connects on the first command, like django-redis).
+    //
+    // Throttles and response caching share it: both go through
+    // `django.core.cache.cache` in Plane, so they must see the same keyspace.
+    let redis = Some(
+        plane_cache::Redis::from_settings(settings).context("building the Redis cache handle")?,
+    );
+
+    // The Celery publisher (DECISIONS.md D7). Built from the broker settings,
+    // parsed now so a malformed `AMQP_URL` is a startup error (kombu parses it
+    // at import too); it connects on the first publish, so startup does not
+    // wait for RabbitMQ.
+    let celery = plane_jobs::celery::CeleryPublisher::from_settings(settings)
+        .context("building the Celery publisher (AMQP_URL / RABBITMQ_*)")?;
+
+    let runtime =
+        Runtime::new(registry, redis, Some(celery)).context("building the DRF runtime")?;
     tracing::info!(
         target: "plane.api.drf",
         views = registered,
-        "DRF runtime ready"
+        "DRF runtime ready (cache and Celery publisher are lazy)"
     );
     Ok(runtime)
 }

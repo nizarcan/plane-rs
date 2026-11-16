@@ -11,19 +11,25 @@
 //!
 //! | Module | What it removes from every handler |
 //! | --- | --- |
-//! | [`render`] | building a `RenderCtx` from `fields=`, `expand=` and the user's timezone |
+//! | [`mod@render`] | building a `RenderCtx` from `fields=`, `expand=` and the user's timezone |
 //! | [`lookup`] | `Workspace.objects.get(slug=…)` / `Project.objects.get(pk=…, workspace__slug=…)` |
 //! | [`queries`] | the catalog entries those lookups need (`schema_check`ed) |
+//! | [`cache`] | `@cache_response` / `@invalidate_cache`: the request half of `plane/utils/cache.py` |
+//! | [`jobs`] | publishing a Celery task (`task.delay`) and the `recent_visited_task` call-site shapes |
+//! | [`request`] | `request.build_absolute_uri()`, the value a page-cache key is built from |
 
+pub mod cache;
+pub mod jobs;
 pub mod lookup;
 pub mod queries;
 pub mod render;
+pub mod request;
 
 use deadpool_postgres::Client;
 use plane_drf::error::ViewError;
 use plane_drf::view::ViewCtx;
 
-pub use render::{RequestRender, render, render_list, view_error};
+pub use render::{RequestRender, render, render_list};
 
 /// The connection Django would have used for this request.
 ///

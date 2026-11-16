@@ -28,8 +28,6 @@
 //!   `api_view`, and so on);
 //! * the action or method is not one Django maps to that view;
 //! * the same action or method is registered twice;
-//! * the route is under `/api/v1/`, whose `APITokenLogMiddleware` side effect
-//!   needs the Celery publisher that Phase 4 adds (see [`RegistryError`]);
 //! * the view's policy has an override that `plane-drf` does not implement —
 //!   `PolicyTable::load` refuses those at startup, so this cannot happen for a
 //!   loaded policy, but the builder still checks.
@@ -73,12 +71,6 @@ pub enum RegistryError {
     DuplicateAction { view: String, action: String },
     #[error("{view}: method {method} is registered twice")]
     DuplicateMethod { view: String, method: String },
-    #[error(
-        "{view}: /api/v1/ routes need APITokenLogMiddleware, which enqueues the Celery task \
-         `plane.bgtasks.logger_task.process_logs`; the Celery publisher arrives in Phase 4, so \
-         registering this route now would silently drop the api_activity_logs row"
-    )]
-    ApiTokenLogUnavailable { view: String },
     #[error("{view}: the policy needs manual handling ({reason}); no override is implemented")]
     UnhandledPolicy { view: String, reason: String },
 }
@@ -182,7 +174,6 @@ impl Registry {
                 family,
             });
         }
-        self.ensure_v1_allowed(view)?;
         self.ensure_policy_handled(view)?;
         let route_order = self
             .policy()
@@ -215,7 +206,6 @@ impl Registry {
                 family,
             });
         }
-        self.ensure_v1_allowed(view)?;
         self.ensure_policy_handled(view)?;
         let route_order = self.first_route_order(view);
         self.views
@@ -245,7 +235,6 @@ impl Registry {
                 family,
             });
         }
-        self.ensure_v1_allowed(view)?;
         self.ensure_policy_handled(view)?;
         let route_order = self.first_route_order(view);
         self.views
@@ -272,7 +261,6 @@ impl Registry {
                 family,
             });
         }
-        self.ensure_v1_allowed(view)?;
         self.ensure_policy_handled(view)?;
         let route_order = self.first_route_order(view);
         self.views
@@ -329,16 +317,6 @@ impl Registry {
             .routes()
             .iter()
             .filter(move |route| route.view == view)
-    }
-
-    /// `/api/v1/` is blocked until Phase 4's Celery publisher exists.
-    fn ensure_v1_allowed(&self, view: &str) -> Result<(), RegistryError> {
-        if self.routes_for(view).any(|route| route.group == "v1") {
-            return Err(RegistryError::ApiTokenLogUnavailable {
-                view: view.to_string(),
-            });
-        }
-        Ok(())
     }
 
     /// A view whose policy needs an override this crate does not have must
@@ -601,25 +579,41 @@ mod tests {
         ));
     }
 
+    /// `/api/v1/` is registrable now that `APITokenLogMiddleware`'s Celery
+    /// task has a publisher: the refusal existed only because the row would
+    /// have been dropped silently.
     #[test]
-    fn v1_is_blocked_until_the_celery_publisher_exists() {
+    fn v1_routes_register() {
         let mut registry = Registry::new(policy()).expect("registry");
-        assert!(matches!(
-            registry.api_view("plane.api.views.cycle.CycleListCreateAPIEndpoint"),
-            Err(RegistryError::ApiTokenLogUnavailable { .. })
-        ));
+        registry
+            .api_view("plane.api.views.cycle.CycleListCreateAPIEndpoint")
+            .expect("v1 api view")
+            .method(Method::GET, probe)
+            .expect("get");
+        registry
+            .viewset("plane.api.views.sticky.StickyViewSet")
+            .expect("v1 viewset")
+            .action("list", probe)
+            .expect("list");
+        let registry = registry.finish().expect("finish");
+        assert!(
+            registry
+                .view("plane.api.views.cycle.CycleListCreateAPIEndpoint")
+                .is_some()
+        );
     }
 
     #[test]
     fn every_registered_handler_has_a_policy() {
-        // The brief's coverage test: register a probe handler for every
-        // non-v1 route method through the public API, then prove each
-        // registration resolves to a policy method entry.
+        // The brief's coverage test: register a probe handler for every route
+        // method through the public API, then prove each registration resolves
+        // to a policy method entry. `/api/v1/` is included: it is registrable
+        // and its policy is no different from any other mount's.
         let policy = policy();
         let mut kinds: BTreeMap<String, Family> = BTreeMap::new();
         let mut actions: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut methods: BTreeMap<String, Vec<Method>> = BTreeMap::new();
-        for route in policy.routes().iter().filter(|route| route.group != "v1") {
+        for route in policy.routes().iter() {
             kinds.insert(route.view.clone(), route.family);
             for entry in &route.methods {
                 if route.family.is_viewset() {
@@ -664,12 +658,7 @@ mod tests {
         // Every route method of every registered view has a handler, and every
         // handler resolves through the same policy route the pipeline will use.
         let mut checked = 0;
-        for route in registry
-            .policy()
-            .routes()
-            .iter()
-            .filter(|route| route.group != "v1")
-        {
+        for route in registry.policy().routes().iter() {
             let registered = registry.view(&route.view).expect("registered view");
             for entry in &route.methods {
                 assert!(
@@ -681,6 +670,9 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 557, "non-v1 registered method pairs");
+        assert_eq!(
+            checked, 708,
+            "registered (route, method) pairs, v1 included"
+        );
     }
 }

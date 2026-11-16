@@ -283,6 +283,18 @@ pub struct Scenario {
     /// [`RESERVED_TARGET_ENV`].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub target_env: BTreeMap<String, String>,
+    /// Compare drained Celery messages on a `policy-probe` pass-through step.
+    ///
+    /// A pass-through step normally ignores every side effect, because target A
+    /// ran a real handler and B ran the probe stub. A middleware side effect —
+    /// `APITokenLogMiddleware`'s `process_logs` message — is produced below the
+    /// handler on **both** sides, so it is comparable. Exactly two `log_data`
+    /// fields copy the response the pass-through rule already ignores
+    /// (`response_code`, `response_body`); they are masked on both sides and
+    /// everything else is compared byte for byte. Only set it for steps whose
+    /// real handler enqueues nothing of its own.
+    #[serde(default)]
+    pub probe_compare_celery: bool,
     pub steps: Vec<Step>,
 }
 

@@ -16,9 +16,11 @@ chrono.workspace = true
 chrono-tz.workspace = true
 deadpool-postgres.workspace = true
 http.workspace = true
+plane-cache = { path = "../plane-cache" }
 plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
 plane-drf = { path = "../plane-drf" }
+plane-jobs = { path = "../plane-jobs" }
 plane-query = { path = "../plane-query" }
 plane-serde = { path = "../plane-serde" }
 plane-serializers = { path = "../plane-serializers" }

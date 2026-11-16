@@ -161,6 +161,7 @@ impl BenchScenario {
                 password_vars: Vec::new(),
                 redis_db: vec![self.redis_db, self.redis_db],
                 target_env: BTreeMap::new(),
+                probe_compare_celery: false,
                 steps: self.setup.clone(),
             };
             probe.validate()?;

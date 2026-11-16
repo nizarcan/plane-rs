@@ -101,9 +101,9 @@ Phase 6) still pass.
 
 Known gaps, all recorded in the module docs and `ROUTES.md`:
 
-- `/api/v1/` cannot be registered until Phase 4's Celery publisher exists:
-  `APITokenLogMiddleware` would have to enqueue `process_logs`, so the registry
-  refuses those views. The token-log row construction is ported and tested.
+- (Closed 2026-11-16: the registry no longer refuses `/api/v1/` views — the
+  Celery publisher exists and layer 11 publishes `process_logs`. See
+  "Runtime side effects" below.)
 - `OPTIONS` `actions` are recorded for a permitted caller; Django's
   `get_object()` check for `PUT` and CPython's random `{'PUT','POST'}` set order
   are not reproduced.
@@ -117,6 +117,52 @@ Known gaps, all recorded in the module docs and `ROUTES.md`:
 ## In flight
 
 - Phase 3 preparation (see "Next three steps").
+
+### Runtime side effects: cache, Celery, token log (done 2026-11-16)
+
+`ViewCtx` carries the two process-wide handles, both built once at startup and
+connected lazily (so `/` still answers with Redis and RabbitMQ down):
+`cache()` is the one `plane_cache::Redis` the process has, shared with the
+throttles exactly as `django.core.cache.cache` is; `celery()` is the
+`CeleryPublisher` from `AMQP_URL`/`RABBITMQ_*`. `From<plane_cache::Error>` and
+`From<PublishError>` map a failure to the 500 Plane's family `handle_exception`
+produces; the token-log layer swallows its own publish failure, as
+`logger.py:160-161` does.
+
+`plane-http-app/src/common/` gained `cache::{cache_response, invalidate_cache}`
+(request half of `plane/utils/cache.py`), `jobs::{publish, recent_visited_project,
+recent_visited_entity}` (the two `recent_visited_task` keyword orders) and
+`request::absolute_uri` (`request.build_absolute_uri()`).
+
+- `GET /api/timezones/` now writes and reads Django's page cache through
+  `plane_cache::page` (D5a). `scenarios/read/meta.yaml`: both timezone steps
+  clean (miss + hit with `Age`); the four `unsplash` steps remain 501 vs 200.
+  The harness matches page-cache keys by presence and TTL bucket and normalises
+  `Expires`/`Age`.
+- Layer 11 (`APITokenLogMiddleware`) publishes
+  `plane.bgtasks.logger_task.process_logs` with the exact `log_data` dict.
+  `scenarios/v1-token-log.yaml` (new): 3 steps, 3/3 clean — a valid key on a
+  denied v1 route compares the full Celery message including `kwargsrepr`, a
+  valid key on an allowed route is probe pass-through with the token-log
+  message compared (the two response-copy fields masked), and an invalid key
+  compares the full 403 message. `probe_compare_celery` is the harness opt-in.
+- The policy probe now registers `/api/v1/` too: `scenarios/policy-probe.yaml`
+  regenerated (7,073 steps, 391 routes; 1,622 steps on v1 paths) and clean —
+  **7,073/7,073 steps ok, 3,750 policy denials compared, 2,571
+  reached-handler, 0 mismatches** (587 s). The harness now filters the Redis
+  keys a pass-through step wrote **before** normalising them: a page-cache
+  placeholder carries its TTL bucket, which changes as the entry ages, so the
+  ignore list stopped matching after ten seconds.
+- Fix found by the v1 steps: an authenticator that raises an `APIException`
+  must run DRF's `_not_authenticated()` before the error propagates
+  (`rest_framework/request.py:389-396`); without it the request logger
+  evaluated the session and the response carried a `Vary: Cookie` Django does
+  not send.
+- Token-log overhead per v1 request (release, macOS arm64, dev broker,
+  `cargo run --release -p plane-api --example token_log_overhead`): row build
+  1.75 µs, message encode 4.55 µs, awaited AMQP publish p50 0.025 ms /
+  p99 0.043 ms. The 834-byte message and its 753-byte `kwargsrepr` are the
+  dominant CPU cost; the publish is one round trip (no confirms, as Celery).
 
 ### Phase 3: `plane-query` (done 2026-11-16, `crates/plane-query`)
 

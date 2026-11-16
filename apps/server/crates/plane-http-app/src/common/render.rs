@@ -36,7 +36,7 @@ use chrono_tz::Tz;
 use plane_drf::error::ViewError;
 use plane_drf::view::ViewCtx;
 use plane_serializers::{
-    DrfError, DrfSerialize, FieldEntry, RenderCtx, render as render_serializer,
+    DrfSerialize, FieldEntry, RenderCtx, render as render_serializer,
     render_list as render_serializer_list,
 };
 
@@ -91,7 +91,7 @@ pub fn render<'a, T: DrfSerialize + ?Sized>(
     value: &T,
 ) -> Result<Vec<u8>, ViewError> {
     let prepared = RequestRender::from_ctx(ctx);
-    render_serializer(value, &prepared.render_ctx()).map_err(|error| view_error(&error))
+    render_serializer(value, &prepared.render_ctx()).map_err(ViewError::from)
 }
 
 /// Render `many=True`: a JSON array, one entry per item.
@@ -103,26 +103,13 @@ pub fn render_list<T: DrfSerialize>(
     items: &[T],
     ctx: &RenderCtx<'_>,
 ) -> Result<Vec<u8>, ViewError> {
-    render_serializer_list(items, ctx).map_err(|error| view_error(&error))
-}
-
-/// The exception a render bug maps to.
-///
-/// `plane-drf`'s [`ViewError`] has no `From<DrfError>` because the two failures
-/// mean different Python exceptions: an unserialisable value is Django's
-/// `TypeError` inside `JSONRenderer`, and an unresolved `expand=` is
-/// `AttributeError` from the injected field's `get_attribute`. Plane's family
-/// `handle_exception` answers 500 for both (`plane/app/views/base.py:235-239`),
-/// so [`ViewError::Unknown`] is the faithful mapping, and the message names the
-/// field for the log.
-pub fn view_error(error: &DrfError) -> ViewError {
-    ViewError::Unknown(error.to_string())
+    render_serializer_list(items, ctx).map_err(ViewError::from)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plane_serializers::{DrfWriter, FilterMode};
+    use plane_serializers::{DrfError, DrfWriter, FilterMode};
 
     /// A serializer with two fields, honouring the mask the way a generated
     /// serializer does (`RenderCtx::emits`).
@@ -187,7 +174,7 @@ mod tests {
         // answers 500 with its JSON body, not a 400.
         let error = DrfError::MissingExpansion("cycle".to_string());
         assert_eq!(
-            view_error(&error),
+            ViewError::from(error),
             ViewError::Unknown("expand=\"cycle\" was requested but not resolved".to_string())
         );
     }

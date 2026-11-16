@@ -89,3 +89,41 @@ impl From<plane_serde::Error> for ViewError {
         Self::Unknown(error.to_string())
     }
 }
+
+impl From<plane_serializers::DrfError> for ViewError {
+    /// The two render failures map to different Python exceptions — an
+    /// unserialisable value is Django's `TypeError` inside `JSONRenderer`, and
+    /// an unresolved `expand=` is an `AttributeError` from the injected field's
+    /// `get_attribute` (`plane/app/serializers/base.py:145-190`) — but both are
+    /// uncaught, so Plane's family `handle_exception` answers 500 for both
+    /// (`plane/app/views/base.py:235-239`, `plane/api/views/base.py:105-109`).
+    /// [`ViewError::Unknown`] is therefore the faithful mapping; the message
+    /// names the field for the log.
+    fn from(error: plane_serializers::DrfError) -> Self {
+        Self::Unknown(error.to_string())
+    }
+}
+
+impl From<plane_cache::Error> for ViewError {
+    /// `django_redis` raises `ConnectionInterrupted` (a `redis` error) out of
+    /// `cache.get`/`cache.set` when Redis is unreachable; Django has no
+    /// special case for it, so DRF's `exception_handler` returns `None`,
+    /// `APIView.handle_exception` re-raises, and Plane's family handler answers
+    /// 500 with its JSON body (`plane/app/views/base.py:200-239`). The port
+    /// keeps that outcome instead of degrading to a cache miss, which would be
+    /// a silent behaviour change.
+    fn from(error: plane_cache::Error) -> Self {
+        Self::Unknown(error.to_string())
+    }
+}
+
+impl From<plane_jobs::celery::PublishError> for ViewError {
+    /// Celery's `Task.apply_async` retries and then raises
+    /// (`celery/app/task.py:897`, `task_publish_retry`), and nothing in a view
+    /// catches `OperationalError`, so a broker outage is a 500 — the same
+    /// family handler path as a cache outage. The token-log middleware is the
+    /// one place that *does* catch it (`plane/middleware/logger.py:160-161`).
+    fn from(error: plane_jobs::celery::PublishError) -> Self {
+        Self::Unknown(error.to_string())
+    }
+}

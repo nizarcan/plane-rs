@@ -113,6 +113,15 @@ Every request sends `Accept-Encoding: gzip` and a fixed browser `User-Agent`.
 Redirects are not followed, cookies are not stored implicitly, and gzip bodies
 are decoded by the harness.
 
+`probe_compare_celery: true` makes a `policy-probe` pass-through step compare
+the drained Celery messages even though the handler is not compared. It exists
+for middleware side effects that run below the handler on both sides — today
+`APITokenLogMiddleware`'s `process_logs`. The two `log_data` fields that copy
+the pass-through response (`response_code`, `response_body`) are masked, and
+`kwargsrepr` (Celery's Python `repr` of the same kwargs) is dropped because it
+embeds them as text; everything else is compared byte for byte. Only use it for
+steps whose real handler enqueues nothing of its own.
+
 `password_vars` is optional. When it is set, every changed `users.password`
 value must verify against one of those plaintexts (per target, so
 `--b-var password=...` changes what B must verify); when it is not set, hashes

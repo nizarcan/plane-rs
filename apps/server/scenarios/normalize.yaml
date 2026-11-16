@@ -192,6 +192,10 @@ volatile_db_columns:
     column: expire_date
     mode: relative_time
     why: "start + SESSION_COOKIE_AGE (604800 s); the absolute value differs by the milliseconds between the two requests"
+  - table: api_tokens
+    column: last_used
+    mode: relative_time
+    why: "APIKeyAuthentication writes timezone.now() on every successful authentication (plane/api/middleware/api_authentication.py:38-40); the two targets authenticate at their own instants"
   - table: users
     column: username
     placeholder: username

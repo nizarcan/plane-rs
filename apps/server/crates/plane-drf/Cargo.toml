@@ -18,10 +18,13 @@ chrono-tz.workspace = true
 deadpool-postgres.workspace = true
 http.workspace = true
 plane-auth = { path = "../plane-auth" }
+plane-cache = { path = "../plane-cache" }
 plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
+plane-jobs = { path = "../plane-jobs" }
 plane-permissions = { path = "../plane-permissions" }
 plane-serde = { path = "../plane-serde" }
+plane-serializers = { path = "../plane-serializers" }
 plane-throttle = { path = "../plane-throttle" }
 serde.workspace = true
 serde_json.workspace = true

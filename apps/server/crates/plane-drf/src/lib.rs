@@ -25,7 +25,7 @@
 //! | [`metadata`] | `SimpleMetadata` for `OPTIONS` |
 //! | [`request`] | `request.query_params`/`request.data`, `QueryDict` |
 //! | [`view`] | the handler signature: `ViewCtx` in, `ViewResponse` out |
-//! | [`token_log`] | `APITokenLogMiddleware`'s row, and why it blocks `/api/v1/` |
+//! | [`token_log`] | `APITokenLogMiddleware`'s row and the Celery message it publishes |
 //!
 //! ## Using it
 //!
@@ -46,6 +46,17 @@
 //! table, asks [`dispatch::Runtime::is_registered`], and either dispatches or
 //! answers the existing 501.
 //!
+//! ## Side effects a handler can reach
+//!
+//! [`view::ViewCtx::cache`] is `django.core.cache.cache`: the one django-redis
+//! handle the process built from `Settings` (shared with the throttles). Its
+//! connection is opened on the first command, so a request that never touches
+//! the cache never connects. [`view::ViewCtx::celery`] is the coexistence Celery
+//! publisher (DECISIONS.md D7), also built once and connected on the first
+//! publish. Both are `Option` only because a test build has neither; in the API
+//! role both are always present, and a failure to reach them maps to the 500
+//! Django produces (`crate::error`).
+//!
 //! ## What the table is generated from
 //!
 //! `apps/server/tools/inventory/routes.py` walks Django's URL resolver and
@@ -63,10 +74,8 @@
 //! * `OPTIONS` `actions` are recorded for a permitted caller; Django's
 //!   `get_object()` check for `PUT` and CPython's random set ordering of
 //!   `{'PUT','POST'}` are not reproduced.
-//! * `/api/v1/` routes cannot be registered until `APITokenLogMiddleware` can
-//!   publish its Celery task (Phase 4); see [`token_log`].
 //! * The v1 `WorkspaceIssueAPIEndpoint.project_identifier` property is not fed
-//!   into `PermCtx`; the v1 block makes it unreachable today.
+//!   into `PermCtx`.
 //! * `plane_serde::pyjson` decodes the common text encodings (UTF-8, ASCII,
 //!   latin-1, cp1252, UTF-16/32). A JSON body in another text codec Python
 //!   would decode (for example `cp437`) is refused; see [`parsers`].

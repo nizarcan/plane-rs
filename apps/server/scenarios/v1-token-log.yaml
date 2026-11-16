@@ -1,0 +1,79 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# APITokenLogMiddleware on `/api/v1/` (layer 11), Django vs Rust.
+#
+# Run with the policy-probe build, because B must answer a `/api/v1/` request
+# whose handler Rust does not implement:
+#
+#   cargo build -p plane-api --features policy-probe
+#   ./target/debug/difftest run --scenario scenarios/v1-token-log.yaml \
+#       --a django --b rust
+#
+# What each step proves:
+#
+# * `v1-token-log-valid-key-denied` — a **valid** API key on a v1 route the
+#   caller is not authorized for. Both targets authenticate (writing
+#   `api_tokens.last_used`), deny at the permission class, build the token-log
+#   row and publish `plane.bgtasks.logger_task.process_logs`. Nothing is a
+#   probe pass-through, so the drained Celery message is compared in full:
+#   `log_data` (including the Python `dict.__repr__` header string and the
+#   `kwargsrepr` that embeds it), its argument types and its value types.
+# * `v1-token-log-valid-key-allowed` — a valid key on a route the caller may
+#   reach (`/api/v1/users/me/`). Rust's probe handler answers 501 with
+#   `X-Plane-RS-Probe: handler`, so the response is pass-through; because
+#   `probe_compare_celery` is set, the token-log message is still compared
+#   after masking the only two `log_data` fields that copy that response
+#   (`response_code`, `response_body`). Every other field — the HMAC
+#   `token_identifier`, path, method, query string, redacted headers, request
+#   body, client IP, user agent — must match byte for byte.
+# * `v1-token-log-invalid-key` — an unknown key. Authentication fails before
+#   the handler on both sides, so this is a fully compared 403 and its message
+#   is compared in full.
+#
+# `api_tokens.last_used` is the authentication timestamp; it is compared as a
+# step-relative time (`scenarios/normalize.yaml`).
+name: v1-token-log
+template_db: plane_tpl
+redis_db: [9, 10]
+probe_compare_celery: true
+vars:
+  # The policy fixture (`tools/policy/gen_fixture.py`) creates the workspace,
+  # the users and the three API tokens. `api_key_active` is
+  # stable("api_token_value:active").hex + stable("api_token_value2:active").hex.
+  fixture_sql: "{repo}/apps/server/scenarios/policy-fixture.sql"
+  slug: policy
+  api_key_active: "f3fe6193a32f5f7ebd99c5d4d19751153957edbdb867560fa8f18d558995ad25"
+  api_key_invalid: "this-is-not-a-valid-api-token"
+  # Parameterised so the negative control can change one side's value:
+  #   --b-var user_agent=other-agent   (the message must then differ)
+  user_agent: v1-token-log-probe
+steps:
+  - name: v1-token-log-valid-key-denied
+    method: GET
+    path: "/api/v1/workspaces/{{slug}}/projects/"
+    headers:
+      Host: plane-fixture.test
+      Accept: application/json
+      X-Api-Key: "{{api_key_active}}"
+      X-Forwarded-For: 198.51.100.61
+      User-Agent: "{{user_agent}}"
+  - name: v1-token-log-valid-key-allowed
+    method: GET
+    path: "/api/v1/users/me/"
+    headers:
+      Host: plane-fixture.test
+      Accept: application/json
+      X-Api-Key: "{{api_key_active}}"
+      X-Forwarded-For: 198.51.100.62
+      User-Agent: "{{user_agent}}"
+  - name: v1-token-log-invalid-key
+    method: GET
+    path: "/api/v1/users/me/"
+    headers:
+      Host: plane-fixture.test
+      Accept: application/json
+      X-Api-Key: "{{api_key_invalid}}"
+      X-Forwarded-For: 198.51.100.63
+      User-Agent: "{{user_agent}}"

@@ -103,23 +103,11 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
 /// The shared, non-request state behind one `/api/` request.
 ///
 /// `plane-drf`'s [`ViewCtx`] already carries every per-request resource — the
-/// user, the activated timezone, the routed connection, the pools and the
-/// settings — so this type repeats none of them. It exists so a helper in
-/// [`common`] can take the resources it needs without taking the whole request,
-/// and so the two resources a handler cannot reach yet have one named home:
-///
-/// * the **cache** (`plane-cache`, django-redis codec). Until it is wired into
-///   `plane-drf`'s `ViewCtx` — the only thing a handler sees — a route that
-///   writes or reads a response cache cannot be ported: see `HANDLERS.md`,
-///   "side effects".
-/// * the **job publisher** (`plane-jobs`, Celery protocol during
-///   coexistence). Same rule: a route that enqueues a task stays on Django
-///   until the publisher exists, because dropping the task would be a silent
-///   behaviour change.
-///
-/// When they arrive, their handles are added to `ViewCtx` in `plane-drf` and
-/// exposed here as accessors, not stored per handler: `plane-http-app` holds no
-/// process state of its own.
+/// user, the activated timezone, the routed connection, the pools, the settings
+/// and the process's cache and Celery handles — so this type repeats none of
+/// them. It exists so a helper in [`common`] can take the resources it needs
+/// without taking the whole request. `plane-http-app` holds no process state of
+/// its own: the handles live in the runtime (`bins/plane-api`).
 #[derive(Debug, Clone, Copy)]
 pub struct AppState<'a> {
     /// The primary and optional replica pools (`ViewCtx::pools`).

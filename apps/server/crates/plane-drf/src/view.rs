@@ -64,9 +64,32 @@ pub struct ViewCtx<'a> {
     pub settings: &'a Settings,
     /// The raw `RequestContext` (path, headers, body, `REMOTE_ADDR`).
     pub ctx: &'a RequestContext,
+    /// `django.core.cache.cache`: the process-wide django-redis handle, built
+    /// once from `Settings` and shared with the throttles (both use the same
+    /// cache alias in Django). The connection itself is opened on first use.
+    pub redis: Option<&'a plane_cache::Redis>,
+    /// The Celery publisher the process was started with (DECISIONS.md D7).
+    /// One per process; publishing is what connects it, so the first enqueue
+    /// pays the AMQP handshake and later ones reuse the channel.
+    pub publisher: Option<&'a plane_jobs::celery::CeleryPublisher>,
 }
 
 impl<'a> ViewCtx<'a> {
+    /// `django.core.cache.cache`, as the Django client (`:1:` keys, the raw-int
+    /// value rule, protocol-4 pickles).
+    ///
+    /// `None` only in a process built without Redis (tests); a handler that
+    /// needs the cache should go through `plane_http_app::common::cache`,
+    /// which turns that into the 500 Django would produce.
+    pub fn cache(&self) -> Option<plane_cache::Client<'a>> {
+        self.redis.map(plane_cache::Client::new)
+    }
+
+    /// The Celery publisher, or `None` in a build/test without a broker.
+    pub fn celery(&self) -> Option<&'a plane_jobs::celery::CeleryPublisher> {
+        self.publisher
+    }
+
     pub fn method(&self) -> &Method {
         &self.request.method
     }
@@ -166,6 +189,16 @@ impl ViewResponse {
         let entry = (name.into(), value.into());
         match &mut self {
             Self::Json { headers, .. } | Self::Raw { headers, .. } => headers.push(entry),
+        }
+        self
+    }
+
+    /// Append a list of headers, preserving their order.
+    pub fn with_headers(mut self, values: Vec<(String, String)>) -> Self {
+        match &mut self {
+            Self::Json { headers, .. } | Self::Raw { headers, .. } => {
+                headers.extend(values);
+            }
         }
         self
     }

@@ -5,7 +5,7 @@
 //! The `policy-probe` cargo feature.
 //!
 //! Compiled only with `--features policy-probe`, this registers a handler for
-//! **every** route method `routes.json` lists outside `/api/v1/`, so the
+//! **every** route method `routes.json` lists (including `/api/v1/`), so the
 //! differential harness can drive each route through the full runtime policy
 //! (content negotiation, authentication, permissions, throttles, the family
 //! `initial` hooks, `allow_permission`) and observe the outcome.
@@ -24,10 +24,10 @@
 //! the step is recorded as `reached-handler` and its response and side effects
 //! are not compared.
 //!
-//! `/api/v1/` is excluded on purpose: `APITokenLogMiddleware` would have to
-//! publish a Celery task, the publisher is Phase 4's, and the registry refuses
-//! those views (see `plane_drf::token_log`). The probe counts therefore cover
-//! 557 method pairs, not the 708 in the inventory.
+//! `/api/v1/` is included: `APITokenLogMiddleware`'s publisher exists, so the
+//! registry accepts those views. The probe counts cover all 692 method pairs of
+//! the non-`web` route groups (the two `plane.web` function views are registered
+//! by `startup`, not the probe).
 
 use http::Method;
 use plane_drf::error::ViewError;
@@ -43,7 +43,7 @@ fn probe<'a>(_ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewEr
     Box::pin(async move { Ok(ViewResponse::empty(501).with_header(PROBE_HEADER, PROBE_VALUE)) })
 }
 
-/// Register the probe for every non-v1 route method.
+/// Register the probe for every route method of the non-`web` groups.
 pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     // Collect first: registering borrows the registry mutably.
     let mut kinds = std::collections::BTreeMap::new();
@@ -55,7 +55,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
         .policy()
         .routes()
         .iter()
-        .filter(|route| route.group != "v1" && route.group != "web")
+        .filter(|route| route.group != "web")
     {
         kinds.insert(route.view.clone(), route.family);
         for entry in &route.methods {
@@ -97,7 +97,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     Ok(())
 }
 
-/// A startup check used by the probe test: every non-v1 method pair resolves.
+/// A startup check used by the probe test: every non-`web` method pair resolves.
 #[cfg(test)]
 pub fn registered_pairs(registry: &Registry) -> anyhow::Result<usize> {
     let mut pairs = 0;
@@ -105,7 +105,7 @@ pub fn registered_pairs(registry: &Registry) -> anyhow::Result<usize> {
         .policy()
         .routes()
         .iter()
-        .filter(|route| route.group != "v1" && route.group != "web")
+        .filter(|route| route.group != "web")
     {
         let Some(view) = registry.view(&route.view) else {
             anyhow::bail!("{} has a policy but no registration", route.view);
@@ -130,17 +130,17 @@ mod tests {
     use plane_drf::policy::PolicyTable;
 
     #[test]
-    fn the_probe_covers_every_non_v1_method_pair() {
+    fn the_probe_covers_every_method_pair_except_the_web_views() {
         let policy = PolicyTable::load().expect("routes.json");
         let mut registry = Registry::new(policy).expect("registry");
         register_all(&mut registry).expect("register");
         let registry = registry.finish().expect("finish");
-        assert_eq!(registered_pairs(&registry).expect("pairs"), 541);
-        // `/api/v1/` is the one surface the Celery publisher blocks.
+        assert_eq!(registered_pairs(&registry).expect("pairs"), 692);
+        // `/api/v1/` is registrable: the token-log publisher exists.
         assert!(
             registry
                 .view("plane.api.views.cycle.CycleListCreateAPIEndpoint")
-                .is_none()
+                .is_some()
         );
         // The web function views are registered by `startup`, not the probe.
         assert!(registry.view("plane.web.views.health_check").is_none());

@@ -629,9 +629,49 @@ async fn run_inner(
             {
                 ignored_redis_b.insert(key.clone());
             }
+            // Normalised for the report only; nothing is compared here.
+            side_a
+                .normalizer
+                .normalize_redis_diff(&mut a_outcome.redis_diff);
+            side_b
+                .normalizer
+                .normalize_redis_diff(&mut b_outcome.redis_diff);
+            a_outcome
+                .violations
+                .extend(side_a.normalizer.take_violations());
+            b_outcome
+                .violations
+                .extend(side_b.normalizer.take_violations());
+            if scenario.probe_compare_celery {
+                // `APITokenLogMiddleware` runs below the handler on both
+                // targets, so its `process_logs` message is compared even
+                // though the handler is not. The two `log_data` fields that
+                // copy the response (`response_code`, `response_body`) are
+                // masked: the pass-through rule already ignores that response.
+                let mut a_messages = a_outcome.messages.clone();
+                let mut b_messages = b_outcome.messages.clone();
+                for message in a_messages.iter_mut().chain(b_messages.iter_mut()) {
+                    mask_pass_through_response(message);
+                }
+                differences.extend(compare_celery(&a_messages, &b_messages));
+            }
         } else {
+            // Raw keys first: the ignore set holds the raw keys a pass-through
+            // step wrote, and only then are the remaining entries normalised.
             filter_ignored_redis(&mut a_outcome.redis_diff, &ignored_redis_a);
             filter_ignored_redis(&mut b_outcome.redis_diff, &ignored_redis_b);
+            side_a
+                .normalizer
+                .normalize_redis_diff(&mut a_outcome.redis_diff);
+            side_b
+                .normalizer
+                .normalize_redis_diff(&mut b_outcome.redis_diff);
+            a_outcome
+                .violations
+                .extend(side_a.normalizer.take_violations());
+            b_outcome
+                .violations
+                .extend(side_b.normalizer.take_violations());
             if django_denied {
                 probe_compared_denials += 1;
             }
@@ -917,6 +957,31 @@ fn body_excerpt(body: &[u8]) -> String {
     }
 }
 
+/// Mask the two `log_data` fields a probe pass-through step cannot compare:
+/// they are copies of the response, and the response itself is not compared on
+/// such a step.
+///
+/// `kwargsrepr` is Celery's Python `repr` of the same `kwargs` dict; it is
+/// dropped because it embeds those two values as text and cannot be re-rendered
+/// here. The structured `kwargs` it mirrors is compared, so a difference in the
+/// rest of the message still fails the step. A compared (non-pass-through)
+/// step compares `kwargsrepr` in full.
+fn mask_pass_through_response(message: &mut crate::celery::CeleryMessage) {
+    const MASK: &str = "<pass-through response>";
+    message.headers.remove("kwargsrepr");
+    let Value::Object(kwargs) = &mut message.kwargs else {
+        return;
+    };
+    let Some(Value::Object(log_data)) = kwargs.get_mut("log_data") else {
+        return;
+    };
+    for key in ["response_code", "response_body"] {
+        if let Some(value) = log_data.get_mut(key) {
+            *value = Value::String(MASK.to_string());
+        }
+    }
+}
+
 /// `X-Plane-RS-Probe: handler`, set by the `policy-probe` feature's handler.
 fn has_probe_header(headers: &[(String, String)]) -> bool {
     headers
@@ -1037,8 +1102,12 @@ async fn execute_step(
     for message in &mut messages {
         side.normalizer.normalize_celery(message);
     }
-    let mut redis_diff = diff_redis_snapshots(&before_redis, &after_redis);
-    side.normalizer.normalize_redis_diff(&mut redis_diff);
+    // Redis is left raw: the caller filters the keys a pass-through step
+    // introduced **before** normalising. A page-cache placeholder contains its
+    // TTL bucket (`:1:<page-cache:716:1>`), which changes as the entry ages, so
+    // a placeholder recorded from one step would never match the next step's
+    // name and the ignore list would stop working after ten seconds.
+    let redis_diff = diff_redis_snapshots(&before_redis, &after_redis);
     let violations = side.normalizer.take_violations();
     let normalise_ms = normalise_started.elapsed().as_secs_f64() * 1000.0;
 

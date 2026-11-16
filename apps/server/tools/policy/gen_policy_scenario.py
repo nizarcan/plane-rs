@@ -5,9 +5,10 @@
 
 """Generate `scenarios/policy-probe.yaml`.
 
-The scenario drives **every** non-`/api/v1/` route method through the Rust DRF
-runtime (built with `--features policy-probe`) and against Django, for every
-fixture user. The harness's pass-through rule decides what is compared:
+The scenario drives **every** route method of the non-`web` route groups —
+`/api/v1/` included — through the Rust DRF runtime (built with
+`--features policy-probe`) and against Django, for every fixture user. The
+harness's pass-through rule decides what is compared:
 
 * a B response with `X-Plane-RS-Probe: handler` means the Rust policy let the
   request through; if Django denied it (401/403/405/406/415/429, including the
@@ -131,7 +132,11 @@ def main() -> int:
     sessions = fixture["session_keys"]
     users = {name: data for name, data in fixture["users"].items()}
 
-    routes = [route for route in routes if route["group"] != "v1"]
+    # `/api/v1/` is included. No step sends `X-Api-Key`, so every v1 request is
+    # anonymous: `APIKeyAuthentication` returns None, `IsAuthenticated` denies,
+    # and the step is a compared 403 — the same policy answer as any other
+    # unauthenticated mount. The authenticated v1 path (and the token-log
+    # message it publishes) is `scenarios/v1-token-log.yaml`'s job.
     if args.limit:
         routes = routes[: args.limit]
 
@@ -516,6 +521,10 @@ def main() -> int:
         "# authorization check with the same 403 body `allow_permission` returns",
         "# (asset, draft and project views); a 403 there cannot be attributed to",
         "# the policy. See tools/policy/gen_policy_scenario.py:ambiguous_view.",
+        "#",
+        "# `/api/v1/` is included. No step sends `X-Api-Key`, so every v1 step is",
+        "# the anonymous 403 the policy produces on any mount; the authenticated",
+        "# v1 path and its token-log message are scenarios/v1-token-log.yaml.",
         f"name: {args.name}",
         "template_db: plane_tpl",
         "redis_db: [11, 12]",

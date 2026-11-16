@@ -374,8 +374,9 @@ def create_fixture() -> dict:
         "pj_member": user("policy_pj_member"),
         "pj_admin": user("policy_pj_admin"),
         "inactive": user("policy_inactive", active=False),
-        # API-key users: created for completeness; `/api/v1/` is blocked until
-        # the Celery publisher exists, so no probe step uses them.
+        # API-key users: `scenarios/v1-token-log.yaml` authenticates as
+        # `api_active`; the policy probe itself sends no X-Api-Key, so every v1
+        # step there is the anonymous denial.
         "api_active": user("policy_api_active"),
         "api_expired": user("policy_api_expired"),
         "api_inactive": user("policy_api_inactive"),

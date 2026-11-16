@@ -61,10 +61,11 @@ gave you.
 6. **Tasks and cache.** `TASKS.md` for the Celery tasks the method enqueues, and
    the decorators above the method for caching: `cache_page` (Django's page
    cache), `plane/utils/cache.py`'s `cache_response`/`invalidate_cache`, and
-   anything that writes Redis by hand. A read that caches is **not** ported until
-   the cache write matches; a write that enqueues is **not** ported until the
-   publisher exists. Both live in other crates — `plane-cache` and `plane-jobs` —
-   and neither is wired into `ViewCtx` yet (see "Side effects").
+   anything that writes Redis by hand. Both handles are on `ViewCtx` and the
+   helpers are in `common` (§7); a caching read is **not** ported until its
+   cache write matches, and a write that enqueues is **not** ported until the
+   task is published with the same name, kwargs and argument types
+   (`TASKS.md` §8.3).
 
 7. **The scenario.** `scenarios/read/<group>.yaml` already has generated steps
    for every GET of the group (from the rich fixture `plane_fix_tpl`). Run it
@@ -195,8 +196,8 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
 `viewset` takes the ViewSet action (`list`, `retrieve`, `create`, …); `api_view`,
 `django_view` and `function` take the HTTP method. `HEAD` falls back to `GET` and
 `OPTIONS` is answered from the policy, so do not register them. Registering the
-same action twice, an action the view does not answer, or a `/api/v1/` route is a
-startup error — fix the cause, never the registry.
+same action twice or an action the view does not answer is a startup error —
+fix the cause, never the registry. `/api/v1/` views register like any other.
 
 ## 6. Map errors
 
@@ -215,27 +216,95 @@ decides the body (`HTTP_CONTRACT.md` §11):
 | `PermissionDenied("…")` (view-level re-check) | `Api(ApiError::PermissionDenied(..))` | 403 with that detail |
 | anything else | `Unknown(String)` | 500, logged by name, never rendered |
 
-`common::lookup::Error` already maps the first three of those. Do not build
-error bodies by hand: a `serde_json::json!({"error": …})` sorts keys and loses
-Python's order.
+`common::lookup::Error` already maps the first three of those, and
+`ViewError: From<plane_serializers::DrfError>` covers every render failure. Do
+not build error bodies by hand: a `serde_json::json!({"error": …})` sorts keys
+and loses Python's order.
 
 ## 7. Side effects
 
 Behaviour includes what the request writes, creates, enqueues and invalidates
-(`RUST_REWRITE.md` rule 5). Two of those are not available yet:
+(`RUST_REWRITE.md` rule 5). Both handles are on `ViewCtx`, built once at startup
+and shared; the runtime never allocates one per request.
 
-* **Jobs.** A route that enqueues a Celery task stays on Django until
-  `plane-jobs` publishes with the same task name, kwargs and retry policy
-  (`TASKS.md` records each call site's argument types). Do not port a handler
-  that silently drops its task.
-* **Cache.** `cache_page` and `plane/utils/cache.py` write django-redis keys
-  (pickled values, `:<version>:` key prefix). `plane-cache` owns the codec and
-  the page cache; until it is wired into `ViewCtx` such a route is *not* verified
-  and must not be marked owned. Query-cache invalidation is part of the write
-  path: a write that leaves a stale Django cache entry is a behaviour change.
+### Cache
 
-When blocked on either, still port the read (the handler is useful and testable)
-but say so in the report and do not claim the route is verified.
+`ctx.cache()` is `django.core.cache.cache` as `plane_cache::Client`: the same
+`:1:` keys, the raw-int-versus-pickle value rule and the protocol-4 pickler
+django-redis uses (`plane-cache`). Through `common::cache` you get the two
+`plane/utils/cache.py` decorators as functions:
+
+```rust
+use plane_cache::PyValue;
+use plane_http_app::common::cache;
+
+// `@cache_response(60 * 60 * 2)` on `WorkspaceLabelsEndpoint.get`
+// (`plane/app/views/workspace/label.py:21`). `compute` runs only on a miss and
+// returns the `(status, data)` the view would have returned; `data` is a
+// `PyValue` (DRF's `serializer.data`, UUIDs included), so the stored pickle is
+// Django's and a hit renders the same bytes the miss did.
+cache::cache_response(ctx, 60 * 60 * 2, None, true, || async move {
+    let labels = load_labels(ctx).await?;
+    let data = PyValue::return_list(labels.iter().map(label_value).collect());
+    Ok((200, data))
+})
+.await
+```
+
+```rust
+use plane_http_app::common::cache;
+
+// `@invalidate_cache(path="workspaces/:slug/states/", url_params=True,
+// user=False)` on `StateViewSet.create` (`plane/app/views/state/base.py:56`):
+// it runs *before* the view body, like the decorator.
+cache::invalidate_cache(ctx, Some("workspaces/:slug/states/"), true, false, false).await?;
+```
+
+`path=None` means `request.get_full_path()`; `user=true` appends
+`str(request.user.id)` for an authenticated caller; `multiple=true` deletes
+every key containing the computed key (`cache.keys("*<key>*")`). A write that
+leaves a stale cache entry is a behaviour change, so the invalidation calls are
+part of the port, not an optimisation.
+
+A page-cached route (`cache_page`) uses `plane_cache::page` directly, because
+there is exactly one such route: `src/meta/timezones.rs` is the reference.
+
+### Jobs
+
+`ctx.celery()` is the process's Celery publisher (DECISIONS.md D7);
+`common::jobs::publish` awaits it and returns Celery's task id. A publish that
+fails after the retry budget is a 500, as in Django. `recent_visited_task` has
+two keyword orders in the tree, selected by which Python call site you mirror:
+
+```rust
+use plane_drf::error::ViewError;
+use plane_http_app::common::jobs;
+use plane_jobs::celery::args::TaskArg;
+
+let project_id = ctx.kwarg("project_id").ok_or(ViewError::Key)?.to_string();
+let user = TaskArg::uuid(jobs::user_id(ctx)?);      // `user_id=request.user.id`
+// `issue/base.py:304`: slug, project_id, entity_name, entity_identifier, user_id.
+jobs::recent_visited_project(
+    ctx,
+    "project",
+    TaskArg::str(project_id.clone()),
+    Some(TaskArg::str(project_id)),
+    user,
+)
+.await?;
+// `issue/base.py:617`: the other order. Use `recent_visited_entity`.
+```
+
+Every other task has a typed constructor in `plane_jobs::celery::tasks` with
+the call site's argument types (`TASKS.md` §8.3); publish it with
+`jobs::publish(ctx, &message)`. Do not build a `Message` by hand.
+
+### Token log
+
+`/api/v1/` handlers need no token-log code: layer 11 publishes
+`process_logs` for every request carrying `X-Api-Key`, whatever the response,
+and swallows a publish failure the way `logger.py:160-161` does. The registry
+accepts v1 views.
 
 ## 8. Prove it
 
@@ -261,12 +330,13 @@ Rules the harness enforces, so do not fight them:
   per target and cross-referenced (a generated UUID, `<now>`, the target's base
   URL), so it cannot hide a mismatch; adding a rule to hide one weakens every
   later port (`scenarios/README.md`, "Normalisation policy").
-* Two clock-based values are **not** normalised yet, so a `cache_page` route can
-  flake at a second boundary: the response `Expires` header (`now + timeout`, no
-  `volatile_headers` mode parses an HTTP date) and a cache-hit `Age`. Adding a
-  `http_date` rule mode next to the cookie `Expires` handling
-  (`plane-testkit/src/normalize.rs`, `relative_expiry`) is the fix; until then a
-  run that differs only on `Expires` by one second is the harness, not the port.
+* Page-cache entries are bridged rather than compared: Django's
+  `views.decorators.cache.*` keys and Rust's `plane_rs.cache_page.*` keys are
+  matched by presence and a 10-second TTL bucket, their values are not compared
+  (DECISIONS.md D5a). A `cache_page` response's `Expires` is compared as
+  `<expires+7200s>` from the step clock, and a cache hit's `Age` with a
+  one-second tolerance, so a second boundary cannot flake a run. One side
+  sending `Age` and the other not is always a difference.
 
 Then, and only then: report the group, the routes, the scenario, the run result
 and anything you could not port. **The orchestrator flips `ROUTES.md`** (and the
@@ -293,11 +363,15 @@ because its one side effect is instructive.
   `plane_serde::to_vec(Dialect::Drf, &Envelope { .. })`.
 * **Hooks, tasks.** None. No model is touched.
 * **Cache.** `@method_decorator(cache_page(60 * 60 * 2))` on `get`. That is
-  Django's `CacheMiddleware`: it patches `Expires` and `Cache-Control: max-age=7200`
-  onto the response (ported, they are visible to the client) and writes two
-  django-redis keys with a 7200 s TTL whose value is a pickled
-  `rest_framework.response.Response` (not ported: `plane-cache`). The handler's
-  module docs spell out what that means for the differential run.
+  Django's `CacheMiddleware`, and the port reproduces everything a client can
+  observe with `plane_cache::page`: `patch_response_headers(7200)` (`Expires`
+  and `Cache-Control: max-age=7200`), the stored status/headers/body served
+  unchanged for 7200 s, `Age` on a hit, `GET`/`HEAD` only, `200` only, and the
+  `private`/`no-cache`/`no-store`/`Vary: *` guards. The key is
+  `plane_rs.cache_page.<method>.<md5(absolute_uri)>.<md5(vary)>.<language>.
+  <timezone>` — Rust's own namespace, so neither backend ever unpickles the
+  other's value (DECISIONS.md D5a). The handler's module docs spell out the two
+  facts that make the `Vary` list empty, as it is for Django.
 * **Register.** `registry.api_view("plane.app.views.timezone.base.TimezoneEndpoint")?`
   then `.method(Method::GET, get)?`.
 * **Unit tests.** The body is asserted byte for byte against
@@ -307,23 +381,12 @@ because its one side effect is instructive.
 * **Scenario.** `scenarios/read/meta.yaml`, steps `meta-0826-timezone-endpoint`
   and `meta-0827-timezone-endpoint` (signed-in admin and member; `AllowAny`, so
   the session only exercises the cookie/Vary path).
-* **Result (2026-11-16).** A cold request compared on its own matches Django
-  completely — status, every header (`Allow`, `Vary`, `Expires`,
-  `Cache-Control: max-age=7200`, gzip, `Content-Length`) and the 12,011-byte
-  body — with `--no-redis`; the full group scenario reports exactly two
-  differences, both from the unported `cache_page`:
-
-  ```text
-  redis :1:views.decorators.cache.cache_header..<md5>.en-us.UTC   added on A, absent on B
-  redis :1:views.decorators.cache.cache_page..GET.<md5>.<md5>.en-us.UTC
-                                                                  added on A, absent on B
-  ```
-
-  and the second timezone step adds `headers age: 0` (only on the cache hit).
-  Until `plane-cache` provides that page cache, this route is **not** verified,
-  which is why the example also documents the consequence instead of skipping
-  the step. The four `unsplash` steps in the same scenario keep answering 501
-  because that route is not ported.
+* **Result (2026-11-16).** Both timezone steps match Django completely — status,
+  every header (`Allow`, `Vary`, `Expires`, `Cache-Control: max-age=7200`,
+  gzip, `Content-Length`, and `Age` on the hit) and the 12,011-byte body — with
+  the page-cache keys present on both sides in their own namespaces. The four
+  `unsplash` steps in the same scenario still answer 501 vs 200 because that
+  route is not ported: it needs the outbound HTTP client (DECISIONS.md D9).
 
 ## Naming
 
