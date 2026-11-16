@@ -37,6 +37,9 @@ pub mod base;
 pub mod live;
 pub mod queries;
 pub mod version;
+// Set A: page core writes (124, 125, 127).
+pub mod write_page;
+pub mod write_page_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -48,7 +51,15 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .viewset("plane.app.views.page.base.PageViewSet")?
         .action("list", base::list)?
         .action("retrieve", base::retrieve)?
-        .action("summary", base::summary)?;
+        .action("summary", base::summary)?
+        // Set A: create (124), PATCH/DELETE (125) and archive/unarchive (127).
+        // No `PUT` is routed, so there is no guard action to register
+        // (`plane/app/urls/page.py:29-31`).
+        .action("create", write_page::create)?
+        .action("partial_update", write_page::partial_update)?
+        .action("destroy", write_page::destroy)?
+        .action("archive", write_page::archive)?
+        .action("unarchive", write_page::unarchive)?;
     registry
         .viewset("plane.app.views.page.base.PagesDescriptionViewSet")?
         .action("retrieve", base::description)?;

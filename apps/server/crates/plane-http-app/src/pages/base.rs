@@ -225,12 +225,9 @@ pub(crate) struct PageDetailBody<'a> {
     issue_ids: FieldValue<IssueIds<'a>>,
 }
 
-// The read route uses `retrieve`; the three write shapes are consumed by the
-// P0 follow-up sets (A: create/PATCH, D: duplicate), which land after this one.
-#[allow(
-    dead_code,
-    reason = "constructors for the page write sets that follow P0"
-)]
+// The read route uses `retrieve`; the PATCH route uses `updated`/
+// `updated_with`; the create route uses `created`. `duplicated` belongs to the
+// duplicate set, which lands after this one.
 impl<'a> PageDetailBody<'a> {
     /// `PageViewSet.retrieve` (`page/base.py:227-230`): a `get_queryset()` row
     /// (all three annotations) plus the appended `issue_ids`.
@@ -261,11 +258,33 @@ impl<'a> PageDetailBody<'a> {
     /// wraps a plain `Page.objects.get()` instance, so all three annotation
     /// fields raise `SkipField`. 16 keys.
     pub(crate) fn updated(page: &'a PageRow) -> Self {
+        Self::updated_with(page, None, None)
+    }
+
+    /// [`Self::updated`] with the body's `label_ids`/`project_ids`.
+    ///
+    /// `PageDetailSerializer` declares both as writable `ListField`s
+    /// (`serializers/page.py:33-34`) and no code pops them, so PATCH's
+    /// `ModelSerializer.update` runs `setattr(instance, "label_ids", value)` on
+    /// the instance. It writes nothing (the names are not model fields) but
+    /// DRF's `get_attribute` then finds the attribute, so `serializer.data`
+    /// carries the key after all (`rest_framework/serializers.py:530-546`).
+    pub(crate) fn updated_with(
+        page: &'a PageRow,
+        label_ids: Option<&'a [Uuid]>,
+        project_ids: Option<&'a [Uuid]>,
+    ) -> Self {
         Self {
             page,
             is_favorite: FieldValue::absent(),
-            label_ids: FieldValue::absent(),
-            project_ids: FieldValue::absent(),
+            label_ids: match label_ids {
+                Some(ids) => FieldValue::value(ids),
+                None => FieldValue::absent(),
+            },
+            project_ids: match project_ids {
+                Some(ids) => FieldValue::value(ids),
+                None => FieldValue::absent(),
+            },
             issue_ids: FieldValue::absent(),
         }
     }
@@ -273,6 +292,7 @@ impl<'a> PageDetailBody<'a> {
     /// `PageDuplicateEndpoint.post` (`page/base.py:625-634`): the re-fetch
     /// annotates `project_ids` only, so `is_favorite` and `label_ids` skip.
     /// 17 keys.
+    #[allow(dead_code, reason = "consumed by the duplicate set that follows")]
     pub(crate) fn duplicated(page: &'a PageRow) -> Self {
         Self {
             page,

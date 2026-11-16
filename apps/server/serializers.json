@@ -1,6 +1,6 @@
 {
   "generated_from": {
-    "commit": "101a2f2754af8c604a402cc088de02136f18706c",
+    "commit": "c517d4afea62977bad97a849be3956b1ad9f5457",
     "django_version": "5.2.17",
     "drf_version": "3.18.3",
     "settings_module": "plane.settings.production",

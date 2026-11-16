@@ -353,6 +353,30 @@ impl Body<'_> {
     }
 }
 
+/// What `ListField.get_value` handed over.
+#[derive(Debug)]
+enum ListInput {
+    /// The field is absent from this body (or skipped by `partial=True`).
+    Skip,
+    /// An explicit `null`: DRF's `null` error, before any element is seen.
+    Null,
+    /// The child inputs, cloned out of the body.
+    Items(Vec<Json>),
+    /// A value `ListField.to_internal_value` calls `not_a_list` on, with
+    /// Python's `type(value).__name__`.
+    NotIterable(&'static str),
+}
+
+/// [`ListInput`] for one JSON value.
+fn list_json_value(value: Option<&Json>) -> ListInput {
+    match value {
+        None => ListInput::Skip,
+        Some(Json::Null) => ListInput::Null,
+        Some(Json::List(items)) => ListInput::Items(items.clone()),
+        Some(other) => ListInput::NotIterable(python_type_name(other)),
+    }
+}
+
 /// A serializer being validated.
 #[derive(Debug)]
 pub struct Serializer<'a> {
@@ -840,6 +864,92 @@ impl<'a> Serializer<'a> {
         Ok(Some(values))
     }
 
+    /// `ListField` of `UUIDField` children (`rest_framework/fields.py:1690-1760`).
+    ///
+    /// `PageSerializer.label_ids`/`project_ids` are the only callers
+    /// (`plane/app/serializers/page.py:33-34`). Two details separate it from
+    /// [`Self::primary_key_list_field`]:
+    ///
+    /// * the child is DRF's `UUIDField` (`fields.py:817-844`), not a
+    ///   `PrimaryKeyRelatedField`: an integer is accepted as a 128-bit UUID,
+    ///   there is no `queryset.get(pk=…)`, and the message is
+    ///   `Must be a valid UUID.` — not Django's `“…” is not a valid UUID.`;
+    /// * the shape checks are `ListField`'s own: `not_a_list` for a
+    ///   `str`/`Mapping`/non-iterable input, and a `null` child is the child's
+    ///   `null` error under the element's index.
+    ///
+    /// Child failures are rendered as DRF's index-keyed object
+    /// (`fields.py:1719-1736`), e.g.
+    /// `{"label_ids": {"1": ["Must be a valid UUID."]}}`.
+    pub fn uuid_list_field(&mut self, name: &'static str) -> Option<Vec<uuid::Uuid>> {
+        let items = match self.list_field_value(name) {
+            ListInput::Skip => return None,
+            ListInput::NotIterable(kind) => {
+                self.errors.push(name, fields::not_a_list(kind));
+                return None;
+            }
+            ListInput::Null => {
+                self.errors.push(name, Detail::null());
+                return None;
+            }
+            ListInput::Items(items) => items,
+        };
+        let mut values = Vec::with_capacity(items.len());
+        let mut failed = false;
+        for (index, item) in items.iter().enumerate() {
+            if item.is_null() {
+                self.errors.push_indexed(name, index, Detail::null());
+                failed = true;
+                continue;
+            }
+            match fields::uuid_field(Raw::Json(item)) {
+                Ok(value) => values.push(value),
+                Err(detail) => {
+                    self.errors.push_indexed(name, index, detail);
+                    failed = true;
+                }
+            }
+        }
+        if failed {
+            return None;
+        }
+        self.values.push((name, Value::UuidList(values.clone())));
+        Some(values)
+    }
+
+    /// `ListField.get_value` (`rest_framework/fields.py:1676-1696`): a JSON
+    /// body hands the raw value over, a form body is a list of strings.
+    ///
+    /// The values are cloned out of the body so the caller can record errors
+    /// while holding no borrow of it (the same reason
+    /// [`Self::primary_key_list_field`] clones its list).
+    fn list_field_value(&self, name: &'static str) -> ListInput {
+        if self.fatal || self.skipped.contains(&name) {
+            return ListInput::Skip;
+        }
+        let Some(body) = self.body.as_ref() else {
+            return ListInput::Skip;
+        };
+        match body {
+            Body::Json(object) => list_json_value(object.get(name)),
+            Body::Expanded { object, .. } => list_json_value(object.get(name)),
+            Body::Form(query) => {
+                let values = query.getlist(name);
+                if !values.is_empty() {
+                    return ListInput::Items(
+                        values
+                            .into_iter()
+                            .map(|text| Json::Str(PyStr::new(text)))
+                            .collect(),
+                    );
+                }
+                // `parse_html_list(default=empty)` with no `name[i]` keys is
+                // `empty`, i.e. the field is skipped.
+                ListInput::Skip
+            }
+        }
+    }
+
     /// Record a field error whose body is a JSON document — a
     /// `validate_<field>` that raised `ValidationError(dict)`.
     pub fn push_body(&mut self, field: &'static str, body: plane_query::json::Json) {
@@ -1143,5 +1253,180 @@ mod tests {
                 "color": ["This field may not be blank."]
             })
         );
+    }
+
+    /// Render `uuid_list_field("label_ids")` over `body` and return either the
+    /// validated ids or `serializer.errors`, exactly as a handler would see
+    /// them.
+    fn validate_uuid_list(
+        input: Body<'_>,
+        partial: bool,
+    ) -> Result<Vec<uuid::Uuid>, serde_json::Value> {
+        let mut serializer = Serializer {
+            body: Some(input),
+            partial,
+            form: false,
+            errors: ValidationErrors::default(),
+            values: Vec::new(),
+            skipped: Vec::new(),
+            fatal: false,
+            timezone: chrono_tz::UTC,
+        };
+        let _ = serializer.uuid_list_field("label_ids");
+        match serializer.finish() {
+            Ok(values) => Ok(values.uuid_list("label_ids").unwrap_or_default().to_vec()),
+            Err(errors) => Err(body(errors.into_response())),
+        }
+    }
+
+    fn json_body(text: &str) -> PyDict {
+        match pyjson::loads(text.as_bytes(), "utf-8").expect("json") {
+            Json::Dict(ref dict) => dict.clone(),
+            _ => panic!("not an object"),
+        }
+    }
+
+    /// Every message below is `ListField(child=UUIDField()).run_validation`
+    /// output recorded from DRF 3.18.3 (see the doc comment on
+    /// [`fields::uuid_field`]): `not_a_list` for a scalar/`dict`, the field's
+    /// own `null` error, and the child's `Must be a valid UUID.` under the
+    /// element index — *not* Django's `“…” is not a valid UUID.` that
+    /// `PrimaryKeyRelatedField` produces.
+    #[test]
+    fn uuid_list_field_reproduces_drf_messages() {
+        let cases: &[(&str, Result<&[&str], serde_json::Value>)] = &[
+            (
+                r#"{"label_ids": "abc"}"#,
+                Err(serde_json::json!({
+                    "label_ids": ["Expected a list of items but got type \"str\"."]
+                })),
+            ),
+            (
+                r#"{"label_ids": 5}"#,
+                Err(serde_json::json!({
+                    "label_ids": ["Expected a list of items but got type \"int\"."]
+                })),
+            ),
+            (
+                r#"{"label_ids": 1.5}"#,
+                Err(serde_json::json!({
+                    "label_ids": ["Expected a list of items but got type \"float\"."]
+                })),
+            ),
+            (
+                r#"{"label_ids": true}"#,
+                Err(serde_json::json!({
+                    "label_ids": ["Expected a list of items but got type \"bool\"."]
+                })),
+            ),
+            (
+                r#"{"label_ids": {"a": 1}}"#,
+                Err(serde_json::json!({
+                    "label_ids": ["Expected a list of items but got type \"dict\"."]
+                })),
+            ),
+            (
+                r#"{"label_ids": null}"#,
+                Err(serde_json::json!({"label_ids": ["This field may not be null."]})),
+            ),
+            (
+                r#"{"label_ids": ["nope"]}"#,
+                Err(serde_json::json!({"label_ids": {"0": ["Must be a valid UUID."]}})),
+            ),
+            (
+                r#"{"label_ids": [null]}"#,
+                Err(serde_json::json!({
+                    "label_ids": {"0": ["This field may not be null."]}
+                })),
+            ),
+            (
+                r#"{"label_ids": [1.5]}"#,
+                Err(serde_json::json!({"label_ids": {"0": ["Must be a valid UUID."]}})),
+            ),
+            (
+                r#"{"label_ids": [-1]}"#,
+                Err(serde_json::json!({"label_ids": {"0": ["Must be a valid UUID."]}})),
+            ),
+            (
+                r#"{"label_ids": [{"a": 1}]}"#,
+                Err(serde_json::json!({"label_ids": {"0": ["Must be a valid UUID."]}})),
+            ),
+            (
+                r#"{"label_ids": [[1]]}"#,
+                Err(serde_json::json!({"label_ids": {"0": ["Must be a valid UUID."]}})),
+            ),
+            // Both failures of a mixed list, in element order.
+            (
+                r#"{"label_ids": ["0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f", "x", null, 7]}"#,
+                Err(serde_json::json!({
+                    "label_ids": {
+                        "1": ["Must be a valid UUID."],
+                        "2": ["This field may not be null."]
+                    }
+                })),
+            ),
+            // `uuid.UUID(int=…)` accepts an integer, `bool` included.
+            (
+                r#"{"label_ids": [1]}"#,
+                Ok(&["00000000-0000-0000-0000-000000000001"]),
+            ),
+            (
+                r#"{"label_ids": [true, false]}"#,
+                Ok(&[
+                    "00000000-0000-0000-0000-000000000001",
+                    "00000000-0000-0000-0000-000000000000",
+                ]),
+            ),
+            // The largest 128-bit integer.
+            (
+                r#"{"label_ids": [170141183460469231731687303715884105728]}"#,
+                Ok(&["80000000-0000-0000-0000-000000000000"]),
+            ),
+            // Python's hex parser: simple, braced and urn forms.
+            (
+                r#"{"label_ids": ["0f0e7a3a2f5c4b1e9c3f1a2b3c4d5e6f"]}"#,
+                Ok(&["0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f"]),
+            ),
+            (
+                r#"{"label_ids": ["{0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f}"]}"#,
+                Ok(&["0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f"]),
+            ),
+            (
+                r#"{"label_ids": ["urn:uuid:0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f"]}"#,
+                Ok(&["0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f"]),
+            ),
+            (r#"{"label_ids": []}"#, Ok(&[])),
+            // Absent: `required=False`, so the field is skipped.
+            (r#"{"other": 1}"#, Ok(&[])),
+        ];
+        for (input, expected) in cases {
+            let dict = json_body(input);
+            let actual = validate_uuid_list(Body::Json(&dict), false);
+            match expected {
+                Ok(ids) => {
+                    let ids: Vec<uuid::Uuid> = ids
+                        .iter()
+                        .map(|id| uuid::Uuid::parse_str(id).expect("uuid"))
+                        .collect();
+                    assert_eq!(actual, Ok(ids), "input {input}");
+                }
+                Err(expected) => assert_eq!(&actual, &Err(expected.clone()), "input {input}"),
+            }
+        }
+    }
+
+    /// A form body hands `getlist` over, so a single value is a one-element
+    /// list and the child reports its own message.
+    #[test]
+    fn uuid_list_field_reads_a_form_value_as_a_list() {
+        let query = plane_drf::QueryDict::parse("label_ids=nope", None).expect("query");
+        let actual = validate_uuid_list(Body::Form(&query), false);
+        assert_eq!(
+            actual,
+            Err(serde_json::json!({"label_ids": {"0": ["Must be a valid UUID."]}}))
+        );
+        // A form without the key skips the field.
+        let query = plane_drf::QueryDict::parse("other=1", None).expect("query");
+        assert_eq!(validate_uuid_list(Body::Form(&query), true), Ok(Vec::new()));
     }
 }

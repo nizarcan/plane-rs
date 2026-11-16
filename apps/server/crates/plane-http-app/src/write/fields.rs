@@ -490,6 +490,34 @@ pub fn uuid(raw: Raw<'_>) -> Result<uuid::Uuid, Detail> {
     primary_key(raw)
 }
 
+/// DRF's `UUIDField.to_internal_value` (`rest_framework/fields.py:833-844`),
+/// the child of `PageSerializer.label_ids`/`project_ids`.
+///
+/// Different from [`primary_key`]: the input may be an `int` (interpreted as a
+/// 128-bit UUID, `uuid.UUID(int=data)`), a `str` in any form Python's hex
+/// parser accepts, or anything else — which fails with the field's own
+/// `Must be a valid UUID.` message. No queryset is involved.
+pub fn uuid_field(raw: Raw<'_>) -> Result<uuid::Uuid, Detail> {
+    let invalid = || Detail::new("Must be a valid UUID.", "invalid");
+    match raw {
+        // `bool` is an `int` in Python (`isinstance(True, int)`), so
+        // `uuid.UUID(int=True)` is the all-zero UUID with a trailing 1.
+        Raw::Json(Json::Bool(value)) => Ok(uuid::Uuid::from_u128(u128::from(*value))),
+        Raw::Json(Json::Int(value)) => value
+            .to_decimal_string()
+            .parse::<u128>()
+            .map(uuid::Uuid::from_u128)
+            .map_err(|_| invalid()),
+        Raw::Json(Json::Str(value)) => value
+            .as_str()
+            .ok_or_else(invalid)
+            .and_then(|text| uuid::Uuid::parse_str(text).map_err(|_| invalid())),
+        Raw::Text(text) => uuid::Uuid::parse_str(text).map_err(|_| invalid()),
+        // `self.fail('invalid', value=data)` for every other type.
+        Raw::Json(Json::Null | Json::Float(_) | Json::List(_) | Json::Dict(_)) => Err(invalid()),
+    }
+}
+
 /// `FloatField.to_internal_value` (`rest_framework/fields.py:964-982`).
 pub fn float(raw: Raw<'_>) -> Result<f64, Detail> {
     const MAX_STRING_LENGTH: usize = 1000;

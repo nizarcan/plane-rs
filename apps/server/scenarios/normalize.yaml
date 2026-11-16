@@ -99,6 +99,11 @@ shapes:
   upload_credential:
     pattern: '^[^/]+/[0-9]{8}/[a-z0-9-]+/s3/aws4_request$'
     why: "SigV4 credential scope of a presigned POST"
+  # plane/app/views/page/base.py:332: `str(datetime.now())` — a naive local
+  # datetime, space separator, microseconds only when non-zero.
+  naive_datetime:
+    pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?$'
+    why: "str(datetime.now()): naive local datetime with a space separator (plane/app/views/page/base.py:332)"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -395,6 +400,15 @@ volatile_json_keys:
   - name: epoch
     mode: unix_time
     why: "int(timezone.now().timestamp()) at enqueue time (plane/app/views/issue/base.py:429); two runs can land in different seconds"
+  # The archive response re-reads the clock and renders Python `str(datetime)`
+  # (page/base.py:332). Scoped to that request: every other `archived_at` key
+  # (a PATCH body echo, a list row) is a stored date and stays literal.
+  - name: archived_at
+    mode: placeholder
+    placeholder: naive-datetime
+    shape: naive_datetime
+    request: "POST /api/workspaces/*/projects/*/pages/*/archive/"
+    why: "plane/app/views/page/base.py:332 renders str(datetime.now()) for the archive response"
 
 volatile_db_columns:
   - table: sessions
