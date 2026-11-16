@@ -534,3 +534,107 @@ because its one side effect is instructive.
 * [ ] A non-obvious line cites the Python file and line it came from.
 * [ ] `cargo fmt --all --check`, `cargo clippy -p plane-http-app -p plane-api
       --all-targets -- -D warnings`, `cargo test -p plane-http-app -p plane-api`.
+
+## Writes (Phase 5)
+
+A write handler is the same registration and the same runtime policy as a read,
+plus a pipeline with one job: **write the row Django writes, then answer with the
+bytes Django answers**. The pieces live in `src/write/` (request body →
+validated values), `src/model_hooks/`-equivalent `plane_db::hooks` (the
+`MODEL_HOOKS.md` hooks) and, per domain, one `src/<group>/write.rs`.
+
+### 1. The handler is the Python view, step for step
+
+Read the view, the *writable* serializer and the model `save()` first, then
+write the handler in the Python's statement order, including its error paths.
+`src/stickies/write.rs` is the reference:
+
+```rust
+let client = common::client(ctx)?;                   // the request's connection
+let workspace = lookup::workspace_by_slug(client, slug).await?;   // 404 body
+let mut serializer = Serializer::new(ctx, /* partial = */ false)?; // body parse 400/415
+apply_body(&mut serializer);                          // fields, declaration order
+let values = match serializer.finish() {              // 400 serializer.errors
+    Ok(values) => values,
+    Err(errors) => return Ok(errors.into_response()),
+};
+```
+
+Every statement and its order is part of the behaviour (`HANDLERS.md` §3 still
+applies): the create above is workspace → `MAX(sort_order)` (the hook) →
+`INSERT`, like `Sticky.objects.create`. The response is rendered from the
+values you wrote (`JsonText::from_json` for a JSON column), never re-read —
+`serializer.data` comes from the in-memory instance.
+
+### 2. The body and validation
+
+`plane-drf` already parses the body exactly as DRF does (`ctx.data()`: JSON
+`ParseError`/415, forms, multipart, empty body). `write::Serializer` is the
+validation half:
+
+| DRF | Rust |
+| --- | --- |
+| `Field.validate_empty_values` (required/null/partial) | `Serializer::{char,float,datetime,json}_field` |
+| `CharField` (coerce numbers, trim, blank, max_length) | `write::fields::char` + `CharOptions` |
+| `FloatField` (Python `float()`, finite only) | `write::fields::float` |
+| `DateTimeField` (iso-8601, make aware in the active timezone) | `write::fields::datetime` |
+| `JSONField` (any JSON value; form text is parsed) | `write::fields::json` |
+| `serializer.errors` shape and order | `ValidationErrors::into_response` |
+
+Rules that are easy to break: fields are visited in **declaration order** (the
+error keys' order), every failing field is reported (not just the first),
+`read_only` fields are never read from the body, `partial=True` skips every
+absent field, and a non-object body is `non_field_errors` (`data=None` is the
+"No data provided" special case). A form body has html-input semantics
+(`''` can mean `null` or "absent"); `CharOptions` carries `allow_blank`.
+
+### 3. CSRF
+
+Nothing to do in a handler: the dispatcher runs
+`BaseSessionAuthentication.enforce_csrf` (`plane/authentication/session.py:56-63`)
+before it, which for `/api/` is an **origin check only** — there is no CSRF
+token on this surface. A mismatched `Origin` is the 403
+`{"detail": "CSRF Failed: origin not allowed"}`. `/api/v1/` API-key callers are
+exempt, as in DRF.
+
+### 4. Transactions, audit, timestamps
+
+**Use the request's connection**: `common::client(ctx)` is the client the
+runtime checked out. Never open a second one — Django uses one connection per
+request, and the route's `use_read_replica` rule already routes every non-GET
+method to the primary (`plane/middleware/db_routing.py:38-45`).
+
+Django runs with `ATOMIC_REQUESTS` unset: a view is autocommit unless it opens
+`transaction.atomic()` itself. Do not add one that the Python lacks (a rollback
+would change what a concurrent reader sees). Where the Python has one, use
+`client.transaction()` directly.
+
+`BaseModel.save()` is H01: use `plane_db::hooks::audit::Audit::on_create(user)`
+(`created_by = user`, `updated_by = NULL`) or `Audit::on_update(user)`. The
+timestamps are the ORM's, not the database's: `write::now()` (microseconds) for
+`created_at`/`updated_at`. Never rely on a column default.
+
+### 5. Model hooks
+
+`plane_db::hooks` holds one function per `MODEL_HOOKS.md` row, returning the
+values to write. A write path **must** call its model's hooks before building
+the statement: `hooks::sticky::before_create` (strip the HTML, derive
+`sort_order`) / `before_update` (strip only). A domain ports the hooks it needs
+next to the existing ones and adds the row to the table in `hooks/mod.rs`.
+
+### 6. Delete
+
+`SoftDeleteModel.delete(soft=True)` is `write::soft_delete` (H03): one
+full-row update (`deleted_at` = `updated_at` = `now`, `updated_by`) followed by
+`write::publish_soft_delete_cascade` (the `soft_delete_related_objects`
+Celery message; the cascade itself runs in the worker).
+
+### 7. Prove it
+
+`scenarios/write/<group>.yaml`: create (empty, minimal, full, read-only fields
+in the body, unknown fields), every reachable validation error, non-member and
+guest callers, a mismatched `Origin`, PATCH (partial, read-only, invalid),
+DELETE then a GET list (the soft delete must be gone on both sides), and a
+second request. Capture created ids with `capture: {source: json, pointer: /id}`.
+Run Django-vs-Django first, then Django-vs-Rust. The harness compares the DB
+diff after every step, so a missed hook fails the step.

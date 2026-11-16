@@ -60,6 +60,7 @@ pub mod users_me;
 pub mod views;
 pub mod webhooks;
 pub mod workspaces;
+pub mod write;
 
 use plane_core::config::Settings;
 use plane_db::DbPools;

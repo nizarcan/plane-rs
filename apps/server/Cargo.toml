@@ -30,6 +30,7 @@ repository = "https://github.com/makeplane/plane"
 # them. The differential harness is excluded from this workspace and declares
 # its own dependencies (see `exclude` above).
 [workspace.dependencies]
+ammonia = "=4.0.0"
 anyhow = "1.0.100"
 aws-lc-rs = "1.19.0"
 axum = "0.8.9"

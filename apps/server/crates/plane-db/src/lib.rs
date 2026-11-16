@@ -12,6 +12,7 @@
 //! them with [`schema_check::verify`]; see `crate::schema_check`.
 
 pub mod catalog;
+pub mod hooks;
 pub mod models;
 pub mod pool;
 pub mod queries;

@@ -198,6 +198,16 @@ mod tests {
     }
 
     #[test]
+    fn an_unparsable_origin_is_denied() {
+        for origin in ["garbage", "://x", "http://", "", "web.plane.so"] {
+            assert!(
+                !is_allowed_origin(Some(origin), "plane.example.com", &HashSet::new()),
+                "origin {origin:?} must be denied"
+            );
+        }
+    }
+
+    #[test]
     fn configured_origins_are_allowed() {
         let allowed = allowed_origins(&settings());
         assert!(is_allowed_origin(
