@@ -167,26 +167,8 @@ pub(crate) fn dumps(value: &Json) -> Result<String, ViewError> {
 /// [`ViewError::Unknown`] when a JSON body is not an object (the PATCH view has
 /// already reproduced the earlier `.pop` failure in that case).
 pub(crate) fn accepted_data(ctx: &ViewCtx<'_>, patch: bool) -> Result<Json, ViewError> {
-    // `skip_activity = request.data.pop("skip_activity", False)`
-    // (`plane/app/views/issue/base.py:630`) removes it before
-    // `writable_data(serializer, request.data)` reads the body.
-    let read_only = |key: &str| {
-        key == "skip_activity" || READ_ONLY_ON_CREATE.contains(&key) || (patch && key == "is_draft")
-    };
     match ctx.data()? {
-        Data::Json(Json::Dict(object)) => {
-            let mut out = PyDict::with_capacity(object.len());
-            for (key, value) in object.iter() {
-                let Some(key_text) = key.as_str() else {
-                    out.insert(key.clone(), value.clone());
-                    continue;
-                };
-                if !read_only(key_text) {
-                    out.insert(key.clone(), value.clone());
-                }
-            }
-            Ok(Json::Dict(out))
-        }
+        Data::Json(value @ Json::Dict(_)) => Ok(accepted_value(value, patch)),
         Data::Json(_) => Err(ViewError::Unknown(
             "AttributeError: request.data is not a mapping".to_owned(),
         )),
@@ -194,7 +176,7 @@ pub(crate) fn accepted_data(ctx: &ViewCtx<'_>, patch: bool) -> Result<Json, View
             let mut out = PyDict::with_capacity(query.len());
             let mut seen = std::collections::BTreeSet::new();
             for key in query.keys() {
-                if !seen.insert(key) || read_only(key) {
+                if !seen.insert(key) || read_only_key(key, patch) {
                     continue;
                 }
                 if let Some(value) = query.get(key) {
@@ -204,6 +186,70 @@ pub(crate) fn accepted_data(ctx: &ViewCtx<'_>, patch: bool) -> Result<Json, View
             Ok(Json::Dict(out))
         }
     }
+}
+
+/// `writable_data(serializer, data)` over a value the view built itself rather
+/// than `request.data`.
+///
+/// The call site is `IntakeIssueViewSet.partial_update`'s nested body
+/// (`plane/app/views/intake/base.py:418`):
+/// `writable_data(issue_serializer, issue_data)`, where `issue_data` is the
+/// popped `request.data["issue"]` — possibly reduced to three keys for a
+/// project guest (`:405-410`). `data.items()` on a list/scalar raises
+/// `AttributeError`, which the report's
+/// [`ViewError::Unknown`] reproduces.
+///
+/// # Errors
+///
+/// [`ViewError::Unknown`] when the value is not a JSON object.
+pub(crate) fn accepted_data_from(value: &Json, patch: bool) -> Result<Json, ViewError> {
+    match value {
+        Json::Dict(_) => Ok(accepted_value(value, patch)),
+        other => Err(ViewError::Unknown(format!(
+            "AttributeError: '{}' object has no attribute 'items'",
+            python_type_name(other)
+        ))),
+    }
+}
+
+/// Python's `type(value).__name__` for a request-body value.
+fn python_type_name(value: &Json) -> &'static str {
+    match value {
+        Json::Null => "NoneType",
+        Json::Bool(_) => "bool",
+        Json::Int(_) => "int",
+        Json::Float(_) => "float",
+        Json::Str(_) => "str",
+        Json::List(_) => "list",
+        Json::Dict(_) => "dict",
+    }
+}
+
+/// `key == "skip_activity" || key in READ_ONLY_ON_CREATE || (patch &&
+/// key == "is_draft")`. `skip_activity` is popped before the Python reads the
+/// body, so it never reaches the dict; keeping the name here means a caller
+/// over the unpopped body matches too.
+fn read_only_key(key: &str, patch: bool) -> bool {
+    key == "skip_activity" || READ_ONLY_ON_CREATE.contains(&key) || (patch && key == "is_draft")
+}
+
+/// The object branch of [`accepted_data`], shared with
+/// [`accepted_data_from`].
+fn accepted_value(value: &Json, patch: bool) -> Json {
+    let Json::Dict(object) = value else {
+        return value.clone();
+    };
+    let mut out = PyDict::with_capacity(object.len());
+    for (key, value) in object.iter() {
+        let Some(key_text) = key.as_str() else {
+            out.insert(key.clone(), value.clone());
+            continue;
+        };
+        if !read_only_key(key_text, patch) {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    Json::Dict(out)
 }
 
 /// `base_host(request=request, is_app=True)` (`plane/utils/host.py:17-57`).

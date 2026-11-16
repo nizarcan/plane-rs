@@ -1,0 +1,928 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Intake-issue PATCH (`plans/INTAKE.md` set C):
+#
+#   PATCH /api/workspaces/{slug}/projects/{project_id}/intake-issues/{pk}/   (56)
+#   PATCH /api/workspaces/{slug}/projects/{project_id}/inbox-issues/{pk}/    (60)
+#
+# `{pk}` is the **issue** id, not the link's.
+#
+# Covers, in the plan's order:
+#
+#   * the flags popped before anything else (`skip_activity`, `issue`) and the
+#     `intake.activity.created` payload that therefore carries neither;
+#   * the intake lookup (missing intake → 404, soft-deleted link → 404, unknown
+#     issue → 404);
+#   * the permission's unscoped creator check (member-as-creator vs member,
+#     guest-as-creator vs guest, a workspace member with no project row) and
+#     the handler's guest 400 "You cannot edit intake issues";
+#   * the nested `IssueCreateSerializer` with `allow_triage_state=True`: name,
+#     priority, assignees/labels replacement, a triage state (allowed) and a
+#     normal state (400 "State is not valid…", which wins over the intake
+#     serializer's errors), a soft-deleted label (indexed 400), a foreign issue
+#     state, a non-mapping `issue` (500) and the falsy `issue` bodies;
+#   * the intake serializer only for admin/workspace-admin, every status
+#     (-2/1/0/2), the accept triage→default move (H10a/H10b/H12/H01, no
+#     activity published for the move), the accept guard's 400 for a project
+#     with no default state, and a non-triage accept that touches no issue;
+#   * `snoozed_till`: a datetime floored in the **project** timezone (beta,
+#     Europe/Berlin) against the same naive value in alpha (UTC), a bare
+#     `YYYY-MM-DD` through `snooze_day_start`, `null`, an unchanged
+#     non-midnight stored value, and an unparseable value (400);
+#   * the writable `created_by`, the read-only fields, `source`'s max length and
+#     the unknown keys;
+#   * `skip_activity` with and without `description_html`;
+#   * form bodies (`skip_activity=` is a non-empty list, so true; `issue=` is a
+#     list, so a truthy non-mapping → 500), the origin check and an anonymous
+#     call.
+#
+# `intake-issues-patch-fixture.sql` seeds the rows nothing else provides: the
+# triage-issue link, the no-default-state project, the guest/member creators and
+# the beta snoozes.
+
+name: write-intake-issues-patch
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/intake-issues-patch-fixture.sql"
+  ws: "fix-workspace"
+  ws_second: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_zeta: "57f663a9-c4d7-4b66-b322-444bbc3d8e9f"
+  project_iota: "b1000000-0000-4000-8000-000000000001"
+  project_kappa: "b1000000-0000-4000-8000-000000000007"
+  intake_alpha: "826885ac-00cd-47cd-b54a-77a52004021c"
+  user_admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_member2_id: "bc437914-c250-4c9f-ac69-85003fdf6205"
+  user_guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  state_alpha_backlog: "5943efbb-5e08-4133-bf4a-e9547a8691ec"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
+  state_alpha_done: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+  state_beta_backlog: "85defd20-a58b-40d3-953f-0bba411719e1"
+  state_alpha_blocked_deleted: "2bdcaf4d-d7f3-47f0-af9b-49c892445067"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  label_alpha_feature: "4e684b34-0406-4516-96ce-361f9f3f1665"
+  label_alpha_deleted: "f55108ee-e5be-4439-afb8-7dbcb9b80b83"
+  # The rich fixture's own links.
+  issue_alpha_pending: "27a64497-44aa-446b-8136-8197010dea71"
+  issue_alpha_snoozed: "af5220dc-dd0b-4ca5-bccf-3e7e8b919b0f"
+  issue_alpha_draft: "e069169e-25e6-4db6-a049-8e1141ca95d2"
+  issue_alpha_deleted: "0c82df87-27e2-4961-9b88-c5446b1d5f02"
+  issue_beta: "2039d0ab-2732-436d-8b51-eecfa854c8fe"
+  issue_beta_deleted: "40388dc9-4afe-4bed-9710-782573b6f03e"
+  # This scenario's fixture (see the .sql file's id table).
+  issue_iota_triage: "b1000000-0000-4000-8000-000000000004"
+  issue_alpha_triage: "ee000000-0000-4000-8000-000000000001"
+  issue_alpha_nontriage: "ee000000-0000-4000-8000-000000000003"
+  issue_alpha_member_owned: "ee000000-0000-4000-8000-000000000005"
+  issue_alpha_admin_owned: "ee000000-0000-4000-8000-000000000007"
+  issue_alpha_guest_owned: "ee000000-0000-4000-8000-000000000009"
+  issue_alpha_guest_not_creator: "ee000000-0000-4000-8000-00000000000b"
+  issue_alpha_created_by: "ee000000-0000-4000-8000-000000000011"
+  issue_alpha_duplicate_target: "ee000000-0000-4000-8000-000000000013"
+  issue_alpha_nested: "ee000000-0000-4000-8000-000000000015"
+  issue_alpha_skip_activity: "ee000000-0000-4000-8000-000000000017"
+  issue_alpha_soft_link: "ee000000-0000-4000-8000-000000000019"
+  issue_alpha_deleted_issue: "ee000000-0000-4000-8000-00000000001a"
+  issue_alpha_triage_stale: "ee000000-0000-4000-8000-00000000001c"
+  issue_alpha_ws_admin_guest: "ee000000-0000-4000-8000-00000000001e"
+  issue_beta_snooze_held: "ee000000-0000-4000-8000-000000000021"
+  issue_beta_snooze_datetime: "ee000000-0000-4000-8000-000000000023"
+  issue_beta_snooze_date: "ee000000-0000-4000-8000-000000000025"
+  issue_beta_snooze_null: "ee000000-0000-4000-8000-000000000027"
+  issue_alpha_snooze_utc: "ee000000-0000-4000-8000-000000000029"
+  issue_unknown: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- accept: the triage→default move -------------------------------------
+  # `status: 1` on a triage issue: the serializer's guard finds alpha's default
+  # (Backlog), then `issue.save()` moves the issue with a full save — H10a,
+  # H10b (`completed_at` cleared, the new group is `backlog`), H12 and H01, so
+  # `updated_by` becomes the actor. No issue activity is published for the move
+  # itself; the `intake.activity.created` message is.
+  - name: ip-01-accept-triage
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_triage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 1
+    expect_status: 200
+
+  # Accepting a non-triage issue changes only the link.
+  - name: ip-02-accept-non-triage
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 1
+    expect_status: 200
+
+  # The project has a triage state and no default state: the serializer's
+  # `validate` 400s and nothing is written (see the next step's DB diff).
+  - name: ip-03-accept-no-default-state
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_iota}}/intake-issues/{{issue_iota_triage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 1
+    expect_status: 400
+
+  # Accepting with `snoozed_till` present still 400s on the status key only.
+  - name: ip-04-accept-no-default-state-snooze
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_iota}}/intake-issues/{{issue_iota_triage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 1
+      snoozed_till: "2026-11-21"
+    expect_status: 400
+
+  # Accept **and** edit the issue in one request: the nested save runs first
+  # (`:435`), then `IntakeIssueSerializer.update` reads `instance.issue` — the
+  # object `validate` cached *before* the save — so the move writes that stale
+  # row back and the rename is reverted. Ported as it is.
+  - name: ip-01b-accept-with-nested-edit
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_triage_stale}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 1
+      issue:
+        name: "Renamed then reverted"
+        priority: "urgent"
+    expect_status: 200
+
+  # --- the other statuses ---------------------------------------------------
+  - name: ip-05-decline
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 200
+
+  # A snooze leaves the issue alone and stores the datetime floored to the
+  # project's midnight (alpha is UTC, the caller is UTC: 2026-11-20T00:00Z).
+  - name: ip-06-snooze-alpha-datetime
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_snoozed}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 0
+      snoozed_till: "2026-11-21T00:30:00"
+    expect_status: 200
+
+  # The same naive value in beta (Europe/Berlin): DRF reads it as the user's
+  # UTC 00:30, H16 floors it to Berlin-local midnight → 2026-11-20T23:00Z.
+  - name: ip-07-snooze-beta-datetime
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{issue_beta_snooze_datetime}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      snoozed_till: "2026-11-21T00:30:00"
+    expect_status: 200
+
+  # The same naive value against alpha (UTC) — the pair pins the project
+  # timezone rather than the user's.
+  - name: ip-08-snooze-alpha-same-value
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_snooze_utc}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      snoozed_till: "2026-11-21T00:30:00"
+    expect_status: 200
+
+  # A bare date goes through `snooze_day_start` (project timezone) before H16.
+  - name: ip-09-snooze-beta-date-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{issue_beta_snooze_date}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      snoozed_till: "2026-11-25"
+    expect_status: 200
+
+  # `null` skips the conversion and the floor.
+  - name: ip-10-snooze-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{issue_beta_snooze_null}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      snoozed_till: null
+    expect_status: 200
+
+  # A stored non-midnight value that the body does not name stays exactly as
+  # it is: H16 only floors a *changed* snooze.
+  - name: ip-11-snooze-unchanged-non-midnight
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{issue_beta_snooze_held}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 200
+
+  # An unparseable value is the field's own 400.
+  - name: ip-12-snooze-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{issue_beta_snooze_datetime}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      snoozed_till: "not-a-date"
+    expect_status: 400
+
+  # `duplicate` with a target: `PrimaryKeyRelatedField(queryset=Issue.objects)`,
+  # so any live issue of any project is accepted.
+  - name: ip-13-duplicate-with-target
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_created_by}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 2
+      duplicate_to: "{{issue_beta}}"
+    expect_status: 200
+
+  # A soft-deleted target is DRF's `Invalid pk …` (the manager predicate the
+  # generated table's `SELECT 1` cannot see).
+  - name: ip-14-duplicate-soft-deleted-target
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 2
+      duplicate_to: "{{issue_beta_deleted}}"
+    expect_status: 400
+
+  - name: ip-15-duplicate-unknown-target
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      duplicate_to: "{{issue_unknown}}"
+    expect_status: 400
+
+  # `status` is a ChoiceField over `str(data)`.
+  - name: ip-16-status-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 7
+    expect_status: 400
+
+  - name: ip-17-status-string-accepted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: "-2"
+    expect_status: 200
+
+  # `source` is `CharField(max_length=255, blank=True)`: blank is fine, 256
+  # characters is not, `null` is fine.
+  - name: ip-18-source-too-long
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      source: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    expect_status: 400
+
+  - name: ip-19-source-blank-and-unknown-key
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      source: ""
+      id: "11111111-1111-4111-8111-111111111111"
+      issue_id: "22222222-2222-4222-8222-222222222222"
+      project: "{{project_beta}}"
+      workspace: "{{ws_second}}"
+    expect_status: 200
+
+  # --- the nested issue -----------------------------------------------------
+  # Every nested field: name, priority, the assignee/label replacement (the
+  # pre-seeded through rows are soft-deleted, the new ones inserted).
+  - name: ip-20-nested-full
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -2
+      issue:
+        name: "Nested renamed"
+        priority: "urgent"
+        assignee_ids: ["{{user_admin_id}}", "{{user_member_id}}"]
+        label_ids: ["{{label_alpha_feature}}"]
+    expect_status: 200
+
+  # A triage state is allowed here (`allow_triage_state=True`, the context the
+  # intake view passes) and the issue moves into it — no default-state move
+  # happens unless `status` also changes.
+  - name: ip-21-nested-triage-state
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        state_id: "{{state_alpha_triage}}"
+    expect_status: 200
+
+  # A *normal* state fails the triage manager's project check.
+  - name: ip-22-nested-normal-state
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        state_id: "{{state_alpha_todo}}"
+    expect_status: 400
+
+  # The intake serializer's own error is never reported when the nested issue
+  # serializer fails: both keys are invalid here.
+  - name: ip-23-nested-errors-win
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 9
+      issue:
+        state_id: "{{state_alpha_todo}}"
+    expect_status: 400
+
+  - name: ip-24-nested-foreign-state
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        state_id: "{{state_beta_backlog}}"
+    expect_status: 400
+
+  - name: ip-25-nested-soft-deleted-state
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        state_id: "{{state_alpha_blocked_deleted}}"
+    expect_status: 400
+
+  # A soft-deleted label: the serializer's `Label.objects` re-check reports the
+  # element's index (`recheck_manager_fields`), the field's own `SELECT 1`
+  # having passed.
+  - name: ip-26-nested-soft-deleted-label
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        label_ids: ["{{label_alpha_deleted}}"]
+    expect_status: 400
+
+  # An assignee who is not an active member with role >= 15 is silently
+  # dropped by `ProjectMember.objects.filter(role__gte=15)`, so the request
+  # succeeds with no assignees.
+  - name: ip-27-nested-guest-assignee-dropped
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        assignee_ids: ["{{user_guest_id}}"]
+    expect_status: 200
+
+  # A falsy `issue` skips the nested serializer; the intake one still runs.
+  - name: ip-28-nested-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -2
+      issue: null
+    expect_status: 200
+
+  - name: ip-29-nested-empty-object
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue: {}
+    expect_status: 200
+
+  - name: ip-30-nested-false
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue: false
+    expect_status: 200
+
+  # A truthy non-mapping `issue` for an admin is `writable_data`'s `.items()`
+  # AttributeError — a 500, not the nested serializer's 400.
+  - name: ip-31-nested-list-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue: ["a"]
+    expect_status: 500
+
+  # An unknown key inside the nested serializer is ignored (DRF), and a
+  # read-only one (`is_draft`) too.
+  - name: ip-32-nested-unknown-and-read-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        name: "Nested again"
+        is_draft: true
+        sequence_id: 4242
+        unknown_key: "kept in requested_data"
+    expect_status: 200
+
+  # --- skip_activity --------------------------------------------------------
+  # Without `description_html`, `skip_activity` does not suppress the issue
+  # activity: `is_migration_description_update` is false.
+  - name: ip-33-skip-activity-without-description
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_skip_activity}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      skip_activity: true
+      issue:
+        name: "Skip without description"
+    expect_status: 200
+
+  # With both flags the three issue publishes are suppressed; the writes and
+  # the intake activity still happen.
+  - name: ip-34-skip-activity-with-description
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_skip_activity}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      skip_activity: true
+      description_html: "<p>ignored by both serializers</p>"
+      issue:
+        name: "Skip with description"
+    expect_status: 200
+
+  # --- the permission matrix ------------------------------------------------
+  # A member (role 15) who is the issue's creator: allowed by the decorator's
+  # creator branch. The intake serializer never runs (role is not > MEMBER), so
+  # the body's `status` is ignored; the nested issue is reduced to the three
+  # keys the guest/member branch allows.
+  - name: ip-35-member-is-creator
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_member_owned}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      status: 1
+      issue:
+        name: "Member rename"
+        priority: "urgent"
+    expect_status: 200
+
+  # A member who is not the creator: the decorator's role list is ADMIN only.
+  - name: ip-36-member-not-creator
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_admin_owned}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      status: -1
+    expect_status: 403
+
+  # A guest who is the issue's creator and the link's creator: the whole guest
+  # path runs.
+  - name: ip-37-guest-is-creator
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_guest_owned}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      status: -1
+      issue:
+        name: "Guest rename"
+        priority: "urgent"
+    expect_status: 200
+
+  # A guest who is the issue's creator but not the link's creator: the
+  # decorator allows, the handler answers 400.
+  - name: ip-38-guest-not-link-creator
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_guest_not_creator}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      status: -1
+    expect_status: 400
+
+  # A second guest who is neither the issue's creator nor an admin.
+  - name: ip-39-guest2-denied
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_guest_owned}}/"
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+    json:
+      status: -1
+    expect_status: 403
+
+  # A workspace member with no project membership: the decorator's project
+  # branch fails before any role check.
+  # A workspace ADMIN whose alpha project role is GUEST: the permission's
+  # fallback admits them, the handler's guest 400 is skipped, the intake
+  # serializer runs — and the nested body is reduced anyway, because the
+  # reduction tests the project role only (`base.py:405`).
+  - name: ip-39b-workspace-admin-project-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_ws_admin_guest}}/"
+    jar: tz_berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+    json:
+      status: -1
+      issue:
+        name: "Ws admin guest rename"
+        priority: "urgent"
+    expect_status: 200
+
+  - name: ip-40-workspace-member-no-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    jar: tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+    json:
+      status: -1
+    expect_status: 403
+
+  - name: ip-41-non-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      status: -1
+    expect_status: 403
+
+  # --- lookups --------------------------------------------------------------
+  # The rich fixture's `rejected` link is soft-deleted: `IntakeIssue.objects`
+  # hides it → 404.
+  - name: ip-42-soft-deleted-link
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/ee000000-0000-4000-8000-000000000019/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 404
+
+  # The fixture's rejected link (issue `840ec3e4…`) is soft-deleted as well.
+  - name: ip-43-rich-soft-deleted-link
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/840ec3e4-55d0-4ed2-bde2-48c2d52bc40a/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 404
+
+  # Kappa has an active admin membership and no intake: `intake_id` is NULL,
+  # the link lookup matches nothing and the `DoesNotExist` is the family's 404
+  # (not a 500). The rich fixture's zeta project has no `project_members` row,
+  # so a request there stops at the permission's 403 (see ip-44b).
+  - name: ip-44-missing-intake
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_kappa}}/intake-issues/{{issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 404
+
+  # Zeta: no project membership at all → the decorator's 403, not the view's.
+  - name: ip-44b-missing-intake-no-membership
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/intake-issues/{{issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 403
+
+  - name: ip-45-unknown-issue
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_unknown}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 404
+
+  # The link exists but its issue is soft-deleted: without `issue` the view
+  # still succeeds (the re-fetch joins through the base manager)...
+  - name: ip-46-soft-deleted-issue-without-nested
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_deleted_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: -1
+    expect_status: 200
+
+  # ...while a body with `issue` 404s on `Issue.objects...get(...)`.
+  - name: ip-47-soft-deleted-issue-with-nested
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_deleted_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        name: "nope"
+    expect_status: 404
+
+  # --- the writable `created_by` --------------------------------------------
+  # `created_by` is in `IntakeIssueSerializer.Meta.fields`, so a PATCH rewrites
+  # the column the guest/delete checks read. H01 only overwrites `updated_by`.
+  - name: ip-48-created-by-writable
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_created_by}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      created_by: "{{user_member2_id}}"
+      status: 0
+    expect_status: 200
+
+  # --- the workspace-admin fallback -----------------------------------------
+  # The nonmember is a workspace ADMIN of `fix-second` only, so this is the
+  # permission's 403 rather than the fallback; the alpha admin covers the
+  # fallback in every step above (role 20 either way).
+  - name: ip-49-other-workspace-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws_second}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      status: -1
+    expect_status: 403
+
+  # --- the alias, form bodies and the CSRF/origin guard ---------------------
+  # The `inbox-issues/` path is the same view: an accept through it.
+  - name: ip-50-inbox-alias-accept
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/inbox-issues/{{issue_beta_snooze_date}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 1
+    expect_status: 200
+
+  - name: ip-51-inbox-alias-nested
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/inbox-issues/{{issue_beta_snooze_date}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      issue:
+        name: "Alias rename"
+    expect_status: 200
+
+  # A urlencoded body: DRF hands the view the parser's **immutable**
+  # `QueryDict` (there are no file parts, so `_load_data_and_files` skips the
+  # `.copy()`), and `request.data.pop(...)` on it is
+  # `AttributeError: This QueryDict instance is immutable` — a 500 before any
+  # query.
+  - name: ip-52-form-status
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      status: "-1"
+      skip_activity: ""
+    expect_status: 500
+
+  # Same immutable-body 500: the `issue` key never reaches the pop.
+  - name: ip-53-form-issue
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      issue: ""
+    expect_status: 500
+
+  - name: ip-54-bad-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json:
+      status: -1
+    expect_status: 403
+
+  - name: ip-55-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nontriage}}/"
+    headers:
+      Host: plane-fixture.test
+    json:
+      status: -1
+    expect_status: 401
+
+  # A multipart body **with** a file part takes DRF's `.copy()` branch, so the
+  # body is mutable: the pops work, the form `status` is validated and the link
+  # is written, and the `intake.activity.created` payload then hits the
+  # encoder's `TypeError: Object of type InMemoryUploadedFile is not JSON
+  # serializable` — a 500 *after* the write.
+  - name: ip-57-multipart-with-file
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        status: "1"
+      files:
+        - field: notes
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 500
+
+  # --- the response, after the writes ---------------------------------------
+  # A GET of the same link proves the row the PATCH answered with is the row
+  # `retrieve` sees (the two statements are the same query).
+  - name: ip-56-get-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_nested}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

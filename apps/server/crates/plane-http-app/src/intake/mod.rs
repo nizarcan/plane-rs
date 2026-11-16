@@ -20,15 +20,18 @@
 //! | `GET …/inboxes/` | the same `IntakeViewSet.list` | `:74` |
 //! | `GET …/inboxes/{pk}/` | the same guard-only `retrieve` | — |
 //! | `GET …/intake-issues/` | `IntakeIssueViewSet.list` | `:178` |
+//! | `PATCH …/intake-issues/{pk}/` | `IntakeIssueViewSet.partial_update` | `:335` |
 //! | `GET …/intake-issues/{pk}/` | `IntakeIssueViewSet.retrieve` | `:507` |
 //! | `GET …/inbox-issues/` | the same `list` | `:178` |
+//! | `PATCH …/inbox-issues/{pk}/` | the same `partial_update` | `:335` |
 //! | `GET …/inbox-issues/{pk}/` | the same `retrieve` | `:507` |
 //! | `GET …/intake-work-items/{work_item_id}/description-versions/` | `IntakeWorkItemDescriptionVersionEndpoint.get` | `:583` |
 //! | `GET …/description-versions/{pk}/` | the same `get` | `:583` |
 //! | `GET …/intake-state/` | `IntakeStateEndpoint.get` | `state/base.py:151` |
 //!
-//! Every write verb of these views stays on Django: they are part of the same
-//! route rows and are ported in Phase 5.
+//! The intake-issue PATCH's `{pk}` is the **issue** id. Every other write verb
+//! of these views (POST/DELETE) stays on Django: they are part of the same
+//! route rows and land in the other intake sets (`plans/INTAKE.md` §3).
 
 use plane_drf::registry::{Registry, RegistryError};
 
@@ -39,12 +42,15 @@ pub mod queries;
 pub mod render;
 pub mod state;
 pub mod versions;
+pub mod write_intake_issue_patch;
+pub mod write_intake_issue_patch_queries;
 pub mod write_queries;
 
 /// Register this group's handlers, in route order.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     base::register(registry)?;
     issue::register(registry)?;
+    write_intake_issue_patch::register(registry)?;
     versions::register(registry)?;
     state::register(registry)?;
     Ok(())

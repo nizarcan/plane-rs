@@ -77,6 +77,7 @@ pub mod deploy_board_serializer;
 pub mod draft_issue_create_serializer;
 pub mod draft_issue_detail_serializer;
 pub mod draft_issue_serializer;
+pub mod intake_issue_serializer;
 pub mod issue_attachment_serializer;
 pub mod issue_comment_serializer;
 pub mod issue_create_serializer;

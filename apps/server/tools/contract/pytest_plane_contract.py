@@ -407,6 +407,19 @@ def _debug() -> bool:
     return bool(os.environ.get("PLANE_RS_CONTRACT_DEBUG"))
 
 
+def _task_is_eager(task: Any) -> bool:
+    """Whether the task's app runs `.delay()` in-process (`task_always_eager`).
+
+    A test that flips Celery into eager mode asserts on the rows the task
+    writes, not on a published message, and the drain/replay step has to run the
+    task for a Rust-bound request the same way `apply_async` does for a
+    Django-bound one.
+    """
+    app = getattr(task, "app", None)
+    conf = getattr(app, "conf", None)
+    return bool(getattr(conf, "task_always_eager", False))
+
+
 def _tail(path: Path, lines: int = 40) -> str:
     try:
         return "\n".join(path.read_text(errors="replace").splitlines()[-lines:])
@@ -575,14 +588,29 @@ def _drain_and_replay(admin: RabbitAdmin, record: TestRecord) -> None:
             # into its `.delay` so the test sees the Rust message. Without
             # this, a mixed-backend run leaves `call_args` as `None`.
             call_sites = _call_site_mocks(attribute)
-            if not call_sites:
-                # Not patched: Django would only have published the message
-                # too, and nothing in the test consumes it.
+            if call_sites:
+                for call_site in call_sites:
+                    call_site.delay(*_decode_kombu(args), **_decode_kombu(kwargs))
+                STATE.replay_count += 1
+                record.replayed.append(task_name)
                 continue
-            for call_site in call_sites:
-                call_site.delay(*_decode_kombu(args), **_decode_kombu(kwargs))
-            STATE.replay_count += 1
-            record.replayed.append(task_name)
+            if _task_is_eager(task):
+                # `task_always_eager=True`: the test expects the task's *ORM
+                # writes*, not a published message, and Django's own request
+                # runs it in-process (`Task.apply` inside `apply_async`). Run
+                # the same call here so a Rust-bound request produces the same
+                # rows; without it such a test can never observe them.
+                if _debug():
+                    print(
+                        f"[plane-contract] replaying {task_name!r} eagerly",
+                        file=sys.stderr,
+                    )
+                delay(*_decode_kombu(args), **_decode_kombu(kwargs))
+                STATE.replay_count += 1
+                record.replayed.append(task_name)
+                continue
+            # Not patched and not eager: Django would only have published the
+            # message too, and nothing in the test consumes it.
             continue
         delay(*_decode_kombu(args), **_decode_kombu(kwargs))
         STATE.replay_count += 1

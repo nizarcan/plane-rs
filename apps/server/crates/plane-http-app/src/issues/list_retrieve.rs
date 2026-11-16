@@ -470,6 +470,56 @@ const PATCH_ANNOTATIONS: &str = "\
      AND modules.archived_at IS NULL AND module_issues.deleted_at IS NULL), \
    ARRAY[]::uuid[]) AS module_ids";
 
+/// The intake-issue PATCH's issue pre-image
+/// (`plane/app/views/intake/base.py:386-403`).
+///
+/// That queryset is `Issue.objects.annotate(label_ids=…, assignee_ids=…)`, so
+/// only those two annotations exist and the other five (`cycle_id`,
+/// `module_ids`, `sub_issues_count`, `attachment_count`, `link_count`) are
+/// `SkipField`-dropped from `IssueDetailSerializer(issue).data`. The select
+/// list is `ISSUE_COLUMNS` (28 columns, table order) followed by the two
+/// arrays — the catalog's statement is
+/// `intake/write_intake_issue_patch_queries.rs::INTAKE_ISSUE_PATCH_ISSUE`.
+///
+/// # Errors
+///
+/// A column type mismatch (impossible for the catalogued statement).
+pub(crate) fn intake_pre_image(row: &tokio_postgres::Row) -> Result<IssueDetail, ViewError> {
+    let name: String = row.get(12);
+    let description_html: String = row.get(14);
+    let priority: String = row.get(17);
+    Ok(IssueDetail {
+        id: row.get(5),
+        name,
+        state_id: row.get(9),
+        sort_order: row.get(21),
+        completed_at: row.get(22),
+        estimate_point: row.get(11),
+        priority,
+        start_date: row.get(18),
+        target_date: row.get(19),
+        sequence_id: i64::from(row.get::<_, i32>(20)),
+        project_id: row.get(6),
+        parent_id: row.get(8),
+        cycle_id: None,
+        module_ids: None,
+        label_ids: Some(row.get::<_, Option<Vec<Uuid>>>(28).unwrap_or_default()),
+        assignee_ids: Some(row.get::<_, Option<Vec<Uuid>>>(29).unwrap_or_default()),
+        sub_issues_count: None,
+        created_at: row.get(0),
+        updated_at: row.get(1),
+        created_by: row.get(2),
+        updated_by: row.get(3),
+        attachment_count: None,
+        link_count: None,
+        is_draft: row.get(24),
+        archived_at: row.get(23),
+        description_html,
+        is_subscribed: None,
+        is_intake: None,
+    })
+}
+
 /// Decode a [`patch_detail`] row; `is_subscribed`/`is_intake` are absent (the
 /// PATCH queryset does not annotate them), so `SkipField` drops them.
 #[allow(dead_code)]

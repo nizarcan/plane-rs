@@ -623,7 +623,7 @@ impl IssueIntakeRow {
 }
 
 /// The nested issue of `retrieve`, decoded from column 20 onwards.
-fn decode_detail_issue<'a>(
+pub(super) fn decode_detail_issue<'a>(
     row: &tokio_postgres::Row,
     label_ids: &'a [Uuid],
     assignee_ids: &'a [Uuid],
