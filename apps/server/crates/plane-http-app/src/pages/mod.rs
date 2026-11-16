@@ -38,6 +38,9 @@ pub mod base;
 pub mod live;
 pub mod queries;
 pub mod version;
+pub mod write_action;
+pub mod write_action_queries;
+pub mod write_description;
 pub mod write_duplicate;
 pub mod write_duplicate_queries;
 mod write_favorite;
@@ -52,10 +55,16 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .viewset("plane.app.views.page.base.PageViewSet")?
         .action("list", base::list)?
         .action("retrieve", base::retrieve)?
-        .action("summary", base::summary)?;
+        .action("summary", base::summary)?
+        // Routes 128 (`lock`/`unlock`) and 129 (`access`).
+        .action("lock", write_action::lock)?
+        .action("unlock", write_action::unlock)?
+        .action("access", write_action::access)?;
     registry
         .viewset("plane.app.views.page.base.PagesDescriptionViewSet")?
-        .action("retrieve", base::description)?;
+        .action("retrieve", base::description)?
+        // Route 130.
+        .action("partial_update", write_description::partial_update)?;
     registry
         .api_view("plane.app.views.page.version.PageVersionEndpoint")?
         .method(Method::GET, version::get)?;

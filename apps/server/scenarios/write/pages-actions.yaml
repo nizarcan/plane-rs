@@ -1,0 +1,857 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Page actions (set B) write scenario:
+#
+#   POST    /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/lock/          (128)
+#   DELETE  the same route answers `unlock`                                            (128)
+#   POST    /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/access/       (129)
+#   PATCH   /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/description/  (130)
+#
+# Covers:
+#
+#   * `lock`/`unlock`/`access`'s `Page.objects.get(...)` (one `project_pages`
+#     join, `LIMIT 21`), the full `save()` they run (H26's
+#     `description_stripped`, H01's `updated_by`/`updated_at`, every column),
+#     and the 403 `ProjectPagePermission` answers before a handler runs
+#     (private page of someone else, guest, missing page, page of another
+#     project, soft-deleted link);
+#   * `access`'s two reads of the body (`get("access", 0)` for the write,
+#     `get("access", page.access)` for the owner test), the absent-key default
+#     that makes a page public, the string-vs-int comparison, `int()`'s
+#     coercions (`true`, `1.9`, `"1"`), the `NOT NULL`/`CHECK (access >= 0)`
+#     400s, and the 500s (`"abc"`, `40000`, a list body);
+#   * the description PATCH: the locked/archived two-key bodies in order, the
+#     serializer's field order and messages (`Invalid binary data: …`,
+#     `Failed to decode base64 data`, the 10 MB message path,
+#     `Null characters are not allowed.`, `This field may not be null.`), the
+#     base64 leniencies (`"!!!"` writes an empty `bytea`,
+#     `"YWJjZA==YWJjZA=="` stops at the first complete padding), the sanitised
+#     HTML that replaces the field, `description_json: null` reaching the
+#     `NOT NULL` column, the empty body that publishes only
+#     `track_page_version`, and both tasks' arguments (the **raw** body HTML
+#     for `page_transaction`, the Django-encoded old value for
+#     `track_page_version`).
+#
+# The rows no route can create (a locked/archived page linked to a project, a
+# member-owned page, a stale `description_stripped`, a soft-deleted link) are
+# seeded by `pages-actions-fixture.sql`.
+
+name: write-pages-actions
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/pages-actions-fixture.sql"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  page_public: "717c9337-5dc8-4270-88a6-6472c486a0d5" # owned by the admin, public, linked to beta
+  page_private: "1d0ba1df-af27-4705-8ead-5b4c4ceceeaf" # owned by the member, private, linked to alpha by the fixture
+  page_locked: "2f4ab7d5-1db8-4b1b-9305-05e6985e02c4" # linked to alpha by the fixture
+  page_archived: "f73087a0-0b3f-4bb0-a8ba-5293670c42fa" # linked to alpha by the fixture
+  page_child: "18f82377-df31-4ca7-9600-a0ac60def218" # owned by the admin, private, linked to alpha
+  page_member_public: "b9000000-0000-4000-8000-000000000010" # owned by the member, public
+  page_detached: "b9000000-0000-4000-8000-000000000011" # only a soft-deleted link
+  page_stale: "b9000000-0000-4000-8000-000000000012" # description_stripped is stale
+  missing: "00000000-0000-4000-8000-000000000123"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- 128 POST lock -------------------------------------------------------
+  - name: lk-01-lock-public
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Locked is not a guard on the description route's lookup order: the 400
+  # comes before the body is parsed, so this body is never validated.
+  - name: lk-02-describe-locked
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>never written</p>"
+    expect_status: 400
+
+  # No already-locked guard: the full save runs again.
+  - name: lk-03-lock-already-locked
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_locked}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # A member who is not the owner may lock a *public* page.
+  - name: lk-04-lock-public-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/lock/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # …but not a private page of someone else (403 from the permission class).
+  - name: lk-05-lock-private-other
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/lock/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  # The owner of a private page passes.
+  - name: lk-06-lock-private-owner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_private}}/lock/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: lk-07-lock-private-not-owner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_private}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  - name: lk-08-lock-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{missing}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # A page linked to another project is denied by the permission class.
+  - name: lk-09-lock-foreign-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_public}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # The body is never read: an unparseable one still succeeds.
+  - name: lk-10-lock-unparseable-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 204
+
+  - name: lk-11-lock-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/lock/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # No archived guard either.
+  - name: lk-12-lock-archived
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archived}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: lk-13-lock-soft-deleted-link
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_detached}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # H26: the stale `description_stripped` is recomputed on this save.
+  - name: lk-14-lock-recomputes-stripped
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_stale}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # --- 128 DELETE unlock ---------------------------------------------------
+  - name: un-01-unlock-public
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: un-02-unlock-locked
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_locked}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: un-03-unlock-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/lock/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: un-04-unlock-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{missing}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  - name: un-05-unlock-public-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/lock/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # --- 129 POST access -----------------------------------------------------
+  - name: ac-01-owner-private
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 1
+    expect_status: 204
+
+  # The page is private now, so the permission class stops the member first.
+  - name: ac-02-member-private-403
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/access/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      access: 0
+    expect_status: 403
+
+  - name: ac-03-owner-public
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 0
+    expect_status: 204
+
+  # Public page, non-owner, an actual change: the handler's 400.
+  - name: ac-04-nonowner-change
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/access/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      access: 1
+    expect_status: 400
+
+  # Same value: no change, so the owner test is skipped and the save runs.
+  - name: ac-05-nonowner-same-value
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/access/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      access: 0
+    expect_status: 204
+
+  - name: ac-06-member-own-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/access/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      access: 1
+    expect_status: 204
+
+  - name: ac-07-admin-now-403
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 0
+    expect_status: 403
+
+  - name: ac-08-member-own-back
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_member_public}}/access/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      access: 0
+    expect_status: 204
+
+  # No `access` key: the comparison uses the stored value (equal), the write
+  # uses the `0` default — the page becomes public.
+  - name: ac-09-empty-body-defaults-to-public
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  # `"1"` is not `1` in Python, but the caller owns the page.
+  - name: ac-10-string-value
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: "1"
+    expect_status: 204
+
+  - name: ac-11-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: null
+    expect_status: 400
+
+  # The column's `CHECK (access >= 0)`.
+  - name: ac-12-negative
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: -1
+    expect_status: 400
+
+  - name: ac-13-too-large
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 40000
+    expect_status: 500
+
+  - name: ac-14-bad-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: "abc"
+    expect_status: 500
+
+  - name: ac-15-bool
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: true
+    expect_status: 204
+
+  # `int(1.9)` truncates.
+  - name: ac-16-float
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 1.9
+    expect_status: 204
+
+  # `request.data` is a list, which has no `.get`: the family 500.
+  - name: ac-17-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: [1]
+    expect_status: 500
+
+  # A form value is a string: `page.access != "0"` is true, but the caller owns
+  # the page, and `int("0")` writes 0.
+  - name: ac-18-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      access: "0"
+    expect_status: 204
+
+  # The member is not the owner of the admin's page: the string-vs-int test is
+  # true and the owner test fails.
+  - name: ac-19-form-nonowner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form:
+      access: "1"
+    expect_status: 400
+
+  # Any value inside `smallint` passes; the column has no upper bound in 0/1.
+  - name: ac-20-other-value
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 2
+    expect_status: 204
+
+  # `access == 2` is neither `PUBLIC_ACCESS` (0) nor `PRIVATE_ACCESS` (1), so
+  # the permission class treats the page as public; the description lookup's
+  # `Q(owned_by=user) | Q(access=0)` then misses — the handler's 404.
+  - name: ac-21-unknown-access-description-404
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/description/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      description_html: "<p>never written</p>"
+    expect_status: 404
+
+  - name: ac-22-reset-private
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/access/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      access: 1
+    expect_status: 204
+
+  - name: ac-23-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/access/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      access: 1
+    expect_status: 403
+
+  # --- 130 PATCH description ----------------------------------------------
+  # The sanitised HTML replaces the field; `page_transaction` carries the raw
+  # body value while the row stores the clean one.
+  - name: de-01-html-sanitised
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>hello</p><script>alert(1)</script>"
+    expect_status: 200
+
+  # Every field skipped: only `track_page_version` is published.
+  - name: de-02-empty-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 200
+
+  - name: de-03-binary
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_binary: "aGVsbG8gd29ybGQ="
+    expect_status: 200
+
+  - name: de-04-binary-too-short
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_binary: "YQ=="
+    expect_status: 400
+
+  # Decodes to nothing, which `validate_binary_data` treats as valid: an empty
+  # `bytea` is written.
+  - name: de-05-binary-empty-decode
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_binary: "!!!"
+    expect_status: 200
+
+  # The falsy input is returned unchanged and reaches the `bytea` column as a
+  # `str`: psycopg's text parameter is refused — the family 500.
+  - name: de-06-binary-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_binary: ""
+    expect_status: 500
+
+  - name: de-07-binary-suspicious
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_binary: "PHNjcmlwdD4="
+    expect_status: 400
+
+  # Decoding stops at the first complete padding: `b"abcd"` (4 bytes) is valid.
+  - name: de-08-binary-padded
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_binary: "YWJjZA==YWJjZA=="
+    expect_status: 200
+
+  # The serializer accepts `null`; the `NOT NULL` column is the 400.
+  - name: de-09-json-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_json: null
+    expect_status: 400
+
+  - name: de-10-json-object
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_json: {"type": "doc"}
+    expect_status: 200
+
+  - name: de-11-json-string
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_json: "x"
+    expect_status: 200
+
+  # H26's NULL rule: `""` strips to SQL NULL.
+  - name: de-12-html-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: ""
+    expect_status: 200
+
+  - name: de-13-html-nul
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "a\u0000b"
+    expect_status: 400
+
+  - name: de-14-html-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: null
+    expect_status: 400
+
+  # `CharField` coerces the int to "123" for the column, while the task keeps
+  # the raw number.
+  - name: de-15-html-int
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: 123
+    expect_status: 200
+
+  - name: de-16-member-public
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      description_html: "<p>member</p>"
+    expect_status: 200
+
+  - name: de-17-private-403
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/description/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      description_html: "<p>x</p>"
+    expect_status: 403
+
+  - name: de-18-missing-403
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{missing}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>x</p>"
+    expect_status: 403
+
+  # `un-02` unlocked it; lock it again for the two-key body.
+  - name: de-19-relock
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_locked}}/lock/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: de-20-locked
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_locked}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>x</p>"
+    expect_status: 400
+
+  - name: de-21-archived
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archived}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>x</p>"
+    expect_status: 400
+
+  # Both fields fail: `description_binary` first, then `description_html`.
+  - name: de-22-two-errors
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_binary: "YQ=="
+      description_html: null
+    expect_status: 400
+
+  # Form bodies: `description_html` is a plain string, `description_json` is
+  # parsed from its text (`is_json_string`).
+  - name: de-23-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      description_html: "<p>form</p>"
+      description_json: '{"a": 1}'
+    expect_status: 200
+
+  - name: de-24-json-empty-object
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_json: {}
+    expect_status: 200
+
+  - name: de-25-list-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: [1]
+    expect_status: 400
+
+  - name: de-26-soft-deleted-link-403
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_detached}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>x</p>"
+    expect_status: 403
+
+  # The owner of a private page can edit its description (after unlocking it:
+  # `lk-06` locked the member's own page).
+  - name: de-27-unlock-private-owner
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_private}}/lock/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: de-27b-private-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_private}}/description/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      description_html: "<p>private owner</p>"
+    expect_status: 200
+
+  # The lock/unlock cycle left the page writable again.
+  - name: de-28-after-unlock
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description_html: "<p>final</p>"
+      description_binary: "ZmluYWwgYnl0ZXM="
+    expect_status: 200

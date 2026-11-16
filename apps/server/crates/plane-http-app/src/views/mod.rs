@@ -39,7 +39,9 @@ pub mod write_view_queries;
 // Set B: view favourites (183/184) and the member `workspace-views` write (198).
 mod write_favorite;
 mod write_member_views;
-mod write_support;
+// `pages` reuses `body_get`/`integrity` (the page action routes read
+// `request.data` the same way).
+pub(crate) mod write_support;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
