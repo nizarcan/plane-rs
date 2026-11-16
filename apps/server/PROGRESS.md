@@ -129,9 +129,41 @@ Known gaps, all recorded in the module docs and `ROUTES.md`:
 
 Environment: dev Postgres raised to 640 MiB (OOM kills at 384 MiB under concurrent difftests). Domain ports run in separate git worktrees (one branch per domain, `rs/<domain>`), merged into `rust-rewrite` after review, so one agent's in-progress code never breaks another's build.
 
+### Phase 3 wave 1 (merged 2026-11-16)
+
+Every route below was verified Django vs Rust by its agent, re-run by the orchestrator on
+isolated ports/Redis DBs, merged from its worktree branch, built and tested on the merge
+commit, and only then flipped to `rust(GET)` in `ROUTES.md`.
+
+| Domain | GET endpoints on Rust | Held on Django (reason) |
+| --- | --- | --- |
+| meta | 1 (`/api/timezones/`, incl. the D5a page cache) | `/api/unsplash/` (wave 2) |
+| users-me | 18 | – |
+| workspaces | 26 | – |
+| projects, states, labels, estimates | 24 | – |
+| issue sub-resources | 16 | – |
+| issue lists/detail | 12 | `issues/`, `/workspaces/{slug}/issues/` (m2m grouping, D16); `archived-issues/`, `sub-issues/` (not ported) |
+| cycles, modules | 22 | `cycle-issues/`, `modules/{id}/issues/` (m2m grouping, D16) |
+
+Total: **119 GET endpoints** routed to `plane-api`. Rust never makes more SQL round trips
+than Django on these routes and usually fewer (e.g. user activity 24 → 2, issue history
+29 → 9, comments 31 → 7, sidebar preferences 33 → 4); issue lists measured 3–6x faster
+than Django on the dev stack (`issues/` 40 ms vs 183 ms, cycle list 6 ms vs 40 ms).
+
+Framework work done alongside: absent-vs-null serializer fields (`FieldValue`),
+`ApiError::NotFoundDetail`, `JsonText` binding, `PyInterner` (byte-identical cached
+pickles), harness per-target port ranges and Redis DBs in managed mode, registry
+invariants (each domain registers only its group's actions; every `rust` row in
+`ROUTES.md` must be registered), the central schema check over every catalog
+(150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
+
 ## In flight
 
-- Phase 3 wave 1 GET ports, one worktree each: `users-me`; `workspaces`; `projects`+`states`+`labels`+`estimates`; issue lists/detail; issue sub-resources; `cycles`+`modules`.
+- Wave 2 GET ports (one worktree each): views/stickies/search/webhooks; pages;
+  intake/notifications; analytics; assets + `/api/unsplash/`.
+- `plane-query` batch: filter-backend selection, `issue_group_values` key order and
+  empty pages, per-view `distinct`, count projections, scope hook, generic paginator,
+  D16 harness rule; then the six held/unported issue, cycle and module list routes.
 
 ## Follow-ups (not blocking)
 
@@ -147,8 +179,13 @@ Environment: dev Postgres raised to 640 MiB (OOM kills at 384 MiB under concurre
   token shape; the fixture uses 64-hex tokens everywhere to fit. Make the rules path-scoped.
 - Issue list SQL is DB-bound (grouped list 18.9 ms Rust vs 37.5 ms Python on the dev stack):
   profile the generated statements with `EXPLAIN ANALYZE` in the performance pass.
-- S3 presigning (D6) is not built yet; attachment and asset GETs that answer 302 to a
-  presigned URL wait for it.
+- `ViewCtx` has no storage (`plane-storage`) or outbound HTTP (`plane-net`) handle yet;
+  wave 2 asset code builds them per module. Add accessors like `cache()`/`celery()`.
+- Rows ordered by Django without a unique tiebreak (or with no `ORDER BY`) come out in
+  the planner's order. Rust issues the same query shape so the planner behaves the same,
+  but that order is not a guarantee on either side.
+- `plane-auth` is a direct dependency of `plane-http-app` only to build a `PermCtx`
+  (no id-only constructor in `plane-permissions`).
 
 ## Known transport-level differences (not visible to browsers)
 
@@ -239,9 +276,10 @@ Environment: dev Postgres raised to 640 MiB (OOM kills at 384 MiB under concurre
 
 ## Next three steps
 
-1. Review and merge wave 1 branches; flip verified routes to `rust(GET)` in `ROUTES.md`.
-2. Wave 2: views, pages, intake, notifications, search, stickies, webhooks, analytics,
-   assets (after D6 S3 presigning), and the remaining `meta` route (`/api/unsplash/`, needs
-   the D9 outbound HTTP client).
-3. Phase 3 exit: every app-group GET verified Django vs Rust; then the Phase 3 benchmark
-   row in `BENCH.md` on authenticated read scenarios.
+1. Review and merge wave 2 and the `plane-query` batch; flip verified routes.
+2. Phase 3 exit: every app-group GET verified Django vs Rust (`ROUTES.md` shows no
+   `django` app GET); then the Phase 3 benchmark row in `BENCH.md` on authenticated read
+   scenarios (issue lists, cycles, users/me) for Django vs Rust, and a first Linux
+   container measurement.
+3. Phase 4 (job plumbing): Postgres queue in `plane-jobs`, `plane-worker`, `plane-beat`
+   with advisory locks; the Celery publisher already exists.
