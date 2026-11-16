@@ -759,9 +759,20 @@ and only `verified` rows are Rust-owned.
   visits via `fixture_sql`). No contract test reaches these routes. Upstream quirks kept:
   114/115 always 500; archive has no already-archived guard; H21's MIN includes archived
   modules.
-- Open, being settled: set A found that `write::request_data_arg` raises on form bodies,
-  while Python's encoders accept a `QueryDict` (last value per key). It is used by live
-  project and cycle routes, and a second copy serves issue links and relations.
+- `request.data` task arguments fixed (merged `163ab59179`). Every publish site
+  answered 500 on a form body; Django flattens a `QueryDict` to its last value per key
+  (inline, or via `json.dumps`), and only a multipart file makes the encoder raise
+  (after the write, where Django writes first). Project create/PATCH now reproduce
+  `{**request.data}`'s per-key lists (a populated form is a 400). **`plane-drf`'s
+  multipart parser read only the first part**; fixed, with tests. One shared
+  `write::request_data_{value,arg,json_text}`. Live routes affected: project
+  create/PATCH, cycles and modules create/PATCH, link PATCH, relation remove. Verified:
+  879 tests, all 16 write scenarios both ways (new form/multipart steps), the full read
+  sweep.
+- Found by the views planner: cycle and module destroy hard-delete `user_recent_visits`
+  without the `SoftDeletionManager`'s `deleted_at IS NULL` (Django:
+  `UserRecentVisit.objects.filter(...).delete(soft=False)`); issue delete has it. Being
+  fixed with an audit of every hard-delete statement.
 - Modules set B (merged `4684f963d7`): 105 `rust(POST)`, 106/108/110 `rust(GET,POST)`,
   107 `rust(GET,DELETE)` (PUT/PATCH are Django's 405s with no step), 109
   `rust(GET,PUT,PATCH,DELETE)` (module-link PUT is a real update and covered), 111
@@ -773,9 +784,9 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. Merge the `request_data_arg` fix with form-body steps on every
-   live call site.
-2. Then views → pages → intake → notifications → favourites → webhooks → exports →
-   analytics → search, each planned read-only first by a fresh agent.
+1. In progress: the hard-delete manager audit (`rs-p5-mo-a`); views sets A (178–181)
+   and B (183/184/198) per `plans/VIEWS.md`, fresh agents.
+2. Then pages → intake → notifications → favourites → webhooks → exports → analytics →
+   search, each planned read-only first by a fresh agent.
 3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items, cycles and
    modules are in.
