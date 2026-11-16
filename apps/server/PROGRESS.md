@@ -187,10 +187,18 @@ invariants (each domain registers only its group's actions; every `rust` row in
   - 145 does an unguarded `int(role)`;
   - there's no last-admin guard outside `leave`;
   - 143 can write partially.
-- **Held:** deploy boards 151/152. The orchestrator's contract run (`--assume-rust`) has
-  2 failures on create: Rust answers 200, but Django's ORM finds no `DeployBoard` row.
-  The differential scenario missed it, because each side was consistent with itself.
-  Sent back with steps to add.
+- Deploy boards fixed and merged (`6dde9e71b9`):
+  - create skipped `get_or_create`'s INSERT branch, and its binds were out of order;
+  - a `placeholder_if_new` rule for generated `anchor`s gives the insert branch
+    differential steps (`write/projects-extra.yaml` 40/40 in both directions);
+  - the orchestrator's contract run is 18/18; gates, selftest 133 and the full read
+    sweep pass.
+
+  **Flipped:** 151 `rust(GET,POST)`, 152 `rust(GET,PATCH,DELETE)`. Lesson: differential
+  scenarios must exercise both branches of every get-or-create.
+- One `plane-api` target died mid-sweep with no panic and no SIGTERM (an outside kill,
+  most likely another agent's cleanup). The file re-ran 102/102. Agents must stop
+  processes by PID only.
 - The first attempt overran: project create is one handler plus about 15 supporting
   pieces. Lesson: split heavy domains into shared pieces first, then parallel route
   sets.
