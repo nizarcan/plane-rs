@@ -1,0 +1,373 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Pages set C — page favourites (route 126):
+#
+#   POST   /api/workspaces/{slug}/projects/{project_id}/favorite-pages/{page_id}/
+#   DELETE the same path
+#
+# Covers `PageFavoriteViewSet.create`/`.destroy` (`plane/app/views/page/base.py:466-492`):
+#
+#   * the create gate `get_favorite_entities("page", …)`: a live page linked to
+#     the URL project through a live `ProjectPage` (a soft-deleted link is a
+#     404), visible to an active member of the unarchived project, and owned by
+#     the caller or `access=0`. A private page of another member is 404, a page
+#     linked only to another project is 404, a missing page is 404. The page's
+#     own `archived_at` is **not** in the gate, so an archived page is
+#     favouritable (like an archived view against 183).
+#   * the partial unique constraint `(entity_type, entity_identifier, user)
+#     WHERE deleted_at IS NULL`: a duplicate POST is an IntegrityError → family
+#     400, while a POST over a soft-deleted favourite of the same page succeeds;
+#   * the body is never read (the entity id is the URL kwarg), unlike 183/110:
+#     POST with `{}` against a page whose only favourite is soft-deleted is 204;
+#   * the `@allow_permission([ADMIN, MEMBER])` gate: project guest, non-member
+#     and soft-deleted project member answer 403 on both verbs; a foreign
+#     `Origin` is 403 before the handler; a non-UUID path segment is 404;
+#   * destroy's lookup is per project and per user (`project`, `workspace__slug`,
+#     `entity_identifier`, `entity_type`, `user`), so the right page through the
+#     wrong project is 404 and one user's delete leaves another's row alone;
+#   * destroy's `delete(soft=False)` is Django's deletion collector, not a bare
+#     `DELETE WHERE id`: the fixture's favourite tree on `Favourite Cascade
+#     Page` (live child, soft-deleted child, and a grandchild under each) must
+#     all disappear with the parent, because `user_favorites.parent` is
+#     `on_delete=CASCADE` and the cascade reads `_base_manager`
+#     (`plane/db/models/favorite.py:25-31`, `django/db/models/deletion.py:398-410`).
+#     The modules (110/111) and views (183/184) ports answer this with a
+#     single-row delete; if they are right, this step diffs.
+#   * a soft-deleted favourite of the caller is a 404 for destroy (the lookup's
+#     manager filters `deleted_at IS NULL`) and survives the whole run.
+#
+# Fixture: `page-favorites-fixture.sql` (pages `d0…`, links `d1…`, favourites
+# `d2…`). Project Alpha's rich-fixture pages are `page_project` (public) and
+# `page_child` (private, owned by the admin); `page_public` is linked to Beta
+# only. Member already owns a live page favourite for `page_project`
+# (`favorite:page:with-project`), so the admin's create is not a duplicate.
+
+name: write-page-favorites
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/page-favorites-fixture.sql"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  page_project: "a0eb70c7-531a-4fb1-bd48-6c746066c310"
+  page_child: "18f82377-df31-4ca7-9600-a0ac60def218"
+  page_public: "717c9337-5dc8-4270-88a6-6472c486a0d5"
+  page_archived: "d0000000-0000-4000-8000-000000000001"
+  page_cascade: "d0000000-0000-4000-8000-000000000002"
+  page_detached: "d0000000-0000-4000-8000-000000000003"
+  page_soft_deleted_favorite: "d0000000-0000-4000-8000-000000000004"
+  unknown_page: "55555555-5555-4555-8555-555555555555"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- 126 POST: the page gate and H25 -------------------------------------
+  - name: wpf-01-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The partial unique index `(entity_type, entity_identifier, user) WHERE
+  # deleted_at IS NULL` makes the second POST an IntegrityError → family 400.
+  - name: wpf-02-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Private page owned by the caller: `owned_by = user` passes.
+  - name: wpf-03-create-private-own
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_child}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Private page owned by someone else: `owned_by` misses and `access = 0`
+  # fails.
+  - name: wpf-04-create-private-other
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_child}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # Linked to Beta only: the `project_pages` join misses for Alpha.
+  - name: wpf-05-create-other-project-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_public}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The gate has no page `archived_at` predicate: an archived page is
+  # favouritable.
+  - name: wpf-06-create-archived-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The `ProjectPage` link is soft-deleted: `project_pages.deleted_at IS NULL`
+  # misses.
+  - name: wpf-07-create-detached-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_detached}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wpf-08-create-unknown-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{unknown_page}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The decorator allows ADMIN/MEMBER only: a project guest of an unarchived
+  # project is refused before the gate's guest branch could matter.
+  - name: wpf-09-create-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wpf-10-create-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # A soft-deleted `ProjectMember` row: the manager filters it, so no role.
+  - name: wpf-11-create-deleted-member-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    expect_status: 403
+
+  # The URL's `<uuid:page_id>` converter answers before any handler.
+  - name: wpf-12-create-bad-uuid-path
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wpf-13-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- 126 DELETE: lookup and the collector --------------------------------
+  # Only a **soft-deleted** favourite exists for this page: the lookup's
+  # manager filters `deleted_at IS NULL`, so it is a 404 and the row survives
+  # the run.
+  - name: wpf-14-delete-soft-deleted-favorite
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_soft_deleted_favorite}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The body is never read: the same page, whose only favourite is
+  # soft-deleted, gets a live favourite from an empty JSON object.
+  - name: wpf-15-create-empty-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_soft_deleted_favorite}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  - name: wpf-16-delete-live-favorite
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_soft_deleted_favorite}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The soft-deleted row is still there (and still filtered), so 404.
+  - name: wpf-17-delete-soft-deleted-favorite-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_soft_deleted_favorite}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `project=project_id` is part of the lookup: the right page through the
+  # wrong project is a 404 and leaves the fixture tree in place.
+  - name: wpf-18-delete-wrong-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/favorite-pages/{{page_cascade}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The collector: this favourite has a live child, a soft-deleted child and a
+  # grandchild under each. Django's `delete(soft=False)` deletes all five rows
+  # (`user_favorites.parent` is CASCADE and read through `_base_manager`).
+  - name: wpf-19-delete-cascade
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_cascade}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wpf-20-delete-cascade-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_cascade}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The favourite created at wpf-01.
+  - name: wpf-21-delete-created
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wpf-22-delete-created-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The rich fixture's own member page favourite for this page
+  # (`favorite:page:with-project`, project Alpha): deleting it as its owner
+  # leaves the admin's row deleted above and vice versa.
+  - name: wpf-23-delete-member-fixture-row
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wpf-24-delete-member-fixture-row-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_project}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # The favourite created at wpf-03.
+  - name: wpf-25-delete-private-own
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_child}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wpf-26-delete-unknown-page
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{unknown_page}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wpf-27-delete-guest-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_archived}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wpf-28-delete-nonmember-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_archived}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: wpf-29-delete-deleted-member-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/{{page_archived}}/"
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    expect_status: 403
+
+  - name: wpf-30-delete-bad-uuid-path
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/favorite-pages/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
