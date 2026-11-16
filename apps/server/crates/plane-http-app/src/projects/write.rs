@@ -2138,7 +2138,13 @@ fn push_datetime(
     key: &str,
     value: DateTime<Utc>,
 ) -> Result<(), ViewError> {
-    push_value(out, first, key, &plane_serde::values::DjangoDateTime(value))
+    // `ProjectSerializer(project).data` is a *serialized* dict: DRF's
+    // `DateTimeField.to_representation` already turned the datetime into an
+    // ISO-8601 **string** (microseconds kept, `+00:00` -> `Z`), so
+    // `json.dumps` never reaches `DjangoJSONEncoder.default` for it. Using the
+    // Django encoder's millisecond form here shortened the repr by three
+    // characters and shifted the `saferepr` truncation point.
+    push_value(out, first, key, &plane_serde::values::DrfDateTime(value))
 }
 
 fn push_datetime_opt(

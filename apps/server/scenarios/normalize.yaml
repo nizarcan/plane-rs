@@ -392,9 +392,3 @@ volatile_celery_headers:
   - name: origin
     mode: drop
     why: "hostname:pid of the publishing process, which differs per gunicorn worker"
-  - name: argsrepr
-    mode: drop
-    why: "Python repr header (TASKS.md §2.7): Celery truncates it at 1024 characters, so the tail shifts with the harness's placeholder lengths; the golden celery messages pin the renderer (tools/celery/golden)"
-  - name: kwargsrepr
-    mode: drop
-    why: "Python repr header (TASKS.md §2.7): Celery truncates it at 1024 characters, so the tail shifts with the harness's placeholder lengths; the golden celery messages pin the renderer (tools/celery/golden)"

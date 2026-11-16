@@ -1539,6 +1539,52 @@ pub fn run() -> Result<()> {
         !message_a.headers.contains_key("id"),
     )?;
 
+    // `argsrepr`/`kwargsrepr` are `saferepr(kwargs, 1024)`. An untruncated pair
+    // is exact; a truncated pair is compared by the prefix before Celery's
+    // `, ...` marker, because the harness's placeholders shift the tail.
+    let mut repr_exact_a = celery_message("plane.tasks.issue_activity", json!([]));
+    repr_exact_a
+        .headers
+        .insert("argsrepr".to_string(), json!("('alpha', 1)"));
+    let mut repr_exact_b = celery_message("plane.tasks.issue_activity", json!([]));
+    repr_exact_b
+        .headers
+        .insert("argsrepr".to_string(), json!("('alpha', 2)"));
+    checks.detected(
+        "celery untruncated argsrepr mismatch",
+        "celery",
+        &compare_celery(&[repr_exact_a.clone()], &[repr_exact_b.clone()]),
+    )?;
+
+    let mut repr_tail_a = celery_message("plane.tasks.issue_activity", json!([]));
+    repr_tail_a.headers.insert(
+        "kwargsrepr".to_string(),
+        json!("{'x': [1, 2, <id:10>], ...}"),
+    );
+    let mut repr_tail_b = celery_message("plane.tasks.issue_activity", json!([]));
+    repr_tail_b.headers.insert(
+        "kwargsrepr".to_string(),
+        json!("{'x': [1, 2, <id:4>], ...}}"),
+    );
+    checks.accepted(
+        "celery truncated kwargsrepr shifted tail",
+        &compare_celery(&[repr_tail_a.clone()], &[repr_tail_b.clone()]),
+    )?;
+
+    let mut repr_early_a = celery_message("plane.tasks.issue_activity", json!([]));
+    repr_early_a
+        .headers
+        .insert("kwargsrepr".to_string(), json!("{'x': [1, 2, ...}"));
+    let mut repr_early_b = celery_message("plane.tasks.issue_activity", json!([]));
+    repr_early_b
+        .headers
+        .insert("kwargsrepr".to_string(), json!("{'y': [1, 2, ...}"));
+    checks.detected(
+        "celery truncated kwargsrepr early mismatch",
+        "celery",
+        &compare_celery(&[repr_early_a.clone()], &[repr_early_b.clone()]),
+    )?;
+
     let mut message_wrong_task = message_b.clone();
     message_wrong_task.task = Some("plane.tasks.something_else".to_string());
     checks.detected(
