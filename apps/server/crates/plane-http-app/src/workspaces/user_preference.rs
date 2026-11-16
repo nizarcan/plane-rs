@@ -30,6 +30,7 @@ use plane_core::error::APPLICATION_JSON;
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_query::sql::{Sql, Value};
 use plane_serializers::{DrfError, DrfSerialize, DrfWriter, RenderCtx};
 use uuid::Uuid;
 
@@ -222,18 +223,17 @@ async fn insert_defaults(
     }
     sql.push_str(" ON CONFLICT DO NOTHING");
 
-    let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-        Vec::with_capacity(rows.len() * 8);
+    let mut params: Vec<Value> = Vec::with_capacity(rows.len() * 8);
     for row in &rows {
-        params.push(&row.created);
-        params.push(&row.created);
-        params.push(&row.id);
-        params.push(&row.workspace);
-        params.push(&row.user);
-        params.push(&row.key);
-        params.push(&row.is_pinned);
-        params.push(&row.sort_order);
+        params.push(Value::Timestamp(row.created));
+        params.push(Value::Timestamp(row.created));
+        params.push(Value::Uuid(row.id));
+        params.push(Value::Uuid(row.workspace));
+        params.push(Value::Uuid(row.user));
+        params.push(Value::Text(row.key.clone()));
+        params.push(Value::Bool(row.is_pinned));
+        params.push(Value::Float8(row.sort_order));
     }
-    client.execute(sql.as_str(), &params).await?;
+    Sql { text: sql, params }.execute(client).await?;
     Ok(())
 }

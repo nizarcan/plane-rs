@@ -2400,6 +2400,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "deadpool-postgres",
+ "futures-util",
  "plane-core",
  "plane-db",
  "plane-drf",

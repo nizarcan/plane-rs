@@ -28,6 +28,7 @@ use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::args::TaskArg;
+use plane_query::sql::{Sql, Value};
 use plane_serializers::fields::{DrfPk, DrfUuid, DrfUuidList, PyDate};
 use plane_serializers::{DrfError, DrfSerialize, DrfWriter, FilterMode, RenderCtx};
 use uuid::Uuid;
@@ -331,7 +332,16 @@ fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
              WHERE issues.deleted_at IS NULL AND issues.project_id = $1 \
                AND workspaces.slug = $2 AND issues.id = $3"
         );
-        let Some(row) = fetch_one(client, &sql, &[&project_id, &slug, &pk, &user]).await? else {
+        let query = Sql {
+            text: sql,
+            params: vec![
+                Value::Uuid(project_id),
+                Value::Text(slug.to_owned()),
+                Value::Uuid(pk),
+                Value::Uuid(user),
+            ],
+        };
+        let Some(row) = fetch_one(client, &query).await? else {
             return Ok(error_body(404, "The required object does not exist."));
         };
 
@@ -386,7 +396,16 @@ fn archive_retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespon
                AND (issues.type_id IS NULL OR issue_types.is_epic = false) \
                AND issues.archived_at IS NOT NULL \
                AND issues.project_id = $1 AND workspaces.slug = $2 AND issues.id = $3";
-        let Some(row) = fetch_one(client, sql, &[&project_id, &slug, &pk, &user]).await? else {
+        let query = Sql {
+            text: sql.to_owned(),
+            params: vec![
+                Value::Uuid(project_id),
+                Value::Text(slug.to_owned()),
+                Value::Uuid(pk),
+                Value::Uuid(user),
+            ],
+        };
+        let Some(row) = fetch_one(client, &query).await? else {
             return Ok(error_body(404, "The required object does not exist."));
         };
         let expand = ctx.expand().unwrap_or_default();
@@ -448,8 +467,16 @@ fn by_identifier<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse,
              WHERE issues.deleted_at IS NULL AND issues.project_id = $1 \
                AND workspaces.slug = $2 AND issues.sequence_id::bigint = $3"
         );
-        let Some(row) = fetch_one(client, &sql, &[&project_id, &slug, &sequence_id, &user]).await?
-        else {
+        let query = Sql {
+            text: sql,
+            params: vec![
+                Value::Uuid(project_id),
+                Value::Text(slug.to_owned()),
+                Value::Int8(sequence_id),
+                Value::Uuid(user),
+            ],
+        };
+        let Some(row) = fetch_one(client, &query).await? else {
             return Ok(error_body(404, "The required object does not exist."));
         };
 
@@ -521,16 +548,8 @@ fn strict_int(value: &str) -> Option<i64> {
     digits.parse::<i64>().ok().map(|value| sign * value)
 }
 
-async fn fetch_one(
-    client: &Client,
-    sql: &str,
-    params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
-) -> Result<Option<tokio_postgres::Row>, ViewError> {
-    let statement = client.prepare(sql).await.map_err(ViewError::from)?;
-    client
-        .query_opt(&statement, params)
-        .await
-        .map_err(ViewError::from)
+async fn fetch_one(client: &Client, sql: &Sql) -> Result<Option<tokio_postgres::Row>, ViewError> {
+    Ok(sql.query(client).await?.into_iter().next())
 }
 
 /// The render context: `IssueDetailSerializer(issue, expand=self.expand)` never

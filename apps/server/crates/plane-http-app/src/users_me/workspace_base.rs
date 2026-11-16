@@ -29,6 +29,7 @@ use plane_serializers::generated::app_workspace::WorkSpaceSerializer;
 // `icontains`' LIKE escaping has one implementation, in `plane-query`
 // (`django/db/backends/base/operations.py:516-518`).
 use plane_query::sql::prep_for_like_query as escape_like;
+use plane_query::sql::{Sql, Value};
 use serde::Serialize;
 
 use super::queries;
@@ -88,26 +89,10 @@ fn workspaces<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             _ => None,
         };
 
-        // Parameters are an explicit enum so the future stays `Send`: a
-        // `Box<dyn ToSql>` is not, and `BoxFuture` requires `Send`.
-        enum Param {
-            Uuid(uuid::Uuid),
-            Text(String),
-        }
-
-        impl Param {
-            fn as_sql(&self) -> &(dyn tokio_postgres::types::ToSql + Sync) {
-                match self {
-                    Param::Uuid(value) => value,
-                    Param::Text(value) => value,
-                }
-            }
-        }
-
-        let mut params: Vec<Param> = vec![Param::Uuid(user_id)];
+        let mut params: Vec<Value> = vec![Value::Uuid(user_id)];
         let mut filters = String::new();
         if let Some(owner) = owner {
-            params.push(Param::Uuid(owner));
+            params.push(Value::Uuid(owner));
             filters.push_str(&format!(" AND w.\"owner_id\" = ${}", params.len()));
         }
 
@@ -115,15 +100,16 @@ fn workspaces<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         // `name__icontains` per term.
         let search = ctx.query().get_or("search", "").replace('\0', "");
         for term in search.split_whitespace() {
-            params.push(Param::Text(format!("%{}%", escape_like(term))));
+            params.push(Value::Text(format!("%{}%", escape_like(term))));
             filters.push_str(&format!(
                 " AND UPPER(w.\"name\"::text) LIKE UPPER(${})",
                 params.len()
             ));
         }
 
-        let sql = format!(
-            "SELECT DISTINCT w.\"created_at\" AS created_at, \
+        let sql = Sql {
+            text: format!(
+                "SELECT DISTINCT w.\"created_at\" AS created_at, \
              w.\"updated_at\" AS updated_at, w.\"created_by_id\" AS created_by_id, \
              w.\"updated_by_id\" AS updated_by_id, w.\"deleted_at\" AS deleted_at, \
              w.\"id\" AS id, w.\"name\" AS name, w.\"logo\" AS logo, \
@@ -148,11 +134,10 @@ fn workspaces<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
              WHERE w.\"deleted_at\" IS NULL AND wm.\"is_active\" \
                AND wm.\"member_id\" = $1{filters} \
              ORDER BY w.\"created_at\" DESC"
-        );
-        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-            params.iter().map(Param::as_sql).collect();
-        let statement = client.prepare(&sql).await?;
-        let rows = client.query(&statement, &refs).await?;
+            ),
+            params,
+        };
+        let rows = sql.query(client).await?;
 
         let mut logo_urls: Vec<Option<String>> = Vec::with_capacity(rows.len());
         let mut items: Vec<WorkSpaceRow> = Vec::with_capacity(rows.len());

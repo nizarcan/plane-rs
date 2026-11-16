@@ -531,14 +531,9 @@ pub struct IdText {
 /// Read `(id, column)` pairs from a statement prepared on the fly.
 pub async fn id_text_pairs(
     client: &Client,
-    sql: &str,
-    params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    sql: &plane_query::sql::Sql,
 ) -> Result<Vec<IdText>, ViewError> {
-    let statement = client.prepare(sql).await.map_err(ViewError::from)?;
-    let rows = client
-        .query(&statement, params)
-        .await
-        .map_err(ViewError::from)?;
+    let rows = sql.query(client).await.map_err(ViewError::from)?;
     Ok(rows
         .iter()
         .map(|row| IdText {

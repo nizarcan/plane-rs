@@ -418,16 +418,13 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
                 count.distinct = true;
                 count.projection = vec![Frag::raw("n.\"id\"")];
                 let sql = count.count_sql(Some("n.\"id\""), None);
-                let prepared = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-                let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-                    .params
-                    .iter()
-                    .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-                    .collect();
-                let row = client
-                    .query_one(&prepared, &params)
+                let row = sql
+                    .query(client)
                     .await
-                    .map_err(ViewError::from)?;
+                    .map_err(ViewError::from)?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| ViewError::Unknown("count returned no row".to_owned()))?;
                 Some(row.try_get::<_, i64>(0).map_err(ViewError::from)?)
             }
         } else {
@@ -435,16 +432,7 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
         };
 
         let sql = select.into_sql();
-        let prepared = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-        let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-            .params
-            .iter()
-            .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-            .collect();
-        let rows = client
-            .query(&prepared, &params)
-            .await
-            .map_err(ViewError::from)?;
+        let rows = sql.query(client).await.map_err(ViewError::from)?;
 
         let (rows, has_results) = match limit {
             Some(limit) => {

@@ -49,6 +49,7 @@ use plane_db::JsonText;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::args::TaskArg;
+use plane_query::sql::{Sql, Value};
 use plane_serializers::generated::app_page::PageSerializer;
 use plane_serializers::{
     DrfDateTime, DrfError, DrfSerialize, DrfUuid, DrfUuidList, DrfWriter, FieldValue, PgJson,
@@ -325,15 +326,21 @@ async fn fetch_dynamic(
     sql.push_str(queries::PAGES_GROUP_BY);
     sql.push_str(order_clause(order));
 
-    let mut values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-        vec![&params.slug, &params.project_id, &params.user_id];
+    let mut values = vec![
+        Value::Text(params.slug.clone()),
+        Value::Uuid(params.project_id),
+        Value::Uuid(params.user_id),
+    ];
     for pattern in &patterns {
-        values.push(pattern);
+        values.push(Value::Text(pattern.clone()));
     }
-    client
-        .query(sql.as_str(), &values)
-        .await
-        .map_err(ViewError::from)
+    Sql {
+        text: sql,
+        params: values,
+    }
+    .query(client)
+    .await
+    .map_err(ViewError::from)
 }
 
 /// `PageViewSet.list` (`page/base.py:286-301`).
@@ -428,15 +435,22 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
             sql.push_str(queries::PAGES_GROUP_BY);
             sql.push_str(order_clause(order));
             sql.push_str(" LIMIT 1");
-            let mut values: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-                vec![&params.slug, &params.project_id, &params.user_id, &page_id];
+            let mut values = vec![
+                Value::Text(params.slug.clone()),
+                Value::Uuid(params.project_id),
+                Value::Uuid(params.user_id),
+                Value::Uuid(page_id),
+            ];
             for pattern in &patterns {
-                values.push(pattern);
+                values.push(Value::Text(pattern.clone()));
             }
-            client
-                .query(sql.as_str(), &values)
-                .await
-                .map_err(ViewError::from)?
+            Sql {
+                text: sql,
+                params: values,
+            }
+            .query(client)
+            .await
+            .map_err(ViewError::from)?
         };
         let Some(row) = rows.first() else {
             // `page is None` (`page/base.py:223-224`).

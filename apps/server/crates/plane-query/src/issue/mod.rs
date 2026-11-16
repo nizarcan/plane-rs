@@ -292,13 +292,7 @@ pub async fn fetch_group_values(
         group_values::GroupValues::Static(values) => Ok(values),
         group_values::GroupValues::Query { sql, append_none } => {
             crate::stats::record();
-            let statement = client.prepare(&sql.text).await?;
-            let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-                .params
-                .iter()
-                .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            let rows = client.query(&statement, &params).await?;
+            let rows = sql.query(client).await?;
             let mut values = Vec::with_capacity(rows.len() + 1);
             for row in &rows {
                 values.push(query::render_group_value(row, field)?);

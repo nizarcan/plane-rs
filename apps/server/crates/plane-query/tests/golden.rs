@@ -39,7 +39,7 @@ use plane_query::issue::rich;
 use plane_query::issue::{group_values, values};
 use plane_query::json::Json;
 use plane_query::paginator::PageQuery;
-use plane_query::sql::{Frag, Select};
+use plane_query::sql::{Frag, Select, Sql, Value};
 use uuid::Uuid;
 
 const TEST_DATABASE_URL: &str = "PLANE_RS_TEST_DATABASE_URL";
@@ -123,26 +123,19 @@ async fn run_select(
     if std::env::var("PLANE_QUERY_DEBUG_SQL").as_deref() == Ok("1") {
         eprintln!("SQL: {}\nparams: {:?}", sql.text, sql.params);
     }
-    let statement = client.prepare(&sql.text).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    Ok(client.query(&statement, &params).await?)
+    Ok(sql.query(client).await?)
 }
 
 async fn run_count(client: &Client, select: &Select, distinct: bool) -> Result<i64, QueryError> {
     let sql = select
         .clone()
         .count_sql(if distinct { Some("issues.id") } else { None }, None);
-    let statement = client.prepare(&sql.text).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    let row = client.query_one(&statement, &params).await?;
+    let row = sql
+        .query(client)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| QueryError::unsupported("count returned no row"))?;
     Ok(row.get(0))
 }
 
@@ -538,13 +531,7 @@ async fn group_values_match_django() {
             let actual = match plan {
                 group_values::GroupValues::Static(values) => values,
                 group_values::GroupValues::Query { sql, append_none } => {
-                    let statement = client.prepare(&sql.text).await.expect("prepare");
-                    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-                        .params
-                        .iter()
-                        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-                        .collect();
-                    let rows = client.query(&statement, &params).await.expect("query");
+                    let rows = sql.query(&client).await.expect("query");
                     let mut values: Vec<String> = rows
                         .iter()
                         .map(|row| {
@@ -1133,4 +1120,96 @@ fn page_query(params: &str) -> PageQuery {
 #[allow(dead_code)]
 fn projection_for(fields: &[ValueField]) -> Vec<Frag> {
     values::projection(fields)
+}
+
+/// Every [`Value`] variant survives the one-exchange path with the OID its
+/// `postgres_type` declares: the unnamed `Parse` carries that OID and the
+/// `Bind` encodes the value against it. Arrays and a typed `NULL` included.
+///
+/// A wrong OID does not silently pass here: the explicit `::cast` either
+/// rejects the binary encoding or yields a different value.
+#[tokio::test]
+async fn value_oids_round_trip_through_the_unnamed_path() {
+    let Some(client) = connect().await else {
+        return;
+    };
+    let uuid = Uuid::parse_str("0b7e2f4a-6c1d-4e6f-9a3b-2d5c8e1f0a4d").expect("uuid");
+    let date = NaiveDate::from_ymd_opt(2026, 11, 16).expect("date");
+    let timestamp = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).expect("timestamp");
+
+    // The unnamed path must not leave anything in `pg_prepared_statements`;
+    // the check itself uses `Sql::query`, so it cannot skew the count.
+    async fn prepared_count(client: &Client) -> i64 {
+        Sql {
+            text: "SELECT count(*) FROM pg_prepared_statements".to_owned(),
+            params: vec![],
+        }
+        .query(client)
+        .await
+        .expect("prepared count")
+        .into_iter()
+        .next()
+        .expect("one row")
+        .get(0)
+    }
+    assert_eq!(prepared_count(&client).await, 0);
+
+    async fn one(client: &Client, value: Value, cast: &str) -> tokio_postgres::Row {
+        Sql {
+            text: format!("SELECT $1::{cast}"),
+            params: vec![value],
+        }
+        .query(client)
+        .await
+        .expect("unnamed query")
+        .into_iter()
+        .next()
+        .expect("one row")
+    }
+
+    let row = one(&client, Value::Uuid(uuid), "uuid").await;
+    assert_eq!(row.get::<_, Uuid>(0), uuid);
+    let row = one(&client, Value::UuidArray(vec![uuid]), "uuid[]").await;
+    assert_eq!(row.get::<_, Vec<Uuid>>(0), vec![uuid]);
+    let row = one(&client, Value::Text("abc".to_owned()), "varchar").await;
+    assert_eq!(row.get::<_, String>(0), "abc");
+    let row = one(
+        &client,
+        Value::TextArray(vec!["abc".to_owned(), "def".to_owned()]),
+        "text[]",
+    )
+    .await;
+    assert_eq!(row.get::<_, Vec<String>>(0), vec!["abc", "def"]);
+    let row = one(&client, Value::Int(7), "int4").await;
+    assert_eq!(row.get::<_, i32>(0), 7);
+    let row = one(&client, Value::IntArray(vec![7, 8]), "int4[]").await;
+    assert_eq!(row.get::<_, Vec<i32>>(0), vec![7, 8]);
+    let row = one(&client, Value::Int8(7), "int8").await;
+    assert_eq!(row.get::<_, i64>(0), 7);
+    let row = one(&client, Value::Float8(1.5), "float8").await;
+    assert_eq!(row.get::<_, f64>(0), 1.5);
+    let row = one(&client, Value::Bool(true), "bool").await;
+    assert!(row.get::<_, bool>(0));
+    let row = one(&client, Value::Date(date), "date").await;
+    assert_eq!(row.get::<_, NaiveDate>(0), date);
+    let row = one(&client, Value::Timestamp(timestamp), "timestamptz").await;
+    assert_eq!(row.get::<_, DateTime<Utc>>(0), timestamp);
+    let row = one(
+        &client,
+        Value::Null(tokio_postgres::types::Type::UUID),
+        "uuid",
+    )
+    .await;
+    assert!(row.get::<_, Option<Uuid>>(0).is_none());
+    // `UNKNOWN` leaves the type to the server, exactly as psycopg2's
+    // parameter list does; `NULL` has no bytes to encode.
+    let row = one(
+        &client,
+        Value::Null(tokio_postgres::types::Type::UNKNOWN),
+        "text",
+    )
+    .await;
+    assert!(row.get::<_, Option<String>>(0).is_none());
+
+    assert_eq!(prepared_count(&client).await, 0);
 }

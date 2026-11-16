@@ -195,13 +195,9 @@ async fn fetch(
     client: &Client,
     sql: &crate::sql::Sql,
 ) -> Result<Vec<tokio_postgres::Row>, QueryError> {
-    let statement = let_statement(client, &sql.text).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    Ok(client.query(&statement, &params).await?)
+    // Unnamed statement: see `crate::sql` for why neither `prepare_cached` nor
+    // a named `prepare` is used for dynamic SQL.
+    Ok(sql.query(client).await?)
 }
 
 async fn count(client: &Client, select: &crate::sql::Select) -> Result<i64, QueryError> {
@@ -212,23 +208,13 @@ async fn count(client: &Client, select: &crate::sql::Select) -> Result<i64, Quer
     };
     let sql = select.count_sql(distinct, None);
     crate::stats::record();
-    let statement = let_statement(client, &sql.text).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    let row = client.query_one(&statement, &params).await?;
+    let row = sql
+        .query(client)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| QueryError::unsupported("count returned no row"))?;
     Ok(row.try_get(0)?)
-}
-
-async fn let_statement(
-    client: &Client,
-    text: &str,
-) -> Result<tokio_postgres::Statement, QueryError> {
-    // Unnamed statements only; see `crate::sql` for why `prepare_cached` is
-    // not used for dynamic SQL.
-    Ok(client.prepare(text).await?)
 }
 
 /// `user_timezone_converter`: render `created_at`/`updated_at` in the user's

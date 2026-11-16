@@ -386,23 +386,19 @@ pub async fn offset_page(
     })
 }
 
-fn params_of(sql: &Sql) -> Vec<&(dyn tokio_postgres::types::ToSql + Sync)> {
-    sql.params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect()
-}
-
 async fn fetch(client: &Client, sql: &Sql) -> Result<Vec<tokio_postgres::Row>, QueryError> {
     crate::stats::record();
-    let statement = client.prepare(&sql.text).await?;
-    Ok(client.query(&statement, &params_of(sql)).await?)
+    Ok(sql.query(client).await?)
 }
 
 async fn fetch_count(client: &Client, sql: &Sql) -> Result<i64, QueryError> {
     crate::stats::record();
-    let statement = client.prepare(&sql.text).await?;
-    let row = client.query_one(&statement, &params_of(sql)).await?;
+    let row = sql
+        .query(client)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| QueryError::unsupported("count returned no row"))?;
     Ok(row.try_get(0)?)
 }
 
