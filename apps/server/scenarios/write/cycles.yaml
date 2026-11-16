@@ -736,3 +736,54 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 200
+
+  # --- form bodies: `requested_data=request.data` is a `QueryDict` ----------
+  # kombu's encoder walks it through `.items()`: last value per key, first-seen
+  # key order. `CycleWriteSerializer` accepts a `QueryDict` directly.
+  - name: cy-61-create-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    body: "name=Harness+form+cycle&description=first&description=second"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    jar: admin
+    capture:
+      - name: cycle_form
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+
+  - name: cy-62-patch-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_form}}/"
+    body: "name=Harness+form+cycle+edited"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    jar: admin
+    expect_status: 200
+
+  # A multipart file is merged into `request.data` (DRF's
+  # `_load_data_and_files`), so the activity's encoder raises
+  # `TypeError: Object of type InMemoryUploadedFile is not JSON serializable`
+  # after the write: family 500 with the cycle row created.
+  - name: cy-63-create-multipart-file
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    multipart:
+      fields:
+        name: "Harness multipart cycle"
+      files:
+        - field: attachment
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    jar: admin
+    expect_status: 500

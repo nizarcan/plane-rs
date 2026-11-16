@@ -821,3 +821,83 @@ steps:
     headers:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
+
+  # --- form and multipart bodies: `{**request.data}` and the publish --------
+  # `create`/`partial_update` hand the serializer `{**request.data}`
+  # (`project/base.py:263,352`). `**` copies a `QueryDict`'s RAW entries, i.e.
+  # one list per key, so a populated form body fails every field with its
+  # list-input message ("Not a valid string." for the char fields) and never
+  # reaches `model_activity.delay`. A form body of only unknown keys is ignored
+  # by the serializer and does reach the publish; `request.data` is then a
+  # `QueryDict`, which kombu flattens to one (last) value per key.
+  - name: write-projects-68-create-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    body: "name=Form+Created&identifier=fmc1&description=first&description=second"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    jar: admin
+    expect_status: 400
+
+  - name: write-projects-69-create-multipart
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    multipart:
+      fields:
+        name: "Multipart Created"
+        identifier: "mpc1"
+        description: "multipart body"
+      files:
+        - field: attachment
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    jar: admin
+    expect_status: 400
+
+  - name: write-projects-70-patch-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta_empty}}/"
+    body: "name=Form+Patched&description=one&description=two"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    jar: admin
+    expect_status: 400
+
+  - name: write-projects-71-patch-form-unknown-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta_empty}}/"
+    body: "unknown_key=1&unknown_key=2"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    jar: admin
+    expect_status: 200
+
+  # A file part is merged into `request.data` by DRF, so `model_activity.delay`
+  # raises `TypeError: Object of type InMemoryUploadedFile is not JSON
+  # serializable` after the save: family 500.
+  - name: write-projects-72-patch-multipart-unknown-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta_empty}}/"
+    multipart:
+      fields:
+        unknown_key: "1"
+      files:
+        - field: attachment
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    jar: admin
+    expect_status: 500

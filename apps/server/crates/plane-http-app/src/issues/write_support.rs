@@ -73,34 +73,18 @@ pub(crate) fn mark_serializer_patch_fields(serializer: &mut Serializer<'_>) {
 }
 
 /// `request.data` as a Python `dict` for the tasks that serialise it inline or
-/// with `json.dumps`.
+/// with `json.dumps` — the shared flattening in [`crate::write::request_data_value`].
 ///
-/// A JSON body is returned as parsed. A form body is a `QueryDict`, a `dict`
-/// subclass whose iteration yields one (last) value per key, so it becomes a
-/// string-valued object in first-key order.
+/// A JSON body is returned as parsed (a list or scalar stays as it is: the
+/// call sites index it as a mapping first, where Python raises). A form body is
+/// a `QueryDict`, a `dict` subclass whose iteration yields one (last) value per
+/// key, so it becomes a string-valued object in first-key order.
 ///
 /// # Errors
 ///
-/// [`ViewError::Unknown`] when a JSON body is not an object (where Python's
-/// `json.dumps(request.data)` would still work for a list, but the call sites
-/// index it as a mapping first).
+/// A parser failure.
 pub(crate) fn request_object(ctx: &ViewCtx<'_>) -> Result<Json, ViewError> {
-    match ctx.data()? {
-        Data::Json(value) => Ok(value.clone()),
-        Data::Form(query) => {
-            let mut dict = PyDict::with_capacity(query.len());
-            let mut seen = std::collections::BTreeSet::new();
-            for key in query.keys() {
-                if !seen.insert(key) {
-                    continue;
-                }
-                if let Some(value) = query.get(key) {
-                    dict.insert(PyStr::new(key), Json::Str(PyStr::new(value)));
-                }
-            }
-            Ok(Json::Dict(dict))
-        }
-    }
+    crate::write::request_data_value(ctx)
 }
 
 /// `request.data.get(key, default)` with the body shapes the bulk endpoints

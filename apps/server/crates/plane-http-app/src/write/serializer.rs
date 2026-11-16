@@ -29,7 +29,7 @@ use plane_db::JsonText;
 use plane_drf::error::ViewError;
 use plane_drf::parsers::Data;
 use plane_drf::view::ViewCtx;
-use plane_serde::pyjson::{self, PyDict, Value as Json};
+use plane_serde::pyjson::{self, PyDict, PyStr, Value as Json};
 
 use crate::write::fields::{self, CharOptions, Detail, Raw};
 
@@ -312,23 +312,28 @@ impl ValidationErrors {
 }
 
 /// One request body, as DRF's field `get_value` sees it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 enum Body<'a> {
     /// A JSON object.
     Json(&'a PyDict),
     /// A form or multipart body: every value is a string
     /// (`html.is_html_input(dictionary)` is true for a `QueryDict`).
     Form(&'a plane_drf::QueryDict),
+    /// `{**request.data}` over a `QueryDict` (`projects` create/PATCH): the
+    /// raw `MultiValueDict` entries, i.e. one **list** of strings per key. Owned
+    /// because the view builds it per request.
+    Expanded(Box<PyDict>),
 }
 
-impl<'a> Body<'a> {
+impl Body<'_> {
     /// `Field.get_value` (`rest_framework/fields.py:394-418`) for the html
     /// branch: an empty string means "blank" — `None` when the field allows
     /// null, "absent" when it is not required and does not allow blank.
-    fn raw(&self, name: &str) -> Option<Raw<'a>> {
+    fn raw(&self, name: &str) -> Option<Raw<'_>> {
         match self {
             Self::Form(query) => query.get(name).map(Raw::Text),
             Self::Json(object) => object.get(name).map(Raw::Json),
+            Self::Expanded(object) => object.get(name).map(Raw::Json),
         }
     }
 }
@@ -408,6 +413,65 @@ impl<'a> Serializer<'a> {
     #[must_use]
     pub fn partial(&self) -> bool {
         self.partial
+    }
+
+    /// Start validating `{**request.data}` — the mapping the project views
+    /// build before handing it to the serializer
+    /// (`plane/app/views/project/base.py:263,352`).
+    ///
+    /// `**` copies a Python mapping's raw entries. For a JSON object that is
+    /// the same tree `Serializer::new` reads. For a `QueryDict` it is **not**
+    /// `.items()`: `MultiValueDict` stores a list per key, so every field sees
+    /// `["value", …]` and DRF's field parsers report their list-input errors
+    /// (`CharField` → "Not a valid string.", `IntegerField` → "A valid integer
+    /// is required.", `JSONField` accepts the list).
+    ///
+    /// # Errors
+    ///
+    /// A parser failure (400/415), or the `TypeError` `{**request.data}`
+    /// raises when `request.data` is not a mapping (family 500).
+    pub fn new_expanded(ctx: &'a ViewCtx<'a>, partial: bool) -> Result<Self, ViewError> {
+        let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
+        let mut serializer = Self {
+            body: None,
+            partial,
+            form: false,
+            errors: ValidationErrors::default(),
+            values: Vec::new(),
+            skipped: Vec::new(),
+            fatal: false,
+            timezone,
+        };
+        match ctx.data()? {
+            Data::Json(Json::Dict(object)) => {
+                serializer.body = Some(Body::Json(object));
+            }
+            Data::Form(query) => {
+                let mut dict = PyDict::new();
+                let mut seen = std::collections::BTreeSet::new();
+                for key in query.keys() {
+                    if !seen.insert(key) {
+                        continue;
+                    }
+                    let values = query
+                        .getlist(key)
+                        .into_iter()
+                        .map(Json::from)
+                        .collect::<Vec<_>>();
+                    dict.insert(PyStr::new(key), Json::List(values));
+                }
+                serializer.body = Some(Body::Expanded(Box::new(dict)));
+            }
+            Data::Json(value) => {
+                // `{**request.data}` on a list/scalar/None is a `TypeError`
+                // before the serializer is built.
+                return Err(ViewError::Unknown(format!(
+                    "TypeError: '{}' object is not a mapping",
+                    python_type_name(value)
+                )));
+            }
+        }
+        Ok(serializer)
     }
 
     /// Make one field read-only for this request.
@@ -608,10 +672,10 @@ impl<'a> Serializer<'a> {
             return Ok(None);
         };
         let items = match raw {
-            Raw::Json(Json::List(items)) => items,
+            Raw::Json(Json::List(items)) => items.clone(),
             other => {
-                self.errors
-                    .push(name, fields::not_a_list(raw_type_name(other)));
+                let detail = fields::not_a_list(raw_type_name(other));
+                self.errors.push(name, detail);
                 return Ok(None);
             }
         };
@@ -688,10 +752,10 @@ impl<'a> Serializer<'a> {
             return Ok(None);
         };
         let items = match raw {
-            Raw::Json(Json::List(items)) => items,
+            Raw::Json(Json::List(items)) => items.clone(),
             other => {
-                self.errors
-                    .push(name, fields::not_a_list(raw_type_name(other)));
+                let detail = fields::not_a_list(raw_type_name(other));
+                self.errors.push(name, detail);
                 return Ok(None);
             }
         };
@@ -701,7 +765,7 @@ impl<'a> Serializer<'a> {
         }
         let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
         let mut values = Vec::with_capacity(items.len());
-        for item in items {
+        for item in &items {
             let raw = Raw::Json(item);
             let value = match fields::primary_key(raw) {
                 Ok(value) => value,
@@ -814,7 +878,7 @@ impl<'a> Serializer<'a> {
         name: &'static str,
         allow_null: bool,
         allow_blank: Option<bool>,
-    ) -> Option<Raw<'a>> {
+    ) -> Option<Raw<'_>> {
         if self.fatal || self.skipped.contains(&name) {
             return None;
         }

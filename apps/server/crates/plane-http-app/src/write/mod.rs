@@ -170,26 +170,94 @@ pub fn field_string_error(field: &str, message: &str) -> ViewResponse {
     )
 }
 
-/// `requested_data=request.data` for the activity/webhook tasks
-/// (`plane_jobs::celery::args::TaskArg::Json`).
+/// `request.data` as the JSON value Django hands to a task.
 ///
-/// For a JSON body this is the parsed tree. A form body is a Django
-/// `QueryDict`, which `json.dumps` refuses, so Django's `.delay()` would raise
-/// `TypeError` and the family handler would answer 500; that is reproduced as
-/// an error rather than a silently different payload.
+/// Two encodings exist in the tree, and both start from this value:
+///
+/// * `requested_data=request.data` (project/cycle/module `model_activity`,
+///   issue create/draft): kombu's JSON encoder serialises it **inline**, so the
+///   message body carries a dict — [`request_data_arg`].
+/// * `requested_data=json.dumps(request.data, cls=DjangoJSONEncoder)` (issue
+///   link PATCH, relation remove): a **string** task argument —
+///   [`request_data_json_text`].
+///
+/// A JSON body is the parsed tree. A form or multipart body is a Django
+/// `QueryDict` (`MultiValueDict`), and both encoders walk it through
+/// `.items()`: one entry per key, in first-seen key order, with the **last**
+/// value for a repeated key (`kombu.utils.json.dumps` and `json.dumps` call
+/// `dict.items()` on a dict subclass).
+///
+/// A multipart body with a file is different: DRF merges `request.FILES` into
+/// `request.data` (`Request._load_data_and_files`), so `.items()` yields the
+/// file object and both encoders raise `TypeError: Object of type
+/// InMemoryUploadedFile is not JSON serializable` — a family 500 at the publish
+/// (after the view's write). The parser here skips file parts and records only
+/// their presence, which is what this function reports.
 ///
 /// # Errors
 ///
-/// `ViewError::Unknown` for a form body.
-pub fn request_data_arg(ctx: &ViewCtx<'_>) -> Result<plane_jobs::celery::args::TaskArg, ViewError> {
+/// A parser failure (the same 400/415 `Serializer::new` raises), or the
+/// encoder's `TypeError` for a multipart body that carried a file.
+pub fn request_data_value(ctx: &ViewCtx<'_>) -> Result<plane_serde::pyjson::Value, ViewError> {
+    use plane_serde::pyjson::{PyDict, PyStr, Value as Json};
     match ctx.data()? {
-        plane_drf::parsers::Data::Json(value) => {
-            Ok(plane_jobs::celery::args::TaskArg::Json(value.clone()))
+        plane_drf::parsers::Data::Json(value) => Ok(value.clone()),
+        plane_drf::parsers::Data::Form(query) => {
+            if query.has_files() {
+                return Err(ViewError::Unknown(
+                    "TypeError: Object of type InMemoryUploadedFile is not JSON serializable"
+                        .to_owned(),
+                ));
+            }
+            let mut dict = PyDict::with_capacity(query.len());
+            let mut seen = std::collections::BTreeSet::new();
+            for key in query.keys() {
+                if !seen.insert(key) {
+                    continue;
+                }
+                if let Some(value) = query.get(key) {
+                    dict.insert(PyStr::new(key), Json::Str(PyStr::new(value)));
+                }
+            }
+            Ok(Json::Dict(dict))
         }
-        plane_drf::parsers::Data::Form(_) => Err(ViewError::Unknown(
-            "TypeError: Object of type QueryDict is not JSON serializable".to_owned(),
-        )),
     }
+}
+
+/// `requested_data=request.data` for the activity/webhook tasks, serialised
+/// **inline** (`plane_jobs::celery::args::TaskArg::Json`).
+///
+/// See [`request_data_value`] for the body shapes.
+///
+/// # Errors
+///
+/// A parser failure.
+pub fn request_data_arg(ctx: &ViewCtx<'_>) -> Result<plane_jobs::celery::args::TaskArg, ViewError> {
+    Ok(plane_jobs::celery::args::TaskArg::Json(request_data_value(
+        ctx,
+    )?))
+}
+
+/// `requested_data=json.dumps(request.data, cls=DjangoJSONEncoder)` as the
+/// **string** task argument the link/relation activities publish
+/// (`plane/app/views/issue/link.py:84`, `relation.py:341`).
+///
+/// `json.dumps` walks a `QueryDict` through `.items()` exactly like kombu, so
+/// the value is [`request_data_value`] rendered with Django's encoder
+/// (`", "`/`": "` separators, `ensure_ascii=True`).
+///
+/// # Errors
+///
+/// A parser failure, or a value the encoder refuses.
+pub fn request_data_json_text(
+    ctx: &ViewCtx<'_>,
+) -> Result<plane_jobs::celery::args::TaskArg, ViewError> {
+    let value = request_data_value(ctx)?;
+    let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, &value)
+        .map_err(|error| ViewError::Unknown(error.to_string()))?;
+    let text = String::from_utf8(bytes)
+        .map_err(|error| ViewError::Unknown(format!("json.dumps produced non-UTF-8: {error}")))?;
+    Ok(plane_jobs::celery::args::TaskArg::JsonText(text))
 }
 
 /// `request.data.get(key, current)` for a JSON column.

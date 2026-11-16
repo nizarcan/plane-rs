@@ -433,7 +433,6 @@ use chrono_tz::Tz;
 use plane_db::JsonText;
 use plane_drf::error::ViewError;
 use plane_drf::view::ViewCtx;
-use plane_jobs::celery::args::TaskArg;
 use plane_query::json::Json;
 
 /// `json.dumps(value, cls=DjangoJSONEncoder)` — the JSON dialect the activity
@@ -448,34 +447,6 @@ pub(crate) fn django_json(value: &Json) -> Result<String, ViewError> {
         .map_err(|error| ViewError::Unknown(error.to_string()))?;
     String::from_utf8(bytes)
         .map_err(|error| ViewError::Unknown(format!("json.dumps produced non-UTF-8: {error}")))
-}
-
-/// `json.dumps(request.data, cls=DjangoJSONEncoder)` at the two call sites that
-/// publish the raw body (`link.py:85`, `relation.py:337`) as a `str` argument.
-///
-/// A form body is a Django `QueryDict`, which `json.dumps` refuses — the
-/// family handler answers 500 (`TypeError`), as [`write::request_data_arg`]
-/// documents for the same reason.
-///
-/// [`write::request_data_arg`]: crate::write::request_data_arg
-///
-/// # Errors
-///
-/// [`ViewError::Unknown`] for a form body or a value the encoder refuses.
-pub(crate) fn request_data_arg(ctx: &ViewCtx<'_>) -> Result<TaskArg, ViewError> {
-    match ctx.data()? {
-        plane_drf::parsers::Data::Json(value) => {
-            let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, &value)
-                .map_err(|error| ViewError::Unknown(error.to_string()))?;
-            let text = String::from_utf8(bytes).map_err(|error| {
-                ViewError::Unknown(format!("json.dumps produced non-UTF-8: {error}"))
-            })?;
-            Ok(TaskArg::json_text(text))
-        }
-        plane_drf::parsers::Data::Form(_) => Err(ViewError::Unknown(
-            "TypeError: Object of type QueryDict is not JSON serializable".to_owned(),
-        )),
-    }
 }
 
 /// `base_host(request=request, is_app=True)` (`plane/utils/host.py:17-57`).

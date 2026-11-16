@@ -1018,3 +1018,62 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 200
+
+  # --- form and multipart bodies on the two `json.dumps(request.data)` sites -
+  # `link.partial_update` (`link.py:84`) and `relation.remove_relation`
+  # (`relation.py:341`) serialise the `QueryDict` itself:
+  # `json.dumps` walks it through `.items()` (last value per key, first-seen key
+  # order), and a multipart file stays in `request.FILES`. `link.create`
+  # publishes `serializer.data`, and `relation.create` a constructed dict, so
+  # neither reaches this encoder.
+  - name: wirel-83-link-patch-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    body: "title=Form+Title&title=Form+Title+Wins"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    jar: admin
+    expect_status: 200
+
+  - name: wirel-84-link-patch-multipart
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    multipart:
+      fields:
+        title: "Multipart Title"
+      files:
+        - field: attachment
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    jar: admin
+    expect_status: 500
+
+  - name: wirel-85-relation-create-for-form-remove
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_007}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: ["{{issue_080}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # The repeated key exercises `QueryDict.get`: the last value wins.
+  - name: wirel-86-remove-relation-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_007}}/remove-relation/"
+    body: "related_issue={{unknown_issue}}&related_issue={{issue_080}}"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    jar: admin
+    expect_status: 204
