@@ -33,6 +33,7 @@
 
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod lists;
 pub mod queries;
 mod sub_resources;
 
@@ -43,5 +44,6 @@ mod sub_resources;
 /// rather than fall back to a 501 nobody notices.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     sub_resources::register_sub_resources(registry)?;
+    lists::register_lists(registry)?;
     Ok(())
 }
