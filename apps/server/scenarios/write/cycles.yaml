@@ -802,3 +802,21 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 204
+
+  # --- a multipart file part named like a JSONField -------------------------
+  # The serializer receives the `QueryDict` directly, so `view_props` is the
+  # file object itself; `JSONField.to_internal_value`'s `json.dumps` refuses it.
+  - name: cy-65-patch-multipart-json-field
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_utc_dates}}/"
+    multipart:
+      files:
+        - field: view_props
+          filename: view_props.json
+          content_type: application/json
+          content: '{"layout": "board"}'
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    jar: admin
+    expect_status: 400

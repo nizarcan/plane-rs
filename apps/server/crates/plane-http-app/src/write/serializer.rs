@@ -322,7 +322,12 @@ enum Body<'a> {
     /// `{**request.data}` over a `QueryDict` (`projects` create/PATCH): the
     /// raw `MultiValueDict` entries, i.e. one **list** of strings per key. Owned
     /// because the view builds it per request.
-    Expanded(Box<PyDict>),
+    Expanded {
+        object: Box<PyDict>,
+        /// The file parts' field names: `request.FILES` is merged into the
+        /// mapping, with the file object in place of the field's values.
+        file_keys: Vec<String>,
+    },
 }
 
 impl Body<'_> {
@@ -333,7 +338,17 @@ impl Body<'_> {
         match self {
             Self::Form(query) => query.get(name).map(Raw::Text),
             Self::Json(object) => object.get(name).map(Raw::Json),
-            Self::Expanded(object) => object.get(name).map(Raw::Json),
+            Self::Expanded { object, .. } => object.get(name).map(Raw::Json),
+        }
+    }
+
+    /// Whether this body carried a multipart file part under `name`
+    /// (`request.data` holds the file object, which `json.dumps` refuses).
+    fn has_file(&self, name: &str) -> bool {
+        match self {
+            Self::Json(_) => false,
+            Self::Form(query) => query.is_file(name),
+            Self::Expanded { file_keys, .. } => file_keys.iter().any(|key| key == name),
         }
     }
 }
@@ -462,13 +477,17 @@ impl<'a> Serializer<'a> {
                 }
                 // `_full_data.update(self._files)`: a file part replaces any
                 // same-named field's values with a one-element list holding
-                // the file object. The bytes are not retained; a non-string
-                // element is all the field parsers need (a `CharField` answers
-                // "Not a valid string.").
-                for key in query.file_keys() {
+                // the file object. The bytes are not retained; the field name
+                // is what lets a `JSONField` reproduce `json.dumps`'s refusal
+                // and every other parser see a non-string element.
+                let file_keys = query.file_keys().to_vec();
+                for key in &file_keys {
                     dict.insert(PyStr::new(key.as_str()), Json::List(vec![Json::Null]));
                 }
-                serializer.body = Some(Body::Expanded(Box::new(dict)));
+                serializer.body = Some(Body::Expanded {
+                    object: Box::new(dict),
+                    file_keys,
+                });
             }
             Data::Json(value) => {
                 // `{**request.data}` on a list/scalar/None is a `TypeError`
@@ -874,6 +893,14 @@ impl<'a> Serializer<'a> {
 
     /// `JSONField`.
     pub fn json_field(&mut self, name: &'static str, allow_null: bool) -> Option<JsonText> {
+        // `JSONField.to_internal_value` runs `json.dumps(data)` for a
+        // non-binary field (`rest_framework/fields.py:1830-1848`); a multipart
+        // file object, or the `[<file>]` a `{**request.data}` mapping holds,
+        // is not serialisable and fails before the value is stored.
+        if !self.fatal && !self.skipped.contains(&name) && self.file_field(name) {
+            self.errors.push(name, fields::invalid_json());
+            return None;
+        }
         // `JSONField.get_value` overrides the html branch (`fields.py:
         // 1836-1846`): a form value is always marked as a JSON string and
         // parsed, even when it is empty.
@@ -995,6 +1022,11 @@ impl<'a> Serializer<'a> {
             .iter()
             .find(|(key, _)| *key == name)
             .map(|(_, value)| value)
+    }
+
+    /// Whether the request body carried a multipart file part under `name`.
+    fn file_field(&self, name: &str) -> bool {
+        self.body.as_ref().is_some_and(|body| body.has_file(name))
     }
 
     /// The raw text of a field's value, for an error message that quotes the
