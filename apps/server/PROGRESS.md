@@ -744,11 +744,32 @@ and only `verified` rows are Rust-owned.
   (duplicate helpers, parallel harness fixes, unauthorised commits and stashes).
   Running sessions only receive follow-ups on their own work.
 
+### Phase 5: draft-to-issue and modules set A (2026-11-16)
+
+- Draft-to-issue (merged `9ba9ce0cd4`, flipped `48f27ddc88`): 217 `rust(POST)`.
+  `write/draft-to-issue.yaml` 43/43 in both directions; contract 71/71 Rust-touching,
+  11 requests reaching 217. No outer atomic exists on the path, so `issue_m2m` needs no
+  nested mode. The shared issue-create hook now reaches the project through the base
+  manager, as Django's forward FK does (a draft in a soft-deleted project converts), and
+  a stateless issue's sort order uses `state_id IS NULL`. Work items are now fully on
+  Rust except link PUT (75).
+- Modules set A (merged `1fa08369b6`, flipped `d5e5de072c`): 103 `rust(GET,POST)`, 104
+  `rust(GET,PUT,PATCH,DELETE)`, 112 `rust(GET,PATCH)`, 113/114/115
+  `rust(GET,POST,DELETE)`. `write/modules.yaml` 69/69 (seeds favourites and recent
+  visits via `fixture_sql`). No contract test reaches these routes. Upstream quirks kept:
+  114/115 always 500; archive has no already-archived guard; H21's MIN includes archived
+  modules.
+- Open, being settled: set A found that `write::request_data_arg` raises on form bodies,
+  while Python's encoders accept a `QueryDict` (last value per key). It is used by live
+  project and cycle routes, and a second copy serves issue links and relations.
+- Modules set B (66/66): renaming its query catalog, which collided with set A's, and
+  catching up before the merge.
+
 ## Next three steps
 
-1. In progress, fresh agents: draft-to-issue (217, `rs-p5-wi-d`), and modules sets A
-   (103/104/112–115) and B (105–111) per `plans/MODULES.md`.
+1. Merge modules set B; merge the `request_data_arg` fix with form-body steps on every
+   live call site.
 2. Then views → pages → intake → notifications → favourites → webhooks → exports →
-   analytics → search, each planned read-only first.
-3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items and cycles
-   are in.
+   analytics → search, each planned read-only first by a fresh agent.
+3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items, cycles and
+   modules are in.
