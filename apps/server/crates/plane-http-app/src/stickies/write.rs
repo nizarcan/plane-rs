@@ -67,7 +67,7 @@ use uuid::Uuid;
 
 use crate::common::{client, lookup};
 use crate::stickies::queries;
-use crate::write::{self, CharOptions, Serializer, html};
+use crate::write::{self, Serializer, html};
 
 /// A stored `stickies` row (the columns the serializer and the UPDATE need).
 #[derive(Debug, Clone)]
@@ -144,26 +144,19 @@ fn render(ctx: &ViewCtx<'_>, sticky: &Sticky, status: u16) -> Result<ViewRespons
     Ok(ViewResponse::raw(status, APPLICATION_JSON, body))
 }
 
-/// `StickySerializer`'s writable fields, in declaration order
-/// (`plane/app/serializers/workspace.py:346-368`).
+/// `StickySerializer`'s writable fields, in DRF's validation order, from the
+/// generated table (`plane/app/serializers/workspace.py:346-368` ->
+/// `write/generated/sticky_serializer.rs`).
 ///
-/// `description_binary` is `read_only` (its model field is `editable=False`),
-/// and `id`/`created_at`/`updated_at`/audit/FK columns are read-only by
-/// construction. The list below is therefore exactly the fields DRF reads from
-/// the body, in the order it visits them — which is the order of the error keys.
-fn apply_body(serializer: &mut Serializer<'_>) {
-    serializer.datetime_field("deleted_at", true);
-    serializer.char_field("name", CharOptions::nullable());
-    serializer.json_field("description", false);
-    serializer.char_field("description_html", CharOptions::nullable());
-    serializer.char_field("description_stripped", CharOptions::nullable());
-    serializer.json_field("logo_props", false);
-    serializer.char_field("color", CharOptions::nullable().with_max_length(255));
-    serializer.char_field(
-        "background_color",
-        CharOptions::nullable().with_max_length(255),
-    );
-    serializer.float_field("sort_order", false);
+/// The table carries the `description_html` null rule and the
+/// `created_by`/`updated_by` `PrimaryKeyRelatedField` checks that the old
+/// hand-written list missed; `write::fields::primary_key` runs the queryset
+/// lookups. Regenerate it after changing `apps/api` (see `HANDLERS.md`).
+async fn apply_body(
+    serializer: &mut Serializer<'_>,
+    client: &deadpool_postgres::Client,
+) -> Result<(), ViewError> {
+    write::generated::sticky_serializer::validate(serializer, client).await
 }
 
 /// `StickySerializer.validate`'s HTML branch
@@ -211,7 +204,7 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             .map_err(ViewError::from)?;
 
         let mut serializer = Serializer::new(ctx, false)?;
-        apply_body(&mut serializer);
+        apply_body(&mut serializer, client).await?;
         let values = match serializer.finish() {
             Ok(values) => values,
             Err(errors) => return Ok(errors.into_response()),
@@ -316,7 +309,7 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
         let mut sticky = get_object(client, slug, owner, pk).await?;
 
         let mut serializer = Serializer::new(ctx, true)?;
-        apply_body(&mut serializer);
+        apply_body(&mut serializer, client).await?;
         let values = match serializer.finish() {
             Ok(values) => values,
             Err(errors) => return Ok(errors.into_response()),

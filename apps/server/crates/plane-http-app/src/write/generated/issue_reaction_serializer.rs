@@ -8,6 +8,8 @@
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
 use crate::write::{CharOptions, Detail, Serializer};
+use deadpool_postgres::Client;
+use plane_drf::error::ViewError;
 
 pub const PYTHON_SERIALIZER: &str = "plane.app.serializers.issue.IssueReactionSerializer";
 
@@ -29,6 +31,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -48,6 +51,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     },
     FieldSpec {
@@ -67,6 +71,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     },
 ];
@@ -139,7 +144,7 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
-pub fn validate(s: &mut Serializer<'_>) {
+pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.char_field(
         "reaction",
         CharOptions {
@@ -152,6 +157,11 @@ pub fn validate(s: &mut Serializer<'_>) {
     if s.missing_required("reaction") {
         s.push_error("reaction", Detail::required());
     }
-    // TODO(primary_key): created_by
-    // TODO(primary_key): updated_by
+    let _ = s
+        .primary_key_field(client, "created_by", true, "users")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "updated_by", true, "users")
+        .await?;
+    Ok(())
 }

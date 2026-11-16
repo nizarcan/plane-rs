@@ -49,6 +49,7 @@ pub struct FieldSpec {
     pub choices: &'static [(&'static str, &'static str)],
     pub input_formats: &'static [&'static str],
     pub related_model: Option<&'static str>,
+    pub related_table: Option<&'static str>,
     pub child: Option<&'static FieldSpec>,
 }
 

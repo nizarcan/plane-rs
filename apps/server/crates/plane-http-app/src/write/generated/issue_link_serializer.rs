@@ -8,6 +8,8 @@
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
 use crate::write::{CharOptions, Detail, Serializer};
+use deadpool_postgres::Client;
+use plane_drf::error::ViewError;
 
 pub const PYTHON_SERIALIZER: &str = "plane.app.serializers.issue.IssueLinkSerializer";
 
@@ -29,6 +31,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -48,6 +51,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -67,6 +71,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -86,6 +91,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
 ];
@@ -158,7 +164,7 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
-pub fn validate(s: &mut Serializer<'_>) {
+pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s.char_field(
         "title",
@@ -182,4 +188,6 @@ pub fn validate(s: &mut Serializer<'_>) {
         s.push_error("url", Detail::required());
     }
     let _ = s.json_field("metadata", false);
+    let _ = client; // no primary-key field validates against a table
+    Ok(())
 }

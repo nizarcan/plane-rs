@@ -8,6 +8,8 @@
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
 use crate::write::{CharOptions, Serializer};
+use deadpool_postgres::Client;
+use plane_drf::error::ViewError;
 
 pub const PYTHON_SERIALIZER: &str = "plane.app.serializers.workspace.StickySerializer";
 
@@ -29,6 +31,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -48,6 +51,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -67,6 +71,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -86,6 +91,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -105,6 +111,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -124,6 +131,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -143,6 +151,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -162,6 +171,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -181,6 +191,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -200,6 +211,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     },
     FieldSpec {
@@ -219,6 +231,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     },
 ];
@@ -274,7 +287,7 @@ pub const EXTRA_KWARGS: &[ExtraKwarg] = &[ExtraKwarg {
     value: "False",
 }];
 
-pub fn validate(s: &mut Serializer<'_>) {
+pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s.char_field(
         "name",
@@ -324,6 +337,11 @@ pub fn validate(s: &mut Serializer<'_>) {
         },
     );
     let _ = s.float_field("sort_order", false);
-    // TODO(primary_key): created_by
-    // TODO(primary_key): updated_by
+    let _ = s
+        .primary_key_field(client, "created_by", true, "users")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "updated_by", true, "users")
+        .await?;
+    Ok(())
 }
