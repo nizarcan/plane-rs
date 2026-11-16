@@ -76,6 +76,24 @@ Drop only databases you created yourself, by exact name. Never drop databases by
 pattern (`dt_%`, `t_%`, ...): the `dt_*` clones belong to other agents' in-flight harness
 runs, and the harness removes its own. A bulk drop once aborted several agents' runs.
 
+## Time budgets (iterate fast)
+
+The owner wants short iterations. Unless a task says otherwise:
+
+- **Scenarios.** While iterating, run only the scenarios of the groups you touched.
+  Run the full `scenarios/read/*.yaml` sweep once, at the end, and only if you changed
+  shared code (`plane-query`, `plane-drf`, `plane-auth`, `bins/plane-api`,
+  `plane-testkit`, `normalize.yaml`). Re-run only failing files, never passing ones.
+- **Django vs Django baselines.** Once per new or changed scenario file, not per run.
+- **Gates.** fmt, clippy, `cargo test` and schema_check run once at the end, not after
+  every edit (`cargo check -p <crate>` while iterating).
+- **Measurements.** 50 sequential requests per route for latency and round trips; load
+  tests at one concurrency level, checkpoints of 20k/100k requests. No repetitions:
+  note background load instead of re-running. Total measurement time stays under ~20
+  minutes unless the task explicitly asks for more.
+- **Report early.** If a task looks like it will take well over an hour, report what you
+  have with a clear next step instead of continuing.
+
 ## Rust conventions
 
 - Edition 2024. Toolchain is the Homebrew `cargo`/`rustc` 1.99 (no rustup).
