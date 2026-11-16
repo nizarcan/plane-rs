@@ -667,6 +667,30 @@ and only `verified` rows are Rust-owned.
   schema_check, every write scenario in both directions, and the full read sweep: all
   clean.
 
+### Phase 5: work items set B, comments and reactions (merged `96301a2539`)
+
+- Comment create/PATCH/DELETE (the Description row and its column-only save in one
+  transaction) and issue/comment reaction add/remove. `write/issue-comments.yaml` 48/48
+  in both directions; the orchestrator's contract run 81/81 for the Rust-touching tests;
+  gates, 866 tests, selftest 136 and the full read sweep pass. **Flipped**
+  (`beffd19ab5`): 81/86/88 `rust(GET,POST)`, 82 `rust(GET,PATCH,DELETE)` (PUT stays on
+  Django's 405), 87/89 `rust(DELETE)`.
+- Upstream bugs are kept as they are:
+  - comment edit and delete are authorised by `created_by`, not `actor`;
+  - guest rules are inconsistent, and issue reactions have no guest check;
+  - create's second save sets `updated_by` in memory only;
+  - `edited_at` compares the raw body;
+  - task order differs between comment and reaction deletes.
+- Harness: `'epoch': <n>` inside `kwargsrepr` is normalised within the epoch window. The
+  contract runner replays into every active call-site mock.
+- Pending:
+  - set C (83/83): deduplicating its second epoch-in-repr normaliser;
+  - set D: the labels `sort_order: null` live fix, drafts 11/11, v2 attachments 4/4.
+    Being corrected to port v1 attachments' Django 500 as it is (Plane's `S3Storage`
+    lacks `file_overwrite`/`location` for `django-storages` 1.14.6) and to cover
+    multi-element draft arrays;
+  - set A: still running.
+
 ## Next three steps
 
 1. In progress: the work-items route sets from `plans/WORK_ITEMS.md` §3, in parallel:
