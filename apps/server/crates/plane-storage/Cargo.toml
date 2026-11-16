@@ -1,0 +1,37 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-storage"
+description = "S3/MinIO object operations and byte-compatible boto3 presigning for the Plane rewrite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+# DECISIONS.md D6: a small in-house SigV4 signer, no AWS SDK and no rusty-s3.
+# `hmac`/`sha2` are pinned to the versions the testkit workspace already uses;
+# `reqwest` is the DECISIONS.md D9 client, with rustls/aws-lc-rs and HTTP/1.1
+# only (boto3 talks HTTP/1.1 to S3 as well).
+hmac = "0.12.1"
+md-5.workspace = true
+plane-core = { path = "../plane-core" }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10.9"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
+
+[lints]
+workspace = true

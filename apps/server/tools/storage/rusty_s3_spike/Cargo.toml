@@ -1,0 +1,23 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "rusty-s3-spike"
+version = "0.1.0"
+edition = "2024"
+
+# Decision artefact for DECISIONS.md D6. Deliberately not a member of the
+# `apps/server` workspace: nothing in the server depends on rusty-s3, so it is
+# its own one-package workspace.
+[workspace]
+[dependencies]
+rusty-s3 = "0.11.0"
+jiff = { version = "0.2", default-features = false, features = ["std"] }
+url = "2.5"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

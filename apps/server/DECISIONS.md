@@ -100,14 +100,126 @@ workspace `Cargo.toml` and upgrade deliberately.
   and observe at their own wall-clock instants); one side sending it and the
   other not is always a difference.
 
-## D6. Object storage: a small SigV4 client (`rusty-s3` + `reqwest`) instead of `aws-sdk-s3` (provisional)
+## D6. Object storage: an in-house SigV4 signer on `reqwest`, not `aws-sdk-s3` or `rusty-s3` (decided 2026-11-16)
 
-- `aws-sdk-s3` costs build time, binary size and memory for a handful of operations
-  (presigned POST and GET, HEAD, DELETE, COPY, GET or PUT of export files).
-- `rusty-s3` 0.11 does sans-IO SigV4 signing. If it lacks presigned POST policies, sign
-  the POST policy in `plane-storage` (a short SigV4 routine with test vectors from AWS
-  documentation and from boto3 output). Must work with MinIO path-style addressing.
-- Decide when the asset routes are ported (Phase 5), with a spike and test vectors.
+- Built as `apps/server/crates/plane-storage`. The contract is not "a working S3
+  client" but "the exact bytes boto3 1.34.96 produces when
+  `plane/settings/storage.py` configures it": the presigned POST URL, the form
+  field list and its order, the JSON policy document and its base64 encoding, the
+  presigned GET URL (including its unusual parameter order) and the `head_object`
+  metadata dict.
+- The oracle is `tools/storage/golden.py`: it imports the real `S3Storage`
+  wrapper from `apps/api/plane/settings/storage.py`, patches the environment per
+  case, freezes `datetime`/`time` at 2026-11-16T12:34:56Z and records every
+  artefact. `crates/plane-storage/tests/golden.rs` compares **byte for byte**:
+  URL strings, the ordered `(field, value)` list, the base64 policy and the
+  decoded policy document. 281 cases (269 with output, 12 error cases) cover
+  endpoint styles (AWS global/regional, MinIO via the request host, MinIO worker
+  endpoint, custom domain used by exports, http/https, ports, endpoint paths,
+  trailing slashes), regions (unset, empty, us-east-1, eu-central-1, ap-south-1,
+  cn-north-1, us-gov-west-1, `AWS_DEFAULT_REGION` fallback), bucket names that
+  change boto3's addressing style, keys and filenames with spaces, quotes,
+  `%`, `+`, `#`, `?`, `&`, `=`, `${filename}`, emoji and CJK, inline-safe and
+  attachment MIME types, six expiries, and the error paths. Result: 0 mismatches.
+- Why not `rusty-s3` 0.11 (spiked against the same case):
+  - It has no presigned POST policy at all (half of Plane's surface).
+  - Its `sign()` writes the query string sorted by parameter name. boto3 writes
+    the operation parameters in serialization order and then the `X-Amz-*`
+    parameters (`botocore/auth.py:702-800`). For Plane's exact inputs the
+    signature is identical but the URL bytes are not:
+    `...?response-content-disposition=...&X-Amz-Algorithm=...` (boto3) vs
+    `...?X-Amz-Algorithm=...&response-content-disposition=...` (rusty-s3).
+    Matching would require rewriting the URL after signing and reimplementing
+    the POST signer anyway, i.e. two signing implementations rather than one.
+  - It requires `jiff` and `url` for functionality already present, and its
+    header/path handling is narrower than botocore's.
+- Why not `aws-sdk-s3`: the original reasons (build time, binary size, memory)
+  stand, and the SDK's presign output is not boto3's either, so the golden test
+  would still have to be satisfied by hand.
+- Measurements (2026-11-16; macOS arm64; Homebrew rustc 1.99.1; release profile
+  `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`, `panic = "abort"`;
+  tiny binary that constructs the client and presigns one GET):
+
+  | binary | size | peak RSS | `cargo tree` normal lines |
+  | --- | --- | --- | --- |
+  | empty (`println!`) | 302,560 B | 1.42 MiB | 1 |
+  | `plane-storage` + `reqwest` | 3,619,968 B | 7.27 MiB | 286 |
+  | `rusty-s3` 0.11 + `reqwest` | 3,421,056 B | 7.08 MiB | 255 |
+
+  `reqwest` + rustls + aws-lc-rs account for almost all of it; the in-house
+  signer is about 0.2 MiB larger than rusty-s3. Peak RSS moved by ±0.2 MiB
+  between runs of the *same* binary, so the memory difference is noise. Presign
+  cost with cached credentials (50,000 iterations, release; per-op `Instant`):
+  GET p50 10.25 µs / p95 12.71 µs / p99 13.17 µs; POST p50 7.75 µs / p95
+  9.62 µs; with `Utc::now()` per call, GET p50 10.50 µs. The GET cost includes
+  the `_host_from_url` parse (lowercase/default-port) that boto3 performs too.
+  Run the benchmark with
+  `cargo run --release -p plane-storage --example bench_presign`.
+- Transport: `reqwest` 0.13.5, `default-features = false, features = ["rustls"]`
+  (aws-lc-rs, satisfying D9). Signing is always `s3v4`; Plane always passes
+  `Config(signature_version="s3v4")`, so s3/sigv2 is not implemented. One
+  attempt per operation: botocore's legacy retry mode retries up to 5 times.
+  This is the only deliberate transport difference; the wrapper's error
+  swallowing is reproduced (`head_object`, `copy_object`, `delete_objects`,
+  `upload_file` turn an S3 error response into `None`/`false` after logging;
+  transport errors propagate). Two settings that Django only reads when the
+  first request needs storage (`AWS_REGION`'s validity and
+  `int(SIGNED_URL_EXPIRATION)`) are validated when `Storage::new` runs, so
+  `plane-api` refuses to start instead of 500ing every upload; that follows the
+  ENV.md rule for malformed settings.
+- Credentials: the explicit env pair, exactly as `S3Storage` passes it — which
+  means `AWS_SESSION_TOKEN` is ignored when `AWS_ACCESS_KEY_ID` and
+  `AWS_SECRET_ACCESS_KEY` are set, a real Plane bug reproduced and pinned by the
+  golden cases `post/get_explicit_ignores_env_token` — plus the boto3 chain's
+  container (`AWS_CONTAINER_CREDENTIALS_*`) and IMDSv2 providers, lazily
+  resolved, cached, refreshed 15 minutes before `Expiration`
+  (`botocore/credentials.py:61`). Shared credential/config files are not ported
+  (PROGRESS open question 3); the env provider of the chain is effectively dead
+  for Plane because it reads the same variables `S3Storage` already passes.
+  IMDSv1 fallback is not implemented (IMDSv2 is available on every supported
+  EC2 instance; an IMDSv1-only endpoint would be a behaviour change).
+- Deliberately not reproduced, with reasons:
+  - `upload_fileobj`'s 8 MiB multipart threshold: a single `PutObject` produces
+    the same bytes, `Content-Type` and ACL, and only the ETag's `-N` suffix
+    differs. No caller reads an upload's ETag.
+  - bucket ARNs, S3 Access Points and the `us-iso-*` partitions: they require
+    `endpoint_url`, which is used verbatim.
+  - the shared mutable `extra_args={}` default in `S3Storage.upload_file`
+    (`storage.py:190`): the only caller always passes a `ContentType`, so the
+    cross-call leak cannot be observed.
+- Behaviour that surprised while porting, all pinned by a golden case:
+  - Plane calls `minio_endpoint_ssl` only through the request branch: worker
+    tasks (`storage_metadata_task`, `copy_s3_object`, exports) ignore it
+    (`storage.py:42-56`).
+  - With `AWS_REGION=""` boto3 signs an empty credential scope
+    (`AKID/20261116//s3/aws4_request`) and MinIO accepts it; with no
+    `endpoint_url` the same setting crashes client construction with
+    `https://s3..amazonaws.com` (`botocore/endpoint.py:400`).
+  - Without `endpoint_url`, every `aws`-partition region uses the **global**
+    `s3.amazonaws.com` host for DNS-label buckets; a bucket with `.`, `_`,
+    uppercase or length <3 falls back to path style, and the fallback host is
+    global or regional depending on whether the bucket is a valid *ruleset* host
+    label (`botocore/handlers.py:1129-1162`, `botocore/utils.py:1344`).
+  - `bucket` and `key` appear twice in the POST policy: Plane supplies them and
+    boto3 appends them again (`storage.py:74-85`, `signers.py:828-838`).
+  - Plane checks `object_name.startswith("${filename}")` while boto3 checks
+    `key.endswith("${filename}")` (`storage.py:81`, `signers.py:833`), so a key
+    that starts with the placeholder but does not end with it gets a truncated
+    `starts-with` prefix (`"${filen"` for `"${filename}-suffix"`).
+  - The policy document is Python `json.dumps` with default separators and
+    `ensure_ascii=True`: `", "`/`": "`, and non-ASCII escaped as lowercase
+    `\uXXXX` with surrogate pairs for astral characters.
+  - `Content-Disposition` is double-encoded: `quote(filename)` first
+    (`storage.py:111`) and then the query serializer escapes the `%` again
+    (`botocore/signers.py:653-663`), so a space in a filename appears as
+    `%2520`.
+  - The export presign endpoint is
+    `AWS_S3_URL_PROTOCOL//(<custom domain with the literal "/uploads" removed>)/`
+    (`export_task.py:69`): for a bucket named anything but `uploads` the bucket
+    appears twice (`https://example.com/store/store/<key>`), and the presign
+    client is built without `region_name`, so the scope is us-east-1 even when
+    `AWS_REGION` says otherwise.
+
 
 ## D7. Celery publishing during coexistence: `lapin` 4.12 behind a cargo feature (decided)
 
@@ -123,6 +235,96 @@ workspace `Cargo.toml` and upgrade deliberately.
   custom resolver.
 - One rustls crypto provider for the whole binary (`aws-lc-rs`, the reqwest default),
   never two.
+- Implemented by `crates/plane-net` (modules `pyurl`, `ipaddr`, `ssrf`, `dns`, `client`,
+  `preset`, `tls`, `webhook`), with `tools/net/ssrf_corpus.py` as the oracle. Versions:
+  `reqwest` 0.13.5 (`default-features = false`, features `rustls`, `gzip`, `deflate`),
+  `rustls` 0.23.46, `webpki-roots` 1.0.12, `idna` 1.1.0, `ipnet` 2.12.2, `base64` 0.22.1.
+  Direct deps rather than workspace entries because the domain agent did not own the
+  workspace manifest; hoist them unchanged.
+- **Pinning.** Python rewrites the request URL to the validated IP literal and passes the
+  name as `Host` plus a urllib3 pool-key `server_hostname`. reqwest has no per-request SNI
+  override, so `plane-net` does the equivalent one layer lower: the URL keeps the
+  hostname, the client is built with a `reqwest::dns::Resolve` implementation that
+  answers exactly one name with exactly the validated `SocketAddr` and **fails every
+  other name**, and the `Host` header is set explicitly to Python's value. hyper connects
+  to the pinned address, rustls verifies the certificate against the URL host. There is
+  no code path that can resolve a second time: `tests/live_https.rs` proves it with a
+  flip-flop resolver (one lookup; a rebind to a second address is unreachable). A
+  `reqwest::Client` is built per hop, as Python builds a `requests.Session` per hop; the
+  TLS config is shared through an `Arc`. Measured marginal cost of the dependency
+  (release, macOS arm64, `examples/cost.rs` 3,340,416 B / 7.9 MiB max RSS vs
+  `examples/minimal.rs` 302,496 B / 1.4 MiB): **+3.0 MiB binary, +6.5 MiB peak RSS**;
+  p50 **0.46 µs** to split the URL, **0.54 µs** to resolve+validate a hop, **0.83 µs** for
+  the create-time webhook policy, **0.38 µs** to build a pinned client (20 000 iterations,
+  run-to-run variance about 30%). A real binary that already links tokio/rustls for
+  `plane-db` pays less than the isolated example.
+- **Redirects.** `reqwest`'s redirect policy is always `none()`. The webhook returns a 3xx
+  unchanged (`allow_redirects=False`); the link crawler, favicon and avatar paths follow
+  at most five hops manually, re-splitting, re-resolving, re-validating and re-pinning
+  every hop, exactly like `pinned_fetch_following_redirects`. A `Location` that fails
+  validation is a `ValueError`-class failure, not a retryable transport error.
+- **Proxies.** Pinned presets use `ClientBuilder::no_proxy()` and never read `HTTP_PROXY`
+  (`session.trust_env = False` plus `proxies={"http": None, "https": None}` in Python): a
+  CONNECT tunnel would resolve the name at the proxy and bypass pinning. Unguarded call
+  sites (OAuth token/userinfo, Unsplash, GitHub releases, live conversion, the LLM call)
+  keep env-proxy behaviour, which reqwest reads from `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`
+  /`NO_PROXY` with the `system-proxy` feature deliberately **off** (requests reads env
+  only, not macOS/Windows system settings).
+- **TLS trust.** `webpki-roots` (Mozilla store, the equivalent of the certifi bundle) for
+  pinned calls, whose `trust_env=False` also ignores `REQUESTS_CA_BUNDLE`; for unguarded
+  calls `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, else `webpki-roots`. The provider is
+  constructed explicitly (`aws_lc_rs::default_provider`) and preconfigured `ClientConfig`s
+  are shared, so no process default is installed and `plane-db`'s rustls setup is
+  unaffected. ALPN is `http/1.1` only (urllib3 2.x), so no h2 negotiation.
+- **Timeouts.** `requests`' `timeout=` bounds connect and each read, not the whole
+  request. Presets map it to `connect_timeout` + `read_timeout`; the total `timeout()` is
+  never set. The link crawler really uses one second (`safe_get`'s default), the favicon
+  HEAD two seconds, the avatar ten, webhook delivery and the GitHub release check thirty
+  and ten, and the OAuth/Unsplash/live-conversion calls no timeout (the OpenAI SDK call is
+  600 s with two retries).
+- **Response bodies.** `requests`' text decoding rules: charset parameter, else
+  `ISO-8859-1` for a media type containing `text`, else UTF-8 for `application/json`, else
+  `apparent_encoding` — which is the literal `"utf-8"` because neither `chardet` nor
+  `charset_normalizer` is installed in `apps/api`. Only the avatar path caps the body
+  (`DATA_UPLOAD_MAX_MEMORY_SIZE`, 5 MiB by default) because only it reads incrementally;
+  webhook delivery and link unfurling read everything, as they do in Python. The knob
+  exists per request for a future decision to cap them.
+- **Golden corpus.** `tools/net/ssrf_corpus.py` (run with `apps/api/.venv/bin/python`,
+  CPython **3.12.13**) produces `crates/plane-net/tests/golden/ssrf_urls.jsonl` (**2 400**
+  cases: URL split, `validate_url`, the pinning resolution and `Host` header, and
+  `WebhookSerializer._validate_webhook_url`) and `ssrf_ips.jsonl` (**6 835** cases with
+  every `ipaddress` property, including a seeded random sample). Both DNS sides are stubbed from the same table. `--check`
+  fails on a stale file and belongs in CI. The tables are CPython 3.12's (the pinned
+  interpreter), and the corpus records the version that produced it: `ipaddress`'s
+  classification and IPv6 scope-id rules have changed between releases, which is why a
+  partial re-implementation is not acceptable here. Partial ports of `ipaddress` are
+  exactly how SSRF bypasses happen, so the whole property set is golden-tested rather
+  than trusted.
+- **IDNA.** CPython only IDNA-encodes **non-ASCII** names, with the IDNA2003 `idna` codec
+  (`ß` → `ss`). `plane-net` applies UTS #46 transitional mapping and then `idna`'s
+  non-transitional algorithm, which agrees on the corpus (including `straße`/`faß`) but is
+  not a complete nameprep implementation; a name where the two disagree is a documented
+  divergence, not a silent one. `_checknetloc`'s NFKC guard is implemented with the
+  19-character table derived from CPython 3.12.13 instead of a normalisation crate.
+- **Known differences, all recorded in the modules:**
+  - Python's pinning rewrites the URL to the IP, so a non-ASCII `Host` header raises
+    `UnicodeEncodeError` there; `plane-net` keeps the name and fails the same request at
+    header encoding. Both land in a caller's generic exception branch.
+  - Transport error strings differ (hyper/rustls vs urllib3), which changes
+    `webhook_logs.response_body` on delivery failures. Unavoidable across HTTP stacks.
+  - `str(response.headers)` ordering depends on `http::HeaderMap` iteration order. The
+    live test asserts the observed order matches the wire; if that ever changes, the
+    webhook log's header string is the only affected column.
+  - Unguarded redirect chains do not carry cookies between hops (Python's `Session`
+    does), because each hop builds a new client. No Plane call site depends on it.
+  - A `Content-Type` parameter without `=` is ignored; Python stores `True` and crashes
+    with `AttributeError` if it is `charset`.
+- **Follow-up outside this crate:** `plane-core`'s `parse_networks` uses
+  `IpNet::from_str`, which rejects a bare address, while `ipaddress.ip_network("10.0.0.5",
+  strict=False)` accepts it as `/32`. `WEBHOOK_ALLOWED_IPS=10.0.0.5` therefore warns and is
+  ignored by the Rust config today. `SsrfPolicy::parse_cidr_list` in `plane-net` has the
+  Python behaviour; the settings parser should use the same rule or the two will disagree.
+
 
 ## D10. Password hashing: `pbkdf2` with SHA-256 via `aws-lc-rs` (provisional)
 
