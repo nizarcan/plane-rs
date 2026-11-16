@@ -190,7 +190,7 @@ pub struct LiteWorkspace {
     pub name: String,
     pub slug: String,
     pub id: Uuid,
-    pub logo: String,
+    pub logo: Option<String>,
     pub logo_asset_id: Option<Uuid>,
     pub logo_url: Option<String>,
 }
@@ -346,7 +346,7 @@ pub fn apply_workspaces(
     urls: &AssetUrls,
 ) -> Result<(), ViewError> {
     for workspace in workspaces.values_mut() {
-        let text = workspace.logo.clone();
+        let text = workspace.logo.clone().unwrap_or_default();
         workspace.logo_url = asset_or_text(workspace.logo_asset_id, text, urls)?;
     }
     Ok(())

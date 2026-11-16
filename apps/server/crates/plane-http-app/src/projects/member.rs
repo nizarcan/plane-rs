@@ -144,8 +144,11 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
                 project.cover_image.clone().unwrap_or_default(),
                 &urls,
             )?;
-            workspace.logo_url =
-                lite::asset_or_text(workspace.logo_asset_id, workspace.logo.clone(), &urls)?;
+            workspace.logo_url = lite::asset_or_text(
+                workspace.logo_asset_id,
+                workspace.logo.clone().unwrap_or_default(),
+                &urls,
+            )?;
             user.avatar_url =
                 lite::asset_or_text(user.avatar_asset_id, user.avatar.clone(), &urls)?;
             let project_lite = project.lite();
@@ -251,8 +254,11 @@ pub fn me<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewEr
             project.cover_image.clone().unwrap_or_default(),
             &urls,
         )?;
-        workspace.logo_url =
-            lite::asset_or_text(workspace.logo_asset_id, workspace.logo.clone(), &urls)?;
+        workspace.logo_url = lite::asset_or_text(
+            workspace.logo_asset_id,
+            workspace.logo.clone().unwrap_or_default(),
+            &urls,
+        )?;
         user.avatar_url = lite::asset_or_text(user.avatar_asset_id, user.avatar.clone(), &urls)?;
         let project_lite = project.lite();
         let workspace_lite = workspace.lite();
