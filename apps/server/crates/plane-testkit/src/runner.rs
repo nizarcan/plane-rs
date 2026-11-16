@@ -22,8 +22,9 @@ use crate::celery::{
     CeleryDrain, CeleryMessage, RabbitAdmin, amqp_url_with_vhost, wait_management,
 };
 use crate::compare::{
-    Difference, FormattingStatus, check_drf_formatting, compare_bodies, compare_celery, compare_db,
-    compare_formatting, compare_headers, compare_redis, compare_status,
+    CONTENT_LENGTH_BODYLESS_WHY, Difference, FormattingStatus, check_drf_formatting,
+    compare_bodies, compare_celery, compare_db, compare_formatting, compare_redis,
+    compare_response_headers, compare_status,
 };
 use crate::config::{CaptureSource, NormalizeRules, Scenario, Step, TargetsFile};
 use crate::db::{DbAdmin, DbDiff, DbSnapshot, DbSnapshotter, diff_snapshots};
@@ -710,7 +711,21 @@ async fn run_inner(
                 probe_compared_denials += 1;
             }
             differences.extend(compare_status(a_outcome.status, b_outcome.status));
-            differences.extend(compare_headers(&a_headers, &b_headers));
+            let (header_differences, bodyless_rule) = compare_response_headers(
+                a_outcome.status,
+                b_outcome.status,
+                &a_headers,
+                &b_headers,
+            );
+            if let Some(rule) = bodyless_rule {
+                side_a
+                    .normalizer
+                    .note_rule(rule, CONTENT_LENGTH_BODYLESS_WHY);
+                side_b
+                    .normalizer
+                    .note_rule(rule, CONTENT_LENGTH_BODYLESS_WHY);
+            }
+            differences.extend(header_differences);
             differences.extend(compare_bodies(&a_outcome.body, &b_outcome.body));
             differences.extend(compare_formatting(
                 &a_outcome.formatting,

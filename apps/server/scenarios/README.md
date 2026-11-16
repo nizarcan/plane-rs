@@ -374,7 +374,15 @@ For each step the harness compares:
 2. all headers except `date`, `server` and (when unstable) `content-length`,
    case-insensitively, with multi-valued headers as ordered lists;
    `Set-Cookie` by cookie name and attributes, with volatile cookie values
-   replaced;
+   replaced. A surviving `Content-Length` is compared exactly, with one
+   exception (DECISIONS.md D18): a 204 on both sides where one sends
+   `Content-Length: 0` and the other sends none is not a difference —
+   Django/uvicorn sends the header, hyper omits it per RFC 9110 §8.6, and Caddy
+   strips it before clients see either. The same one-side-absent shape is
+   ignored when both sides return 304. Every other `Content-Length` difference
+   stays a diff (another value, a non-zero value on a 204, or different
+   statuses), and the exception is listed in the run's applied rules as
+   `content-length-bodyless`;
 3. body: JSON parsed with key order and number lexemes kept, plus D15's byte
    rule (each side must equal its own DRF-compact re-serialisation);
 4. the database diff (inserted/deleted/updated rows per table, as multisets);
