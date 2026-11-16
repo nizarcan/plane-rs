@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde_json::{Value, json};
 
 use crate::celery::CeleryMessage;
@@ -104,6 +104,7 @@ fn named(name: &str, why: &str, mode: RuleMode) -> NamedRule {
         placeholder: None,
         shape: None,
         check: None,
+        request: None,
     }
 }
 
@@ -115,6 +116,7 @@ fn placeholder(name: &str, kind: &str, shape: &str) -> NamedRule {
         placeholder: Some(kind.to_string()),
         shape: Some(shape.to_string()),
         check: None,
+        request: None,
     }
 }
 
@@ -171,6 +173,7 @@ fn rules() -> Arc<NormalizeRules> {
                 placeholder: Some("csrf-token".to_string()),
                 shape: Some("csrf_token".to_string()),
                 check: Some(RuleCheck::CsrfMasked),
+                request: None,
             },
             placeholder("username", "username", "uuid_hex"),
             NamedRule {
@@ -180,6 +183,7 @@ fn rules() -> Arc<NormalizeRules> {
                 placeholder: Some("token".to_string()),
                 shape: Some("hex64".to_string()),
                 check: None,
+                request: None,
             },
             placeholder("background_color", "colour", "hex_colour"),
             named("epoch", "whole-second wall clock", RuleMode::UnixTime),
@@ -273,6 +277,7 @@ fn normalizer_with(base_url: &str, secret: Option<&[u8]>, passwords: &[&str]) ->
         known_uuids: Arc::new(HashSet::new()),
         secret_key: secret.map(|secret| Arc::new(secret.to_vec())),
         passwords: Arc::new(passwords.iter().map(|value| value.to_string()).collect()),
+        aws: None,
     })
 }
 
@@ -409,6 +414,7 @@ pub fn run() -> Result<()> {
             known_uuids: Arc::new(HashSet::from([known.clone()])),
             secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
             passwords: Arc::new(Vec::new()),
+            aws: None,
         });
         normalizer.start_step(start, start);
         normalizer.normalize_text(&known) == known
@@ -423,6 +429,7 @@ pub fn run() -> Result<()> {
             known_uuids: Arc::new(HashSet::from([known.clone()])),
             secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
             passwords: Arc::new(Vec::new()),
+            aws: None,
         });
         normalizer.start_step(start, start);
         let hex = known.replace('-', "");
@@ -1492,6 +1499,7 @@ pub fn run() -> Result<()> {
             known_uuids: Arc::new(HashSet::new()),
             secret_key: None,
             passwords: Arc::new(Vec::new()),
+            aws: None,
         });
         normalizer.start_step(start, start);
         normalizer.set_request(request.to_string());
@@ -1621,6 +1629,135 @@ pub fn run() -> Result<()> {
         "group key order stays exact on a non-m2m step",
         "body",
         &compare_bodies(&keys_ordered, &keys_reordered),
+    )?;
+
+    // -- D17: presigned S3 URLs -------------------------------------------
+    // Each side's `Location` is verified with its own credentials and
+    // `X-Amz-Date`; everything except the date and the signature compares
+    // byte for byte, and the dates may be at most two seconds apart.
+    let aws = crate::presign::Credentials {
+        access_key_id: "AKIDEXAMPLE".to_string(),
+        secret_access_key: "SECRETEXAMPLE".to_string(),
+    };
+    let presigned_url = |date: &str, path: &str, expires: i64| {
+        crate::presign::sign_presigned_get(
+            &aws,
+            "http",
+            "plane-fixture.test",
+            path,
+            &[(
+                "response-content-disposition",
+                "attachment; filename=\"spec.pdf\"",
+            )],
+            date,
+            "us-east-1",
+            expires,
+        )
+    };
+    let presigned_normalizer = |started: DateTime<Utc>, ended: DateTime<Utc>| {
+        let mut base = (*rules()).clone();
+        base.volatile_headers.push(NamedRule {
+            name: "Location".to_string(),
+            why: "selftest: presigned S3 URL".to_string(),
+            mode: RuleMode::PresignedUrl,
+            placeholder: None,
+            shape: None,
+            check: None,
+            request: Some("*api/assets/*".to_string()),
+        });
+        base.unordered_json_paths = Vec::new();
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(base),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+            aws: Some(aws.clone()),
+        });
+        normalizer.start_step(started, ended);
+        normalizer.set_request("GET /api/assets/v2/workspaces/w/download/asset/");
+        normalizer
+    };
+    // SigV4's compact date as the instant the target signed at.
+    let at = |text: &str| -> DateTime<Utc> {
+        chrono::NaiveDateTime::parse_from_str(text, "%Y%m%dT%H%M%SZ")
+            .map(|naive| naive.and_utc())
+            .unwrap_or(start)
+    };
+    let signed = |date: &str, path: &str, expires: i64| {
+        let mut normalizer = presigned_normalizer(at(date), at(date) + Duration::seconds(1));
+        let headers = vec![("Location".to_string(), presigned_url(date, path, expires))];
+        (normalizer.normalize_headers(&headers), normalizer)
+    };
+
+    let (one_second_a, mut na) = signed("20261116T120000Z", "/uploads/a/1.pdf", 60);
+    let (one_second_b, _nb) = signed("20261116T120001Z", "/uploads/a/1.pdf", 60);
+    checks.accepted(
+        "presigned URLs one second apart",
+        &crate::compare::compare_headers(&one_second_a, &one_second_b),
+    )?;
+    checks.ok(
+        "presigned URLs are presented as verified",
+        one_second_a[0].1.contains("<presigned-date:") && na.take_violations().is_empty(),
+    )?;
+
+    // A tampered signature is a violation on that side, never a pass.
+    let (mut tampered, _) = signed("20261116T120000Z", "/uploads/a/1.pdf", 60);
+    tampered[0].1 = tampered[0]
+        .1
+        .replacen("X-Amz-Signature=", "X-Amz-Signature=0", 1);
+    let mut tampered_normalizer = presigned_normalizer(start, start + Duration::seconds(1));
+    let tampered_out = tampered_normalizer.normalize_headers(&tampered);
+    checks.ok(
+        "a tampered presigned signature is a violation",
+        !tampered_normalizer.take_violations().is_empty() && tampered_out[0].1 == tampered[0].1,
+    )?;
+
+    // A valid signature for a changed `X-Amz-Expires`, or for a changed path,
+    // is still a different URL: the bytes are compared after masking the date
+    // and the signature.
+    let (other_expiry, _) = signed("20261116T120000Z", "/uploads/a/1.pdf", 61);
+    checks.detected(
+        "a changed X-Amz-Expires",
+        "headers",
+        &crate::compare::compare_headers(&one_second_a, &other_expiry),
+    )?;
+    let (other_path, _) = signed("20261116T120000Z", "/uploads/a/2.pdf", 60);
+    checks.detected(
+        "a changed presigned path",
+        "headers",
+        &crate::compare::compare_headers(&one_second_a, &other_path),
+    )?;
+
+    // Five seconds apart: each date is inside its own window, but the pair is
+    // outside D17's two-second tolerance.
+    let (five_apart, _) = signed("20261116T120005Z", "/uploads/a/1.pdf", 60);
+    checks.detected(
+        "presigned URLs five seconds apart",
+        "headers",
+        &crate::compare::compare_headers(&one_second_a, &five_apart),
+    )?;
+
+    // A date outside the request window is a violation even when the signature
+    // is valid for it.
+    let mut late = presigned_normalizer(start, start + Duration::seconds(1));
+    let late_headers = vec![(
+        "Location".to_string(),
+        presigned_url("20261116T130000Z", "/uploads/a/1.pdf", 60),
+    )];
+    let _ = late.normalize_headers(&late_headers);
+    checks.ok(
+        "a presigned date outside the request window is a violation",
+        !late.take_violations().is_empty(),
+    )?;
+    // A `Location` on a step the rule does not name keeps the exact comparison.
+    let mut elsewhere = presigned_normalizer(start, start + Duration::seconds(1));
+    elsewhere.set_request("GET /api/workspaces/w/projects/p/");
+    let elsewhere_headers = vec![("Location".to_string(), "/some/redirect/".to_string())];
+    let elsewhere_out = elsewhere.normalize_headers(&elsewhere_headers);
+    checks.ok(
+        "a Location outside the rule's request glob stays exact",
+        elsewhere_out[0].1 == "/some/redirect/" && elsewhere.take_violations().is_empty(),
     )?;
 
     // -- ordering of placeholders across parts ----------------------------

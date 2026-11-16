@@ -289,7 +289,9 @@ async fn run_inner(
     let db_admin = DbAdmin::new(&opts.pg_url);
     let mut known_uuids: HashSet<String> = HashSet::new();
 
-    let (a_url, b_url, a_db, b_db, a_vhost, b_vhost) = if let Some(attach) = &opts.attach {
+    let (a_url, b_url, a_db, b_db, a_vhost, b_vhost, a_aws, b_aws) = if let Some(attach) =
+        &opts.attach
+    {
         (
             attach.a_url.clone(),
             attach.b_url.clone(),
@@ -297,6 +299,8 @@ async fn run_inner(
             attach.b_db.clone(),
             attach.a_vhost.clone(),
             attach.b_vhost.clone(),
+            None,
+            None,
         )
     } else {
         let a_db = format!("dt_{run_id}_a");
@@ -371,9 +375,11 @@ async fn run_inner(
         if a_url == b_url {
             bail!("targets A and B both listen on {a_url}; A and B must be distinct processes");
         }
+        let a_aws = target_a.aws_credentials.clone();
+        let b_aws = target_b.aws_credentials.clone();
         resources.targets.push(target_a);
         resources.targets.push(target_b);
-        (a_url, b_url, a_db, b_db, a_vhost, b_vhost)
+        (a_url, b_url, a_db, b_db, a_vhost, b_vhost, a_aws, b_aws)
     };
 
     for ((label, database, index), url) in [("A", &a_db, a_redis_db), ("B", &b_db, b_redis_db)]
@@ -483,6 +489,7 @@ async fn run_inner(
             known_uuids: Arc::clone(&known_uuids),
             secret_key: secret_key_a.map(Arc::new),
             passwords: passwords_a,
+            aws: a_aws,
         }),
         snapshotter: snapshotter_a,
         last_snapshot: baseline_a.snapshot,
@@ -505,6 +512,7 @@ async fn run_inner(
             known_uuids: Arc::clone(&known_uuids),
             secret_key: secret_key_b.map(Arc::new),
             passwords: passwords_b,
+            aws: b_aws,
         }),
         snapshotter: snapshotter_b,
         last_snapshot: baseline_b.snapshot,

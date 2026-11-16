@@ -20,6 +20,7 @@ pub mod http;
 pub mod normalize;
 pub mod password;
 pub mod pickle;
+pub mod presign;
 pub mod provision;
 pub mod record;
 pub mod redis;

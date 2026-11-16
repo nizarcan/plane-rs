@@ -34,7 +34,6 @@
 //! | [`chart`] | `plane/utils/build_chart.py` — `build_analytics_chart` |
 //! | [`sql`] | the `Issue` querysets the views build, as composable SQL |
 //! | [`stored`] | the stored `analytic_views.query` dictionary |
-//! | [`pyset`] | CPython's `set` iteration order, which `project-stats` writes its row keys in |
 //! | [`queries`] | the static catalog |
 //!
 //! ## What is ported
@@ -57,7 +56,6 @@ pub mod chart;
 pub mod default;
 pub mod plot;
 pub mod project;
-pub mod pyset;
 pub mod queries;
 pub mod sql;
 pub mod stored;

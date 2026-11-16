@@ -14,9 +14,9 @@
 //! `project-stats` runs two: the caller's workspace role, then one statement
 //! whose `SELECT` carries a correlated `COUNT` subquery per requested field.
 //! `requested_fields` is a `set` in the Python, so the JSON key order of each
-//! row follows CPython's `str` hash order for the pinned `PYTHONHASHSEED`
-//! (`DECISIONS.md` D16 covers set *values*, not object key order, so the port
-//! reproduces CPython's layout); see [`crate::analytics::pyset`].
+//! row is CPython's `str` hash order. Rust emits the same keys in ascending
+//! order and the harness compares that object as an unordered key set
+//! (`DECISIONS.md` D16, `scenarios/normalize.yaml` `mode: object_keys`).
 
 use chrono::{DateTime, Datelike, NaiveDate, Offset, TimeZone, Utc};
 use chrono_tz::Tz;
@@ -210,13 +210,31 @@ pub fn project_stats<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespo
     })
 }
 
-/// `set(filter(None, fields)) & valid_fields`, in CPython's iteration order.
+/// `set(filter(None, fields)) & valid_fields` — the fields the caller asked
+/// for, deduplicated, in ascending order; all five when none is named
+/// (`plane/app/views/analytic/base.py:416-427`).
 ///
-/// `values("id", *requested_fields)` writes the row keys in the set's
-/// iteration order; [`crate::analytics::pyset`] reproduces CPython 3.12's
-/// layout for the pinned `PYTHONHASHSEED`.
+/// The Python splats a `set` into `values("id", *requested_fields)`, so the
+/// row's key *order* is CPython's hash order. D16: Rust emits set-derived
+/// values in ascending order, and the harness compares this object's key set
+/// (`scenarios/normalize.yaml`, `mode: object_keys`), not its order.
 fn requested_fields(fields: &str) -> Vec<&'static str> {
-    crate::analytics::pyset::field_order(Some(fields))
+    // Ascending, and the same order as the Python's `valid_fields` set.
+    const VALID: [&str; 5] = [
+        "completed_issues",
+        "total_cycles",
+        "total_issues",
+        "total_members",
+        "total_modules",
+    ];
+    let mut requested: Vec<&'static str> = VALID
+        .into_iter()
+        .filter(|field| fields.split(',').any(|item| item == *field))
+        .collect();
+    if requested.is_empty() {
+        requested.extend(VALID);
+    }
+    requested
 }
 
 /// The correlated subquery one `project-stats` field selects
@@ -491,4 +509,39 @@ fn gap_fallback(timezone: Tz, naive: chrono::NaiveDateTime) -> DateTime<Utc> {
     let previous = naive - chrono::Duration::days(1);
     let offset = timezone.offset_from_utc_datetime(&previous).fix();
     DateTime::<Utc>::from_naive_utc_and_offset(naive - offset, Utc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::requested_fields;
+
+    #[test]
+    fn project_stats_fields_are_deduplicated_and_ascending() {
+        // `set(filter(None, fields)) & valid_fields`: unknown names and empty
+        // entries drop out, duplicates collapse, and an empty intersection means
+        // every valid field (`base.py:416-427`). Rust's order is ascending
+        // (D16); the harness compares the key set, not the order.
+        assert_eq!(
+            requested_fields("total_issues,total_issues,completed_issues"),
+            vec!["completed_issues", "total_issues"]
+        );
+        assert_eq!(
+            requested_fields("nonsense,,total_members"),
+            vec!["total_members"]
+        );
+        assert_eq!(
+            requested_fields(""),
+            vec![
+                "completed_issues",
+                "total_cycles",
+                "total_issues",
+                "total_members",
+                "total_modules"
+            ]
+        );
+        assert_eq!(
+            requested_fields("total_modules,total_cycles,total_issues"),
+            vec!["total_cycles", "total_issues", "total_modules"]
+        );
+    }
 }

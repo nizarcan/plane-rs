@@ -142,6 +142,8 @@ struct Rule {
     placeholder: Option<String>,
     shape: Option<String>,
     check: Option<RuleCheck>,
+    /// A `METHOD path?query` glob; `None` applies to every step.
+    request: Option<String>,
     why: String,
 }
 
@@ -152,7 +154,16 @@ impl Rule {
             placeholder: spec.placeholder.clone(),
             shape: spec.shape.clone(),
             check: spec.check,
+            request: spec.request.clone(),
             why: spec.why.clone(),
+        }
+    }
+
+    /// `false` when the rule names a request the current step is not.
+    fn matches_request(&self, request: Option<&str>) -> bool {
+        match &self.request {
+            None => true,
+            Some(glob) => request.is_some_and(|request| glob_matches(glob, request)),
         }
     }
 }
@@ -285,6 +296,10 @@ pub struct NormalizerConfig {
     /// Plaintexts the scenario declares; a changed password hash must verify
     /// against one of them.
     pub passwords: Arc<Vec<String>>,
+    /// The target's object-storage credentials, required for `presigned_url`
+    /// rules (DECISIONS.md D17). Read from the target's environment, never
+    /// hard-coded.
+    pub aws: Option<crate::presign::Credentials>,
 }
 
 pub struct TargetNormalizer {
@@ -294,6 +309,7 @@ pub struct TargetNormalizer {
     known_uuids: Arc<HashSet<String>>,
     secret_key: Option<Arc<Vec<u8>>>,
     passwords: Arc<Vec<String>>,
+    aws: Option<crate::presign::Credentials>,
     /// raw value → placeholder. One map for every kind, so the same value in
     /// two parts always gets the same placeholder.
     placeholders: HashMap<String, String>,
@@ -376,6 +392,7 @@ impl TargetNormalizer {
             known_uuids: config.known_uuids,
             secret_key: config.secret_key,
             passwords: config.passwords,
+            aws: config.aws,
             placeholders: HashMap::new(),
             counters: HashMap::new(),
             remembered_timestamps: HashSet::new(),
@@ -560,7 +577,9 @@ impl TargetNormalizer {
             let (name, value) = &headers[index];
             out[index].1 = if name.eq_ignore_ascii_case("set-cookie") {
                 self.normalize_set_cookie(value)
-            } else if let Some(rule) = self.headers.get(&name.to_ascii_lowercase()).cloned() {
+            } else if let Some(rule) = self.headers.get(&name.to_ascii_lowercase()).cloned()
+                && rule.matches_request(self.request.as_deref())
+            {
                 let label = format!("header:{name}");
                 let mut slot = Value::String(value.clone());
                 let before = slot.clone();
@@ -704,7 +723,12 @@ impl TargetNormalizer {
                         continue;
                     };
                     let child = format!("{path}.{key}");
-                    match self.json_keys.get(&key).cloned() {
+                    match self
+                        .json_keys
+                        .get(&key)
+                        .cloned()
+                        .filter(|rule| rule.matches_request(self.request.as_deref()))
+                    {
                         Some(rule) => {
                             let label = format!("json:{key}");
                             let before = slot.clone();
@@ -894,6 +918,7 @@ impl TargetNormalizer {
             }
             RuleMode::SessionPayload => self.apply_session_payload(rule, value, path),
             RuleMode::Password => self.apply_password(rule, value, path),
+            RuleMode::PresignedUrl => self.apply_presigned_url(rule, value, path),
             RuleMode::Drop => {}
         }
     }
@@ -928,6 +953,76 @@ impl TargetNormalizer {
             .unwrap_or("volatile")
             .to_string();
         *value = Value::String(self.placeholder_for(&kind, &text, &rule.why));
+    }
+
+    /// DECISIONS.md D17: verify a presigned S3 URL against this target's own
+    /// credentials and `X-Amz-Date`, then rewrite it so both sides compare
+    /// everything except the date and the signature.
+    fn apply_presigned_url(&mut self, rule: &Rule, value: &mut Value, path: &str) {
+        let Value::String(text) = value else {
+            self.violations.push(Violation::new(
+                "presigned-url",
+                path,
+                format!("expected a presigned URL string, got {}", value_type(value)),
+            ));
+            return;
+        };
+        let text = text.clone();
+        let Ok(url) = crate::presign::PresignedGet::parse(&text) else {
+            self.violations.push(Violation::new(
+                "presigned-url",
+                path,
+                format!("expected a presigned S3 URL: {}", preview(&text)),
+            ));
+            return;
+        };
+        let date = match url.date() {
+            Ok(date) => date,
+            Err(error) => {
+                self.violations
+                    .push(Violation::new("presigned-url", path, error));
+                return;
+            }
+        };
+        // The signature is computed over the second in `X-Amz-Date`; allow the
+        // second the request itself straddles, nothing more.
+        match self.window {
+            Some((start, end)) => {
+                if date < start - Duration::seconds(1) || date > end + Duration::seconds(1) {
+                    self.violations.push(Violation::new(
+                        "presigned-url",
+                        path,
+                        format!(
+                            "X-Amz-Date {} is outside the request window {}..={}",
+                            date.to_rfc3339(),
+                            start.to_rfc3339(),
+                            end.to_rfc3339()
+                        ),
+                    ));
+                    return;
+                }
+            }
+            None => self.violations.push(Violation::new(
+                "presigned-url",
+                path,
+                "no request window is open for this step",
+            )),
+        }
+        let Some(credentials) = self.aws.clone() else {
+            self.violations.push(Violation::new(
+                "presigned-url",
+                path,
+                "target has no AWS credentials configured; cannot verify the presigned URL",
+            ));
+            return;
+        };
+        if let Err(error) = url.verify(&credentials) {
+            self.violations
+                .push(Violation::new("presigned-url", path, error));
+            return;
+        }
+        *value = Value::String(url.canonical());
+        self.record("presigned-url", &rule.why);
     }
 
     fn check_shape(&mut self, rule: &Rule, text: &str, path: &str) {
@@ -1184,6 +1279,7 @@ impl TargetNormalizer {
                     RuleMode::RelativeTime => "<relative>",
                     RuleMode::UnixTime => "<epoch>",
                     RuleMode::HttpDate => "<http-date>",
+                    RuleMode::PresignedUrl => "<presigned-url>",
                     RuleMode::Drop => "<dropped>",
                 }),
                 None => out.push_str(&self.mask_text(&value.to_string())),
@@ -1417,7 +1513,12 @@ impl TargetNormalizer {
                         continue;
                     };
                     let child = format!("{path}.{key}");
-                    match self.json_keys.get(&key).cloned() {
+                    match self
+                        .json_keys
+                        .get(&key)
+                        .cloned()
+                        .filter(|rule| rule.matches_request(self.request.as_deref()))
+                    {
                         Some(rule) => {
                             let label = format!("json:{key}");
                             let before = slot.clone();
@@ -1647,6 +1748,7 @@ mod tests {
             placeholder: placeholder.map(str::to_string),
             shape: shape.map(str::to_string),
             check: None,
+            request: None,
         }
     }
 
@@ -1683,6 +1785,7 @@ mod tests {
                     placeholder: Some("csrf-token".to_string()),
                     shape: Some("csrf_token".to_string()),
                     check: Some(RuleCheck::CsrfMasked),
+                    request: None,
                 },
                 named(
                     "token",
@@ -1742,6 +1845,7 @@ mod tests {
             known_uuids: Arc::new(HashSet::new()),
             secret_key: Some(Arc::new(SECRET.to_vec())),
             passwords: Arc::new(Vec::new()),
+            aws: None,
         })
     }
 
@@ -1899,6 +2003,7 @@ mod tests {
             known_uuids: Arc::new(HashSet::from([known.to_string()])),
             secret_key: None,
             passwords: Arc::new(Vec::new()),
+            aws: None,
         });
         start(&mut normalizer);
         let hex = known.replace('-', "");

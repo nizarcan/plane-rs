@@ -89,6 +89,17 @@ ignore_headers:
 # Response headers whose value is clock-based and needs a rule. A header with
 # no rule is compared after base-URL/UUID/timestamp substitution.
 volatile_headers:
+  # Asset downloads answer `302` to a presigned S3 GET URL
+  # (`plane/app/views/asset/*.py` → `S3Storage.generate_presigned_url`). Django
+  # (boto3) and `plane-storage` sign in the second they run, so the two targets
+  # legitimately differ in `X-Amz-Date` and therefore in `X-Amz-Signature`; up
+  # to two of thirteen steps per run straddle a second boundary. DECISIONS.md
+  # D17: everything else is byte-identical, and each side's signature is
+  # recomputed with that target's own credentials and date.
+  - name: Location
+    mode: presigned_url
+    request: "*api/assets/*"
+    why: "asset downloads redirect to a presigned S3 URL; D17 verifies each side's SigV4 signature with its own X-Amz-Date (plane/settings/storage.py:114-151)"
   - name: X-RateLimit-Reset
     mode: unix_time
     why: "int(now + throttle duration), an absolute Unix timestamp (plane/api/views/base.py:123-136)"
