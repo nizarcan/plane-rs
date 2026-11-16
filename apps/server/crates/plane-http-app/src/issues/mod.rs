@@ -34,12 +34,14 @@
 use plane_drf::registry::{Registry, RegistryError};
 
 pub mod queries;
+mod sub_resources;
 
 /// Register this group's handlers, in the order they were ported.
 ///
 /// `apps/server/HANDLERS.md` has the step list. Return the first
 /// [`RegistryError`]: a route that cannot be registered must fail startup
 /// rather than fall back to a 501 nobody notices.
-pub fn register(_registry: &mut Registry) -> Result<(), RegistryError> {
+pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    sub_resources::register_sub_resources(registry)?;
     Ok(())
 }
