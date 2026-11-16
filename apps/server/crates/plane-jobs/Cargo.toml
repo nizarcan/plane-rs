@@ -1,0 +1,52 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-jobs"
+description = "Background job plumbing for the Plane rewrite: the Celery coexistence publisher and, later, the Postgres queue"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+gethostname = "1.1.0"
+lapin = { version = "4.12.3", optional = true }
+percent-encoding.workspace = true
+plane-core = { path = "../plane-core" }
+plane-serde = { path = "../plane-serde" }
+ryu = "1.0.23"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[features]
+# The Celery publisher is a coexistence feature (DECISIONS.md D7). It is on by
+# default while Django still owns the workers; the cutover drops the feature
+# together with RabbitMQ.
+default = ["celery"]
+celery = ["dep:lapin"]
+# Builds the checked-in representative cases used by the golden test and by
+# `tools/celery/`. Not enabled by default.
+test-cases = ["celery"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "publish_case"
+required-features = ["test-cases"]
+
+[[example]]
+name = "publish_bench"
+required-features = ["celery"]

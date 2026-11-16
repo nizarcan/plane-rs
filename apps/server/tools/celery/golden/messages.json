@@ -1,0 +1,2830 @@
+{
+  "generated_by": "apps/server/tools/celery/record.py",
+  "celery_version": "5.5.3",
+  "kombu_version": "5.5.4",
+  "transport": "memory (kombu in-process)",
+  "pinned_now": "2026-11-15T17:24:04.144120+00:00",
+  "pinned_origin": "gen4242@celery-golden",
+  "pinned_reply_to": "0f0f0f0f-0000-4000-8000-000000000000",
+  "task_protocol": 2,
+  "task_serializer": "json",
+  "default_queue": "celery",
+  "messages": [
+    {
+      "case": "analytic_export_task",
+      "call_site": "plane/app/views/analytic/base.py:256",
+      "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+      "task_id": "00000000-0000-4000-8000-000000000001",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000001",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000001",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'email': 'admin@example.com', 'data': {'project_ids': ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'], 'filters': {'priority': [...], 'estimate': 2.5}, 'group_by': None, 'x_axis': 'state'}, 'slug': 'acme', 'user_id': '0d1e2f30-4456-4789-9abc-def012345678'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImVtYWlsIjogImFkbWluQGV4YW1wbGUuY29tIiwgImRhdGEiOiB7InByb2plY3RfaWRzIjogWyJhYWFhYWFhYS1iYmJiLWNjY2MtZGRkZC1lZWVlZWVlZWVlZWUiXSwgImZpbHRlcnMiOiB7InByaW9yaXR5IjogWyJoaWdoIiwgInVyZ2VudCJdLCAiZXN0aW1hdGUiOiAyLjV9LCAiZ3JvdXBfYnkiOiBudWxsLCAieF9heGlzIjogInN0YXRlIn0sICJzbHVnIjogImFjbWUiLCAidXNlcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 338
+    },
+    {
+      "case": "copy_s3_objects",
+      "call_site": "plane/app/views/page/base.py:617",
+      "task": "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
+      "task_id": "00000000-0000-4000-8000-000000000002",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000002",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
+        "id": "00000000-0000-4000-8000-000000000002",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000002",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'entity_name': 'PAGE', 'entity_identifier': UUID('44444444-5555-6666-7777-888888888888'), 'project_id': UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'slug': 'acme', 'user_id': UUID('0d1e2f30-4456-4789-9abc-def012345678')}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImVudGl0eV9uYW1lIjogIlBBR0UiLCAiZW50aXR5X2lkZW50aWZpZXIiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNDQ0NDQ0NDQ1NTU1NjY2Njc3Nzc4ODg4ODg4ODg4ODgifX0sICJwcm9qZWN0X2lkIjogeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogImFhYWFhYWFhYmJiYmNjY2NkZGRkZWVlZWVlZWVlZWVlIn19LCAic2x1ZyI6ICJhY21lIiwgInVzZXJfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX19LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 400
+    },
+    {
+      "case": "soft_delete_related_objects_using",
+      "call_site": "plane/db/mixins.py:78",
+      "task": "plane.bgtasks.deletion_task.soft_delete_related_objects",
+      "task_id": "00000000-0000-4000-8000-000000000003",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000003",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.deletion_task.soft_delete_related_objects",
+        "id": "00000000-0000-4000-8000-000000000003",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000003",
+        "parent_id": null,
+        "argsrepr": "('db', 'issue', UUID('11111111-2222-3333-4444-555555555555'))",
+        "kwargsrepr": "{'using': 'default'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siZGIiLCAiaXNzdWUiLCB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMTExMTExMTEyMjIyMzMzMzQ0NDQ1NTU1NTU1NTU1NTUifX1dLCB7InVzaW5nIjogImRlZmF1bHQifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 188
+    },
+    {
+      "case": "soft_delete_related_objects_no_using",
+      "call_site": "plane/db/mixins.py:78",
+      "task": "plane.bgtasks.deletion_task.soft_delete_related_objects",
+      "task_id": "00000000-0000-4000-8000-000000000004",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000004",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.deletion_task.soft_delete_related_objects",
+        "id": "00000000-0000-4000-8000-000000000004",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000004",
+        "parent_id": null,
+        "argsrepr": "('db', 'project', UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'))",
+        "kwargsrepr": "{'using': None}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siZGIiLCAicHJvamVjdCIsIHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICJhYWFhYWFhYWJiYmJjY2NjZGRkZGVlZWVlZWVlZWVlZSJ9fV0sIHsidXNpbmciOiBudWxsfSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 185
+    },
+    {
+      "case": "send_email_notification",
+      "call_site": "plane/bgtasks/email_notification_task.py:76",
+      "task": "plane.bgtasks.email_notification_task.send_email_notification",
+      "task_id": "00000000-0000-4000-8000-000000000005",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000005",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.email_notification_task.send_email_notification",
+        "id": "00000000-0000-4000-8000-000000000005",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000005",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'issue_id': UUID('11111111-2222-3333-4444-555555555555'), 'notification_data': {'0d1e2f30-4456-4789-9abc-def012345678': [{...}]}, 'receiver_id': '0d1e2f30-4456-4789-9abc-def012345678', 'email_notification_ids': [UUID('88888888-9999-aaaa-bbbb-cccccccccccc'), UUID('99999999-aaaa-bbbb-cccc-dddddddddddd')]}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7Imlzc3VlX2lkIjogeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjExMTExMTExMjIyMjMzMzM0NDQ0NTU1NTU1NTU1NTU1In19LCAibm90aWZpY2F0aW9uX2RhdGEiOiB7IjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCI6IFt7Imlzc3VlX2FjdGl2aXR5IjogeyJpZCI6ICIxMjM0NTY3OC0xMjM0LTU2NzgtMTIzNC01Njc4MTIzNDU2NzgiLCAidmVyYiI6ICJ1cGRhdGVkIiwgImZpZWxkIjogInByaW9yaXR5IiwgImFjdG9yIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCIsICJuZXdfdmFsdWUiOiAiaGlnaCIsICJvbGRfdmFsdWUiOiAibWVkaXVtIiwgIm9sZF9pZGVudGlmaWVyIjogbnVsbCwgIm5ld19pZGVudGlmaWVyIjogbnVsbCwgImFjdGl2aXR5X3RpbWUiOiAiMjAyNi0xMS0xNSAxNzoyNDowNCJ9LCAiaXNzdWUiOiB7ImlkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJuYW1lIjogIkZpeCB0aGUgbG9naW4gcmVkaXJlY3QgbG9vcCJ9fV19LCAicmVjZWl2ZXJfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgImVtYWlsX25vdGlmaWNhdGlvbl9pZHMiOiBbeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjg4ODg4ODg4OTk5OWFhYWFiYmJiY2NjY2NjY2NjY2NjIn19LCB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiOTk5OTk5OTlhYWFhYmJiYmNjY2NkZGRkZGRkZGRkZGQifX1dfSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 860
+    },
+    {
+      "case": "issue_export_task",
+      "call_site": "plane/app/views/exporter/base.py:50",
+      "task": "plane.bgtasks.export_task.issue_export_task",
+      "task_id": "00000000-0000-4000-8000-000000000006",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000006",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.export_task.issue_export_task",
+        "id": "00000000-0000-4000-8000-000000000006",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000006",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'provider': 'csv', 'workspace_id': UUID('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60'), 'project_ids': ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'], 'token_id': 'exporter-token', 'multiple': True, 'slug': 'acme'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InByb3ZpZGVyIjogImNzdiIsICJ3b3Jrc3BhY2VfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNmExYjZmMGUwZjlhNGI2MjlhMzkxYjJjM2Q0ZTVmNjAifX0sICJwcm9qZWN0X2lkcyI6IFsiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIiwgImFhYWFhYWFhLWJiYmItY2NjYy1kZGRkLWVlZWVlZWVlZWVlZSJdLCAidG9rZW5faWQiOiAiZXhwb3J0ZXItdG9rZW4iLCAibXVsdGlwbGUiOiB0cnVlLCAic2x1ZyI6ICJhY21lIn0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 351
+    },
+    {
+      "case": "forgot_password",
+      "call_site": "plane/authentication/views/app/password_management.py:87",
+      "task": "plane.bgtasks.forgot_password_task.forgot_password",
+      "task_id": "00000000-0000-4000-8000-000000000007",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000007",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.forgot_password_task.forgot_password",
+        "id": "00000000-0000-4000-8000-000000000007",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000007",
+        "parent_id": null,
+        "argsrepr": "('Ada', 'ada@example.com', 'dXNlcjox', 'abc-def', 'http://localhost:3000')",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siQWRhIiwgImFkYUBleGFtcGxlLmNvbSIsICJkWE5sY2pveCIsICJhYmMtZGVmIiwgImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCJdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 149
+    },
+    {
+      "case": "issue_activity_view",
+      "call_site": "plane/app/views/issue/base.py:689",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000008",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000008",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000008",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000008",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.updated', 'requested_data': '{\"name\": \"Fix the login redirect loop\", \"priority\": \"high\", \"assignees\": [\"0d1e2f30-4456-4789-9abc-def012345678\"], \"target_date\": \"2026-11-20\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': '{\"name\": \"Fix login redirect\", \"priority\": \"medium\", \"assignees\": [], \"target_date\": null}', 'epoch': 1794764767, 'notification': True, 'origin': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkudXBkYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJuYW1lXCI6IFwiRml4IHRoZSBsb2dpbiByZWRpcmVjdCBsb29wXCIsIFwicHJpb3JpdHlcIjogXCJoaWdoXCIsIFwiYXNzaWduZWVzXCI6IFtcIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OFwiXSwgXCJ0YXJnZXRfZGF0ZVwiOiBcIjIwMjYtMTEtMjBcIn0iLCAiYWN0b3JfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgImlzc3VlX2lkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJwcm9qZWN0X2lkIjogImFhYWFhYWFhLWJiYmItY2NjYy1kZGRkLWVlZWVlZWVlZWVlZSIsICJjdXJyZW50X2luc3RhbmNlIjogIntcIm5hbWVcIjogXCJGaXggbG9naW4gcmVkaXJlY3RcIiwgXCJwcmlvcml0eVwiOiBcIm1lZGl1bVwiLCBcImFzc2lnbmVlc1wiOiBbXSwgXCJ0YXJnZXRfZGF0ZVwiOiBudWxsfSIsICJlcG9jaCI6IDE3OTQ3NjQ3NjcsICJub3RpZmljYXRpb24iOiB0cnVlLCAib3JpZ2luIjogImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 652
+    },
+    {
+      "case": "issue_activity_bare",
+      "call_site": "plane/api/views/issue.py:936",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000009",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000009",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000009",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000009",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.deleted', 'requested_data': '{\"issue_id\": \"11111111-2222-3333-4444-555555555555\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': '{\"name\": \"Fix login redirect\"}', 'epoch': 1794764767}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkuZGVsZXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJpc3N1ZV9pZFwiOiBcIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NVwifSIsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAiaXNzdWVfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgInByb2plY3RfaWQiOiAiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIiwgImN1cnJlbnRfaW5zdGFuY2UiOiAie1wibmFtZVwiOiBcIkZpeCBsb2dpbiByZWRpcmVjdFwifSIsICJlcG9jaCI6IDE3OTQ3NjQ3Njd9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 424
+    },
+    {
+      "case": "issue_activity_view_with_intake_notification",
+      "call_site": "plane/app/views/intake/base.py:281",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000010",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000010",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000010",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000010",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.created', 'requested_data': '{\"name\": \"Inbox item\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': None, 'epoch': 1794764767, 'notification': True, 'origin': 'http://localhost:3000', 'intake': '99999999-aaaa-bbbb-cccc-dddddddddddd'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkuY3JlYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJuYW1lXCI6IFwiSW5ib3ggaXRlbVwifSIsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAiaXNzdWVfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgInByb2plY3RfaWQiOiAiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIiwgImN1cnJlbnRfaW5zdGFuY2UiOiBudWxsLCAiZXBvY2giOiAxNzk0NzY0NzY3LCAibm90aWZpY2F0aW9uIjogdHJ1ZSwgIm9yaWdpbiI6ICJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCAiaW50YWtlIjogIjk5OTk5OTk5LWFhYWEtYmJiYi1jY2NjLWRkZGRkZGRkZGRkZCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 469
+    },
+    {
+      "case": "issue_activity_view_with_intake_no_notification",
+      "call_site": "plane/app/views/intake/base.py:465",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000011",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000011",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000011",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000011",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'intake.activity.created', 'requested_data': '{\"status\": -1}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': '{\"status\": -2}', 'epoch': 1794764767, 'notification': False, 'origin': 'http://localhost:3000', 'intake': '99999999-aaaa-bbbb-cccc-dddddddddddd'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaW50YWtlLmFjdGl2aXR5LmNyZWF0ZWQiLCAicmVxdWVzdGVkX2RhdGEiOiAie1wic3RhdHVzXCI6IC0xfSIsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAiaXNzdWVfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgInByb2plY3RfaWQiOiAiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIiwgImN1cnJlbnRfaW5zdGFuY2UiOiAie1wic3RhdHVzXCI6IC0yfSIsICJlcG9jaCI6IDE3OTQ3NjQ3NjcsICJub3RpZmljYXRpb24iOiBmYWxzZSwgIm9yaWdpbiI6ICJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCAiaW50YWtlIjogIjk5OTk5OTk5LWFhYWEtYmJiYi1jY2NjLWRkZGRkZGRkZGRkZCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 475
+    },
+    {
+      "case": "issue_activity_automation",
+      "call_site": "plane/bgtasks/issue_automation_task.py:74",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000012",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000012",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000012",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000012",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.updated', 'requested_data': '{\"archived_at\": \"2026-10-01\", \"automation\": true}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': UUID('11111111-2222-3333-4444-555555555555'), 'project_id': UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'current_instance': '{\"archived_at\": null}', 'subscriber': False, 'epoch': 1794764767, 'notification': True}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkudXBkYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJhcmNoaXZlZF9hdFwiOiBcIjIwMjYtMTAtMDFcIiwgXCJhdXRvbWF0aW9uXCI6IHRydWV9IiwgImFjdG9yX2lkIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCIsICJpc3N1ZV9pZCI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICIxMTExMTExMTIyMjIzMzMzNDQ0NDU1NTU1NTU1NTU1NSJ9fSwgInByb2plY3RfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiYWFhYWFhYWFiYmJiY2NjY2RkZGRlZWVlZWVlZWVlZWUifX0sICJjdXJyZW50X2luc3RhbmNlIjogIntcImFyY2hpdmVkX2F0XCI6IG51bGx9IiwgInN1YnNjcmliZXIiOiBmYWxzZSwgImVwb2NoIjogMTc5NDc2NDc2NywgIm5vdGlmaWNhdGlvbiI6IHRydWV9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 535
+    },
+    {
+      "case": "issue_activity_bulk_date",
+      "call_site": "plane/app/views/issue/base.py:1157",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000013",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000013",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000013",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000013",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.updated', 'requested_data': '{\"start_date\": \"2026-11-20\"}', 'current_instance': '{\"start_date\": \"2026-11-01\"}', 'issue_id': '11111111-2222-3333-4444-555555555555', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'epoch': 1794764767}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkudXBkYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJzdGFydF9kYXRlXCI6IFwiMjAyNi0xMS0yMFwifSIsICJjdXJyZW50X2luc3RhbmNlIjogIntcInN0YXJ0X2RhdGVcIjogXCIyMDI2LTExLTAxXCJ9IiwgImlzc3VlX2lkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAicHJvamVjdF9pZCI6ICJhYWFhYWFhYS1iYmJiLWNjY2MtZGRkZC1lZWVlZWVlZWVlZWUiLCAiZXBvY2giOiAxNzk0NzY0NzY3fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 398
+    },
+    {
+      "case": "issue_activity_with_intake",
+      "call_site": "plane/api/views/intake.py:218",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000014",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000014",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000014",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000014",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.created', 'requested_data': '{\"name\": \"Inbox item\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': None, 'epoch': 1794764767, 'intake': '99999999-aaaa-bbbb-cccc-dddddddddddd'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkuY3JlYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJuYW1lXCI6IFwiSW5ib3ggaXRlbVwifSIsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAiaXNzdWVfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgInByb2plY3RfaWQiOiAiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIiwgImN1cnJlbnRfaW5zdGFuY2UiOiBudWxsLCAiZXBvY2giOiAxNzk0NzY0NzY3LCAiaW50YWtlIjogIjk5OTk5OTk5LWFhYWEtYmJiYi1jY2NjLWRkZGRkZGRkZGRkZCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 412
+    },
+    {
+      "case": "issue_activity_with_origin",
+      "call_site": "plane/api/views/module.py:563",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000015",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000015",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000015",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000015",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'module.activity.deleted', 'requested_data': '{\"module_id\": \"22222222-3333-4444-5555-666666666666\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': None, 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': '{\"module_name\": \"Roadmap\"}', 'epoch': 1794764767, 'origin': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAibW9kdWxlLmFjdGl2aXR5LmRlbGV0ZWQiLCAicmVxdWVzdGVkX2RhdGEiOiAie1wibW9kdWxlX2lkXCI6IFwiMjIyMjIyMjItMzMzMy00NDQ0LTU1NTUtNjY2NjY2NjY2NjY2XCJ9IiwgImFjdG9yX2lkIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCIsICJpc3N1ZV9pZCI6IG51bGwsICJwcm9qZWN0X2lkIjogImFhYWFhYWFhLWJiYmItY2NjYy1kZGRkLWVlZWVlZWVlZWVlZSIsICJjdXJyZW50X2luc3RhbmNlIjogIntcIm1vZHVsZV9uYW1lXCI6IFwiUm9hZG1hcFwifSIsICJlcG9jaCI6IDE3OTQ3NjQ3NjcsICJvcmlnaW4iOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwIn0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 423
+    },
+    {
+      "case": "issue_activity_view_with_subscriber",
+      "call_site": "plane/app/views/issue/base.py:730",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000016",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000016",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000016",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000016",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.deleted', 'requested_data': '{\"issue_id\": \"11111111-2222-3333-4444-555555555555\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': {}, 'epoch': 1794764767, 'notification': True, 'origin': 'http://localhost:3000', 'subscriber': False}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkuZGVsZXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJpc3N1ZV9pZFwiOiBcIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NVwifSIsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAiaXNzdWVfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgInByb2plY3RfaWQiOiAiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIiwgImN1cnJlbnRfaW5zdGFuY2UiOiB7fSwgImVwb2NoIjogMTc5NDc2NDc2NywgIm5vdGlmaWNhdGlvbiI6IHRydWUsICJvcmlnaW4iOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwIiwgInN1YnNjcmliZXIiOiBmYWxzZX0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 468
+    },
+    {
+      "case": "issue_activity_link_created",
+      "call_site": "plane/api/views/issue.py:1286",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000017",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000017",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000017",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000017",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'link.activity.created', 'requested_data': '{\"id\": \"66666666-7777-8888-9999-aaaaaaaaaaaa\", \"title\": \"Example\", \"url\": \"https://example.com\"}', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'current_instance': None, 'epoch': 1794764767}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAibGluay5hY3Rpdml0eS5jcmVhdGVkIiwgInJlcXVlc3RlZF9kYXRhIjogIntcImlkXCI6IFwiNjY2NjY2NjYtNzc3Ny04ODg4LTk5OTktYWFhYWFhYWFhYWFhXCIsIFwidGl0bGVcIjogXCJFeGFtcGxlXCIsIFwidXJsXCI6IFwiaHR0cHM6Ly9leGFtcGxlLmNvbVwifSIsICJpc3N1ZV9pZCI6ICIxMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTUiLCAicHJvamVjdF9pZCI6ICJhYWFhYWFhYS1iYmJiLWNjY2MtZGRkZC1lZWVlZWVlZWVlZWUiLCAiYWN0b3JfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgImN1cnJlbnRfaW5zdGFuY2UiOiBudWxsLCAiZXBvY2giOiAxNzk0NzY0NzY3fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 443
+    },
+    {
+      "case": "schedule_issue_description_version",
+      "call_site": "plane/db/management/commands/sync_issue_description_version.py:21",
+      "task": "plane.bgtasks.issue_description_version_sync.schedule_issue_description_version",
+      "task_id": "00000000-0000-4000-8000-000000000018",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000018",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_description_version_sync.schedule_issue_description_version",
+        "id": "00000000-0000-4000-8000-000000000018",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000018",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'batch_size': '5000', 'countdown': 300}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImJhdGNoX3NpemUiOiAiNTAwMCIsICJjb3VudGRvd24iOiAzMDB9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 115
+    },
+    {
+      "case": "sync_issue_description_version_continue",
+      "call_site": "plane/bgtasks/issue_description_version_sync.py:109",
+      "task": "plane.bgtasks.issue_description_version_sync.sync_issue_description_version",
+      "task_id": "00000000-0000-4000-8000-000000000019",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000019",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_description_version_sync.sync_issue_description_version",
+        "id": "00000000-0000-4000-8000-000000000019",
+        "shadow": null,
+        "eta": "2026-11-15T17:29:04.144120+00:00",
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000019",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'batch_size': 5000, 'offset': 5000, 'countdown': 300}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImJhdGNoX3NpemUiOiA1MDAwLCAib2Zmc2V0IjogNTAwMCwgImNvdW50ZG93biI6IDMwMH0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 129
+    },
+    {
+      "case": "sync_issue_description_version_start",
+      "call_site": "plane/bgtasks/issue_description_version_sync.py:125",
+      "task": "plane.bgtasks.issue_description_version_sync.sync_issue_description_version",
+      "task_id": "00000000-0000-4000-8000-000000000020",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000020",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_description_version_sync.sync_issue_description_version",
+        "id": "00000000-0000-4000-8000-000000000020",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000020",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'batch_size': 5000, 'countdown': 300}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImJhdGNoX3NpemUiOiA1MDAwLCAiY291bnRkb3duIjogMzAwfSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 113
+    },
+    {
+      "case": "issue_description_version_task_create",
+      "call_site": "plane/app/views/issue/base.py:484",
+      "task": "plane.bgtasks.issue_description_version_task.issue_description_version_task",
+      "task_id": "00000000-0000-4000-8000-000000000021",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000021",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_description_version_task.issue_description_version_task",
+        "id": "00000000-0000-4000-8000-000000000021",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000021",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'updated_issue': '{\"name\": \"New issue\", \"description_html\": \"<p>hi</p>\"}', 'issue_id': '11111111-2222-3333-4444-555555555555', 'user_id': UUID('0d1e2f30-4456-4789-9abc-def012345678'), 'is_creating': True}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InVwZGF0ZWRfaXNzdWUiOiAie1wibmFtZVwiOiBcIk5ldyBpc3N1ZVwiLCBcImRlc2NyaXB0aW9uX2h0bWxcIjogXCI8cD5oaTwvcD5cIn0iLCAiaXNzdWVfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgInVzZXJfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX0sICJpc19jcmVhdGluZyI6IHRydWV9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 322
+    },
+    {
+      "case": "issue_description_version_task_update",
+      "call_site": "plane/app/views/issue/base.py:710",
+      "task": "plane.bgtasks.issue_description_version_task.issue_description_version_task",
+      "task_id": "00000000-0000-4000-8000-000000000022",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000022",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_description_version_task.issue_description_version_task",
+        "id": "00000000-0000-4000-8000-000000000022",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000022",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'updated_issue': '{\"name\": \"Updated issue\", \"description_html\": \"<p>bye</p>\"}', 'issue_id': '11111111-2222-3333-4444-555555555555', 'user_id': UUID('0d1e2f30-4456-4789-9abc-def012345678')}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InVwZGF0ZWRfaXNzdWUiOiAie1wibmFtZVwiOiBcIlVwZGF0ZWQgaXNzdWVcIiwgXCJkZXNjcmlwdGlvbl9odG1sXCI6IFwiPHA+YnllPC9wPlwifSIsICJpc3N1ZV9pZCI6ICIxMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTUiLCAidXNlcl9pZCI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICIwZDFlMmYzMDQ0NTY0Nzg5OWFiY2RlZjAxMjM0NTY3OCJ9fX0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 306
+    },
+    {
+      "case": "schedule_issue_version",
+      "call_site": "plane/db/management/commands/sync_issue_version.py:19",
+      "task": "plane.bgtasks.issue_version_sync.schedule_issue_version",
+      "task_id": "00000000-0000-4000-8000-000000000023",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000023",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_version_sync.schedule_issue_version",
+        "id": "00000000-0000-4000-8000-000000000023",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000023",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'batch_size': '5000', 'countdown': 300}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImJhdGNoX3NpemUiOiAiNTAwMCIsICJjb3VudGRvd24iOiAzMDB9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 115
+    },
+    {
+      "case": "sync_issue_version_continue",
+      "call_site": "plane/bgtasks/issue_version_sync.py:218",
+      "task": "plane.bgtasks.issue_version_sync.sync_issue_version",
+      "task_id": "00000000-0000-4000-8000-000000000024",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000024",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_version_sync.sync_issue_version",
+        "id": "00000000-0000-4000-8000-000000000024",
+        "shadow": null,
+        "eta": "2026-11-15T17:29:04.144120+00:00",
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000024",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'batch_size': 5000, 'offset': 5000, 'countdown': 300}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImJhdGNoX3NpemUiOiA1MDAwLCAib2Zmc2V0IjogNTAwMCwgImNvdW50ZG93biI6IDMwMH0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 129
+    },
+    {
+      "case": "sync_issue_version_start",
+      "call_site": "plane/bgtasks/issue_version_sync.py:236",
+      "task": "plane.bgtasks.issue_version_sync.sync_issue_version",
+      "task_id": "00000000-0000-4000-8000-000000000025",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000025",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_version_sync.sync_issue_version",
+        "id": "00000000-0000-4000-8000-000000000025",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000025",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'batch_size': 5000, 'countdown': 300}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImJhdGNoX3NpemUiOiA1MDAwLCAiY291bnRkb3duIjogMzAwfSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 113
+    },
+    {
+      "case": "process_logs",
+      "call_site": "plane/middleware/logger.py:158",
+      "task": "plane.bgtasks.logger_task.process_logs",
+      "task_id": "00000000-0000-4000-8000-000000000026",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000026",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.logger_task.process_logs",
+        "id": "00000000-0000-4000-8000-000000000026",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000026",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'log_data': {'token_identifier': 'b3f1c0d2e3a4', 'path': '/api/v1/workspaces/acme/projects/', 'method': 'GET', 'query_params': 'per_page=20', 'headers': '{\\'User-Agent\\': \\'curl/8.7.1\\'}', 'body': None, 'response_body': '{\"count\": 1}', 'response_code': 200, 'ip_address': '203.0.113.7', 'user_agent': 'curl/8.7.1'}}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImxvZ19kYXRhIjogeyJ0b2tlbl9pZGVudGlmaWVyIjogImIzZjFjMGQyZTNhNCIsICJwYXRoIjogIi9hcGkvdjEvd29ya3NwYWNlcy9hY21lL3Byb2plY3RzLyIsICJtZXRob2QiOiAiR0VUIiwgInF1ZXJ5X3BhcmFtcyI6ICJwZXJfcGFnZT0yMCIsICJoZWFkZXJzIjogInsnVXNlci1BZ2VudCc6ICdjdXJsLzguNy4xJ30iLCAiYm9keSI6IG51bGwsICJyZXNwb25zZV9ib2R5IjogIntcImNvdW50XCI6IDF9IiwgInJlc3BvbnNlX2NvZGUiOiAyMDAsICJpcF9hZGRyZXNzIjogIjIwMy4wLjExMy43IiwgInVzZXJfYWdlbnQiOiAiY3VybC84LjcuMSJ9fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 389
+    },
+    {
+      "case": "magic_link",
+      "call_site": "plane/authentication/views/app/magic.py:57",
+      "task": "plane.bgtasks.magic_link_code_task.magic_link",
+      "task_id": "00000000-0000-4000-8000-000000000027",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000027",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.magic_link_code_task.magic_link",
+        "id": "00000000-0000-4000-8000-000000000027",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000027",
+        "parent_id": null,
+        "argsrepr": "('ada@example.com', 'magic-key', 'magic-token')",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siYWRhQGV4YW1wbGUuY29tIiwgIm1hZ2ljLWtleSIsICJtYWdpYy10b2tlbiJdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 122
+    },
+    {
+      "case": "notifications_uuid_ids",
+      "call_site": "plane/bgtasks/issue_activities_task.py:1633",
+      "task": "plane.bgtasks.notification_task.notifications",
+      "task_id": "00000000-0000-4000-8000-000000000028",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000028",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.notification_task.notifications",
+        "id": "00000000-0000-4000-8000-000000000028",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000028",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.updated', 'issue_id': UUID('11111111-2222-3333-4444-555555555555'), 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'project_id': UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'subscriber': True, 'issue_activities_created': '[{\"id\": \"12345678-1234-5678-1234-567812345678\", \"verb\": \"updated\", \"field\": \"priority\", \"actor\": \"0d1e2f30-4456-4789-9abc-def012345678\"}]', 'requested_data': '{\"priority\": \"high\"}', 'current_instance': '{\"priority\": \"medium\"}'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkudXBkYXRlZCIsICJpc3N1ZV9pZCI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICIxMTExMTExMTIyMjIzMzMzNDQ0NDU1NTU1NTU1NTU1NSJ9fSwgImFjdG9yX2lkIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCIsICJwcm9qZWN0X2lkIjogeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogImFhYWFhYWFhYmJiYmNjY2NkZGRkZWVlZWVlZWVlZWVlIn19LCAic3Vic2NyaWJlciI6IHRydWUsICJpc3N1ZV9hY3Rpdml0aWVzX2NyZWF0ZWQiOiAiW3tcImlkXCI6IFwiMTIzNDU2NzgtMTIzNC01Njc4LTEyMzQtNTY3ODEyMzQ1Njc4XCIsIFwidmVyYlwiOiBcInVwZGF0ZWRcIiwgXCJmaWVsZFwiOiBcInByaW9yaXR5XCIsIFwiYWN0b3JcIjogXCIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzhcIn1dIiwgInJlcXVlc3RlZF9kYXRhIjogIntcInByaW9yaXR5XCI6IFwiaGlnaFwifSIsICJjdXJyZW50X2luc3RhbmNlIjogIntcInByaW9yaXR5XCI6IFwibWVkaXVtXCJ9In0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 648
+    },
+    {
+      "case": "notifications_string_ids",
+      "call_site": "plane/bgtasks/issue_activities_task.py:1633",
+      "task": "plane.bgtasks.notification_task.notifications",
+      "task_id": "00000000-0000-4000-8000-000000000029",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000029",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.notification_task.notifications",
+        "id": "00000000-0000-4000-8000-000000000029",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000029",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'cycle.activity.created', 'issue_id': None, 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'subscriber': False, 'issue_activities_created': '[]', 'requested_data': None, 'current_instance': '{\"created_cycle_issues\": []}'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiY3ljbGUuYWN0aXZpdHkuY3JlYXRlZCIsICJpc3N1ZV9pZCI6IG51bGwsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAicHJvamVjdF9pZCI6ICJhYWFhYWFhYS1iYmJiLWNjY2MtZGRkZC1lZWVlZWVlZWVlZWUiLCAic3Vic2NyaWJlciI6IGZhbHNlLCAiaXNzdWVfYWN0aXZpdGllc19jcmVhdGVkIjogIltdIiwgInJlcXVlc3RlZF9kYXRhIjogbnVsbCwgImN1cnJlbnRfaW5zdGFuY2UiOiAie1wiY3JlYXRlZF9jeWNsZV9pc3N1ZXNcIjogW119In0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 366
+    },
+    {
+      "case": "page_transaction_create",
+      "call_site": "plane/app/views/page/base.py:160",
+      "task": "plane.bgtasks.page_transaction_task.page_transaction",
+      "task_id": "00000000-0000-4000-8000-000000000030",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000030",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.page_transaction_task.page_transaction",
+        "id": "00000000-0000-4000-8000-000000000030",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000030",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'new_description_html': '<p>Hello \\'world\\' — café 😀 \\ path</p>', 'old_description_html': None, 'page_id': '44444444-5555-6666-7777-888888888888'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7Im5ld19kZXNjcmlwdGlvbl9odG1sIjogIjxwPkhlbGxvICd3b3JsZCcgXHUyMDE0IGNhZlx1MDBlOSBcdWQ4M2RcdWRlMDAgXFwgcGF0aDwvcD4iLCAib2xkX2Rlc2NyaXB0aW9uX2h0bWwiOiBudWxsLCAicGFnZV9pZCI6ICI0NDQ0NDQ0NC01NTU1LTY2NjYtNzc3Ny04ODg4ODg4ODg4ODgifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 242
+    },
+    {
+      "case": "page_transaction_update",
+      "call_site": "plane/app/views/page/base.py:558",
+      "task": "plane.bgtasks.page_transaction_task.page_transaction",
+      "task_id": "00000000-0000-4000-8000-000000000031",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000031",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.page_transaction_task.page_transaction",
+        "id": "00000000-0000-4000-8000-000000000031",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000031",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'new_description_html': '<p>Hello \"world\"</p>\n<p>Second line</p>', 'old_description_html': '<p>Hello</p>', 'page_id': UUID('44444444-5555-6666-7777-888888888888')}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7Im5ld19kZXNjcmlwdGlvbl9odG1sIjogIjxwPkhlbGxvIFwid29ybGRcIjwvcD5cbjxwPlNlY29uZCBsaW5lPC9wPiIsICJvbGRfZGVzY3JpcHRpb25faHRtbCI6ICI8cD5IZWxsbzwvcD4iLCAicGFnZV9pZCI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICI0NDQ0NDQ0NDU1NTU2NjY2Nzc3Nzg4ODg4ODg4ODg4OCJ9fX0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 276
+    },
+    {
+      "case": "track_page_version",
+      "call_site": "plane/app/views/page/base.py:565",
+      "task": "plane.bgtasks.page_version_task.track_page_version",
+      "task_id": "00000000-0000-4000-8000-000000000032",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000032",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.page_version_task.track_page_version",
+        "id": "00000000-0000-4000-8000-000000000032",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000032",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'page_id': UUID('44444444-5555-6666-7777-888888888888'), 'existing_instance': '{\"id\": \"44444444-5555-6666-7777-888888888888\", \"name\": \"Doc\", \"description_html\": \"<p>Hi</p>\"}', 'user_id': UUID('0d1e2f30-4456-4789-9abc-def012345678')}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InBhZ2VfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNDQ0NDQ0NDQ1NTU1NjY2Njc3Nzc4ODg4ODg4ODg4ODgifX0sICJleGlzdGluZ19pbnN0YW5jZSI6ICJ7XCJpZFwiOiBcIjQ0NDQ0NDQ0LTU1NTUtNjY2Ni03Nzc3LTg4ODg4ODg4ODg4OFwiLCBcIm5hbWVcIjogXCJEb2NcIiwgXCJkZXNjcmlwdGlvbl9odG1sXCI6IFwiPHA+SGk8L3A+XCJ9IiwgInVzZXJfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX19LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 388
+    },
+    {
+      "case": "project_add_user_email",
+      "call_site": "plane/app/views/project/member.py:154",
+      "task": "plane.bgtasks.project_add_user_email_task.project_add_user_email",
+      "task_id": "00000000-0000-4000-8000-000000000033",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000033",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.project_add_user_email_task.project_add_user_email",
+        "id": "00000000-0000-4000-8000-000000000033",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000033",
+        "parent_id": null,
+        "argsrepr": "('http://localhost:3000', UUID('99999999-aaaa-bbbb-cccc-dddddddddddd'), UUID('0d1e2f30-4456-4789-9abc-def012345678'))",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siaHR0cDovL2xvY2FsaG9zdDozMDAwIiwgeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjk5OTk5OTk5YWFhYWJiYmJjY2NjZGRkZGRkZGRkZGRkIn19LCB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX1dLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 260
+    },
+    {
+      "case": "recent_visited_project",
+      "call_site": "plane/app/views/project/base.py:247",
+      "task": "plane.bgtasks.recent_visited_task.recent_visited_task",
+      "task_id": "00000000-0000-4000-8000-000000000034",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000034",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.recent_visited_task.recent_visited_task",
+        "id": "00000000-0000-4000-8000-000000000034",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000034",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'slug': 'acme', 'project_id': UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'entity_name': 'project', 'entity_identifier': UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'user_id': UUID('0d1e2f30-4456-4789-9abc-def012345678')}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InNsdWciOiAiYWNtZSIsICJwcm9qZWN0X2lkIjogeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogImFhYWFhYWFhYmJiYmNjY2NkZGRkZWVlZWVlZWVlZWVlIn19LCAiZW50aXR5X25hbWUiOiAicHJvamVjdCIsICJlbnRpdHlfaWRlbnRpZmllciI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICJhYWFhYWFhYWJiYmJjY2NjZGRkZGVlZWVlZWVlZWVlZSJ9fSwgInVzZXJfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX19LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 403
+    },
+    {
+      "case": "recent_visited_entity",
+      "call_site": "plane/app/views/view/base.py:140",
+      "task": "plane.bgtasks.recent_visited_task.recent_visited_task",
+      "task_id": "00000000-0000-4000-8000-000000000035",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000035",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.recent_visited_task.recent_visited_task",
+        "id": "00000000-0000-4000-8000-000000000035",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000035",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'slug': 'acme', 'entity_name': 'view', 'entity_identifier': '44444444-5555-6666-7777-888888888888', 'user_id': '0d1e2f30-4456-4789-9abc-def012345678', 'project_id': None}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InNsdWciOiAiYWNtZSIsICJlbnRpdHlfbmFtZSI6ICJ2aWV3IiwgImVudGl0eV9pZGVudGlmaWVyIjogIjQ0NDQ0NDQ0LTU1NTUtNjY2Ni03Nzc3LTg4ODg4ODg4ODg4OCIsICJ1c2VyX2lkIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCIsICJwcm9qZWN0X2lkIjogbnVsbH0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 246
+    },
+    {
+      "case": "get_asset_object_metadata_kwarg",
+      "call_site": "plane/app/views/asset/v2.py:219",
+      "task": "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+      "task_id": "00000000-0000-4000-8000-000000000036",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000036",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+        "id": "00000000-0000-4000-8000-000000000036",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000036",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'asset_id': '99999999-8888-7777-6666-555555555555'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImFzc2V0X2lkIjogIjk5OTk5OTk5LTg4ODgtNzc3Ny02NjY2LTU1NTU1NTU1NTU1NSJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 127
+    },
+    {
+      "case": "get_asset_object_metadata_positional",
+      "call_site": "plane/app/views/issue/attachment.py:277",
+      "task": "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+      "task_id": "00000000-0000-4000-8000-000000000037",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000037",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+        "id": "00000000-0000-4000-8000-000000000037",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000037",
+        "parent_id": null,
+        "argsrepr": "('99999999-8888-7777-6666-555555555555',)",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siOTk5OTk5OTktODg4OC03Nzc3LTY2NjYtNTU1NTU1NTU1NTU1Il0sIHt9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 115
+    },
+    {
+      "case": "user_activation_email",
+      "call_site": "plane/authentication/adapter/base.py:248",
+      "task": "plane.bgtasks.user_activation_email_task.user_activation_email",
+      "task_id": "00000000-0000-4000-8000-000000000038",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000038",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.user_activation_email_task.user_activation_email",
+        "id": "00000000-0000-4000-8000-000000000038",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000038",
+        "parent_id": null,
+        "argsrepr": "('http://localhost:3000', UUID('0d1e2f30-4456-4789-9abc-def012345678'))",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siaHR0cDovL2xvY2FsaG9zdDozMDAwIiwgeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjBkMWUyZjMwNDQ1NjQ3ODk5YWJjZGVmMDEyMzQ1Njc4In19XSwge30sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 180
+    },
+    {
+      "case": "user_deactivation_email",
+      "call_site": "plane/app/views/user/base.py:370",
+      "task": "plane.bgtasks.user_deactivation_email_task.user_deactivation_email",
+      "task_id": "00000000-0000-4000-8000-000000000039",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000039",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.user_deactivation_email_task.user_deactivation_email",
+        "id": "00000000-0000-4000-8000-000000000039",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000039",
+        "parent_id": null,
+        "argsrepr": "('http://localhost:3000', UUID('0d1e2f30-4456-4789-9abc-def012345678'))",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siaHR0cDovL2xvY2FsaG9zdDozMDAwIiwgeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjBkMWUyZjMwNDQ1NjQ3ODk5YWJjZGVmMDEyMzQ1Njc4In19XSwge30sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 180
+    },
+    {
+      "case": "send_email_update_confirmation",
+      "call_site": "plane/app/views/user/base.py:270",
+      "task": "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
+      "task_id": "00000000-0000-4000-8000-000000000040",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000040",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
+        "id": "00000000-0000-4000-8000-000000000040",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000040",
+        "parent_id": null,
+        "argsrepr": "('new@example.com',)",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1sibmV3QGV4YW1wbGUuY29tIl0sIHt9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 94
+    },
+    {
+      "case": "send_email_update_magic_code",
+      "call_site": "plane/app/views/user/base.py:178",
+      "task": "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
+      "task_id": "00000000-0000-4000-8000-000000000041",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000041",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
+        "id": "00000000-0000-4000-8000-000000000041",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000041",
+        "parent_id": null,
+        "argsrepr": "('new@example.com', '123456')",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1sibmV3QGV4YW1wbGUuY29tIiwgIjEyMzQ1NiJdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 104
+    },
+    {
+      "case": "model_activity_create",
+      "call_site": "plane/app/views/project/base.py:301",
+      "task": "plane.bgtasks.webhook_task.model_activity",
+      "task_id": "00000000-0000-4000-8000-000000000042",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000042",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.model_activity",
+        "id": "00000000-0000-4000-8000-000000000042",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000042",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'model_name': 'project', 'model_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'requested_data': {'name': 'Apollo', 'identifier': 'APO'}, 'current_instance': None, 'actor_id': UUID('0d1e2f30-4456-4789-9abc-def012345678'), 'slug': 'acme', 'origin': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7Im1vZGVsX25hbWUiOiAicHJvamVjdCIsICJtb2RlbF9pZCI6ICJhYWFhYWFhYS1iYmJiLWNjY2MtZGRkZC1lZWVlZWVlZWVlZWUiLCAicmVxdWVzdGVkX2RhdGEiOiB7Im5hbWUiOiAiQXBvbGxvIiwgImlkZW50aWZpZXIiOiAiQVBPIn0sICJjdXJyZW50X2luc3RhbmNlIjogbnVsbCwgImFjdG9yX2lkIjogeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjBkMWUyZjMwNDQ1NjQ3ODk5YWJjZGVmMDEyMzQ1Njc4In19LCAic2x1ZyI6ICJhY21lIiwgIm9yaWdpbiI6ICJodHRwOi8vbG9jYWxob3N0OjMwMDAifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 380
+    },
+    {
+      "case": "model_activity_update",
+      "call_site": "plane/app/views/project/base.py:370",
+      "task": "plane.bgtasks.webhook_task.model_activity",
+      "task_id": "00000000-0000-4000-8000-000000000043",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000043",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.model_activity",
+        "id": "00000000-0000-4000-8000-000000000043",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000043",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'model_name': 'project', 'model_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'requested_data': {'name': 'Apollo 2', 'identifier': 'APO'}, 'current_instance': '{\"name\": \"Apollo\", \"identifier\": \"APO\"}', 'actor_id': UUID('0d1e2f30-4456-4789-9abc-def012345678'), 'slug': 'acme', 'origin': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7Im1vZGVsX25hbWUiOiAicHJvamVjdCIsICJtb2RlbF9pZCI6ICJhYWFhYWFhYS1iYmJiLWNjY2MtZGRkZC1lZWVlZWVlZWVlZWUiLCAicmVxdWVzdGVkX2RhdGEiOiB7Im5hbWUiOiAiQXBvbGxvIDIiLCAiaWRlbnRpZmllciI6ICJBUE8ifSwgImN1cnJlbnRfaW5zdGFuY2UiOiAie1wibmFtZVwiOiBcIkFwb2xsb1wiLCBcImlkZW50aWZpZXJcIjogXCJBUE9cIn0iLCAiYWN0b3JfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX0sICJzbHVnIjogImFjbWUiLCAib3JpZ2luIjogImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 427
+    },
+    {
+      "case": "send_webhook_deactivation_email_uuid",
+      "call_site": "plane/bgtasks/webhook_task.py:359",
+      "task": "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+      "task_id": "00000000-0000-4000-8000-000000000044",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000044",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+        "id": "00000000-0000-4000-8000-000000000044",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000044",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'webhook_id': UUID('77777777-8888-9999-aaaa-bbbbbbbbbbbb'), 'receiver_id': UUID('0d1e2f30-4456-4789-9abc-def012345678'), 'reason': '403 Client Error', 'current_site': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7IndlYmhvb2tfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNzc3Nzc3Nzc4ODg4OTk5OWFhYWFiYmJiYmJiYmJiYmIifX0sICJyZWNlaXZlcl9pZCI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICIwZDFlMmYzMDQ0NTY0Nzg5OWFiY2RlZjAxMjM0NTY3OCJ9fSwgInJlYXNvbiI6ICI0MDMgQ2xpZW50IEVycm9yIiwgImN1cnJlbnRfc2l0ZSI6ICJodHRwOi8vbG9jYWxob3N0OjMwMDAifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 335
+    },
+    {
+      "case": "send_webhook_deactivation_email_none",
+      "call_site": "plane/bgtasks/webhook_task.py:359",
+      "task": "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+      "task_id": "00000000-0000-4000-8000-000000000045",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000045",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+        "id": "00000000-0000-4000-8000-000000000045",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000045",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'webhook_id': UUID('77777777-8888-9999-aaaa-bbbbbbbbbbbb'), 'receiver_id': None, 'reason': 'connection refused', 'current_site': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7IndlYmhvb2tfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNzc3Nzc3Nzc4ODg4OTk5OWFhYWFiYmJiYmJiYmJiYmIifX0sICJyZWNlaXZlcl9pZCI6IG51bGwsICJyZWFzb24iOiAiY29ubmVjdGlvbiByZWZ1c2VkIiwgImN1cnJlbnRfc2l0ZSI6ICJodHRwOi8vbG9jYWxob3N0OjMwMDAifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 263
+    },
+    {
+      "case": "webhook_activity_project_deleted",
+      "call_site": "plane/app/views/project/base.py:401",
+      "task": "plane.bgtasks.webhook_task.webhook_activity",
+      "task_id": "00000000-0000-4000-8000-000000000046",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000046",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.webhook_activity",
+        "id": "00000000-0000-4000-8000-000000000046",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000046",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'event': 'project', 'verb': 'deleted', 'field': None, 'old_value': None, 'new_value': None, 'actor_id': UUID('0d1e2f30-4456-4789-9abc-def012345678'), 'slug': 'acme', 'current_site': 'http://localhost:3000', 'event_id': UUID('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'), 'old_identifier': None, 'new_identifier': None}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImV2ZW50IjogInByb2plY3QiLCAidmVyYiI6ICJkZWxldGVkIiwgImZpZWxkIjogbnVsbCwgIm9sZF92YWx1ZSI6IG51bGwsICJuZXdfdmFsdWUiOiBudWxsLCAiYWN0b3JfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiMGQxZTJmMzA0NDU2NDc4OTlhYmNkZWYwMTIzNDU2NzgifX0sICJzbHVnIjogImFjbWUiLCAiY3VycmVudF9zaXRlIjogImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsICJldmVudF9pZCI6IHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICJhYWFhYWFhYWJiYmJjY2NjZGRkZGVlZWVlZWVlZWVlZSJ9fSwgIm9sZF9pZGVudGlmaWVyIjogbnVsbCwgIm5ld19pZGVudGlmaWVyIjogbnVsbH0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 456
+    },
+    {
+      "case": "webhook_activity_updated",
+      "call_site": "plane/bgtasks/webhook_task.py:507",
+      "task": "plane.bgtasks.webhook_task.webhook_activity",
+      "task_id": "00000000-0000-4000-8000-000000000047",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000047",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.webhook_activity",
+        "id": "00000000-0000-4000-8000-000000000047",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000047",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'event': 'issue', 'verb': 'updated', 'field': 'priority', 'old_value': 'medium', 'new_value': 'high', 'actor_id': UUID('0d1e2f30-4456-4789-9abc-def012345678'), 'slug': 'acme', 'current_site': 'http://localhost:3000', 'event_id': '11111111-2222-3333-4444-555555555555', 'old_identifier': None, 'new_identifier': None}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImV2ZW50IjogImlzc3VlIiwgInZlcmIiOiAidXBkYXRlZCIsICJmaWVsZCI6ICJwcmlvcml0eSIsICJvbGRfdmFsdWUiOiAibWVkaXVtIiwgIm5ld192YWx1ZSI6ICJoaWdoIiwgImFjdG9yX2lkIjogeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjBkMWUyZjMwNDQ1NjQ3ODk5YWJjZGVmMDEyMzQ1Njc4In19LCAic2x1ZyI6ICJhY21lIiwgImN1cnJlbnRfc2l0ZSI6ICJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCAiZXZlbnRfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgIm9sZF9pZGVudGlmaWVyIjogbnVsbCwgIm5ld19pZGVudGlmaWVyIjogbnVsbH0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 426
+    },
+    {
+      "case": "webhook_send_task",
+      "call_site": "plane/bgtasks/webhook_task.py:451",
+      "task": "plane.bgtasks.webhook_task.webhook_send_task",
+      "task_id": "00000000-0000-4000-8000-000000000048",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000048",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.webhook_task.webhook_send_task",
+        "id": "00000000-0000-4000-8000-000000000048",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000048",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'webhook_id': UUID('77777777-8888-9999-aaaa-bbbbbbbbbbbb'), 'slug': 'acme', 'event': 'issue', 'event_data': {'id': '11111111-2222-3333-4444-555555555555', 'name': 'Fix the login redirect loop', 'priority': 'high'}, 'action': 'updated', 'current_site': 'http://localhost:3000', 'activity': {'field': 'priority', 'new_value': 'high', 'old_value': 'medium', 'actor': {'id': '0d1e2f30-4456-4789-9abc-def012345678', 'email': 'ada@example.com'}, 'old_identifier': None, 'new_identifier': None}}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7IndlYmhvb2tfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNzc3Nzc3Nzc4ODg4OTk5OWFhYWFiYmJiYmJiYmJiYmIifX0sICJzbHVnIjogImFjbWUiLCAiZXZlbnQiOiAiaXNzdWUiLCAiZXZlbnRfZGF0YSI6IHsiaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgIm5hbWUiOiAiRml4IHRoZSBsb2dpbiByZWRpcmVjdCBsb29wIiwgInByaW9yaXR5IjogImhpZ2gifSwgImFjdGlvbiI6ICJ1cGRhdGVkIiwgImN1cnJlbnRfc2l0ZSI6ICJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCAiYWN0aXZpdHkiOiB7ImZpZWxkIjogInByaW9yaXR5IiwgIm5ld192YWx1ZSI6ICJoaWdoIiwgIm9sZF92YWx1ZSI6ICJtZWRpdW0iLCAiYWN0b3IiOiB7ImlkIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCIsICJlbWFpbCI6ICJhZGFAZXhhbXBsZS5jb20ifSwgIm9sZF9pZGVudGlmaWVyIjogbnVsbCwgIm5ld19pZGVudGlmaWVyIjogbnVsbH19LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 598
+    },
+    {
+      "case": "crawl_work_item_link_title_string",
+      "call_site": "plane/app/views/issue/link.py:61",
+      "task": "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+      "task_id": "00000000-0000-4000-8000-000000000049",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000049",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+        "id": "00000000-0000-4000-8000-000000000049",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000049",
+        "parent_id": null,
+        "argsrepr": "('66666666-7777-8888-9999-aaaaaaaaaaaa', 'https://example.com/docs')",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siNjY2NjY2NjYtNzc3Ny04ODg4LTk5OTktYWFhYWFhYWFhYWFhIiwgImh0dHBzOi8vZXhhbXBsZS5jb20vZG9jcyJdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 143
+    },
+    {
+      "case": "crawl_work_item_link_title_uuid",
+      "call_site": "plane/api/views/issue.py:1284",
+      "task": "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+      "task_id": "00000000-0000-4000-8000-000000000050",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000050",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+        "id": "00000000-0000-4000-8000-000000000050",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000050",
+        "parent_id": null,
+        "argsrepr": "(UUID('66666666-7777-8888-9999-aaaaaaaaaaaa'), 'https://example.com/docs')",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1t7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNjY2NjY2NjY3Nzc3ODg4ODk5OTlhYWFhYWFhYWFhYWEifX0sICJodHRwczovL2V4YW1wbGUuY29tL2RvY3MiXSwge30sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 183
+    },
+    {
+      "case": "workspace_invitation",
+      "call_site": "plane/app/views/workspace/invite.py:120",
+      "task": "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+      "task_id": "00000000-0000-4000-8000-000000000051",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000051",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+        "id": "00000000-0000-4000-8000-000000000051",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000051",
+        "parent_id": null,
+        "argsrepr": "('invitee@example.com', UUID('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60'), 'eyJhbGciOiJIUzI1NiJ9.invitation-token.signature', 'http://localhost:3000', 'admin@example.com')",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siaW52aXRlZUBleGFtcGxlLmNvbSIsIHsiX190eXBlX18iOiAidXVpZCIsICJfX3ZhbHVlX18iOiB7ImhleCI6ICI2YTFiNmYwZTBmOWE0YjYyOWEzOTFiMmMzZDRlNWY2MCJ9fSwgImV5SmhiR2NpT2lKSVV6STFOaUo5Lmludml0YXRpb24tdG9rZW4uc2lnbmF0dXJlIiwgImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsICJhZG1pbkBleGFtcGxlLmNvbSJdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 275
+    },
+    {
+      "case": "workspace_seed",
+      "call_site": "plane/app/views/workspace/base.py:138",
+      "task": "plane.bgtasks.workspace_seed_task.workspace_seed",
+      "task_id": "00000000-0000-4000-8000-000000000052",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000052",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.workspace_seed_task.workspace_seed",
+        "id": "00000000-0000-4000-8000-000000000052",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000052",
+        "parent_id": null,
+        "argsrepr": "('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60',)",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1siNmExYjZmMGUtMGY5YS00YjYyLTlhMzktMWIyYzNkNGU1ZjYwIl0sIHt9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 115
+    },
+    {
+      "case": "delete_api_logs",
+      "call_site": "plane/celery.py:78 (beat_schedule)",
+      "task": "plane.bgtasks.cleanup_task.delete_api_logs",
+      "task_id": "00000000-0000-4000-8000-000000000053",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000053",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.cleanup_task.delete_api_logs",
+        "id": "00000000-0000-4000-8000-000000000053",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000053",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "delete_email_notification_logs",
+      "call_site": "plane/celery.py:81 (beat_schedule)",
+      "task": "plane.bgtasks.cleanup_task.delete_email_notification_logs",
+      "task_id": "00000000-0000-4000-8000-000000000054",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000054",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.cleanup_task.delete_email_notification_logs",
+        "id": "00000000-0000-4000-8000-000000000054",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000054",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "delete_issue_description_versions",
+      "call_site": "plane/celery.py:89 (beat_schedule)",
+      "task": "plane.bgtasks.cleanup_task.delete_issue_description_versions",
+      "task_id": "00000000-0000-4000-8000-000000000055",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000055",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.cleanup_task.delete_issue_description_versions",
+        "id": "00000000-0000-4000-8000-000000000055",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000055",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "delete_page_versions",
+      "call_site": "plane/celery.py:85 (beat_schedule)",
+      "task": "plane.bgtasks.cleanup_task.delete_page_versions",
+      "task_id": "00000000-0000-4000-8000-000000000056",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000056",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.cleanup_task.delete_page_versions",
+        "id": "00000000-0000-4000-8000-000000000056",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000056",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "delete_webhook_logs",
+      "call_site": "plane/celery.py:93 (beat_schedule)",
+      "task": "plane.bgtasks.cleanup_task.delete_webhook_logs",
+      "task_id": "00000000-0000-4000-8000-000000000057",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000057",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.cleanup_task.delete_webhook_logs",
+        "id": "00000000-0000-4000-8000-000000000057",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000057",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "hard_delete",
+      "call_site": "plane/celery.py:61 (beat_schedule)",
+      "task": "plane.bgtasks.deletion_task.hard_delete",
+      "task_id": "00000000-0000-4000-8000-000000000058",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000058",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.deletion_task.hard_delete",
+        "id": "00000000-0000-4000-8000-000000000058",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000058",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "delete_old_s3_link",
+      "call_site": "plane/celery.py:69 (beat_schedule)",
+      "task": "plane.bgtasks.exporter_expired_task.delete_old_s3_link",
+      "task_id": "00000000-0000-4000-8000-000000000059",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000059",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.exporter_expired_task.delete_old_s3_link",
+        "id": "00000000-0000-4000-8000-000000000059",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000059",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "delete_unuploaded_file_asset",
+      "call_site": "plane/celery.py:73 (beat_schedule)",
+      "task": "plane.bgtasks.file_asset_task.delete_unuploaded_file_asset",
+      "task_id": "00000000-0000-4000-8000-000000000060",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000060",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.file_asset_task.delete_unuploaded_file_asset",
+        "id": "00000000-0000-4000-8000-000000000060",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000060",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "archive_and_close_old_issues",
+      "call_site": "plane/celery.py:65 (beat_schedule)",
+      "task": "plane.bgtasks.issue_automation_task.archive_and_close_old_issues",
+      "task_id": "00000000-0000-4000-8000-000000000061",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000061",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_automation_task.archive_and_close_old_issues",
+        "id": "00000000-0000-4000-8000-000000000061",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000061",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "unsnooze_expired_intake_issues",
+      "call_site": "plane/celery.py:52 (beat_schedule)",
+      "task": "plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues",
+      "task_id": "00000000-0000-4000-8000-000000000062",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000062",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues",
+        "id": "00000000-0000-4000-8000-000000000062",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000062",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "stack_email_notification",
+      "call_site": "plane/celery.py:48 (beat_schedule)",
+      "task": "plane.bgtasks.email_notification_task.stack_email_notification",
+      "task_id": "00000000-0000-4000-8000-000000000063",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000063",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.email_notification_task.stack_email_notification",
+        "id": "00000000-0000-4000-8000-000000000063",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000063",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    },
+    {
+      "case": "push_instance_metrics",
+      "call_site": "plane/license/management/commands/register_instance.py:90",
+      "task": "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+      "task_id": "00000000-0000-4000-8000-000000000064",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000064",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+        "id": "00000000-0000-4000-8000-000000000064",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000064",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 77
+    }
+  ]
+}
