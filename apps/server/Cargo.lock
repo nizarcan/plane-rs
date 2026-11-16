@@ -2223,6 +2223,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "plane-beat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "plane-core",
+ "plane-db",
+ "plane-jobs",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "plane-cache"
 version = "0.1.0"
 dependencies = [
@@ -2342,18 +2355,33 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "deadpool-postgres",
+ "futures-util",
  "gethostname",
  "lapin",
  "percent-encoding",
  "plane-core",
+ "plane-db",
  "plane-serde",
  "ryu",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-postgres",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "plane-migrator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "plane-core",
+ "plane-db",
+ "plane-jobs",
+ "tokio",
 ]
 
 [[package]]
@@ -2475,6 +2503,21 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "plane-worker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "plane-core",
+ "plane-db",
+ "plane-jobs",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 

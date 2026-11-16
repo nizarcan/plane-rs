@@ -1222,3 +1222,26 @@ The caller tables in §5 were produced from an AST walk over `apps/api/plane/**/
 the URL resolver (`django.urls.get_resolver()`, mapping `(module, view class, action)` →
 paths). Re-do it if routes or call sites change; task names alone are not enough to plan the
 publisher.
+
+---
+
+## 10. Ownership during coexistence
+
+A task has exactly one owner. The machine-readable table is
+`crates/plane-jobs/src/ownership.rs`; the default is Celery and a task moves
+only when its handler and its last caller move together. The same table is
+consulted by `route::dispatch` and by the worker's handler registry.
+
+| Task | Phase 4 owner | Retry policy / handler |
+| --- | --- | --- |
+| every task in §4 except the test task | Celery | unchanged; the typed publisher in `plane-jobs::celery` is byte-identical |
+| `plane.jobs.echo` (test-only) | Rust | no retries; handler in `bins/plane-worker` sleeps `payload.sleep_ms` |
+
+A **schedule** has the same split in `plane_jobs.schedules.owner`. All 13
+entries in §7.1 are Celery-owned; `plane.jobs.test-tick` is the test-only Rust
+entry. Moving a schedule sets its owner to `rust`; `plane-beat` then disables
+the matching `django_celery_beat_periodictask` row, and the `enabled=False`
+survives `DatabaseScheduler` restarts (the finding in `JOBS.md`).
+
+`PLANE_RS_JOBS_RUST_TASKS` is a comma-separated dev/test override for
+`ownership::owner`; it is not for deployments.
