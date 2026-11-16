@@ -82,7 +82,7 @@
 # | cycles | `PLANE_RS_GROUP_CYCLES` | 15 | 58 | yes |
 # | modules | `PLANE_RS_GROUP_MODULES` | 13 | 58 | yes |
 # | views | `PLANE_RS_GROUP_VIEWS` | 8 | 30 | no |
-# | pages | `PLANE_RS_GROUP_PAGES` | 12 | 38 | no |
+# | pages | `PLANE_RS_GROUP_PAGES` | 12 | 38 | yes |
 # | intake | `PLANE_RS_GROUP_INTAKE` | 11 | 45 | no |
 # | notifications | `PLANE_RS_GROUP_NOTIFICATIONS` | 7 | 23 | no |
 # | search | `PLANE_RS_GROUP_SEARCH` | 3 | 9 | no |
@@ -254,5 +254,21 @@ handle @plane_rs_cycles {
 	CEL
 }
 handle @plane_rs_modules {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# pages: Pages, page versions and page lock/access actions.
+# 12 route(s), 38 endpoint x method pair(s); PLANE_RS_GROUP_PAGES=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_pages {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_PAGES} == "" ? "rust" : {env.PLANE_RS_GROUP_PAGES}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/pages-summary/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/pages/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/pages/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/pages/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/versions/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/pages/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/versions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/pages/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/live-access/$")))
+		)
+	CEL
+}
+handle @plane_rs_pages {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }

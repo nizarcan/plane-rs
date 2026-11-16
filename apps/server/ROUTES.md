@@ -210,18 +210,18 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 120 | `/api/workspaces/{slug}/users/notifications/unread/` | GET | `plane.app.views.notification.base.UnreadNotificationEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
 | 121 | `/api/workspaces/{slug}/users/notifications/mark-all-read/` | POST:create | `plane.app.views.notification.base.MarkAllReadNotificationViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
 | 122 | `/api/users/me/notification-preferences/` | GET, PATCH | `plane.app.views.notification.base.UserNotificationPreferenceEndpoint` | IsAuthenticated | django | not-started |
-| 123 | `/api/workspaces/{slug}/projects/{project_id}/pages-summary/` | GET:summary | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
-| 124 | `/api/workspaces/{slug}/projects/{project_id}/pages/` | GET:list, POST:create | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
-| 125 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
+| 123 | `/api/workspaces/{slug}/projects/{project_id}/pages-summary/` | GET:summary | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
+| 124 | `/api/workspaces/{slug}/projects/{project_id}/pages/` | GET:list, POST:create | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
+| 125 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
 | 126 | `/api/workspaces/{slug}/projects/{project_id}/favorite-pages/{page_id}/` | POST:create, DELETE:destroy | `plane.app.views.page.base.PageFavoriteViewSet` | IsAuthenticated; POST,DELETE allow(ADMIN,MEMBER;PROJECT) | django | not-started |
 | 127 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/archive/` | POST:archive, DELETE:unarchive | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
 | 128 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/lock/` | POST:lock, DELETE:unlock | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
 | 129 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/access/` | POST:access | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
 | 130 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/description/` | GET:retrieve, PATCH:partial_update | `plane.app.views.page.base.PagesDescriptionViewSet` | ProjectPagePermission | django | not-started |
-| 131 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/versions/` | GET | `plane.app.views.page.version.PageVersionEndpoint` | ProjectPagePermission | django | not-started |
-| 132 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/versions/{pk}/` | GET | `plane.app.views.page.version.PageVersionEndpoint` | ProjectPagePermission | django | not-started |
+| 131 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/versions/` | GET | `plane.app.views.page.version.PageVersionEndpoint` | ProjectPagePermission | rust(GET) | verified |
+| 132 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/versions/{pk}/` | GET | `plane.app.views.page.version.PageVersionEndpoint` | ProjectPagePermission | rust(GET) | verified |
 | 133 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/duplicate/` | POST | `plane.app.views.page.base.PageDuplicateEndpoint` | ProjectPagePermission | django | not-started |
-| 134 | `/api/workspaces/{slug}/pages/{page_id}/live-access/` | GET | `plane.app.views.page.live.PageLiveAccessEndpoint` | IsAuthenticated | django | not-started |
+| 134 | `/api/workspaces/{slug}/pages/{page_id}/live-access/` | GET | `plane.app.views.page.live.PageLiveAccessEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 135 | `/api/workspaces/{slug}/projects/` | GET:list, POST:create | `plane.app.views.project.base.ProjectViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE); POST allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
 | 136 | `/api/workspaces/{slug}/projects/details/` | GET:list_detail | `plane.app.views.project.base.ProjectViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 137 | `/api/workspaces/{slug}/projects/{pk}/` | GET:retrieve, PUT:update [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.project.base.ProjectViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
