@@ -1,0 +1,560 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Order 217: POST /api/workspaces/{slug}/draft-to-issue/{draft_id}/
+# (`WorkspaceDraftIssueViewSet.create_draft_to_issue`,
+# `plane/app/views/workspace/draft.py:243-371`).
+#
+# The draft is only a pointer to its project/workspace/creator: the issue's
+# fields come from the request body, which is `IssueCreateSerializer`
+# (`{"name": …}` is still required). Covered here:
+#
+#   * a minimal conversion and a full one (state, parent, labels, assignees,
+#     estimate point, type, dates, cycle and two modules) with the 201 body
+#     `IssueCreateSerializer.data` produces — 34 readable keys in field order,
+#     then the raw `assignee_ids`/`label_ids` arrays appended;
+#   * the draft's own state afterwards: soft-deleted (an UPDATE, not a DELETE),
+#     its description file assets re-pointed at the issue, and the follow-up
+#     GETs of the draft (404) and the new issue (200);
+#   * the default-assignee fallback and the `assignee_ids` echo: a filtered-out
+#     assignee stays in `assignee_ids` while `assignees` shows the default;
+#   * sequence ids: the conversion consumes the next `issue_sequences` row, and
+#     a later `IssueViewSet.create` gets the following one;
+#   * a draft with no project (400, before the permission re-check), a draft
+#     that does not exist / belongs to another user / is already converted
+#     (404), and the workspace-role and origin denials;
+#   * the validation order: cycle/module checks before the serializer, a
+#     well-formed cycle/module of another project (`{"detail": …}`), a
+#     non-UUID one (Django's ValidationError → `{"error": …}`), and the
+#     serializer's own errors;
+#   * a duplicate `module_ids` entry: `len(set(...))` matches the row count, so
+#     the check passes, the module `bulk_create` hits the partial unique index
+#     and the family answers 400 **after** the issue, its cycle row and the two
+#     activity messages are committed.
+#
+# Fixture anchors: ALPHA `b0063033…` (states Todo `84b8f4a5…`, Done
+# `940cca1a…`; labels Bug `51298d1d…`, Feature `4e684b34…`; cycle
+# `9a27989a…`; modules In Progress `5e5035ff…`, Backlog `c36df15d…`), BETA
+# `ca8f652c…` (cycle `6a2c67ee…`, module `381b0fc4…`), issue `292d4433…`.
+# Sessions: admin `d44ae570…`, member `78100240…`, guest `31a752d6…`,
+# nonmember `e15c61cc…`.
+
+name: write-draft-to-issue
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  state_alpha_done: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+  state_beta_backlog: "85defd20-a58b-40d3-953f-0bba411719e1"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  label_alpha_feature: "4e684b34-0406-4516-96ce-361f9f3f1665"
+  label_beta_android: "84602ca2-8eb3-4240-910e-1032516ad452"
+  cycle_alpha: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  cycle_beta: "6a2c67ee-cbfa-4ff5-949d-f85d11ad63a8"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  module_alpha_backlog: "c36df15d-45cc-4e0d-84cf-a2aed3cb5b37"
+  module_beta_in_progress: "381b0fc4-1835-4ec3-bf58-a946281dfc74"
+  estimate_alpha_3: "ddea004d-0068-44bb-90c6-7197c8b915e6"
+  issue_type_bug: "ca3e8409-b3e2-45bb-85df-af13d40c578d"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_draft: "e069169e-25e6-4db6-a049-8e1141ca95d2"
+  issue_alpha_deleted: "0c82df87-27e2-4961-9b88-c5446b1d5f02"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  unknown_draft: "55555555-5555-4555-8555-555555555555"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- minimal conversion ------------------------------------------------
+  - name: dti-01-draft-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+      name: "Convert me"
+    capture:
+      - name: draft_minimal
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-02-convert-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_minimal}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Converted minimal"
+    capture:
+      - name: issue_minimal
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  # The draft is soft-deleted, so the creator-scoped lookup is a 404.
+  - name: dti-03-get-draft-after-conversion
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_minimal}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 404
+
+  - name: dti-04-get-issue-after-conversion
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_minimal}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 200
+
+  # --- full conversion ---------------------------------------------------
+  - name: dti-05-draft-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+      name: "Full draft"
+      label_ids: ["{{label_alpha_bug}}"]
+      assignee_ids: ["{{user_member_id}}"]
+    capture:
+      - name: draft_full
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-06-convert-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_full}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Converted full"
+      priority: "high"
+      description_html: "<p>converted <strong>body</strong></p>"
+      description_json:
+        type: "doc"
+        content:
+          - type: "paragraph"
+      state_id: "{{state_alpha_todo}}"
+      parent_id: "{{issue_alpha}}"
+      label_ids: ["{{label_alpha_bug}}", "{{label_alpha_feature}}", "{{label_beta_android}}"]
+      assignee_ids: ["{{user_member_id}}", "{{user_guest_id}}"]
+      estimate_point: "{{estimate_alpha_3}}"
+      type: "{{issue_type_bug}}"
+      start_date: "2026-11-01"
+      target_date: "2026-11-30"
+      cycle_id: "{{cycle_alpha}}"
+      module_ids: ["{{module_alpha_in_progress}}", "{{module_alpha_backlog}}"]
+    capture:
+      - name: issue_full
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-07-get-issue-full
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_full}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 200
+
+  - name: dti-08-convert-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_full}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Converted twice"
+    expect_status: 404
+
+  # --- default assignee and the raw assignee echo ------------------------
+  - name: dti-09-draft-defaults
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+    capture:
+      - name: draft_defaults
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-10-convert-default-assignee
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_defaults}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Converted with default assignee"
+    expect_status: 201
+
+  - name: dti-11-draft-filtered-assignee
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+    capture:
+      - name: draft_filtered
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  # The guest is filtered out of the through rows, so the default assignee is
+  # used — but `assignee_ids` in the 201 body is still the raw request array.
+  - name: dti-12-convert-filtered-assignee
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_filtered}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Converted with filtered assignee"
+      assignee_ids: ["{{user_guest_id}}"]
+    expect_status: 201
+
+  # --- a draft with no project ------------------------------------------
+  - name: dti-13-draft-no-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    capture:
+      - name: draft_no_project
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-14-convert-no-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_no_project}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 400
+
+  # --- not found / not the caller's draft -------------------------------
+  - name: dti-15-convert-unknown-draft
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{unknown_draft}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "No draft"
+    expect_status: 404
+
+  - name: dti-16-draft-other-user
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+      name: "Admin only draft"
+    capture:
+      - name: draft_admin_only
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-17-convert-other-users-draft
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      name: "Stolen draft"
+    expect_status: 404
+
+  # --- permission matrix and origin -------------------------------------
+  - name: dti-18-convert-guest-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+    json:
+      name: "Guest conversion"
+    expect_status: 403
+
+  - name: dti-19-convert-nonmember-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+    json:
+      name: "Nonmember conversion"
+    expect_status: 403
+
+  - name: dti-20-convert-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "CSRF conversion"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- cycle and module validation --------------------------------------
+  - name: dti-21-convert-cycle-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Beta cycle"
+      cycle_id: "{{cycle_beta}}"
+    expect_status: 400
+
+  - name: dti-22-convert-cycle-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Bad cycle"
+      cycle_id: "not-a-uuid"
+    expect_status: 400
+
+  - name: dti-23-convert-module-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Beta module"
+      module_ids: ["{{module_beta_in_progress}}"]
+    expect_status: 400
+
+  - name: dti-24-convert-module-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Bad module"
+      module_ids: ["not-a-uuid"]
+    expect_status: 400
+
+  # --- serializer errors -------------------------------------------------
+  - name: dti-25-convert-missing-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 400
+
+  - name: dti-26-convert-date-range
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Bad range"
+      start_date: "2026-12-20"
+      target_date: "2026-12-01"
+    expect_status: 400
+
+  - name: dti-27-convert-state-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Beta state"
+      state_id: "{{state_beta_backlog}}"
+    expect_status: 400
+
+  - name: dti-28-convert-parent-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Deleted parent"
+      parent_id: "{{issue_alpha_deleted}}"
+    expect_status: 400
+
+  # --- a duplicate module: 400 after the issue is committed -------------
+  - name: dti-29-draft-duplicate-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+    capture:
+      - name: draft_duplicate
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-30-convert-duplicate-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_duplicate}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Duplicate module"
+      cycle_id: "{{cycle_alpha}}"
+      module_ids: ["{{module_alpha_in_progress}}", "{{module_alpha_in_progress}}"]
+    capture:
+      - name: issue_duplicate_module
+        source: db
+        table: issues
+        column: id
+    expect_status: 400
+
+  # The issue, its sequence, its cycle row and the two activities are already
+  # committed; the draft is *not* deleted (the view never reaches the delete)
+  # and no module row survives the rolled-back bulk_create.
+  - name: dti-31-get-partial-issue
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_duplicate_module}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 200
+
+  - name: dti-32-get-partial-draft
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_duplicate}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 200
+
+  # --- sequences: the next create follows the conversions ----------------
+  - name: dti-33-create-next-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "After the conversions"
+      state_id: "{{state_alpha_todo}}"
+    expect_status: 201
+
+  - name: dti-34-convert-completed-state
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_admin_only}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Completed conversion"
+      state_id: "{{state_alpha_done}}"
+    expect_status: 201
+
+  # --- a draft whose project was soft-deleted -----------------------------
+  # `Issue.save()` → `ProjectBaseModel.save()` reads `self.project.workspace`
+  # through the forward FK, i.e. `Project._base_manager` (a plain `Manager`),
+  # which has no `deleted_at` predicate: the conversion still succeeds after
+  # the project is deleted. Everything is created by this scenario so the
+  # fixture and later steps are untouched.
+  - name: dti-35-create-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Draft To Issue Deleted Project"
+      identifier: "dti"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    capture:
+      - name: project_deleted
+        source: db
+        table: projects
+        column: id
+
+  # The project has no states, so the converted issue also exercises H10a's
+  # "no default state" branch and the `state_id IS NULL` sort-order aggregate.
+  - name: dti-36-draft-in-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_deleted}}"
+    capture:
+      - name: draft_deleted_project
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-37-soft-delete-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_deleted}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+
+  - name: dti-38-convert-with-deleted-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_deleted_project}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Converted after project delete"
+    capture:
+      - name: issue_deleted_project
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-39-get-issue-with-deleted-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_deleted}}/issues/{{issue_deleted_project}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  - name: dti-40-get-draft-with-deleted-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_deleted_project}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 404
+
+  # --- a non-mapping body: the view's first `.get` on request.data --------
+  - name: dti-41-draft-for-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+    capture:
+      - name: draft_list_body
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: dti-42-convert-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-to-issue/{{draft_list_body}}/"
+    body: "[]"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # The 500 happens before any write, so the draft is still there.
+  - name: dti-43-get-draft-after-list-body
+    method: GET
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_list_body}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 200

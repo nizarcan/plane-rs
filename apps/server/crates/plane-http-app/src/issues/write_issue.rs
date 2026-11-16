@@ -113,60 +113,19 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         // no `archived_at` filter, deliberately.
         let project = project_for_create(client, project_id).await?;
 
-        let mut serializer = Serializer::new(ctx, false)?;
-        issue_create_serializer::validate(&mut serializer, client).await?;
-        recheck_manager_fields(client, &mut serializer).await?;
-        let validated = match serializer.finish() {
-            Ok(validated) => validated,
-            Err(mut errors) => {
-                errors.sort_by_field_order(&field_order());
-                return Ok(errors.into_response());
-            }
+        let prepared = prepare_create(ctx, client, project_id).await?;
+        let Created { mut issue, extra } = match prepared {
+            PreparedCreate::Valid(created) => *created,
+            PreparedCreate::Invalid(response) => return Ok(response),
         };
-
-        let extra = match validate_issue(client, project_id, &validated).await {
-            Ok(extra) => extra,
-            Err(errors) => return Ok(errors.into_response()),
-        };
-
-        let mut issue = build_issue(&validated, project_id, &extra);
-        hooks::issue::create_issue_row(client, &mut issue, Some(user), write::now())
-            .await
-            .map_err(issue_hook_error)?;
-
-        // `IssueCreateSerializer.create` (`:209-286`): the m2m rows use the
-        // issue's audit ids just stamped by the INSERT.
-        let m2m_now = write::now();
-        let has_assignees = extra
-            .assignees
-            .as_ref()
-            .is_some_and(|assignees| !assignees.is_empty());
-        if has_assignees {
-            issue_m2m::insert_assignees(
-                client,
-                &issue,
-                extra.assignees.as_deref().unwrap_or_default(),
-                m2m_now,
-            )
-            .await?;
-        } else if let Some(default) =
-            issue_m2m::default_assignee(client, project_id, project.default_assignee_id).await?
-        {
-            issue_m2m::insert_assignees(client, &issue, &[default], m2m_now).await?;
-        }
-        if extra
-            .labels
-            .as_ref()
-            .is_some_and(|labels| !labels.is_empty())
-        {
-            issue_m2m::insert_labels(
-                client,
-                &issue,
-                extra.labels.as_deref().unwrap_or_default(),
-                m2m_now,
-            )
-            .await?;
-        }
+        write_created_issue(
+            client,
+            &mut issue,
+            &extra,
+            project.default_assignee_id,
+            user,
+        )
+        .await?;
 
         // `issue_activity.delay` (`:419-430`) — `requested_data` is
         // `json.dumps(self.request.data, cls=DjangoJSONEncoder)`.
@@ -216,6 +175,116 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
 
         Ok(ViewResponse::raw(201, APPLICATION_JSON, row.to_drf()))
     })
+}
+
+/// The result of the serializer half of an issue create.
+pub(crate) enum PreparedCreate {
+    /// `serializer.is_valid()` returned True; the model row is built.
+    Valid(Box<Created>),
+    /// `serializer.errors`, already rendered (400).
+    Invalid(ViewResponse),
+}
+
+/// `IssueCreateSerializer` validated against one project, plus the model row
+/// [`build_issue`] produced from it.
+///
+/// Shared by `IssueViewSet.create` and `WorkspaceDraftIssueViewSet.
+/// create_draft_to_issue` (`plane/app/views/workspace/draft.py:275-285`): both
+/// build the serializer with a `project_id`/`workspace_id`/`default_assignee_id`
+/// context and both call `serializer.save()`, which is
+/// [`write_created_issue`].
+pub(crate) struct Created {
+    pub issue: Issue,
+    pub extra: Extra,
+}
+
+/// The serializer sequence of `IssueCreateSerializer(data=…, context=…)` +
+/// `is_valid()` + `IssueCreateSerializer.create`'s `Issue(...)` construction.
+///
+/// # Errors
+///
+/// A database failure from the generated validators or `validate()`'s
+/// project-scoped checks.
+pub(crate) async fn prepare_create(
+    ctx: &ViewCtx<'_>,
+    client: &Client,
+    project_id: Uuid,
+) -> Result<PreparedCreate, ViewError> {
+    let mut serializer = Serializer::new(ctx, false)?;
+    write::generated::issue_create_serializer::validate(&mut serializer, client).await?;
+    recheck_manager_fields(client, &mut serializer).await?;
+    let validated = match serializer.finish() {
+        Ok(validated) => validated,
+        Err(mut errors) => {
+            errors.sort_by_field_order(&field_order());
+            return Ok(PreparedCreate::Invalid(errors.into_response()));
+        }
+    };
+
+    let extra = match validate_issue(client, project_id, &validated).await {
+        Ok(extra) => extra,
+        Err(errors) => return Ok(PreparedCreate::Invalid(errors.into_response())),
+    };
+
+    Ok(PreparedCreate::Valid(Box::new(Created {
+        issue: build_issue(&validated, project_id, &extra),
+        extra,
+    })))
+}
+
+/// `serializer.save()` on a create: `Issue.objects.create(...)` (H10/H11) and
+/// then `IssueCreateSerializer.create`'s assignee/label through rows
+/// (`plane/app/serializers/issue.py:217-284`).
+///
+/// # Errors
+///
+/// A database failure. `issue_m2m` reproduces the Python's
+/// `try/except IntegrityError: pass` per `bulk_create` call.
+pub(crate) async fn write_created_issue(
+    client: &Client,
+    issue: &mut Issue,
+    extra: &Extra,
+    default_assignee_id: Option<Uuid>,
+    user: Uuid,
+) -> Result<(), ViewError> {
+    hooks::issue::create_issue_row(client, issue, Some(user), write::now())
+        .await
+        .map_err(issue_hook_error)?;
+
+    // `IssueCreateSerializer.create` (`:209-286`): the m2m rows use the
+    // issue's audit ids just stamped by the INSERT.
+    let m2m_now = write::now();
+    let has_assignees = extra
+        .assignees
+        .as_ref()
+        .is_some_and(|assignees| !assignees.is_empty());
+    if has_assignees {
+        issue_m2m::insert_assignees(
+            client,
+            issue,
+            extra.assignees.as_deref().unwrap_or_default(),
+            m2m_now,
+        )
+        .await?;
+    } else if let Some(default) =
+        issue_m2m::default_assignee(client, issue.project_id, default_assignee_id).await?
+    {
+        issue_m2m::insert_assignees(client, issue, &[default], m2m_now).await?;
+    }
+    if extra
+        .labels
+        .as_ref()
+        .is_some_and(|labels| !labels.is_empty())
+    {
+        issue_m2m::insert_labels(
+            client,
+            issue,
+            extra.labels.as_deref().unwrap_or_default(),
+            m2m_now,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -929,10 +998,10 @@ pub fn issue_dates<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespons
 /// The extra `validate()` results: sanitised HTML and the project-filtered
 /// through-row ids (`plane/app/serializers/issue.py:133-205`).
 #[derive(Debug, Default)]
-struct Extra {
-    description_html: Option<String>,
-    assignees: Option<Vec<Uuid>>,
-    labels: Option<Vec<Uuid>>,
+pub(crate) struct Extra {
+    pub description_html: Option<String>,
+    pub assignees: Option<Vec<Uuid>>,
+    pub labels: Option<Vec<Uuid>>,
 }
 
 /// `IssueCreateSerializer.validate` (`plane/app/serializers/issue.py:133-205`),
@@ -1397,7 +1466,7 @@ async fn load_full_issue(
 // Task publishing
 // ---------------------------------------------------------------------------
 
-async fn publish_issue_activity(
+pub(crate) async fn publish_issue_activity(
     ctx: &ViewCtx<'_>,
     call: IssueActivityCall,
 ) -> Result<(), ViewError> {
@@ -1407,7 +1476,7 @@ async fn publish_issue_activity(
     Ok(())
 }
 
-fn activity_base(
+pub(crate) fn activity_base(
     activity_type: &str,
     requested_data: TaskArg,
     actor_id: Uuid,

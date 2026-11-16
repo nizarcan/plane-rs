@@ -102,7 +102,8 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .viewset("plane.app.views.workspace.draft.WorkspaceDraftIssueViewSet")?
         .action("create", write_draft::create)?
         .action("partial_update", write_draft::partial_update)?
-        .action("destroy", write_draft::destroy)?;
+        .action("destroy", write_draft::destroy)?
+        .action("create_draft_to_issue", write_draft::create_draft_to_issue)?;
     write_attachment::register(registry)?;
 
     // `plans/WORK_ITEMS.md` set A — issue core writes (orders 64, 67, 71, 72,
