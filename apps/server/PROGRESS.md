@@ -916,8 +916,17 @@ and only `verified` rows are Rust-owned.
   `.earliest()` and skips nonexistent ones. Django's `project_day_start` uses pytz
   `is_dst=False` (`models/project.py:176-183`). Reuse
   `hooks::intake_issue::project_day_start`.
-- Intake sets running: A+D (intake CRUD 53/54/57/58, intake-issue DELETE 56/60), B
-  (create 55/59), C (PATCH 56/60). A and D are combined to keep the disk above the floor.
+- Intake A+D (merged `646a33e90d`, flipped with this entry): 53/57
+  `rust(GET,POST)`, 54/58 `rust(GET,PATCH,DELETE)` (PATCH is the covered 405), 56/60
+  `rust(GET,DELETE)`. `write/intake.yaml` 45/45 in both directions; no contract test
+  reaches these routes. `issues::write_issue` is now `pub(crate) mod`.
+- Upstream quirks kept: every valid 53/57 POST is a 500, with no row, no task and no
+  role check; a wrong or deleted intake pk in destroy is a 500 (`None.is_default`);
+  intake-issue destroy filters `intake_id=intake_id` and 404s for a project without an
+  intake, while retrieve 500s; the creator permission branch is unscoped and goes through
+  the soft-delete manager, so a repeat DELETE by the creator is 403 while an admin gets
+  404; a live link over a soft-deleted issue is a 500 and leaves the link live.
+- Running: intake B (create 55/59) and C (PATCH 56/60).
 
 ## Next three steps
 
