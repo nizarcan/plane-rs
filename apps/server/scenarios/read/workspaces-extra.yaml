@@ -35,6 +35,10 @@ target_env:
   PYTHONHASHSEED: "0"
 vars:
   ws: "fix-workspace"
+  # A page favourite with a project: `/user-favorites/` resolves its
+  # `entity_data` through the `pages` branch only when the favourite has a
+  # project and the page has an active `project_pages` link.
+  page_project: "a0eb70c7-531a-4fb1-bd48-6c746066c310"
   workspace_invite_id: "29664d31-6ced-4919-87c9-50edbcbb95bc"
   workspace_member_ws_member: "8fcc0bc6-e248-4474-9579-329acd71e94e"
   workspace_theme_0: "3968d242-913a-4871-aff7-9ed5a59ce05f"
@@ -592,3 +596,13 @@ steps:
     headers:
       Host: plane-fixture.test
       Cookie: "session-id={{session_newyork}}"
+  # The page favourite with a project (`tools/fixtures/build.py`): only this
+  # row reaches the `pages` branch of `get_entity_data`, which projects
+  # `pages.project_id` — a column the table does not have.
+  - name: extra-user-favorites-page-with-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
