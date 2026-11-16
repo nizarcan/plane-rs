@@ -40,8 +40,11 @@ use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 
+pub mod archive_write;
 pub mod base;
 pub mod board;
+pub mod deploy_board_write;
+pub mod favorite_write;
 pub mod identifier;
 pub mod invite;
 pub mod joined;
@@ -50,6 +53,9 @@ pub mod member;
 pub mod not_found;
 pub mod queries;
 pub mod serializer;
+pub mod settings_write;
+pub mod write_queries;
+pub mod write_support;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -91,11 +97,15 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.project.base.ProjectFavoritesViewSet")?
         .action("list", favorites_list)?;
+    favorite_write::register(registry)?;
 
     registry
         .viewset("plane.app.views.project.base.DeployBoardViewSet")?
         .action("list", board::list)?
         .action("retrieve", board::retrieve)?;
+    deploy_board_write::register(registry)?;
+    archive_write::register(registry)?;
+    settings_write::register(registry)?;
     Ok(())
 }
 
