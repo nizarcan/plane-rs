@@ -1951,6 +1951,10 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.draft.DraftIssueDetailSerializer",
     "plane.app.serializers.workspace.StickySerializer",
     "plane.app.serializers.project.ProjectSerializer",
+    "plane.app.serializers.state.StateSerializer",
+    "plane.app.serializers.project.ProjectMemberSerializer",
+    "plane.app.serializers.project.DeployBoardSerializer",
+    "plane.app.serializers.issue.ProjectUserPropertySerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is
@@ -1964,6 +1968,22 @@ WRITE_EQUIVALENCE = {
     "plane.app.serializers.project.ProjectSerializer": (
         SERVER_DIR / "crates/plane-http-app/src/projects/write.rs",
         "fn read_body",
+    ),
+    "plane.app.serializers.state.StateSerializer": (
+        SERVER_DIR / "crates/plane-http-app/src/states/write.rs",
+        "fn read_body",
+    ),
+    "plane.app.serializers.project.ProjectMemberSerializer": (
+        SERVER_DIR / "crates/plane-http-app/src/projects/member_write.rs",
+        "fn apply_body",
+    ),
+    "plane.app.serializers.project.DeployBoardSerializer": (
+        SERVER_DIR / "crates/plane-http-app/src/projects/deploy_board_write.rs",
+        "pub fn partial_update",
+    ),
+    "plane.app.serializers.issue.ProjectUserPropertySerializer": (
+        SERVER_DIR / "crates/plane-http-app/src/projects/settings_write.rs",
+        "pub fn user_properties",
     ),
 }
 
@@ -2091,6 +2111,7 @@ def write_field_record(field: Any, cls: type) -> OrderedDict[str, Any]:
     record["allow_null"] = bool(field.allow_null)
     allow_blank = getattr(field, "allow_blank", None)
     record["allow_blank"] = bool(allow_blank) if allow_blank is not None else False
+    record["allow_empty"] = bool(getattr(field, "allow_empty", True))
     record["trim_whitespace"] = bool(getattr(field, "trim_whitespace", True))
     if field.default is not drf_fields.empty:
         record["default"] = python_repr(field.default)
@@ -2234,6 +2255,7 @@ def field_spec_literal(field: dict[str, Any]) -> str:
         f"write_only: {bool_literal(field['write_only'])}",
         f"allow_null: {bool_literal(field['allow_null'])}",
         f"allow_blank: {bool_literal(field['allow_blank'])}",
+        f"allow_empty: {bool_literal(field.get('allow_empty', True))}",
         f"default: {('Some(' + rust_string(field['default']) + ')') if 'default' in field else 'None'}",
         f"max_length: {('Some(' + str(field['max_length']) + ')') if 'max_length' in field else 'None'}",
         f"min_length: {('Some(' + str(field['min_length']) + ')') if 'min_length' in field else 'None'}",
@@ -2304,6 +2326,55 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
             has_statement = True
             values = ", ".join(str(value) for value in field["choice_values"])
             lines.append(f"    let _ = s.integer_choice_field({name}, &[{values}]);")
+        elif kind == "choice" and string_choices(field):
+            has_statement = True
+            values = ", ".join(rust_string(value) for value in field["choice_values"])
+            lines.append(
+                f"    let _ = s.choice_field({name}, {bool_literal(field['allow_null'])}, "
+                f"{bool_literal(field['allow_blank'])}, &[{values}]);"
+            )
+        elif kind == "integer":
+            has_statement = True
+            lines.append(
+                f"    let _ = s.integer_field({name}, {bool_literal(field['allow_null'])}, "
+                f"IntegerOptions {{ min_value: {rust_i64_option(field, 'min_value')}, "
+                f"max_value: {rust_i64_option(field, 'max_value')} }});"
+            )
+        elif kind == "date":
+            has_statement = True
+            formats = field.get("input_formats") or ["iso-8601"]
+            rendered = ", ".join(rust_string(item) for item in formats)
+            lines.append(
+                f"    let _ = s.date_field({name}, {bool_literal(field['allow_null'])}, "
+                f"&[{rendered}]);"
+            )
+        elif kind == "list":
+            child = field.get("child") or {}
+            table = child.get("related_table") if child.get("kind") == "primary_key" else None
+            if table:
+                has_statement = True
+                uses_client = True
+                lines.append(
+                    f"    let _ = s.primary_key_list_field(client, {name}, "
+                    f"PrimaryKeyListOptions {{ allow_null: {bool_literal(field['allow_null'])}, "
+                    f"allow_empty: {bool_literal(field['allow_empty'])}, "
+                    f"min_length: {rust_usize_option(field, 'min_length')}, "
+                    f"max_length: {rust_usize_option(field, 'max_length')}, "
+                    f"table: {rust_string(table)} }}).await?;"
+                )
+            else:
+                todo = "list"
+                lines.append(f"    // TODO({todo}): {field['name']}")
+                todos.append((todo, field["serializer"], field["name"]))
+        elif kind == "many_related" and field.get("related_table"):
+            has_statement = True
+            uses_client = True
+            lines.append(
+                f"    let _ = s.primary_key_many_field(client, {name}, "
+                f"{bool_literal(field['allow_null'])}, "
+                f"{bool_literal(field['allow_empty'])}, "
+                f"{rust_string(field['related_table'])}).await?;"
+            )
         elif kind == "primary_key" and field.get("related_table"):
             has_statement = True
             uses_client = True
@@ -2323,10 +2394,25 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
     if not has_statement:
         lines.append("    let _ = s; // every writable field is a TODO(kind)")
     if not uses_client:
-        lines.append("    let _ = client; // no primary-key field validates against a table")
+        lines.append("    let _ = client; // no field validates against a table")
     lines.append("    Ok(())")
     lines.append("}")
     return lines, todos
+
+
+def string_choices(field: dict[str, Any]) -> bool:
+    values = field.get("choice_values") or []
+    return bool(values) and all(isinstance(value, str) for value in values)
+
+
+def rust_i64_option(field: dict[str, Any], key: str) -> str:
+    value = field.get(key)
+    return f"Some({value})" if isinstance(value, int) and not isinstance(value, bool) else "None"
+
+
+def rust_usize_option(field: dict[str, Any], key: str) -> str:
+    value = field.get(key)
+    return f"Some({value})" if isinstance(value, int) and not isinstance(value, bool) else "None"
 
 
 def integer_choices(field: dict[str, Any]) -> bool:
@@ -2355,6 +2441,15 @@ def write_validate_imports(fields: list[dict[str, Any]]) -> list[str]:
         names.append("CharOptions")
     if any(field["required"] for field in fields):
         names.append("Detail")
+    if any(field["kind"] == "integer" for field in fields):
+        names.append("IntegerOptions")
+    if any(
+        field["kind"] == "list"
+        and (field.get("child") or {}).get("kind") == "primary_key"
+        and (field.get("child") or {}).get("related_table")
+        for field in fields
+    ):
+        names.append("PrimaryKeyListOptions")
     if len(names) == 1:
         return ["use crate::write::Serializer;"]
     return ["use crate::write::{" + ", ".join(sorted(names)) + "};"]
@@ -2456,6 +2551,7 @@ def write_generated_mod(records: list[OrderedDict[str, Any]]) -> str:
         "    pub write_only: bool,",
         "    pub allow_null: bool,",
         "    pub allow_blank: bool,",
+        "    pub allow_empty: bool,",
         "    pub default: Option<&'static str>,",
         "    pub max_length: Option<usize>,",
         "    pub min_length: Option<usize>,",

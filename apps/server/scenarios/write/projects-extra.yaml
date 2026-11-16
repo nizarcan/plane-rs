@@ -38,6 +38,7 @@ vars:
   intake_alpha: "826885ac-00cd-47cd-b54a-77a52004021c"
   intake_beta: "d32f147b-0b3c-4086-a617-2fe4ec3f4b27"
   project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  intake_beta: "d32f147b-0b3c-4086-a617-2fe4ec3f4b27"
   admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
   member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
   session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
@@ -63,6 +64,32 @@ steps:
     json:
       sort_order: "not-a-number"
     expect_status: 400
+  - name: px-02b-user-properties-created-by-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      created_by: "99999999-9999-4999-8999-999999999999"
+    expect_status: 400
+  - name: px-02c-user-properties-updated-by-bad-type
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      updated_by: "not-a-uuid"
+    expect_status: 400
+  - name: px-02d-user-properties-audit-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      display_properties: { key: true }
+    expect_status: 200
   - name: px-03-user-properties-guest
     method: PATCH
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-properties/"
@@ -225,6 +252,40 @@ steps:
       is_comments_enabled: false
       view_props: { list: true }
     expect_status: 200
+  - name: px-20b-deploy-board-patch-created-by-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      created_by: "99999999-9999-4999-8999-999999999999"
+    expect_status: 400
+  - name: px-20c-deploy-board-patch-updated-by-bad-type
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      updated_by: "not-a-uuid"
+    expect_status: 400
+  - name: px-20d-deploy-board-patch-audit-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      is_votes_enabled: true
+    expect_status: 200
+  - name: px-20e-deploy-board-patch-foreign-intake
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      intake: "{{intake_beta}}"
+    expect_status: 400
   - name: px-21-deploy-board-patch-unknown-intake
     method: PATCH
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/project-deploy-boards/{{board_id}}/"

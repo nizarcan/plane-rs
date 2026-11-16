@@ -252,13 +252,8 @@ pub fn user_properties<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRes
         };
 
         let mut serializer = Serializer::new(ctx, true)?;
-        serializer.datetime_field("deleted_at", true);
-        serializer.json_field("filters", false);
-        serializer.json_field("display_filters", false);
-        serializer.json_field("display_properties", false);
-        serializer.json_field("rich_filters", false);
-        serializer.json_field("preferences", false);
-        serializer.float_field("sort_order", false);
+        write::generated::project_user_property_serializer::validate(&mut serializer, client)
+            .await?;
         let values = match serializer.finish() {
             Ok(values) => values,
             Err(errors) => return Ok(errors.into_response()),
@@ -280,6 +275,12 @@ pub fn user_properties<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRes
         }
         if let Some(sort_order) = values.float("sort_order") {
             property.sort_order = sort_order;
+        }
+        // `ModelSerializer.update` assigns every validated key; `BaseModel.save`
+        // only overwrites `updated_by` on an update, so a body `created_by`
+        // (including an explicit null) wins.
+        if values.contains("created_by") {
+            property.created_by_id = values.uuid("created_by");
         }
         property.updated_at = write::now();
         property.updated_by_id = Some(user);

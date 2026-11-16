@@ -210,14 +210,7 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
         let mut board = DeployBoardRow::from_row(&row, 0)?;
 
         let mut serializer = Serializer::new(ctx, true)?;
-        serializer.datetime_field("deleted_at", true);
-        serializer.field("is_comments_enabled", false, write::fields::boolean);
-        serializer.field("is_reactions_enabled", false, write::fields::boolean);
-        serializer.field("is_votes_enabled", false, write::fields::boolean);
-        serializer.json_field("view_props", false);
-        serializer.field("is_activity_enabled", false, write::fields::boolean);
-        serializer.field("is_disabled", false, write::fields::boolean);
-        serializer.field("intake", true, write::fields::uuid);
+        write::generated::deploy_board_serializer::validate(&mut serializer, client).await?;
         let values = match serializer.finish() {
             Ok(values) => values,
             Err(errors) => return Ok(errors.into_response()),
@@ -244,13 +237,18 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
         if let Some(disabled) = values.bool("is_disabled") {
             board.is_disabled = disabled;
         }
+        // `ModelSerializer.update` assigns every validated key; H01 only
+        // overwrites `updated_by` on an update, so the body's `created_by`
+        // (including an explicit null) is written.
+        if values.contains("created_by") {
+            board.created_by_id = values.uuid("created_by");
+        }
         if values.contains("intake") {
             let intake = values.uuid("intake");
-            // `validate_intake` (`plane/app/serializers/project.py:271-275`).
+            // `validate_intake` (`plane/app/serializers/project.py:271-275`):
+            // the field has already checked the base `intakes` row, this checks
+            // the URL project.
             if let Some(intake_id) = intake {
-                // The `PrimaryKeyRelatedField` validates existence first
-                // (`rest_framework/relations.py:241-263`), then
-                // `validate_intake` compares the project.
                 let exists: bool = client
                     .query_one(
                         queries::INTAKE_EXISTS_IN_PROJECT.sql,
@@ -258,12 +256,6 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
                     )
                     .await?
                     .try_get(0)?;
-                if !exists {
-                    return Ok(write::field_string_error(
-                        "intake",
-                        &format!("Invalid pk \"{intake_id}\" - object does not exist."),
-                    ));
-                }
                 if !exists {
                     return Ok(write::field_string_error(
                         "intake",

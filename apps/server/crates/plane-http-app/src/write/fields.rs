@@ -242,8 +242,9 @@ pub fn integer_choice(raw: Raw<'_>, allowed: &[i16]) -> Result<i16, Detail> {
     Ok(parsed)
 }
 
-/// Python `str(value)` for the choice error message.
-fn python_str(raw: Raw<'_>) -> String {
+/// Python `str(value)` for a choice error message. Composite values use
+/// Python's `repr` for the elements (`str(['x'])` is `['x']`).
+pub fn python_str(raw: Raw<'_>) -> String {
     match raw {
         Raw::Text(text) => text.to_owned(),
         Raw::Json(Json::Bool(value)) => {
@@ -253,46 +254,226 @@ fn python_str(raw: Raw<'_>) -> String {
                 "False".to_owned()
             }
         }
-        Raw::Json(Json::Int(value)) => value.to_string(),
+        Raw::Json(Json::Int(value)) => value.to_decimal_string(),
         Raw::Json(Json::Float(value)) => plane_query::pyfloat::repr(*value),
         Raw::Json(Json::Str(value)) => value.as_str().unwrap_or_default().to_owned(),
         Raw::Json(Json::Null) => "None".to_owned(),
-        Raw::Json(_) => String::new(),
+        Raw::Json(Json::List(items)) => {
+            let rendered: Vec<String> = items
+                .iter()
+                .map(|item| python_repr(&Raw::Json(item)))
+                .collect();
+            format!("[{}]", rendered.join(", "))
+        }
+        Raw::Json(Json::Dict(map)) => {
+            let rendered: Vec<String> = map
+                .iter()
+                .map(|(key, value)| {
+                    format!(
+                        "'{}': {}",
+                        key.as_str().unwrap_or_default(),
+                        python_repr(&Raw::Json(value))
+                    )
+                })
+                .collect();
+            format!("{{{}}}", rendered.join(", "))
+        }
     }
 }
 
-/// `IntegerField.to_internal_value`: `int(value)`, with
-/// `A valid integer is required.` on failure and Python's 32-bit range check
-/// left to Postgres (DRF does not bound it).
-pub fn integer(raw: Raw<'_>) -> Result<i32, Detail> {
-    let invalid = || Detail::new("A valid integer is required.", "invalid");
-    let overflow = || Detail::new("A valid integer is required.", "invalid");
+fn python_repr(raw: &Raw<'_>) -> String {
     match raw {
-        Raw::Json(Json::Int(value)) => value
-            .as_i64()
-            .and_then(|value| i32::try_from(value).ok())
-            .ok_or_else(overflow),
+        Raw::Json(Json::Str(value)) => format!("'{}'", value.as_str().unwrap_or_default()),
+        _ => python_str(*raw),
+    }
+}
+
+/// Python `str(value)` of a primary-key input, for `Invalid pk "{value}"…`.
+pub fn primary_key_text(raw: Raw<'_>) -> String {
+    match raw {
+        Raw::Json(Json::Str(value)) => value.as_str().unwrap_or_default().to_owned(),
+        Raw::Json(Json::Int(value)) => value.to_decimal_string(),
+        Raw::Json(Json::Float(value)) => plane_query::pyfloat::repr(*value),
+        Raw::Json(Json::Bool(value)) => (if *value { "True" } else { "False" }).to_owned(),
+        Raw::Json(Json::Null) => "None".to_owned(),
+        Raw::Text(text) => text.to_owned(),
+        Raw::Json(Json::List(_)) | Raw::Json(Json::Dict(_)) => String::new(),
+    }
+}
+
+/// `ChoiceField` over string choices (`rest_framework/fields.py:1930-1970`):
+/// the input is compared as `str(data)`; `""` is accepted when
+/// `allow_blank=True`.
+pub fn choice(raw: Raw<'_>, allow_blank: bool, allowed: &[&str]) -> Result<String, Detail> {
+    let input = python_str(raw);
+    if input.is_empty() && allow_blank {
+        return Ok(input);
+    }
+    if allowed.contains(&input.as_str()) {
+        return Ok(input);
+    }
+    Err(Detail::new(
+        format!("\"{input}\" is not a valid choice."),
+        "invalid_choice",
+    ))
+}
+
+/// What a `DateField` received. `DateTime` is DRF's
+/// `Expected a date but got a datetime.` branch; HTTP bodies are strings, so
+/// the serializer always passes `Raw`.
+#[derive(Debug, Clone, Copy)]
+pub enum DateInput<'a> {
+    Raw(Raw<'a>),
+    DateTime,
+}
+
+/// `DateField.to_internal_value` (`rest_framework/fields.py:1200-1240`): ISO
+/// 8601 (`YYYY-MM-DD`) or a declared strptime format;
+/// `Date has wrong format. Use one of these formats instead: …`.
+pub fn date(input: DateInput<'_>, formats: &[&str]) -> Result<chrono::NaiveDate, Detail> {
+    let raw = match input {
+        DateInput::DateTime => {
+            return Err(Detail::new(
+                "Expected a date but got a datetime.",
+                "datetime",
+            ));
+        }
+        DateInput::Raw(raw) => raw,
+    };
+    let text = match raw {
+        Raw::Text(text) => text,
+        Raw::Json(Json::Str(value)) => value.as_str().ok_or_else(|| invalid_date(formats))?,
+        Raw::Json(_) => return Err(invalid_date(formats)),
+    };
+    for format in formats {
+        if format.eq_ignore_ascii_case("iso-8601") {
+            if let Some(value) = parse_loose_date(text.trim()) {
+                return Ok(value);
+            }
+        } else if let Ok(value) = chrono::NaiveDate::parse_from_str(text.trim(), format) {
+            return Ok(value);
+        }
+    }
+    Err(invalid_date(formats))
+}
+
+fn invalid_date(formats: &[&str]) -> Detail {
+    Detail::new(
+        format!(
+            "Date has wrong format. Use one of these formats instead: {}.",
+            humanized_date_formats(formats)
+        ),
+        "invalid",
+    )
+}
+
+fn humanized_date_formats(formats: &[&str]) -> String {
+    formats
+        .iter()
+        .map(|format| {
+            if format.eq_ignore_ascii_case("iso-8601") {
+                "YYYY-MM-DD".to_owned()
+            } else {
+                format
+                    .replace("%Y", "YYYY")
+                    .replace("%m", "MM")
+                    .replace("%d", "DD")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `ListField`'s `not_a_list` (`rest_framework/fields.py:1698-1708`).
+pub fn not_a_list(input_type: &str) -> Detail {
+    Detail::new(
+        format!("Expected a list of items but got type \"{input_type}\"."),
+        "not_a_list",
+    )
+}
+
+/// `ListField`/`ManyRelatedField`'s `allow_empty=False` message.
+pub fn empty_list() -> Detail {
+    Detail::new("This list may not be empty.", "empty")
+}
+
+pub fn list_min_length(min: usize) -> Detail {
+    Detail::new(
+        format!("Ensure this field has at least {min} elements."),
+        "min_length",
+    )
+}
+
+pub fn list_max_length(max: usize) -> Detail {
+    Detail::new(
+        format!("Ensure this field has no more than {max} elements."),
+        "max_length",
+    )
+}
+
+/// `IntegerField` options (`min_value`/`max_value`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IntegerOptions {
+    pub min_value: Option<i64>,
+    pub max_value: Option<i64>,
+}
+
+/// `IntegerField.to_internal_value` (`rest_framework/fields.py:1080-1100`):
+/// Python `int()` after `re_decimal` strips a trailing `.0…`, then DRF's
+/// min/max validators. DRF does not bound the value to 32 bits.
+pub fn integer(raw: Raw<'_>, options: &IntegerOptions) -> Result<i64, Detail> {
+    let invalid = || Detail::new("A valid integer is required.", "invalid");
+    let text = match raw {
+        Raw::Text(text) => {
+            if text.len() > 1000 {
+                return Err(Detail::new("String value too large.", "max_string_length"));
+            }
+            text.to_owned()
+        }
         Raw::Json(Json::Str(value)) => {
             let text = value.as_str().ok_or_else(invalid)?;
-            integer_text(text)
+            if text.len() > 1000 {
+                return Err(Detail::new("String value too large.", "max_string_length"));
+            }
+            text.to_owned()
         }
-        Raw::Text(text) => integer_text(text),
-        Raw::Json(Json::Float(value)) => {
-            // `int(2.0)` succeeds; `int(2.5)` truncates in Python only via
-            // `int()`, which DRF calls on the *string* form.
-            integer_text(&plane_query::pyfloat::repr(*value))
-        }
-        _ => Err(invalid()),
+        Raw::Json(Json::Int(value)) => value.to_decimal_string(),
+        Raw::Json(Json::Float(value)) => plane_query::pyfloat::repr(*value),
+        // `int("True")` fails, and null is handled by `field_value`.
+        Raw::Json(_) => return Err(invalid()),
+    };
+    let text = strip_decimal(&text);
+    let value: i64 = text.trim().parse().map_err(|_| invalid())?;
+    if let Some(max) = options.max_value
+        && value > max
+    {
+        return Err(Detail::new(
+            format!("Ensure this value is less than or equal to {max}."),
+            "max_value",
+        ));
     }
+    if let Some(min) = options.min_value
+        && value < min
+    {
+        return Err(Detail::new(
+            format!("Ensure this value is greater than or equal to {min}."),
+            "min_value",
+        ));
+    }
+    Ok(value)
 }
 
-fn integer_text(text: &str) -> Result<i32, Detail> {
-    let invalid = || Detail::new("A valid integer is required.", "invalid");
-    text.trim()
-        .parse::<i64>()
-        .ok()
-        .and_then(|value| i32::try_from(value).ok())
-        .ok_or_else(invalid)
+/// `re_decimal.sub('', text)` (`fields.py:1083`): strip `.0…` and trailing
+/// whitespace, so `"1.0"` is an int but `"1.2"` is not.
+fn strip_decimal(text: &str) -> String {
+    let trimmed = text.trim_end();
+    if let Some(dot) = trimmed.rfind('.') {
+        let fraction = &trimmed[dot + 1..];
+        if fraction.chars().all(|character| character == '0') {
+            return trimmed[..dot].to_owned();
+        }
+    }
+    trimmed.to_owned()
 }
 
 /// `PrimaryKeyRelatedField`'s UUID coercion
@@ -714,12 +895,144 @@ mod tests {
     }
 
     #[test]
+    fn integer_options_and_max_string_length() {
+        let options = IntegerOptions {
+            min_value: Some(0),
+            max_value: Some(12),
+        };
+        let value = parse("-1");
+        assert_eq!(
+            integer(Raw::Json(&value), &options).expect_err("min"),
+            Detail::new(
+                "Ensure this value is greater than or equal to 0.",
+                "min_value"
+            )
+        );
+        let value = parse("13");
+        assert_eq!(
+            integer(Raw::Json(&value), &options).expect_err("max"),
+            Detail::new(
+                "Ensure this value is less than or equal to 12.",
+                "max_value"
+            )
+        );
+        // `re_decimal` strips a trailing `.0`; `1.2` is not an int.
+        let value = parse("1.0");
+        assert_eq!(integer(Raw::Json(&value), &options).expect("1.0"), 1);
+        let value = parse("1.2");
+        assert_eq!(
+            integer(Raw::Json(&value), &options).expect_err("1.2"),
+            Detail::new("A valid integer is required.", "invalid")
+        );
+        let too_long = format!("\"{}\"", "9".repeat(1001));
+        let value = parse(&too_long);
+        assert_eq!(
+            integer(Raw::Json(&value), &options).expect_err("long"),
+            Detail::new("String value too large.", "max_string_length")
+        );
+    }
+
+    #[test]
+    fn string_choices_use_pythons_str() {
+        let value = parse("\"urgent\"");
+        assert_eq!(
+            choice(Raw::Json(&value), false, &["urgent", "low"]).expect("urgent"),
+            "urgent"
+        );
+        let value = parse("\"nope\"");
+        assert_eq!(
+            choice(Raw::Json(&value), false, &["urgent"]).expect_err("nope"),
+            Detail::new("\"nope\" is not a valid choice.", "invalid_choice")
+        );
+        let value = parse("1");
+        assert_eq!(
+            choice(Raw::Json(&value), false, &["urgent"]).expect_err("1"),
+            Detail::new("\"1\" is not a valid choice.", "invalid_choice")
+        );
+        let value = parse("true");
+        assert_eq!(
+            choice(Raw::Json(&value), false, &["urgent"]).expect_err("bool"),
+            Detail::new("\"True\" is not a valid choice.", "invalid_choice")
+        );
+        let value = parse("[\"x\"]");
+        assert_eq!(
+            choice(Raw::Json(&value), false, &["urgent"]).expect_err("list"),
+            Detail::new("\"[\'x\']\" is not a valid choice.", "invalid_choice")
+        );
+        let value = parse("{\"a\": 1}");
+        assert_eq!(
+            choice(Raw::Json(&value), false, &["urgent"]).expect_err("dict"),
+            Detail::new("\"{'a': 1}\" is not a valid choice.", "invalid_choice")
+        );
+        let value = parse("\"\"");
+        assert_eq!(
+            choice(Raw::Json(&value), true, &["urgent"]).expect("blank"),
+            ""
+        );
+    }
+
+    #[test]
+    fn dates_use_drfs_formats_and_messages() {
+        let value = parse("\"2026-01-02\"");
+        assert_eq!(
+            date(DateInput::Raw(Raw::Json(&value)), &["iso-8601"]).expect("date"),
+            chrono::NaiveDate::from_ymd_opt(2026, 1, 2).expect("date")
+        );
+        let value = parse("\"01/02/2026\"");
+        assert_eq!(
+            date(DateInput::Raw(Raw::Json(&value)), &["iso-8601"]).expect_err("format"),
+            Detail::new(
+                "Date has wrong format. Use one of these formats instead: YYYY-MM-DD.",
+                "invalid"
+            )
+        );
+        assert_eq!(
+            date(DateInput::DateTime, &["iso-8601"]).expect_err("datetime"),
+            Detail::new("Expected a date but got a datetime.", "datetime")
+        );
+        let value = parse("\"01/02/2026\"");
+        assert_eq!(
+            date(DateInput::Raw(Raw::Json(&value)), &["%m/%d/%Y"]).expect("explicit format"),
+            chrono::NaiveDate::from_ymd_opt(2026, 1, 2).expect("date")
+        );
+    }
+
+    #[test]
+    fn list_messages_match_drf() {
+        assert_eq!(
+            not_a_list("str"),
+            Detail::new(
+                "Expected a list of items but got type \"str\".",
+                "not_a_list"
+            )
+        );
+        assert_eq!(
+            empty_list(),
+            Detail::new("This list may not be empty.", "empty")
+        );
+        assert_eq!(
+            list_min_length(2),
+            Detail::new("Ensure this field has at least 2 elements.", "min_length")
+        );
+        assert_eq!(
+            list_max_length(3),
+            Detail::new(
+                "Ensure this field has no more than 3 elements.",
+                "max_length"
+            )
+        );
+    }
+
+    #[test]
     fn integers_and_pks() {
         let value = parse("\" 12 \"");
-        assert_eq!(integer(Raw::Json(&value)).expect("12"), 12);
+        assert_eq!(
+            integer(Raw::Json(&value), &IntegerOptions::default()).expect("12"),
+            12
+        );
         let value = parse("\"abc\"");
         assert_eq!(
-            integer(Raw::Json(&value)).expect_err("abc"),
+            integer(Raw::Json(&value), &IntegerOptions::default()).expect_err("abc"),
             Detail::new("A valid integer is required.", "invalid")
         );
         let value = parse("\"not-a-uuid\"");

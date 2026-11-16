@@ -879,20 +879,11 @@ async fn related_field(
 
 /// `IntegerField(min_value=0, max_value=12)` (`archive_in`, `close_in`).
 fn integer_0_12(raw: Raw<'_>) -> Result<i32, Detail> {
-    let value = fields::integer(raw)?;
-    if value < 0 {
-        return Err(Detail::new(
-            "Ensure this value is greater than or equal to 0.",
-            "min_value",
-        ));
-    }
-    if value > 12 {
-        return Err(Detail::new(
-            "Ensure this value is less than or equal to 12.",
-            "max_value",
-        ));
-    }
-    Ok(value)
+    let options = fields::IntegerOptions {
+        min_value: Some(0),
+        max_value: Some(12),
+    };
+    Ok(fields::integer(raw, &options)? as i32)
 }
 
 /// `ChoiceField(TIMEZONE_CHOICES)`: `str(data)` against the choice keys.
