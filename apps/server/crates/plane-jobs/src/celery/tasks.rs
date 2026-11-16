@@ -975,9 +975,12 @@ pub fn page_transaction(
 
 /// `plane.bgtasks.work_item_link_task.crawl_work_item_link_title`.
 ///
-/// Four positional calls: `serializer.instance.id` (a `UUID`) at
-/// `api/views/issue.py:1284`, and `serializer.data.get("id")` (a string) at
-/// the other three.
+/// Four positional calls, and all four pass a `uuid.UUID`:
+/// `serializer.instance.id` at `api/views/issue.py:1284`, and
+/// `serializer.data.get("id")` at the other three — `IssueLinkSerializer.id` is
+/// a read-only `PrimaryKeyRelatedField`, whose `to_representation` returns the
+/// pk object, not `str(pk)` (only the JSON encoder stringifies it). Kombu
+/// therefore sends its `uuid` envelope.
 #[must_use]
 pub fn crawl_work_item_link_title(id: TaskArg, url: String) -> Message {
     Message::new(

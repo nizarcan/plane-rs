@@ -122,6 +122,11 @@ fn catalogs() -> Vec<Catalog> {
             queries: issues_sub_queries::ALL_QUERIES,
         },
         Catalog {
+            domain: "issues_write_sub",
+            source: "issues/write_sub_queries.rs",
+            queries: plane_http_app::issues::write_sub_queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "cycles",
             source: "cycles/queries.rs",
             queries: plane_http_app::cycles::queries::ALL_QUERIES,

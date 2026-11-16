@@ -1,0 +1,1020 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5, work items set C: the sub-resource write routes.
+#
+#   POST   …/issues/{issue_id}/sub-issues/                       (73)
+#   POST   …/issues/{issue_id}/issue-links/                      (74)
+#   PATCH  …/issues/{issue_id}/issue-links/{pk}/                 (75)
+#   DELETE …/issues/{issue_id}/issue-links/{pk}/                 (75)
+#   POST   …/issues/{issue_id}/issue-subscribers/                (83)
+#   DELETE …/issues/{issue_id}/issue-subscribers/{subscriber}/   (84)
+#   POST   …/issues/{issue_id}/subscribe/                        (85)
+#   DELETE …/issues/{issue_id}/subscribe/                        (85)
+#   POST   …/issues/{issue_id}/issue-relation/                   (93)
+#   POST   …/issues/{issue_id}/remove-relation/                  (94)
+#
+# Covers every success path, the serializer errors, the permission matrix
+# (guest, inactive member, non-member, foreign workspace), the duplicates and
+# repeats (link URL, relation pair, subscriber row, subscribe) and the
+# follow-up GETs that show what was actually written.
+#
+# The ported upstream behaviours these steps pin:
+#   * sub-issues: the `{sub_issues, state_distribution}` body and the
+#     `current_instance` that names the sub-issue itself as its parent;
+#   * links: the `http://` prefix on the raw url, `URLValidator`'s field error
+#     body, `deleted_at` being writable, and the 404 the `create` response
+#     query answers for an archived project;
+#   * subscribers: the duplicate POST is the family 400 (no pre-check), the
+#     `destroy`/`unsubscribe` lookups are `ObjectDoesNotExist` 404s;
+#   * relations: the reverse-type mapping, the mirrored rows and
+#     `remove-relation`'s two-direction lookup.
+#
+# Fixture: ALP `b0063033…` (ALPHA-003 `b5ca265c…` has no links/subscribers,
+# ALPHA-010 `d432015f…` already has a link and subscribers, ALPHA-012
+# `d66a8985…` blocks ALPHA-013 `b2387b6f…`), GAM `4f9d99bc…` archived,
+# EPS `2e199eb6…` a sibling project for the cross-project cases.
+
+name: write-issue-relations
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  project_gamma_archived: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  issue_003: "b5ca265c-52ee-4ee7-bfbd-c7b546fa4065"
+  issue_004_archived: "e956b8e9-1f3f-408d-98b1-b33fc15ce144"
+  issue_005_triage: "85385456-c0a6-4848-bd3e-fdccafc4581c"
+  issue_007: "ac2ff3cd-baee-4c8d-bc3c-3fb2768f75ec"
+  issue_009: "688b9acd-89b2-4aea-804c-4d08d7ec1994"
+  issue_010: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_011_triage: "0053b148-8115-4446-a6dd-811f2583eaf1"
+  issue_012: "d66a8985-46ce-446d-a4c1-fc0828d1b575"
+  issue_013: "b2387b6f-e186-4067-9e39-8bfa6b4112b5"
+  issue_016: "2dcd903d-4321-4295-91b0-5e2371f5451f"
+  issue_080: "01a961e2-a656-4de9-9652-fd4a96debd66"
+  issue_201_draft: "e069169e-25e6-4db6-a049-8e1141ca95d2"
+  issue_gamma: "2039d0ab-2732-436d-8b51-eecfa854c8fe"
+  issue_epsilon: "643eae10-3112-4c2f-aab2-f6d4aaaf4dd3"
+  link_010: "20c1f9af-641b-44b2-b819-dabe6123bad1"
+  user_admin: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_member2: "bc437914-c250-4c9f-ac69-85003fdf6205"
+  user_inactive: "f724e69d-fc64-47a2-a4f9-bf0567f03f7b"
+  user_outsider: "e15c61cc-f495-4e69-a88f-9c2cf5cdca7b"
+  unknown_issue: "55555555-5555-4555-8555-555555555555"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- sub-issues (73) ------------------------------------------------------
+  - name: wirel-01-sub-issues-reparent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_016}}", "{{issue_007}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-02-sub-issues-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Cross-project ids are silently dropped (the queryset is project-scoped);
+  # the response and the activities only mention the in-project id.
+  - name: wirel-03-sub-issues-cross-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_epsilon}}", "{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-04-sub-issues-archived-excluded
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_004_archived}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-05-sub-issues-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json:
+      sub_issue_ids: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-06-sub-issues-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-07-sub-issues-unknown-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_issue}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `issue_objects` excludes archived, triage and draft parents.
+  - name: wirel-08-sub-issues-archived-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_004_archived}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-09-sub-issues-triage-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-10-sub-issues-invalid-uuid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json:
+      sub_issue_ids: ["not-a-uuid"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-11-sub-issues-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_009}}"]
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wirel-12-sub-issues-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_013}}/sub-issues/"
+    json:
+      sub_issue_ids: ["{{issue_009}}"]
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # --- links: create (74) ---------------------------------------------------
+  - name: wirel-13-link-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: "docs.example.test/guide"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: link_minimal
+        source: json
+        pointer: "/id"
+
+  - name: wirel-14-link-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: "https://example.test/design?v=2#top"
+      title: "Design doc"
+      metadata: {"source": "manual", "tags": ["a", "b"]}
+      deleted_at: null
+      issue: "{{issue_010}}"
+      project: "{{project_epsilon}}"
+      created_by: "{{user_member}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: link_full
+        source: json
+        pointer: "/id"
+
+  - name: wirel-15-link-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: "https://example.test/design?v=2#top"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-16-link-create-invalid-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: "not a url"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-17-link-create-blank-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-18-link-create-null-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-19-link-create-no-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      title: "No url"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `data.get("url", "")` then `.startswith(...)`: an int is an AttributeError.
+  - name: wirel-20-link-create-non-string-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: 42
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wirel-21-link-create-unknown-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_issue}}/issue-links/"
+    json:
+      url: "https://example.test/nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `Issue.objects` (not `issue_objects`): archived and triage issues accept
+  # links.
+  - name: wirel-22-link-create-archived-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_004_archived}}/issue-links/"
+    json:
+      url: "https://example.test/archived"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wirel-23-link-create-triage-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/issue-links/"
+    json:
+      url: "https://example.test/triage"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # The write succeeds, then `get_queryset()` filters the archived project out
+  # and the response is `ObjectDoesNotExist` — the ported upstream 404.
+  - name: wirel-24-link-create-archived-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/issues/{{issue_gamma}}/issue-links/"
+    json:
+      url: "https://example.test/archived-project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-25-link-create-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: "https://example.test/guest"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wirel-26-link-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: "https://example.test/origin"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- links: patch / delete (75) -------------------------------------------
+  - name: wirel-27-link-patch-title
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      title: "Renamed"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-28-link-patch-url
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "renamed.example.test/page"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-29-link-patch-duplicate
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "https://example.test/design?v=2#top"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-30-link-patch-null-url
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-31-link-patch-invalid-url
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "http://bad host"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-32-link-patch-metadata
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      metadata: {"z": 1, "a": [true, null]}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-33-link-patch-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{unknown_issue}}/"
+    json:
+      title: "Nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-34-link-patch-foreign-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      title: "Nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: wirel-35-link-list-followup
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-36-link-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wirel-37-link-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-38-link-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- subscribers: create (83) ---------------------------------------------
+  - name: wirel-39-subscriber-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json:
+      subscriber: "{{user_member}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: subscriber_member
+        source: json
+        pointer: "/id"
+
+  # The partial unique constraint is the only duplicate guard: the family 400.
+  - name: wirel-40-subscriber-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json:
+      subscriber: "{{user_member}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-41-subscriber-not-a-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json:
+      subscriber: "{{user_outsider}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-42-subscriber-inactive-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json:
+      subscriber: "{{user_inactive}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-43-subscriber-unknown-user
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json:
+      subscriber: "{{unknown_issue}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-44-subscriber-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-45-subscriber-unknown-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_issue}}/issue-subscribers/"
+    json:
+      subscriber: "{{user_member}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-46-subscriber-create-other
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json:
+      subscriber: "{{user_member2}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: subscriber_member2
+        source: json
+        pointer: "/id"
+
+  - name: wirel-47-subscriber-list-followup
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- subscribers: destroy (84) --------------------------------------------
+  - name: wirel-48-subscriber-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/{{user_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wirel-49-subscriber-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/{{user_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The URL subscriber is not checked against the caller: an admin can remove
+  # somebody else's row.
+  - name: wirel-50-subscriber-delete-other
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/{{user_member2}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # A soft-deleted row is invisible to the default manager, so the member can
+  # be re-subscribed — the partial unique constraint only covers live rows.
+  - name: wirel-51-subscriber-recreate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    json:
+      subscriber: "{{user_member}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # --- subscribe / unsubscribe (85) -----------------------------------------
+  - name: wirel-52-subscribe
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/subscribe/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    expect_status: 201
+
+  - name: wirel-53-subscribe-repeat
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/subscribe/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    expect_status: 400
+
+  - name: wirel-54-subscribe-status
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/subscribe/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    expect_status: 200
+
+  - name: wirel-55-unsubscribe
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/subscribe/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    expect_status: 204
+
+  - name: wirel-56-unsubscribe-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/subscribe/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    expect_status: 404
+
+  - name: wirel-57-subscribe-unknown-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_issue}}/subscribe/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # A guest may subscribe to their own issue (`ProjectLitePermission`), but
+  # `initial()` still hides issues they did not create.
+  - name: wirel-58-subscribe-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/subscribe/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- relations: create (93) -----------------------------------------------
+  # `blocking` is stored mirrored (`issue_id` = body issue) and reversed to
+  # `blocked_by`; this pair already exists, so `ignore_conflicts` drops it and
+  # the in-memory row is still serialized.
+  - name: wirel-59-relation-blocking
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "blocking"
+      issues: ["{{issue_013}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wirel-60-relation-relates-to
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: ["{{issue_016}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wirel-61-relation-start-after
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "start_after"
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wirel-62-relation-finish-after
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "finish_after"
+      issues: ["{{issue_080}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # `implements` maps to `implemented_by` in `get_actual_relation` even though
+  # it is not one of the three mirrored types.
+  - name: wirel-63-relation-implements
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "implements"
+      issues: ["{{issue_003}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wirel-64-relation-missing-type
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-65-relation-null-type
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: null
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-66-relation-empty-issues
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # The body list is workspace-scoped only: a relation may cross projects.
+  - name: wirel-67-relation-cross-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "duplicate"
+      issues: ["{{issue_epsilon}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wirel-68-relation-invalid-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: ["nope"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-69-relation-null-issues
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `issue_objects` excludes archived URL issues from the write path.
+  - name: wirel-70-relation-archived-url-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_004_archived}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-71-relation-list-followup
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-72-relation-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: ["{{issue_009}}"]
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- remove-relation (94) -------------------------------------------------
+  # Second direction: the stored row is (issue=012, related=013) and the URL
+  # issue is 012.
+  - name: wirel-73-remove-relation-url-side
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/remove-relation/"
+    json:
+      related_issue: "{{issue_013}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # First direction: `Q(issue_id=related, related_issue_id=url)`. A separate
+  # pair (016 -> 009) keeps the only matching row in that direction.
+  - name: wirel-74-relation-reverse
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_016}}/issue-relation/"
+    json:
+      relation_type: "relates_to"
+      issues: ["{{issue_009}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wirel-74-remove-relation-related-side
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_009}}/remove-relation/"
+    json:
+      related_issue: "{{issue_016}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wirel-75-remove-relation-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/remove-relation/"
+    json:
+      related_issue: "{{issue_005_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # No `related_issue` at all: the NULL comparisons match nothing.
+  - name: wirel-76-remove-relation-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/remove-relation/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-77-remove-relation-invalid-uuid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/remove-relation/"
+    json:
+      related_issue: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-78-remove-relation-archived-url-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_004_archived}}/remove-relation/"
+    json:
+      related_issue: "{{issue_009}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-79-remove-relation-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/remove-relation/"
+    json:
+      related_issue: "{{issue_009}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: wirel-80-remove-relation-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_012}}/remove-relation/"
+    json:
+      related_issue: "{{issue_009}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # The link/subscriber list queries still see the soft-deleted rows out.
+  - name: wirel-81-link-list-final
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_010}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-82-subscriber-list-final
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-subscribers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200

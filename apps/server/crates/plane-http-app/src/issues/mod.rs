@@ -36,9 +36,19 @@ use plane_drf::registry::{Registry, RegistryError};
 pub mod lists;
 pub mod queries;
 pub mod row;
+
 mod sub_resources;
+
+// Set B: comments and reactions.
 pub mod write_comment;
 pub mod write_comment_queries;
+// Set C: links, relations, subscribers and the sub-issue re-parent
+// (`plans/WORK_ITEMS.md` §3).
+mod write_link;
+mod write_relation;
+mod write_sub_issue;
+pub mod write_sub_queries;
+mod write_subscriber;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -48,6 +58,13 @@ pub mod write_comment_queries;
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     sub_resources::register_sub_resources(registry)?;
     lists::register_lists(registry)?;
+    // Work-item sub-resource writes (plans/WORK_ITEMS.md §3, set C):
+    // `POST sub-issues/` (73), the issue-link writes (74/75), the
+    // issue-subscriber writes (83/84/85) and the relation writes (93/94).
+    write_link::register(registry)?;
+    write_relation::register(registry)?;
+    write_subscriber::register(registry)?;
+    write_sub_issue::register(registry)?;
     // `…/projects/{project_id}/user-properties/` matches this group's
     // `projects/*/user-properties/` selector, so the route is registered here
     // even though the handler lives with the other project settings writes.

@@ -192,6 +192,12 @@ impl From<NaiveDate> for Value {
 enum FieldErrors {
     Messages(Vec<Detail>),
     Indexed(Vec<(usize, Vec<Detail>)>),
+    /// A `ValidationError(dict)` raised by a `validate_<field>` method, which
+    /// DRF assigns to the field verbatim instead of wrapping it in a list
+    /// (`rest_framework/serializers.py:430-445`): `validate_url`'s
+    /// `{"error": "Invalid URL format."}` renders as
+    /// `{"url": {"error": "Invalid URL format."}}`.
+    Body(plane_query::json::Json),
 }
 
 /// Options for a `ListField` of primary keys.
@@ -218,9 +224,18 @@ impl ValidationErrors {
             Some((_, FieldErrors::Messages(details))) => details.push(detail),
             // A top-level list error returns before child validation, so the
             // two shapes cannot coexist for one field; keep the first.
-            Some((_, FieldErrors::Indexed(_))) => {}
+            Some((_, FieldErrors::Indexed(_) | FieldErrors::Body(_))) => {}
             None => self.0.push((field, FieldErrors::Messages(vec![detail]))),
         }
+    }
+
+    /// A field error whose body is a JSON document rather than a message list
+    /// (a `validate_<field>` that raised `ValidationError(dict)`).
+    pub fn push_body(&mut self, field: &'static str, body: plane_query::json::Json) {
+        if self.0.iter().any(|(name, _)| *name == field) {
+            return;
+        }
+        self.0.push((field, FieldErrors::Body(body)));
     }
 
     /// A `ListField` child error: DRF raises `ValidationError({idx: detail})`
@@ -272,6 +287,7 @@ impl ValidationErrors {
                             .map(|(index, details)| (index.to_string(), messages(details)))
                             .collect(),
                     ),
+                    FieldErrors::Body(body) => body,
                 };
                 (field.to_owned(), value)
             })
@@ -688,6 +704,12 @@ impl<'a> Serializer<'a> {
         }
         self.values.push((name, Value::UuidList(values.clone())));
         Ok(Some(values))
+    }
+
+    /// Record a field error whose body is a JSON document — a
+    /// `validate_<field>` that raised `ValidationError(dict)`.
+    pub fn push_body(&mut self, field: &'static str, body: plane_query::json::Json) {
+        self.errors.push_body(field, body);
     }
 
     /// A field whose parser decides the message and whose value the caller
