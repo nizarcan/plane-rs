@@ -150,6 +150,13 @@ pub enum ViewResponse {
         content_type: &'static str,
         body: Vec<u8>,
         headers: Vec<(String, String)>,
+        /// `HttpResponseBase.streaming` (`django/http/response.py:453`): the body
+        /// is a `StreamingHttpResponse`'s stream, so it has **no**
+        /// `Content-Length` and `GZipMiddleware` compresses it whatever its
+        /// length (`django/middleware/gzip.py:27-30,52-56`). The handler still
+        /// supplies the whole body at once because the Rust pipeline renders it
+        /// into one buffer; only the framing differs.
+        streaming: bool,
     },
 }
 
@@ -176,6 +183,27 @@ impl ViewResponse {
             content_type,
             body,
             headers: Vec::new(),
+            streaming: false,
+        }
+    }
+
+    /// `StreamingHttpResponse(body, content_type=…)`: the same bytes, framed
+    /// without a `Content-Length`.
+    pub fn streaming_raw(status: u16, content_type: &'static str, body: Vec<u8>) -> Self {
+        Self::Raw {
+            status,
+            content_type,
+            body,
+            headers: Vec::new(),
+            streaming: true,
+        }
+    }
+
+    /// `HttpResponseBase.streaming`; always false for a JSON response.
+    pub fn is_streaming(&self) -> bool {
+        match self {
+            Self::Json { .. } => false,
+            Self::Raw { streaming, .. } => *streaming,
         }
     }
 
@@ -215,6 +243,10 @@ pub struct DrfResponse {
     /// (`rest_framework/response.py:82-84`).
     pub content_type: Option<&'static str>,
     pub body: Vec<u8>,
+    /// `HttpResponseBase.streaming`; carried through rendering so the pipeline
+    /// can frame the body without a `Content-Length` (`bins/plane-api`'s
+    /// `Resp`).
+    pub streaming: bool,
 }
 
 impl DrfResponse {
@@ -224,6 +256,7 @@ impl DrfResponse {
             headers: Vec::new(),
             content_type,
             body,
+            streaming: false,
         }
     }
 
@@ -308,9 +341,11 @@ impl DrfResponse {
                 content_type,
                 body,
                 headers,
+                streaming,
             } => {
                 let mut rendered = Self::new(status, Some(content_type), body);
                 rendered.headers = headers;
+                rendered.streaming = streaming;
                 Ok(rendered)
             }
         }
@@ -327,3 +362,26 @@ pub fn http_response_not_allowed(allow: &str) -> DrfResponse {
 
 /// The connection handle a handler may keep for its own reads.
 pub type HandlerConn<'a> = Conn<'a>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `StreamingHttpResponse` (`django/http/response.py:444-459`): the flag
+    /// has to survive rendering so the pipeline frames the body without a
+    /// `Content-Length` and `GZipMiddleware` compresses it at any size.
+    #[test]
+    fn a_streaming_raw_response_stays_streaming_after_rendering() {
+        let response = ViewResponse::streaming_raw(200, "application/octet-stream", b"x".to_vec());
+        assert!(response.is_streaming());
+        let rendered = DrfResponse::render(response).expect("render");
+        assert!(rendered.streaming);
+        assert_eq!(rendered.content_type, Some("application/octet-stream"));
+        assert_eq!(rendered.body, b"x");
+
+        let plain = ViewResponse::raw(200, APPLICATION_JSON, b"{}".to_vec());
+        assert!(!plain.is_streaming());
+        assert!(!DrfResponse::render(plain).expect("render").streaming);
+        assert!(!ViewResponse::json(200, serde_json::json!({})).is_streaming());
+    }
+}

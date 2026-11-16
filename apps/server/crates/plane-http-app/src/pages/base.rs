@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // See the LICENSE file for details.
 
-//! `plane/app/views/page/base.py` — `PageViewSet`'s three `GET` actions:
+//! `plane/app/views/page/base.py` — the four `GET` handlers of the pages group:
 //!
-//! * `GET …/projects/{project_id}/pages-summary/` — `summary`;
-//! * `GET …/projects/{project_id}/pages/` — `list`;
-//! * `GET …/projects/{project_id}/pages/{page_id}/` — `retrieve`.
+//! * `GET …/projects/{project_id}/pages-summary/` — `PageViewSet.summary`;
+//! * `GET …/projects/{project_id}/pages/` — `PageViewSet.list`;
+//! * `GET …/projects/{project_id}/pages/{page_id}/` — `PageViewSet.retrieve`;
+//! * `GET …/projects/{project_id}/pages/{page_id}/description/` —
+//!   `PagesDescriptionViewSet.retrieve` (a `StreamingHttpResponse` of the
+//!   page's binary description).
 //!
 //! `get_queryset` (`base.py:83-143`) is the whole of `list` and `retrieve`: the
 //! filters (`workspace__slug`, an active project membership, an unarchived
@@ -23,6 +26,14 @@
 //! `retrieve` appends `issue_ids` to the serialized page
 //! (`base.py:226-230`) and enqueues `recent_visited_task` unless
 //! `?track_visit=false` (`base.py:220,231-238`).
+//!
+//! `description` is a `StreamingHttpResponse` (`base.py:508-516`): one chunk
+//! with the whole `description_binary` (or `b""`), `Content-Type:
+//! application/octet-stream`, `Content-Disposition: attachment;
+//! filename="page_description.bin"`, no `Content-Length`, and — because
+//! `GZipMiddleware` exempts streaming responses from its 200-byte rule — gzip
+//! whatever the body's size. [`ViewResponse::streaming_raw`] carries the
+//! framing through the pipeline.
 //!
 //! A response field the serializers declare but the queryset always annotates
 //! (`is_favorite`, `label_ids`, `project_ids`) is `FieldValue::value(…)`: the
@@ -534,6 +545,54 @@ pub fn summary<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
         let bytes = plane_serde::to_vec(plane_serde::Dialect::Drf, &body)
             .map_err(|error| ViewError::Unknown(error.to_string()))?;
         Ok(ViewResponse::raw(200, APPLICATION_JSON, bytes))
+    })
+}
+
+/// `PagesDescriptionViewSet.retrieve` (`page/base.py:498-516`).
+///
+/// The view is a `StreamingHttpResponse` over `stream_data()`, which yields the
+/// whole `description_binary` when it is truthy and `b""` otherwise
+/// (`base.py:508-512`) — so exactly one chunk. `GZipMiddleware` then compresses
+/// it regardless of length because the response is streaming
+/// (`django/middleware/gzip.py:27-30,52-56`), and the ASGI server frames it as
+/// `Transfer-Encoding: chunked` with no `Content-Length`.
+///
+/// A missing page is `Page.DoesNotExist`, which the family handler renders as
+/// `404 {"error": "The required object does not exist."}`
+/// (`plane/app/views/base.py:318-322`).
+pub fn description<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let client = client(ctx)?;
+        let params = params(ctx)?;
+        let page_id = uuid_kwarg(ctx, "page_id")?;
+
+        let statement = client
+            .prepare_cached(queries::PAGES_DESCRIPTION_BINARY.sql)
+            .await
+            .map_err(ViewError::from)?;
+        let rows = client
+            .query(
+                &statement,
+                &[&params.user_id, &page_id, &params.project_id, &params.slug],
+            )
+            .await
+            .map_err(ViewError::from)?;
+        // `.get()`: zero rows is `DoesNotExist`, more than one is
+        // `MultipleObjectsReturned`; both are an `ObjectDoesNotExist`.
+        if rows.len() != 1 {
+            return Err(ViewError::ObjectDoesNotExist);
+        }
+        let binary: Option<Vec<u8>> = rows[0].try_get(0).map_err(ViewError::from)?;
+        Ok(ViewResponse::streaming_raw(
+            200,
+            "application/octet-stream",
+            // `if binary_data: yield binary_data else: yield b""`
+            binary.unwrap_or_default(),
+        )
+        .with_header(
+            "Content-Disposition",
+            "attachment; filename=\"page_description.bin\"",
+        ))
     })
 }
 

@@ -11,11 +11,12 @@ Run with either::
     apps/api/.venv/bin/python -m unittest apps/server/tools/proxy/test_gen_caddy.py
 
 The central test walks every route in ``routes.json``, marks that one route as
-``rust``, generates the snippet, and checks that the generated regex for the
-route's group matches a concrete sample URL built from the route's converters
-and does not match any sample URL of any other (reachable) route. That is the
-property the proxy relies on: the group's matcher selects exactly the paths the
-Owner column moved to Rust.
+``rust`` on an explicit all-Django baseline (not on the committed Owner column,
+which moves as waves flip rows), generates the snippet, and checks that the
+generated regex for the route's group matches a concrete sample URL built from
+the route's converters and does not match any sample URL of any other
+(reachable) route. That is the property the proxy relies on: the group's matcher
+selects exactly the paths the Owner column moved to Rust.
 """
 
 from __future__ import annotations
@@ -87,12 +88,30 @@ class GeneratorTestCase(unittest.TestCase):
         cls.groups = gen_caddy.load_groups(gen_caddy.DEFAULT_GROUPS_FILE, cls.routes)
         cls.committed_owners = gen_caddy.load_owners(gen_caddy.DEFAULT_OWNERS_FILE)
         cls.by_order = {route["order"]: route for route in cls.routes}
+        # The baseline for every per-route property: all of the inventory owned
+        # by Django. `ROUTES.md` is a moving target now that waves flip rows, so
+        # a test that marks one route `rust` must not inherit the rows somebody
+        # else already moved: otherwise the group's plan contains their regexes
+        # too and reports them as overlap. Keyed like `parse_ownership`, so the
+        # duplicate api-root's two entries share one key.
+        #
+        # The Status column is not an input to the generator (`build_plan` reads
+        # only the Owner cell; `explain` discards the status too), so the
+        # baseline's status is arbitrary. The committed statuses are checked by
+        # `TestOwnerCells.test_committed_status_matches_ownership`.
+        cls.all_django_owners = {
+            (route["group"], route["path"], route["view"]): ("django", "not-started")
+            for route in cls.routes
+        }
 
     def owners_with(self, *marked: tuple[dict, str]) -> dict:
-        owners = dict(self.committed_owners)
+        """The all-Django baseline with `marked` routes set to the given cells."""
+        owners = dict(self.all_django_owners)
         for route, cell in marked:
             key = (route["group"], route["path"], route["view"])
-            self.assertIn(key, owners, f"{route['path']} is missing from ROUTES.md")
+            self.assertIn(
+                key, owners, f"{route['path']} is not in the route inventory"
+            )
             owners[key] = (cell, owners[key][1])
         return owners
 
@@ -330,9 +349,57 @@ class TestRouteGroups(GeneratorTestCase):
 
 
 class TestOwnerCells(GeneratorTestCase):
-    def test_committed_owners_are_all_django(self) -> None:
-        values = {owner for owner, _status in self.committed_owners.values()}
-        self.assertEqual(values, {"django"})
+    def test_committed_owner_cells_are_valid_for_their_routes(self) -> None:
+        """Every Owner cell in ROUTES.md parses and names methods its route has.
+
+        ROUTES.md is hand-edited, so this is the check that keeps a typo
+        (`rust(get)`, `rust(POST)` on a GET-only route) from reaching the
+        generator, which only validates the rows it is asked to render.
+        """
+        for route in self.routes:
+            key = (route["group"], route["path"], route["view"])
+            entry = self.committed_owners.get(key)
+            if entry is None:
+                self.fail(f"{route['path']} ({route['view']}) has no row in ROUTES.md")
+            owner, _status = entry
+            with self.subTest(path=route["path"], view=route["view"]):
+                try:
+                    self.routes_module.validate_owner_cell(owner, route)
+                except self.routes_module.OwnerCellError as exc:
+                    self.fail(f"{route['path']} ({route['view']}): {exc}")
+        # Both directions: a row whose route left the inventory is stale too
+        # (`parse_ownership` keys on group+path+view, and the duplicate
+        # api-root's two entries share one key, which `routes` repeats).
+        self.assertEqual(
+            set(self.committed_owners),
+            {(route["group"], route["path"], route["view"]) for route in self.routes},
+            "ROUTES.md rows and routes.json keys disagree",
+        )
+
+    def test_committed_status_matches_ownership(self) -> None:
+        """`verified` means the route is verified on Rust, and only that.
+
+        A `django` row has not been ported, so nothing about it is verified yet;
+        a `rust`/`rust(GET,…)` row must have been verified before ROUTES.md moved
+        it. This is the invariant the Phase 0 "every owner is django" check
+        became once rows started flipping.
+        """
+        for (group, path, _view), (owner, status) in self.committed_owners.items():
+            engine, _methods = self.routes_module.parse_owner_cell(owner)
+            with self.subTest(group=group, path=path, owner=owner, status=status):
+                if engine == "django":
+                    self.assertNotEqual(
+                        status,
+                        "verified",
+                        f"{path} is owned by django, so it cannot be `verified`",
+                    )
+                else:
+                    self.assertEqual(
+                        status,
+                        "verified",
+                        f"{path} is marked {owner} but its status is {status!r}; "
+                        "flip the status with the Owner cell",
+                    )
 
     def test_valid_cells(self) -> None:
         route = self.by_order[259]  # /api/instances/ -- GET, PATCH
@@ -612,7 +679,10 @@ class TestRendering(GeneratorTestCase):
             )
 
     def test_empty_when_everything_is_django(self) -> None:
-        text = self.render(self.committed_owners)
+        # The all-Django baseline, not the committed owners: the property is
+        # about the generator's empty case, and committed owners now include
+        # rows a wave has flipped.
+        text = self.render(self.all_django_owners)
         self.assertNotRegex(text, r"(?m)^@plane_rs_")
         self.assertNotRegex(text, r"(?m)^handle @plane_rs_")
         self.assertIn("adds no matcher", text)
