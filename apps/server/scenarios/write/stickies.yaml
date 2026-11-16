@@ -1,0 +1,398 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5 pilot: the stickies write routes.
+#
+#   POST   /api/workspaces/{slug}/stickies/            (order 223)
+#   PATCH  /api/workspaces/{slug}/stickies/{pk}/       (order 224)
+#   DELETE /api/workspaces/{slug}/stickies/{pk}/       (order 224)
+#
+# Covers: create with an empty body, the model defaults, a full body, every
+# validation error reachable from this serializer, the unknown-field and
+# non-object body shapes, a guest and a non-member caller, the origin check on
+# an unsafe method, a partial PATCH, read-only fields in a PATCH body, a PATCH
+# and DELETE on someone else's sticky and on a missing id, a DELETE followed by
+# the list (the soft delete must be gone from both), and a repeat GET.
+#
+# `/api/` writes use `BaseSessionAuthentication.enforce_csrf`
+# (`plane/authentication/session.py:56-63`), which is an **origin** check, not a
+# token check: DRF's `X-CSRFToken` header plays no part on this surface. The
+# harness sends `Origin: http://<Host>` by default for unsafe steps (allowed);
+# `origin: false` omits it (allowed: non-browser clients), and a foreign or
+# opaque (`"null"`) origin is the 403.
+
+name: write-stickies
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  unknown_sticky: "55555555-5555-4555-8555-555555555555"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+steps:
+  # --- create: empty body -> every model default ---------------------------
+  - name: write-stickies-01-create-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_empty
+        source: db
+        table: stickies
+        column: id
+
+  # --- create: minimal body ------------------------------------------------
+  - name: write-stickies-02-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Minimal sticky"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_minimal
+        source: db
+        table: stickies
+        column: id
+
+  # --- create: full body, plus read-only fields that must be ignored -------
+  - name: write-stickies-03-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      id: "66666666-6666-4666-8666-666666666666"
+      workspace: "77777777-7777-4777-8777-777777777777"
+      owner: "{{admin_id}}"
+      created_by: "{{admin_id}}"
+      name: "Full sticky"
+      description:
+        type: "doc"
+        content: []
+      description_html: "<p onclick=\"x\">Hello <strong>world</strong></p>"
+      description_stripped: "client cannot win"
+      logo_props:
+        in_use: "emoji"
+        emoji:
+          value: "📌"
+      color: "#ff0000"
+      background_color: "#00ff00"
+      sort_order: 123.5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_full
+        source: db
+        table: stickies
+        column: id
+
+  # --- create: unknown fields are ignored, defaults still apply -----------
+  - name: write-stickies-04-create-unknown-field
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      mystery: "value"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_unknown
+        source: db
+        table: stickies
+        column: id
+
+  # --- validation errors ---------------------------------------------------
+  - name: write-stickies-05-create-null-description
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      description: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-06-create-color-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      color: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-07-create-sort-order-not-a-number
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      sort_order: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-08-create-bad-datetime
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      deleted_at: "not-a-date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-09-create-bool-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-10-create-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-11-create-null-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    # `json: null` means "no body" to the harness, so the JSON `null` literal
+    # is sent explicitly. DRF parses it to `None` and `serializer.errors` is
+    # the "No data provided" special case.
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-12-create-several-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      description: null
+      color: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      sort_order: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- permissions ---------------------------------------------------------
+  - name: write-stickies-13-create-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Guest sticky"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    capture:
+      - name: sticky_guest
+        source: db
+        table: stickies
+        column: id
+  - name: write-stickies-14-create-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Nope"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # --- origin check on an unsafe method -----------------------------------
+  - name: write-stickies-15-create-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "CSRF"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+  - name: write-stickies-15b-create-null-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Null origin"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "null"
+    expect_status: 403
+  - name: write-stickies-16-create-matching-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Origin ok"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_origin
+        source: db
+        table: stickies
+        column: id
+    origin: "http://plane-fixture.test"
+  - name: write-stickies-16b-create-no-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "No origin"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: false
+    expect_status: 201
+
+  # --- PATCH --------------------------------------------------------------
+  - name: write-stickies-17-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_minimal}}/"
+    json:
+      name: "Renamed sticky"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-stickies-18-patch-read-only-fields
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_minimal}}/"
+    json:
+      workspace: "77777777-7777-4777-8777-777777777777"
+      owner: "88888888-8888-4888-8888-888888888888"
+      id: "99999999-9999-4999-8999-999999999999"
+      name: "Read-only ignored"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-stickies-19-patch-invalid-color
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_minimal}}/"
+    json:
+      color: "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-20-patch-description
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_full}}/"
+    json:
+      description_html: "<p>Edited &amp; sanitized</p><script>bad()</script>"
+      sort_order: 55.25
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-stickies-21-patch-someone-elses
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_guest}}/"
+    json:
+      name: "Not mine"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+  - name: write-stickies-22-patch-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{unknown_sticky}}/"
+    json:
+      name: "Missing"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # --- list: the created rows are visible --------------------------------
+  - name: write-stickies-23-list-after-creates
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- DELETE and the soft-delete visibility -----------------------------
+  - name: write-stickies-24-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-stickies-25-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-stickies-26-delete-guest-own
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_guest}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+  - name: write-stickies-27-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/stickies/{{unknown_sticky}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+  - name: write-stickies-28-delete-someone-elses
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_full}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-stickies-29-second-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

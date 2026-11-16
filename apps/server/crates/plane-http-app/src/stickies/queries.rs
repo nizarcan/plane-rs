@@ -133,12 +133,84 @@ plane_query! {
     [("count", Int8)]
 }
 
+plane_query! {
+    /// `get_object()`: `Sticky.objects.filter(workspace__slug=slug,
+    /// owner=user, pk=pk)` with the model's `select_related("workspace",
+    /// "owner")` (`plane/app/views/workspace/sticky.py:23-31`,
+    /// `rest_framework/mixins.py:17-24`). The row must be live, in the URL
+    /// workspace and owned by the caller; a miss is `Http404` → 404
+    /// `{"detail": "Not found."}`.
+    STICKY_BY_PK = "stickies_by_pk",
+    "SELECT DISTINCT s.id, s.created_at, s.updated_at, s.deleted_at, s.name, \
+     s.description, s.description_html, s.description_stripped, s.description_binary, \
+     s.logo_props, s.color, s.background_color, s.sort_order, s.created_by_id, \
+     s.updated_by_id, s.workspace_id, s.owner_id \
+     FROM stickies s \
+     INNER JOIN workspaces w ON s.workspace_id = w.id \
+     WHERE s.deleted_at IS NULL AND w.slug = $1 AND s.owner_id = $2 AND s.id = $3 \
+     LIMIT 1",
+    [
+        ("id", Uuid),
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("deleted_at", Timestamptz),
+        ("name", Text),
+        ("description", Jsonb),
+        ("description_html", Text),
+        ("description_stripped", Text),
+        ("description_binary", Bytea),
+        ("logo_props", Jsonb),
+        ("color", Varchar),
+        ("background_color", Varchar),
+        ("sort_order", Float8),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("workspace_id", Uuid),
+        ("owner_id", Uuid),
+    ]
+}
+
+plane_query! {
+    /// `Sticky.objects.create(...)` → `Sticky.save()` → `BaseModel.save()`
+    /// (`plane/db/models/sticky.py:38-54`, `plane/db/models/base.py:23-45`).
+    ///
+    /// Every column is written: `id` from `uuid.uuid4`, the two timestamps from
+    /// the field's `auto_now_add`/`auto_now`, the audit columns from H01, the
+    /// model defaults for absent body fields, and H23's
+    /// `description_stripped`/`sort_order` values. No `RETURNING`: the response
+    /// is rendered from the same in-memory values, as `serializer.data` is.
+    STICKY_INSERT = "stickies_insert",
+    "INSERT INTO stickies (created_at, updated_at, created_by_id, updated_by_id, \
+     deleted_at, id, name, description, description_html, description_stripped, \
+     description_binary, logo_props, color, background_color, workspace_id, \
+     owner_id, sort_order) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+    []
+}
+
+plane_query! {
+    /// `Sticky.save()` on an existing row: a full-row `UPDATE` (`Model.save()`
+    /// with no `update_fields`), after H23 recomputed `description_stripped`
+    /// and H01 set `updated_by`/`updated_at`.
+    STICKY_UPDATE = "stickies_update",
+    "UPDATE stickies SET created_at = $1, updated_at = $2, created_by_id = $3, \
+     updated_by_id = $4, deleted_at = $5, name = $6, description = $7, \
+     description_html = $8, description_stripped = $9, description_binary = $10, \
+     logo_props = $11, color = $12, background_color = $13, workspace_id = $14, \
+     owner_id = $15, sort_order = $16 \
+     WHERE id = $17",
+    []
+}
+
 /// Every catalogued statement of this group, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &STICKY_PAGE,
     &STICKY_PAGE_FILTERED,
     &STICKY_COUNT,
     &STICKY_COUNT_FILTERED,
+    &STICKY_BY_PK,
+    &STICKY_INSERT,
+    &STICKY_UPDATE,
 ];
 
 // The shared column list is documented above; the statements repeat it because
@@ -161,7 +233,14 @@ mod tests {
         let mut names = std::collections::BTreeSet::new();
         for query in ALL_QUERIES {
             assert!(names.insert(query.name), "duplicate name {:?}", query.name);
-            assert!(!query.columns.is_empty());
+            // A write statement has no result columns; a read must declare
+            // them, because that is what the row decoder reads.
+            if query.name.starts_with("stickies_page")
+                || query.name.starts_with("stickies_count")
+                || query.name == "stickies_by_pk"
+            {
+                assert!(!query.columns.is_empty(), "{} has no columns", query.name);
+            }
         }
     }
 }
