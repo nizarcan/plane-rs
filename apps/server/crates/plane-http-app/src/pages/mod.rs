@@ -15,11 +15,12 @@
 //! Registered here, one file per Python module under
 //! `plane/app/views/page/`:
 //!
-//! | Rust | Python | `GET` routes |
+//! | Rust | Python | Routes |
 //! | --- | --- | --- |
-//! | [`base`] | `page/base.py` — `PageViewSet`, `PagesDescriptionViewSet` | `pages-summary/`, `pages/`, `pages/{page_id}/`, `pages/{page_id}/description/` |
-//! | [`version`] | `page/version.py` — `PageVersionEndpoint` | `pages/{page_id}/versions/`, `pages/{page_id}/versions/{pk}/` |
-//! | [`live`] | `page/live.py` — `PageLiveAccessEndpoint` | `pages/{page_id}/live-access/` |
+//! | [`base`] | `page/base.py` — `PageViewSet`, `PagesDescriptionViewSet` | `GET` `pages-summary/`, `pages/`, `pages/{page_id}/`, `pages/{page_id}/description/` |
+//! | [`version`] | `page/version.py` — `PageVersionEndpoint` | `GET` `pages/{page_id}/versions/`, `pages/{page_id}/versions/{pk}/` |
+//! | [`live`] | `page/live.py` — `PageLiveAccessEndpoint` | `GET` `pages/{page_id}/live-access/` |
+//! | [`write_favorite`] | `page/base.py` — `PageFavoriteViewSet` | `POST`/`DELETE` `favorite-pages/{page_id}/` |
 //!
 //! The description route is the one response in `/api/` that is a
 //! `StreamingHttpResponse`. `ViewResponse::streaming_raw` carries
@@ -37,6 +38,7 @@ pub mod base;
 pub mod live;
 pub mod queries;
 pub mod version;
+mod write_favorite;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -58,5 +60,10 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.page.live.PageLiveAccessEndpoint")?
         .method(Method::GET, live::get)?;
+    registry
+        .viewset("plane.app.views.page.base.PageFavoriteViewSet")?
+        // Set C: page favourites (126).
+        .action("create", write_favorite::create)?
+        .action("destroy", write_favorite::destroy)?;
     Ok(())
 }

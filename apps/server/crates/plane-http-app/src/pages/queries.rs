@@ -458,6 +458,136 @@ plane_query! {
     [("one", Int4)]
 }
 
+// ---------------------------------------------------------------------------
+// Route 126 — page favourites (`PageFavoriteViewSet`, `page/base.py:466-492`)
+// ---------------------------------------------------------------------------
+//
+// The module (110/111) and view (183/184) favourites' statements hard-code
+// their entity type, so the page variants are declared here. The last two are
+// the statements Django's deletion collector issues for
+// `page_favorite.delete(soft=False)`; see `pages/write_favorite.rs`.
+
+plane_query! {
+    /// `get_favorite_entities("page", request.user.id, project_id).get(
+    /// pk=page_id, workspace__slug=slug)` (`plane/app/serializers/favorite.py:70-104`),
+    /// the create gate. Predicates taken from the emitted SQL:
+    ///
+    /// * `Page.objects`: `pages.deleted_at IS NULL` (the manager) and the
+    ///   live `project_pages` row for this project (`project_pages.deleted_at
+    ///   IS NULL`) — the link is a JOIN, not a manager;
+    /// * `Exists(member)`: a live `ProjectMember` for this user in the
+    ///   project whose `Project` is not archived. Neither
+    ///   `projects.deleted_at` nor `project_members.project__deleted_at`
+    ///   applies: related-table joins do not run the related manager;
+    /// * the visibility clause `owned_by = user OR (access = 0 AND NOT
+    ///   Exists(restricted_guest))`, where a restricted guest is a role-5
+    ///   member of a project with `guest_view_all_features = false`;
+    /// * the URL's `workspace__slug`.
+    ///
+    /// There is **no** `archived_at` predicate on the page itself: an
+    /// archived page is favouritable, like an archived view against 183.
+    ///
+    /// Bind order: `$1` project id, `$2` page id, `$3` slug, `$4` user id.
+    PAGES_FAVORITE_GATE = "pages_write_favorite_gate",
+    "SELECT EXISTS (SELECT 1 FROM pages p \
+     INNER JOIN workspaces w ON w.id = p.workspace_id \
+     WHERE p.deleted_at IS NULL AND p.id = $2 AND w.slug = $3 \
+       AND EXISTS (SELECT 1 FROM project_pages pp \
+                   WHERE pp.page_id = p.id AND pp.project_id = $1 \
+                     AND pp.deleted_at IS NULL) \
+       AND EXISTS (SELECT 1 FROM project_members pm \
+                   INNER JOIN projects pr ON pr.id = pm.project_id \
+                   WHERE pm.project_id = $1 AND pm.member_id = $4 \
+                     AND pm.is_active AND pm.deleted_at IS NULL \
+                     AND pr.archived_at IS NULL) \
+       AND (p.owned_by_id = $4 \
+            OR (p.access = 0 AND NOT EXISTS ( \
+                  SELECT 1 FROM project_members pm \
+                  INNER JOIN projects pr ON pr.id = pm.project_id \
+                  WHERE pm.project_id = $1 AND pm.member_id = $4 \
+                    AND pm.is_active AND pm.deleted_at IS NULL \
+                    AND pr.archived_at IS NULL \
+                    AND NOT pr.guest_view_all_features AND pm.role = 5)))) AS exists",
+    [("exists", Bool)]
+}
+
+plane_query! {
+    /// `WorkspaceBaseModel.save`'s `self.workspace = self.project.workspace`
+    /// (`plane/db/models/workspace.py:192-195`). The forward FK is read
+    /// through `Project._base_manager`, i.e. without the `deleted_at`
+    /// predicate.
+    ///
+    /// Bind order: `$1` project id.
+    PAGES_FAVORITE_PROJECT_WORKSPACE = "pages_write_favorite_project_workspace",
+    "SELECT p.workspace_id FROM projects p WHERE p.id = $1",
+    [("workspace_id", Uuid)]
+}
+
+plane_query! {
+    /// `UserFavorite.objects.create(project_id=…, entity_identifier=page_id,
+    /// entity_type="page", user=…)` (`page/base.py:474-479`). The sequence
+    /// comes from H25 (`plane/db/models/favorite.py:52-64`); `name` is NULL,
+    /// `is_folder` false and `parent_id` NULL.
+    ///
+    /// Bind order: `$1`/`$2` created/updated at, `$3` created_by, `$4` id,
+    /// `$5` workspace, `$6` project, `$7` user, `$8` entity_identifier, `$9`
+    /// sequence.
+    PAGES_FAVORITE_INSERT = "pages_write_favorite_insert",
+    "INSERT INTO user_favorites \
+     (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id, \
+      workspace_id, project_id, user_id, entity_type, entity_identifier, name, \
+      is_folder, sequence, parent_id) \
+     VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7, 'page', $8, NULL, \
+       FALSE, $9, NULL)",
+    []
+}
+
+plane_query! {
+    /// `UserFavorite.objects.get(project=…, user=…, workspace__slug=…,
+    /// entity_identifier=page_id, entity_type="page")` (`page/base.py:484-490`)
+    /// — the destroy lookup. The manager predicate applies, so a soft-deleted
+    /// favourite is a miss (404).
+    ///
+    /// Bind order: `$1` project id, `$2` user id, `$3` slug, `$4` page id.
+    PAGES_FAVORITE_LOOKUP = "pages_write_favorite_lookup",
+    "SELECT uf.id FROM user_favorites uf \
+     INNER JOIN workspaces w ON w.id = uf.workspace_id \
+     WHERE uf.deleted_at IS NULL AND uf.project_id = $1 \
+       AND uf.entity_type = 'page' AND uf.user_id = $2 AND w.slug = $3 \
+       AND uf.entity_identifier = $4 LIMIT 1",
+    [("id", Uuid)]
+}
+
+plane_query! {
+    /// The deletion collector's cascade probe, one statement per depth level:
+    /// `related_model._base_manager.using(…).filter(parent__in=…)`
+    /// (`django/db/models/deletion.py:398-410`). `_base_manager` is a plain
+    /// manager, so **soft-deleted children count** too. The selected columns
+    /// are the pk only (`only()` keeps just the pk here).
+    ///
+    /// Bind order: `$1` parent ids.
+    PAGES_FAVORITE_CHILDREN = "pages_write_favorite_children",
+    "SELECT uf.id FROM user_favorites uf \
+     WHERE uf.parent_id = ANY($1::uuid[]) \
+     ORDER BY uf.created_at DESC",
+    [("id", Uuid)]
+}
+
+plane_query! {
+    /// `page_favorite.delete(soft=False)` — `SoftDeleteModel.delete`'s
+    /// `super().delete()` (`plane/db/mixins.py:72-82`), i.e. Django's deletion
+    /// collector. The collector deletes the favourite **and every row
+    /// reachable through `user_favorites.parent`** (`models/favorite.py:25-31`,
+    /// `on_delete=CASCADE`) in one `DELETE … WHERE id IN (…)`
+    /// (`django/db/models/deletion.py:497-510`). Collected by
+    /// `pages/write_favorite.rs::destroy` before this statement runs.
+    ///
+    /// Bind order: `$1` ids.
+    PAGES_FAVORITE_HARD_DELETE = "pages_write_favorite_hard_delete",
+    "DELETE FROM user_favorites WHERE id = ANY($1::uuid[])",
+    []
+}
+
 /// Every catalogued statement of this group, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &PAGES_LIST,
@@ -471,6 +601,12 @@ pub static ALL_QUERIES: &[&Query] = &[
     &PAGES_DESCRIPTION_BINARY,
     &PAGES_LIVE_ACCESS_LINKS,
     &PAGES_PROJECT_GUEST_FEATURE,
+    &PAGES_FAVORITE_GATE,
+    &PAGES_FAVORITE_PROJECT_WORKSPACE,
+    &PAGES_FAVORITE_INSERT,
+    &PAGES_FAVORITE_LOOKUP,
+    &PAGES_FAVORITE_CHILDREN,
+    &PAGES_FAVORITE_HARD_DELETE,
 ];
 
 #[cfg(test)]
