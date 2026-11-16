@@ -16,50 +16,24 @@
 use plane_db::plane_query;
 
 plane_query! {
-    /// `User.objects.get(pk=request.user.id)` plus the two properties
-    /// `UserMeSerializer` reads: `avatar_url` and `cover_image_url`
-    /// (`plane/db/models/user.py:149-167`).
+    /// `User.objects.get(pk=…)`: the full model row
+    /// (`django/db/models/query.py`, `Model.objects.get`), in
+    /// `plane_db::models::user::User::COLUMNS` order.
     ///
-    /// Django loads the user in the auth layer and then queries `file_assets`
-    /// once per non-null avatar/cover asset. Folding the two left joins into
-    /// the user lookup answers with the same values in one round trip. The
-    /// asset joins deliberately carry no `deleted_at` predicate: a related
-    /// object is fetched through `_base_manager`
-    /// (`django/db/models/fields/related_descriptors.py`), so a soft-deleted
-    /// avatar still renders.
-    USER_BY_ID_WITH_ASSETS = "users_me_user_by_id_with_assets",
-    "SELECT u.\"password\" AS password, u.\"last_login\" AS last_login, u.\"id\" AS id, \
-     u.\"username\" AS username, u.\"mobile_number\" AS mobile_number, u.\"email\" AS email, \
-     u.\"display_name\" AS display_name, u.\"first_name\" AS first_name, \
-     u.\"last_name\" AS last_name, u.\"avatar\" AS avatar, \
-     u.\"avatar_asset_id\" AS avatar_asset_id, u.\"cover_image\" AS cover_image, \
-     u.\"cover_image_asset_id\" AS cover_image_asset_id, u.\"date_joined\" AS date_joined, \
-     u.\"created_at\" AS created_at, u.\"updated_at\" AS updated_at, \
-     u.\"last_location\" AS last_location, u.\"created_location\" AS created_location, \
-     u.\"is_superuser\" AS is_superuser, u.\"is_managed\" AS is_managed, \
-     u.\"is_password_expired\" AS is_password_expired, u.\"is_active\" AS is_active, \
-     u.\"is_staff\" AS is_staff, u.\"is_email_verified\" AS is_email_verified, \
-     u.\"is_password_autoset\" AS is_password_autoset, \
-     u.\"is_password_reset_required\" AS is_password_reset_required, u.\"token\" AS token, \
-     u.\"last_active\" AS last_active, u.\"last_login_time\" AS last_login_time, \
-     u.\"last_logout_time\" AS last_logout_time, u.\"last_login_ip\" AS last_login_ip, \
-     u.\"last_logout_ip\" AS last_logout_ip, u.\"last_login_medium\" AS last_login_medium, \
-     u.\"last_login_uagent\" AS last_login_uagent, \
-     u.\"token_updated_at\" AS token_updated_at, u.\"is_bot\" AS is_bot, \
-     u.\"bot_type\" AS bot_type, u.\"user_timezone\" AS user_timezone, \
-     u.\"is_email_valid\" AS is_email_valid, u.\"masked_at\" AS masked_at, \
-     aa.\"id\" AS avatar_id, aa.\"entity_type\" AS avatar_entity_type, \
-     aaw.\"slug\" AS avatar_workspace_slug, aa.\"project_id\" AS avatar_project_id, \
-     aa.\"issue_id\" AS avatar_issue_id, \
-     ca.\"id\" AS cover_id, ca.\"entity_type\" AS cover_entity_type, \
-     caw.\"slug\" AS cover_workspace_slug, ca.\"project_id\" AS cover_project_id, \
-     ca.\"issue_id\" AS cover_issue_id \
-     FROM users u \
-     LEFT JOIN file_assets aa ON aa.\"id\" = u.\"avatar_asset_id\" \
-     LEFT JOIN workspaces aaw ON aaw.\"id\" = aa.\"workspace_id\" \
-     LEFT JOIN file_assets ca ON ca.\"id\" = u.\"cover_image_asset_id\" \
-     LEFT JOIN workspaces caw ON caw.\"id\" = ca.\"workspace_id\" \
-     WHERE u.\"id\" = $1 LIMIT 21",
+    /// `UserSessionEndpoint.get` re-reads `request.user`
+    /// (`plane/app/views/user/base.py:380-382`), so this is the statement only
+    /// that handler needs; `GET /api/users/me/` uses the row the auth layer
+    /// already loaded (`request.user` itself).
+    USER_BY_ID = "users_me_user_by_id",
+    "SELECT password, last_login, id, username, mobile_number, email, display_name, \
+     first_name, last_name, avatar, avatar_asset_id, cover_image, cover_image_asset_id, \
+     date_joined, created_at, updated_at, last_location, created_location, is_superuser, \
+     is_managed, is_password_expired, is_active, is_staff, is_email_verified, \
+     is_password_autoset, is_password_reset_required, token, last_active, last_login_time, \
+     last_logout_time, last_login_ip, last_logout_ip, last_login_medium, last_login_uagent, \
+     token_updated_at, is_bot, bot_type, user_timezone, is_email_valid, masked_at \
+     FROM users \
+     WHERE id = $1 LIMIT 21",
     [
         ("password", Varchar),
         ("last_login", Timestamptz),
@@ -101,16 +75,35 @@ plane_query! {
         ("user_timezone", Varchar),
         ("is_email_valid", Bool),
         ("masked_at", Timestamptz),
-        ("avatar_id", Uuid),
-        ("avatar_entity_type", Varchar),
-        ("avatar_workspace_slug", Varchar),
-        ("avatar_project_id", Uuid),
-        ("avatar_issue_id", Uuid),
-        ("cover_id", Uuid),
-        ("cover_entity_type", Varchar),
-        ("cover_workspace_slug", Varchar),
-        ("cover_project_id", Uuid),
-        ("cover_issue_id", Uuid),
+    ]
+}
+
+plane_query! {
+    /// `FileAsset.objects.get(pk=user.avatar_asset_id)` /
+    /// `(pk=user.cover_image_asset_id)`, one query per non-null foreign key:
+    /// Django's `User.avatar_url`/`cover_image_url` touch the related object
+    /// (`plane/db/models/user.py:149-167`) and no `select_related` is used, so
+    /// `request.user.avatar_asset` costs the extra statement Django makes.
+    ///
+    /// The row is read through `_base_manager`, which does not apply a
+    /// soft-delete predicate: a soft-deleted avatar still renders. The
+    /// workspace slug is joined because `FileAsset.asset_url` reads
+    /// `self.workspace.slug` for the non-static entity types
+    /// (`plane/db/models/asset.py:83-104`); for `USER_AVATAR`/`USER_COVER` the
+    /// property returns the static URL before touching it.
+    ASSET_BY_ID = "users_me_asset_by_id",
+    "SELECT a.\"id\" AS id, a.\"entity_type\" AS entity_type, \
+     w.\"slug\" AS workspace_slug, a.\"project_id\" AS project_id, \
+     a.\"issue_id\" AS issue_id \
+     FROM file_assets a \
+     LEFT JOIN workspaces w ON w.\"id\" = a.\"workspace_id\" \
+     WHERE a.\"id\" = $1 LIMIT 21",
+    [
+        ("id", Uuid),
+        ("entity_type", Varchar),
+        ("workspace_slug", Varchar),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
     ]
 }
 
@@ -845,7 +838,8 @@ plane_query! {
 
 /// Every catalogued statement of this group, in declaration order.
 pub static ALL_QUERIES: &[&plane_db::Query] = &[
-    &USER_BY_ID_WITH_ASSETS,
+    &USER_BY_ID,
+    &ASSET_BY_ID,
     &USER_PROFILE,
     &USER_ACCOUNTS,
     &USER_ACCOUNT_BY_ID,

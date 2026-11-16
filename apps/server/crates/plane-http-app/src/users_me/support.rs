@@ -36,7 +36,8 @@ pub struct AssetRef {
     pub issue_id: Option<Uuid>,
 }
 
-/// Number of columns [`AssetRef::from_row`] reads.
+/// Number of columns [`AssetRef::from_row`] reads (the `ASSET_BY_ID` select
+/// list, in order).
 pub const ASSET_COLUMNS: usize = 5;
 
 impl AssetRef {
@@ -168,107 +169,34 @@ pub fn project_cover_image_url(
 }
 
 /// Python's `int(text)` for the handful of integer query parameters these
-/// views read (`per_page`, `cursor`, `month`).
+/// views read (`month`).
 ///
-/// Surrounding whitespace, an optional sign and single underscores between
-/// digits are accepted, as CPython's `int()` does. Non-ASCII digits are not
-/// reproduced (they would need Unicode decimal tables); they are an error here
-/// where Python would parse them. This is recorded as a known edge in the
-/// group's report.
+/// Delegates to `plane_core::py::int`, CPython's `int()`: surrounding
+/// whitespace, an optional sign, single underscores between digits and Unicode
+/// decimal digits are accepted.
 pub fn python_int(text: &str) -> Option<i64> {
-    let trimmed = text.trim();
-    let (sign, digits) = match trimmed.as_bytes().first() {
-        Some(b'-') => (-1i64, &trimmed[1..]),
-        Some(b'+') => (1, &trimmed[1..]),
-        _ => (1, trimmed),
-    };
-    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') {
-        return None;
-    }
-    let mut value: i64 = 0;
-    let mut seen_digit = false;
-    let mut previous_underscore = false;
-    for ch in digits.chars() {
-        if ch == '_' {
-            if previous_underscore || !seen_digit {
-                return None;
-            }
-            previous_underscore = true;
-            continue;
-        }
-        if !ch.is_ascii_digit() {
-            return None;
-        }
-        let digit = ch.to_digit(10)?;
-        value = value.checked_mul(10)?.checked_add(i64::from(digit))?;
-        previous_underscore = false;
-        seen_digit = true;
-    }
-    if previous_underscore {
-        return None;
-    }
-    value.checked_mul(sign)
+    plane_core::py::int(text).ok()
 }
 
-/// `BasePaginator.get_per_page` (`plane/utils/paginator.py:642-657`).
+/// `BasePaginator.paginate`'s cursor step (`plane/utils/paginator.py:672-681`),
+/// including `get_per_page` (`paginator.py:642-657`).
 ///
-/// The Python reads `request.GET.get("per_page", default)` and calls `int()` on
-/// whatever it gets: an empty value is a `ValueError`, not the default.
-pub fn per_page(
-    query: &plane_drf::QueryDict,
-    default_per_page: u32,
-    max_per_page: u32,
-) -> Result<u32, ViewError> {
-    let parsed = match query.get("per_page") {
-        Some(raw) => python_int(raw).ok_or_else(|| {
-            ViewError::Api(ApiError::ParseError(
-                "Invalid per_page parameter.".to_string(),
-            ))
-        })?,
-        None => i64::from(default_per_page),
-    };
-    let effective_max = max_per_page.max(default_per_page);
-    if parsed <= 0 {
-        return Err(ViewError::Api(ApiError::ParseError(
-            "Invalid per_page value. Must be greater than zero.".to_string(),
-        )));
-    }
-    if parsed > i64::from(effective_max) {
-        return Err(ViewError::Api(ApiError::ParseError(format!(
-            "Invalid per_page value. Cannot exceed {effective_max}."
-        ))));
-    }
-    Ok(parsed as u32)
-}
-
-/// `BasePaginator.paginate`'s cursor step (`plane/utils/paginator.py:672-681`).
+/// The parsing itself lives in `plane_query::PageQuery`, which is the same code
+/// the issue lists run. In particular a present-but-empty `?per_page=` is the
+/// `ValueError` Django's `int()` raises, not the default.
 pub fn page_query(
     query: &plane_drf::QueryDict,
     default_per_page: u32,
     max_per_page: u32,
 ) -> Result<plane_query::PageQuery, ViewError> {
-    let per_page = per_page(query, default_per_page, max_per_page)?;
-    let raw_cursor = query.get("cursor").map(str::to_owned);
-    let default = format!("{per_page}:0:0");
-    let cursor = plane_query::Cursor::from_string(raw_cursor.as_deref().unwrap_or(&default))
-        .map_err(|_| {
-            ViewError::Api(ApiError::ParseError(
-                "Invalid cursor parameter.".to_string(),
-            ))
-        })?;
-    // `0 <= input_cursor.value <= effective_max_per_page` and a non-negative
-    // offset (`paginator.py:679-681`).
-    let effective_max = f64::from(max_per_page.max(default_per_page));
-    if !(0.0..=effective_max).contains(&cursor.value) || cursor.offset < 0 {
-        return Err(ViewError::Api(ApiError::ParseError(
-            "Invalid cursor parameter.".to_string(),
-        )));
-    }
-    Ok(plane_query::PageQuery {
-        per_page,
-        cursor,
-        raw_cursor,
-    })
+    plane_query::PageQuery::parse_with(query, default_per_page, max_per_page, None, None).map_err(
+        |error| match error {
+            plane_query::QueryError::Api(error) => {
+                ViewError::Api(ApiError::ParseError(error.message))
+            }
+            other => ViewError::Unknown(other.to_string()),
+        },
+    )
 }
 
 /// `date.today()` — the process's local date, not UTC.
@@ -312,6 +240,8 @@ mod tests {
         assert_eq!(python_int("+42"), Some(42));
         assert_eq!(python_int("-7"), Some(-7));
         assert_eq!(python_int("1_000"), Some(1000));
+        // CPython's `int()` accepts Unicode decimal digits (`int("٠") == 0`).
+        assert_eq!(python_int("١٢"), Some(12));
         assert_eq!(python_int(""), None);
         assert_eq!(python_int("1.0"), None);
         assert_eq!(python_int("_1"), None);
@@ -319,6 +249,23 @@ mod tests {
         assert_eq!(python_int("1__0"), None);
         assert_eq!(python_int("abc"), None);
         assert_eq!(python_int("0x10"), None);
+    }
+
+    #[test]
+    fn page_query_rejects_a_present_but_empty_per_page() {
+        // `int(request.GET.get("per_page", 1000))` (`paginator.py:645`): absent
+        // is the default, `?per_page=` is a `ValueError` → `ParseError`.
+        let absent = plane_drf::QueryDict::parse("", None).expect("query");
+        let page = page_query(&absent, 1000, 1000).expect("page");
+        assert_eq!(page.per_page, 1000);
+
+        let empty = plane_drf::QueryDict::parse("per_page=", None).expect("query");
+        assert_eq!(
+            page_query(&empty, 1000, 1000).expect_err("error"),
+            ViewError::Api(ApiError::ParseError(
+                "Invalid per_page parameter.".to_string()
+            ))
+        );
     }
 
     #[test]

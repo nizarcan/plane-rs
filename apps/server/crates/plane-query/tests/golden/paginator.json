@@ -1005,6 +1005,11 @@
         "status": 400
       },
       {
+        "detail": "Invalid per_page parameter.",
+        "params": "per_page=",
+        "status": 400
+      },
+      {
         "detail": "Invalid cursor parameter.",
         "params": "per_page=13&cursor=nope",
         "status": 400

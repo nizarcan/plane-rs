@@ -32,6 +32,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use plane_core::config::Settings;
+use plane_db::models::user::User as UserRow;
 use tokio_postgres::Client;
 use uuid::Uuid;
 
@@ -105,8 +106,11 @@ impl AuthUser {
             .to_string()
     }
 
-    /// A `users` row from a statement that selects the columns in
-    /// [`crate::queries::LOAD_USER_BY_ID`] order, starting at `offset`.
+    /// A `users` row from a statement that selects the 13-column projection
+    /// `LOAD_USER_BY_EMAIL` and `LOAD_API_TOKEN` select, starting at `offset`
+    /// (`id, password, username, email, display_name, first_name, last_name,
+    /// user_timezone, is_active, is_staff, is_superuser, is_email_verified,
+    /// is_bot`).
     pub(crate) fn from_row(row: &tokio_postgres::Row, offset: usize) -> Self {
         let email: Option<String> = row.get(offset + 3);
         Self {
@@ -123,6 +127,31 @@ impl AuthUser {
             is_superuser: row.get(offset + 10),
             is_email_verified: row.get(offset + 11),
             is_bot: row.get(offset + 12),
+        }
+    }
+
+    /// The same projection from the full model row Django's session loader
+    /// reads ([`crate::queries::LOAD_USER_BY_ID`], decoded with
+    /// `plane_db::models::user::User::from_row`).
+    ///
+    /// Django's `request.user` is the whole `ModelBackend.get_user` row, so the
+    /// session loader keeps it too (see [`SessionUser`]) and derives this
+    /// projection from it by field name rather than by column index.
+    pub(crate) fn from_model_row(row: &UserRow) -> Self {
+        Self {
+            id: row.id,
+            password: row.password.clone(),
+            username: row.username.clone(),
+            email: row.email.clone().unwrap_or_default(),
+            display_name: row.display_name.clone(),
+            first_name: row.first_name.clone(),
+            last_name: row.last_name.clone(),
+            user_timezone: row.user_timezone.clone(),
+            is_active: row.is_active,
+            is_staff: row.is_staff,
+            is_superuser: row.is_superuser,
+            is_email_verified: row.is_email_verified,
+            is_bot: row.is_bot,
         }
     }
 }
@@ -145,6 +174,58 @@ impl fmt::Debug for AuthUser {
     }
 }
 
+/// A session-authenticated user: the projection [`AuthUser`] is, plus the full
+/// `users` row Django's `request.user` is.
+///
+/// `ModelBackend.get_user` loads the whole model row
+/// (`django/contrib/auth/backends.py:229-235`), so a handler that reads a field
+/// the auth layer does not need — `users_me` reads `avatar_asset_id` and
+/// `cover_image_asset_id` — gets it without a second query. `auth` is what the
+/// guards, throttles and the view runtime read, unchanged.
+///
+/// Only the session path (`get_user`) produces one. A user constructed with
+/// [`RequestUser::from_user`] (API-key authentication, tests) has no row, which
+/// is why [`RequestUser::row`] is optional.
+#[derive(Clone, PartialEq)]
+pub struct SessionUser {
+    auth: AuthUser,
+    row: UserRow,
+}
+
+impl SessionUser {
+    pub fn new(auth: AuthUser, row: UserRow) -> Self {
+        Self { auth, row }
+    }
+
+    /// The auth projection (`request.user`'s fields the runtime reads).
+    pub fn auth(&self) -> &AuthUser {
+        &self.auth
+    }
+
+    /// The full row, as `ModelBackend.get_user` loaded it.
+    pub fn row(&self) -> &UserRow {
+        &self.row
+    }
+
+    pub fn into_parts(self) -> (AuthUser, UserRow) {
+        (self.auth, self.row)
+    }
+
+    pub fn into_auth(self) -> AuthUser {
+        self.auth
+    }
+}
+
+impl fmt::Debug for SessionUser {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // `UserRow`'s derived `Debug` prints the password hash; redact it.
+        f.debug_struct("SessionUser")
+            .field("auth", &self.auth)
+            .field("row", &self.row.id)
+            .finish()
+    }
+}
+
 /// Django's `request.user`: `AnonymousUser` or a user.
 ///
 /// `Arc` because a request may hand the same user to several layers (DRF's
@@ -154,7 +235,10 @@ impl fmt::Debug for AuthUser {
 pub enum RequestUser {
     #[default]
     Anonymous,
+    /// A user without its model row: API-key authentication and tests.
     User(Arc<AuthUser>),
+    /// A session-authenticated user, with the full `users` row.
+    Session(Arc<SessionUser>),
 }
 
 impl RequestUser {
@@ -162,14 +246,32 @@ impl RequestUser {
         Self::User(Arc::new(user))
     }
 
+    /// A session user whose full row was loaded by [`get_user`].
+    pub fn from_session(user: SessionUser) -> Self {
+        Self::Session(Arc::new(user))
+    }
+
     pub fn is_authenticated(&self) -> bool {
-        matches!(self, Self::User(_))
+        matches!(self, Self::User(_) | Self::Session(_))
     }
 
     pub fn user(&self) -> Option<&AuthUser> {
         match self {
             Self::User(user) => Some(user),
+            Self::Session(user) => Some(user.auth()),
             Self::Anonymous => None,
+        }
+    }
+
+    /// The full `users` row, when the session loader produced it.
+    ///
+    /// `None` for [`RequestUser::User`] (API-key authentication, tests): those
+    /// callers never loaded a row, exactly as a `request.user` built from an
+    /// `AuthUser` would have no model instance here.
+    pub fn row(&self) -> Option<&UserRow> {
+        match self {
+            Self::Session(user) => Some(user.row()),
+            Self::User(_) | Self::Anonymous => None,
         }
     }
 
@@ -182,20 +284,34 @@ impl RequestUser {
     }
 }
 
-/// `ModelBackend.get_user(user_id)` (`django/contrib/auth/backends.py:229-235`).
-pub async fn load_user_by_id(
+/// The full `users` row `ModelBackend.get_user` loads.
+pub async fn load_session_user_by_id(
     client: &Client,
     user_id: Uuid,
-) -> Result<Option<AuthUser>, AuthError> {
+) -> Result<Option<SessionUser>, AuthError> {
     let row = client
         .query_opt(queries::LOAD_USER_BY_ID.sql, &[&user_id])
         .await?;
     let Some(row) = row else {
         return Ok(None);
     };
-    let user = AuthUser::from_row(&row, 0);
+    let user_row = UserRow::from_row(&row, 0)?;
+    let auth = AuthUser::from_model_row(&user_row);
     // `user_can_authenticate`: reject users with `is_active=False`.
-    Ok(user.is_active.then_some(user))
+    Ok(auth.is_active.then(|| SessionUser::new(auth, user_row)))
+}
+
+/// `ModelBackend.get_user(user_id)` (`django/contrib/auth/backends.py:229-235`).
+///
+/// The auth projection only; [`load_session_user_by_id`] is the version the
+/// session path uses, because Django keeps the whole row.
+pub async fn load_user_by_id(
+    client: &Client,
+    user_id: Uuid,
+) -> Result<Option<AuthUser>, AuthError> {
+    Ok(load_session_user_by_id(client, user_id)
+        .await?
+        .map(SessionUser::into_auth))
 }
 
 /// `UserManager.get_by_natural_key` with `USERNAME_FIELD = "email"`.
@@ -230,20 +346,21 @@ pub async fn get_user(
         return Ok(RequestUser::Anonymous);
     }
     let user_id = parse_user_id(user_id.as_str().unwrap_or_default())?;
-    let Some(user) = load_user_by_id(client, user_id).await? else {
+    let Some(user) = load_session_user_by_id(client, user_id).await? else {
         return Ok(RequestUser::Anonymous);
     };
+    let auth = user.auth();
 
     // Verify the session against the password hash.
     let session_hash = session.get(client, secret_key, HASH_SESSION_KEY).await?;
     let session_hash = session_hash.as_ref().and_then(|value| value.as_str());
-    let session_auth_hash = user.get_session_auth_hash(secret_key);
+    let session_auth_hash = auth.get_session_auth_hash(secret_key);
     let verified = match session_hash {
         None => false,
         Some(value) => constant_time_compare(value.as_bytes(), session_auth_hash.as_bytes()),
     };
     if verified {
-        return Ok(RequestUser::from_user(user));
+        return Ok(RequestUser::from_session(user));
     }
     // `SECRET_KEY_FALLBACKS` is empty in Plane; the branch exists for parity.
     // `SECRET_KEY_FALLBACKS` is `[]` (`django/conf/global_settings.py`, not
@@ -253,7 +370,7 @@ pub async fn get_user(
         Some(value) => SECRET_KEY_FALLBACKS.iter().any(|secret| {
             constant_time_compare(
                 value.as_bytes(),
-                user.get_session_auth_fallback_hash(secret).as_bytes(),
+                auth.get_session_auth_fallback_hash(secret).as_bytes(),
             )
         }),
         None => false,
@@ -274,7 +391,7 @@ pub async fn get_user(
                 crate::json::Json::Str(session_auth_hash),
             )
             .await?;
-        return Ok(RequestUser::from_user(user));
+        return Ok(RequestUser::from_session(user));
     }
     session.flush(client).await?;
     Ok(RequestUser::Anonymous)
@@ -355,6 +472,7 @@ mod tests {
         assert!(!anonymous.is_authenticated());
         assert!(anonymous.user().is_none());
         assert!(anonymous.id().is_none());
+        assert!(anonymous.row().is_none());
 
         let authenticated = RequestUser::from_user(user());
         assert!(authenticated.is_authenticated());
@@ -364,6 +482,73 @@ mod tests {
             authenticated.user().map(AuthUser::full_name),
             Some("Ada Lovelace".into())
         );
+        // `from_user` has no model row (API key authentication, tests).
+        assert!(authenticated.row().is_none());
+    }
+
+    #[test]
+    fn session_user_keeps_the_full_row_and_redacts_it() {
+        let row = user_row();
+        let session = RequestUser::from_session(SessionUser::new(user(), row));
+        assert!(session.is_authenticated());
+        assert_eq!(session.id(), Some(Uuid::nil()));
+        assert_eq!(
+            session.user().map(|user| user.username.as_str()),
+            Some("abc")
+        );
+        assert_eq!(
+            session.row().map(|row| row.avatar_asset_id),
+            Some(Some(Uuid::nil()))
+        );
+        let debug = format!("{session:?}");
+        assert!(debug.contains("a@example.com"));
+        assert!(!debug.contains("pbkdf2_sha256"));
+    }
+
+    /// A `plane_db::models::user::User` for the tests above.
+    fn user_row() -> UserRow {
+        UserRow {
+            password: "pbkdf2_sha256$1$salt$hash".into(),
+            last_login: None,
+            id: Uuid::nil(),
+            username: "abc".into(),
+            mobile_number: None,
+            email: Some("a@example.com".into()),
+            display_name: "A".into(),
+            first_name: "Ada".into(),
+            last_name: "Lovelace".into(),
+            avatar: String::new(),
+            avatar_asset_id: Some(Uuid::nil()),
+            cover_image: None,
+            cover_image_asset_id: None,
+            date_joined: chrono::DateTime::UNIX_EPOCH,
+            created_at: chrono::DateTime::UNIX_EPOCH,
+            updated_at: chrono::DateTime::UNIX_EPOCH,
+            last_location: String::new(),
+            created_location: String::new(),
+            is_superuser: false,
+            is_managed: false,
+            is_password_expired: false,
+            is_active: true,
+            is_staff: false,
+            is_email_verified: true,
+            is_password_autoset: false,
+            is_password_reset_required: false,
+            token: String::new(),
+            last_active: None,
+            last_login_time: None,
+            last_logout_time: None,
+            last_login_ip: String::new(),
+            last_logout_ip: String::new(),
+            last_login_medium: "email".into(),
+            last_login_uagent: String::new(),
+            token_updated_at: None,
+            is_bot: false,
+            bot_type: None,
+            user_timezone: "UTC".into(),
+            is_email_valid: false,
+            masked_at: None,
+        }
     }
 
     #[test]

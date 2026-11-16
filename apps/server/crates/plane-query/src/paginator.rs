@@ -15,7 +15,8 @@
 //! The cursor is `"<value>:<offset>:<is_prev>"`; the default is
 //! `"<per_page>:0:0"`. `per_page` defaults to 1000 and may not exceed 1000
 //! (`BasePaginator.get_per_page`), and a cursor whose value is outside
-//! `0..=1000` or whose offset is negative is a 400.
+//! `0..=1000` or whose offset is negative is a 400. `?per_page=` is a 400 too:
+//! Django calls `int()` on the empty string (`paginator.py:645`).
 //!
 //! ## What the counts mean
 //!
@@ -177,19 +178,40 @@ impl PythonFloat {
     }
 }
 
-/// `BasePaginator.get_per_page` (`paginator.py:642`).
+/// `BasePaginator.get_per_page` (`paginator.py:642-657`).
+///
+/// The Python is `int(request.GET.get("per_page", default_per_page))`: a
+/// **missing** parameter takes the default, while `?per_page=` (present, empty)
+/// is `int("")` and raises `ValueError`, which becomes
+/// `ParseError("Invalid per_page parameter.")`. `plane_core::py::int` is
+/// CPython's `int()` (surrounding whitespace, one sign, Unicode decimal digits,
+/// underscores between digits), so every string Django rejects is rejected
+/// here with the same message.
 pub fn per_page(
     query: &plane_drf::QueryDict,
     default_per_page: u32,
     max_per_page: u32,
 ) -> Result<u32, QueryError> {
-    let raw = query.get_or("per_page", "");
-    let parsed = if raw.is_empty() {
-        i64::from(default_per_page)
-    } else {
-        PythonInt::parse(raw).ok_or_else(|| QueryError::parse("Invalid per_page parameter."))?
-    };
     let effective_max = max_per_page.max(default_per_page);
+    let parsed = match query.get("per_page") {
+        Some(raw) => match plane_core::py::int(raw) {
+            Ok(value) => value,
+            // Python's `int()` is unbounded: an integer outside `i64` is still
+            // parsed, and then fails the positive/maximum check below. The
+            // message must be that check's, not the parse error.
+            Err(plane_core::py::PyIntError::Overflow) => {
+                return Err(QueryError::parse(if raw.trim_start().starts_with('-') {
+                    "Invalid per_page value. Must be greater than zero.".to_string()
+                } else {
+                    format!("Invalid per_page value. Cannot exceed {effective_max}.")
+                }));
+            }
+            Err(plane_core::py::PyIntError::Invalid) => {
+                return Err(QueryError::parse("Invalid per_page parameter."));
+            }
+        },
+        None => i64::from(default_per_page),
+    };
     if parsed <= 0 {
         return Err(QueryError::parse(
             "Invalid per_page value. Must be greater than zero.",
@@ -215,16 +237,33 @@ pub struct PageQuery {
 impl PageQuery {
     /// `BasePaginator.paginate`'s first two steps, including the allowlist
     /// checks that happen before the paginator is built.
+    ///
+    /// `MAX_LIMIT` is both the default and the cap, which is what every issue
+    /// list passes (`plane/app/views/issue/base.py`).
     pub fn parse(
         query: &plane_drf::QueryDict,
         group_by: Option<&str>,
         sub_group_by: Option<&str>,
     ) -> Result<Self, QueryError> {
-        let per_page = per_page(query, MAX_LIMIT, MAX_LIMIT)?;
+        Self::parse_with(query, MAX_LIMIT, MAX_LIMIT, group_by, sub_group_by)
+    }
+
+    /// [`PageQuery::parse`] with the `paginate(default_per_page=…,
+    /// max_per_page=…)` arguments the caller's view passes. The effective cap
+    /// is `max(max_per_page, default_per_page)` (`paginator.py:658-660`).
+    pub fn parse_with(
+        query: &plane_drf::QueryDict,
+        default_per_page: u32,
+        max_per_page: u32,
+        group_by: Option<&str>,
+        sub_group_by: Option<&str>,
+    ) -> Result<Self, QueryError> {
+        let per_page = per_page(query, default_per_page, max_per_page)?;
         let raw_cursor = query.get("cursor").map(str::to_owned);
         let cursor =
             Cursor::from_string(raw_cursor.as_deref().unwrap_or(&format!("{per_page}:0:0")))?;
-        if !(0.0..=f64::from(MAX_LIMIT)).contains(&cursor.value) || cursor.offset < 0 {
+        let effective_max = f64::from(max_per_page.max(default_per_page));
+        if !(0.0..=effective_max).contains(&cursor.value) || cursor.offset < 0 {
             return Err(QueryError::parse("Invalid cursor parameter."));
         }
         if let Some(group) = group_by
@@ -936,6 +975,80 @@ mod tests {
                 .expect_err("error")
                 .message(),
             "Invalid per_page parameter."
+        );
+    }
+
+    #[test]
+    fn per_page_distinguishes_missing_from_empty() {
+        // `int(request.GET.get("per_page", default_per_page))`
+        // (`plane/utils/paginator.py:645`): absent → the default,
+        // present-but-empty → `int("")` → `ValueError` → 400.
+        let absent = plane_drf::QueryDict::parse("", None).expect("query");
+        assert_eq!(per_page(&absent, MAX_LIMIT, MAX_LIMIT), Ok(MAX_LIMIT));
+        let empty = plane_drf::QueryDict::parse("per_page=", None).expect("query");
+        assert_eq!(
+            per_page(&empty, MAX_LIMIT, MAX_LIMIT)
+                .expect_err("error")
+                .message(),
+            "Invalid per_page parameter."
+        );
+        // Every other string CPython's `int()` rejects is the same 400.
+        for raw in [
+            "  ", "1.0", "1e3", "0x10", "_1", "1_", "1__0", "+", "-", "1 0", "١٢a",
+        ] {
+            let dict =
+                plane_drf::QueryDict::parse(&format!("per_page={raw}"), None).expect("query");
+            assert_eq!(
+                per_page(&dict, MAX_LIMIT, MAX_LIMIT)
+                    .expect_err("error")
+                    .message(),
+                "Invalid per_page parameter.",
+                "{raw:?} should be rejected"
+            );
+        }
+        // CPython's `int()` accepts Unicode decimal digits and single
+        // underscores between them; `plane_core::py::int` reproduces both.
+        let unicode = plane_drf::QueryDict::parse("per_page=١٢", None).expect("query");
+        assert_eq!(per_page(&unicode, MAX_LIMIT, MAX_LIMIT), Ok(12));
+        let underscores = plane_drf::QueryDict::parse("per_page=1_0", None).expect("query");
+        assert_eq!(per_page(&underscores, MAX_LIMIT, MAX_LIMIT), Ok(10));
+    }
+
+    #[test]
+    fn per_page_outside_i64_still_fails_the_range_check() {
+        // Python's `int()` is unbounded, so these are integers that fail
+        // `per_page > max_per_page` / `per_page <= 0`, not parse errors.
+        let huge = format!("per_page={}", "9".repeat(30));
+        let dict = plane_drf::QueryDict::parse(&huge, None).expect("query");
+        assert_eq!(
+            per_page(&dict, MAX_LIMIT, MAX_LIMIT)
+                .expect_err("error")
+                .message(),
+            "Invalid per_page value. Cannot exceed 1000."
+        );
+        let negative = format!("per_page=-{}", "9".repeat(30));
+        let dict = plane_drf::QueryDict::parse(&negative, None).expect("query");
+        assert_eq!(
+            per_page(&dict, MAX_LIMIT, MAX_LIMIT)
+                .expect_err("error")
+                .message(),
+            "Invalid per_page value. Must be greater than zero."
+        );
+    }
+
+    #[test]
+    fn page_query_parse_with_uses_the_callers_maximum() {
+        // `paginate(default_per_page=10, max_per_page=20)`: the effective cap is
+        // `max(20, 10)` (`paginator.py:658-660`), so 20 is accepted and 21 is
+        // not. The issue lists pass 1000/1000, which is `parse`.
+        let ok = plane_drf::QueryDict::parse("per_page=20&cursor=20:0:0", None).expect("query");
+        assert!(PageQuery::parse_with(&ok, 10, 20, None, None).is_ok());
+        let too_many = plane_drf::QueryDict::parse("per_page=21", None).expect("query");
+        assert_eq!(
+            PageQuery::parse_with(&too_many, 10, 20, None, None)
+                .expect_err("error")
+                .message(),
+            "Invalid per_page value. Cannot exceed 20."
         );
     }
 

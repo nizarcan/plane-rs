@@ -51,4 +51,6 @@ pub use password::{
     make_password, make_password_async, verify_password,
 };
 pub use session::{SessionCookieAction, SessionStore};
-pub use user::{AuthUser, MODEL_BACKEND, RequestUser, get_user};
+pub use user::{
+    AuthUser, MODEL_BACKEND, RequestUser, SessionUser, get_user, load_session_user_by_id,
+};

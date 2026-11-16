@@ -25,10 +25,15 @@
 //!
 //! ## Round trips
 //!
-//! Django's auth layer loads the session and a `users` row; the handler then
-//! loads whatever the serializer touches. This port's runtime does the same
-//! auth work, and each handler statement folds Django's property N+1s into
-//! the query that needs them (the SQL docs in `queries.rs` name each one).
+//! Django's auth layer loads the session and the whole `users` row, and
+//! `GET /api/users/me/` then serialises that object, touching one
+//! `file_assets` row per non-null avatar/cover asset. This port does the same:
+//! the auth layer keeps the full row (`plane_auth::SessionUser`) and the
+//! handler issues the asset queries the model properties do, no more and no
+//! fewer. `GET /api/users/session/` re-reads the row, as its Python does. The
+//! SQL docs in `queries.rs` name each statement.
+
+use std::borrow::Cow;
 
 use chrono::NaiveDate;
 use http::Method;
@@ -88,24 +93,73 @@ fn with_private_cache(response: ViewResponse) -> ViewResponse {
 }
 
 /// The full `users` row plus its avatar/cover assets, loaded once per request.
-struct LoadedUser {
-    user: User,
+///
+/// `user` is a `Cow` because `GET /api/users/me/` borrows the row the auth
+/// layer loaded (Django's `request.user`), while `GET /api/users/session/`
+/// re-reads it the way its Python does. Cloning the row would allocate its ~15
+/// strings again for nothing.
+struct LoadedUser<'a> {
+    user: Cow<'a, User>,
     avatar: AssetRef,
     cover: AssetRef,
 }
 
-/// `User.objects.get(pk=request.user.id)` with the two properties
-/// `UserMeSerializer` reads.
-async fn load_user(ctx: &ViewCtx<'_>, user_id: Uuid) -> Result<LoadedUser, ViewError> {
+/// The `file_assets` row a `users.avatar_asset_id`/`cover_image_asset_id`
+/// points at.
+///
+/// Django issues one query per non-null foreign key (`request.user` is not
+/// `select_related`), so this is one query per set id, not a join on the user
+/// row. A missing row cannot happen under the foreign key; it is treated as no
+/// asset.
+async fn load_asset(ctx: &ViewCtx<'_>, id: Option<Uuid>) -> Result<AssetRef, ViewError> {
+    let Some(id) = id else {
+        return Ok(AssetRef::default());
+    };
     let client = crate::common::client(ctx)?;
-    let statement = queries::USER_BY_ID_WITH_ASSETS.prepare(client).await?;
+    let statement = queries::ASSET_BY_ID.prepare(client).await?;
+    match client.query_opt(&statement, &[&id]).await? {
+        Some(row) => Ok(AssetRef::from_row(&row, 0)?),
+        None => Ok(AssetRef::default()),
+    }
+}
+
+/// `request.user` plus the two asset properties `UserMeSerializer` reads.
+///
+/// `UserEndpoint.retrieve` serialises `request.user` itself
+/// (`plane/app/views/user/base.py:80-83`), so nothing here queries `users`
+/// again: the row comes from the session loader (DECISIONS.md D1's
+/// "one query per round trip").
+async fn load_request_user<'a>(ctx: &'a ViewCtx<'a>) -> Result<LoadedUser<'a>, ViewError> {
+    if let Some(user) = ctx.user.row() {
+        return loaded_user(ctx, Cow::Borrowed(user)).await;
+    }
+    // A caller authenticated without the session loader (none of this group's
+    // routes has another authenticator) falls back to Django's `get_object`.
+    let user_id = support::user_id(ctx)?;
+    load_user(ctx, user_id).await
+}
+
+/// `User.objects.get(pk=…)` plus the two asset properties.
+///
+/// `UserSessionEndpoint.get` re-reads the user even though the auth layer just
+/// loaded it (`plane/app/views/user/base.py:380-382`), so this is a query.
+async fn load_user<'a>(ctx: &ViewCtx<'a>, user_id: Uuid) -> Result<LoadedUser<'a>, ViewError> {
+    let client = crate::common::client(ctx)?;
+    let statement = queries::USER_BY_ID.prepare(client).await?;
     let row = client
         .query_opt(&statement, &[&user_id])
         .await?
         .ok_or(ViewError::ObjectDoesNotExist)?;
     let user = User::from_row(&row, 0)?;
-    let avatar = AssetRef::from_row(&row, User::COLUMN_COUNT)?;
-    let cover = AssetRef::from_row(&row, User::COLUMN_COUNT + support::ASSET_COLUMNS)?;
+    loaded_user(ctx, Cow::Owned(user)).await
+}
+
+async fn loaded_user<'a>(
+    ctx: &ViewCtx<'_>,
+    user: Cow<'a, User>,
+) -> Result<LoadedUser<'a>, ViewError> {
+    let avatar = load_asset(ctx, user.avatar_asset_id).await?;
+    let cover = load_asset(ctx, user.cover_image_asset_id).await?;
     Ok(LoadedUser {
         user,
         avatar,
@@ -156,8 +210,7 @@ fn user_me_serializer<'a>(loaded: &'a LoadedUser, parts: &'a UserMeParts) -> Use
 /// `UserEndpoint.retrieve` (`plane/app/views/user/base.py:77-85`).
 fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
-        let user_id = support::user_id(ctx)?;
-        let loaded = load_user(ctx, user_id).await?;
+        let loaded = load_request_user(ctx).await?;
         let parts = user_me_parts(&loaded)?;
         let body = crate::common::render(ctx, &user_me_serializer(&loaded, &parts))?;
         Ok(with_private_cache(ViewResponse::raw(

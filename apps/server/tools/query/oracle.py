@@ -746,6 +746,10 @@ def paginator_error_cases() -> list[dict]:
         "per_page=-1",
         "per_page=1001",
         "per_page=abc",
+        # `int(request.GET.get("per_page", 1000))` on a present-but-empty value
+        # is `int("")` → `ValueError` → `ParseError` (`paginator.py:645`), not
+        # the default.
+        "per_page=",
         "per_page=13&cursor=nope",
         "per_page=13&cursor=1:2",
         "per_page=13&cursor=2000:0:0",

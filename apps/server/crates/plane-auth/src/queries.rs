@@ -68,27 +68,64 @@ plane_query! {
     /// `ModelBackend.get_user` (`django/contrib/auth/backends.py:229-235`) and
     /// `get_by_natural_key` for the email lookup. `users` does not use
     /// `BaseModel`, so there is no `deleted_at` column.
+    ///
+    /// The select list is the generated `plane_db::models::user::User::COLUMNS`
+    /// in its order, because Django's `request.user` **is** the full model row:
+    /// every column is loaded once here, and a handler that needs another field
+    /// (the `users_me` group reads the avatar/cover asset ids) does not issue a
+    /// second `users` query. The 13-column projection `AuthUser` keeps is
+    /// decoded from this row by [`crate::user::AuthUser::from_user_row`].
     LOAD_USER_BY_ID = "auth_load_user_by_id",
-    "SELECT id, password, username, email, display_name, first_name, last_name, \
-     user_timezone, is_active, is_staff, is_superuser, is_email_verified, is_bot, \
-     date_joined \
+    "SELECT password, last_login, id, username, mobile_number, email, display_name, \
+     first_name, last_name, avatar, avatar_asset_id, cover_image, cover_image_asset_id, \
+     date_joined, created_at, updated_at, last_location, created_location, is_superuser, \
+     is_managed, is_password_expired, is_active, is_staff, is_email_verified, \
+     is_password_autoset, is_password_reset_required, token, last_active, last_login_time, \
+     last_logout_time, last_login_ip, last_logout_ip, last_login_medium, last_login_uagent, \
+     token_updated_at, is_bot, bot_type, user_timezone, is_email_valid, masked_at \
      FROM users \
      WHERE id = $1",
     [
-        ("id", Uuid),
         ("password", Varchar),
+        ("last_login", Timestamptz),
+        ("id", Uuid),
         ("username", Varchar),
+        ("mobile_number", Varchar),
         ("email", Varchar),
         ("display_name", Varchar),
         ("first_name", Varchar),
         ("last_name", Varchar),
-        ("user_timezone", Varchar),
+        ("avatar", Text),
+        ("avatar_asset_id", Uuid),
+        ("cover_image", Varchar),
+        ("cover_image_asset_id", Uuid),
+        ("date_joined", Timestamptz),
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("last_location", Varchar),
+        ("created_location", Varchar),
+        ("is_superuser", Bool),
+        ("is_managed", Bool),
+        ("is_password_expired", Bool),
         ("is_active", Bool),
         ("is_staff", Bool),
-        ("is_superuser", Bool),
         ("is_email_verified", Bool),
+        ("is_password_autoset", Bool),
+        ("is_password_reset_required", Bool),
+        ("token", Varchar),
+        ("last_active", Timestamptz),
+        ("last_login_time", Timestamptz),
+        ("last_logout_time", Timestamptz),
+        ("last_login_ip", Varchar),
+        ("last_logout_ip", Varchar),
+        ("last_login_medium", Varchar),
+        ("last_login_uagent", Text),
+        ("token_updated_at", Timestamptz),
         ("is_bot", Bool),
-        ("date_joined", Timestamptz),
+        ("bot_type", Varchar),
+        ("user_timezone", Varchar),
+        ("is_email_valid", Bool),
+        ("masked_at", Timestamptz),
     ]
 }
 

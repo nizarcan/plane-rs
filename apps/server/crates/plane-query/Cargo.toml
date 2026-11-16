@@ -15,6 +15,7 @@ repository.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 deadpool-postgres.workspace = true
+plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
 plane-drf = { path = "../plane-drf" }
 plane-serde = { path = "../plane-serde" }
