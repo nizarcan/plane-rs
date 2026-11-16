@@ -135,7 +135,7 @@ impl ModuleLinkRow {
         })
     }
 
-    fn value(&self) -> ModuleLinkSerializer<'_> {
+    pub(crate) fn value(&self) -> ModuleLinkSerializer<'_> {
         ModuleLinkSerializer {
             id: self.id,
             created_at: self.created_at,
