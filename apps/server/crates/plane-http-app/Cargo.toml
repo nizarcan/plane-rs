@@ -12,6 +12,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+aws-lc-rs.workspace = true
+base64.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 deadpool-postgres.workspace = true
@@ -22,10 +24,12 @@ plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
 plane-drf = { path = "../plane-drf" }
 plane-jobs = { path = "../plane-jobs" }
+plane-net = { path = "../plane-net" }
 plane-permissions = { path = "../plane-permissions" }
 plane-query = { path = "../plane-query" }
 plane-serde = { path = "../plane-serde" }
 plane-serializers = { path = "../plane-serializers" }
+plane-storage = { path = "../plane-storage" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -34,7 +38,7 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread"] }
 
 [lints]
 workspace = true

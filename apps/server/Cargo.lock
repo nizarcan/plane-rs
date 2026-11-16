@@ -2308,6 +2308,8 @@ dependencies = [
 name = "plane-http-app"
 version = "0.1.0"
 dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
  "chrono",
  "chrono-tz",
  "deadpool-postgres",
@@ -2318,10 +2320,12 @@ dependencies = [
  "plane-db",
  "plane-drf",
  "plane-jobs",
+ "plane-net",
  "plane-permissions",
  "plane-query",
  "plane-serde",
  "plane-serializers",
+ "plane-storage",
  "serde",
  "serde_json",
  "thiserror",

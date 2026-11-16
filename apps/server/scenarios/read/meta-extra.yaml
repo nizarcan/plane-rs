@@ -1,0 +1,114 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `meta` group, beyond the generated `meta.yaml`: the
+# Unsplash proxy's request shapes. The fixture's instance configuration has the
+# row seeded with an empty encrypted value (`UNSPLASH_ACCESS_KEY`, `value = ""`),
+# so every authenticated caller takes the keyless branch and the answer is `[]`
+# whatever the query string is — which is exactly what a deployment without an
+# Unsplash key sees. The keyed branch needs a real access key and the upstream
+# service, so it is exercised by the module's unit test against a local stub
+# (`crates/plane-http-app/src/meta/unsplash.rs`) rather than here.
+#
+# Deterministic against Django (`--a django --b django-b`) and then run
+# Django vs Rust.
+
+name: read-meta-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # Keyless: `Response([], 200)` regardless of the query string.
+  - name: me-01-unsplash-empty-query
+    method: GET
+    path: "/api/unsplash/"
+    query:
+      query: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: me-02-unsplash-search-shape
+    method: GET
+    path: "/api/unsplash/"
+    query:
+      query: "sea"
+      page: "2"
+      per_page: "5"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: me-03-unsplash-photos-shape
+    method: GET
+    path: "/api/unsplash/"
+    query:
+      page: "3"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # A workspace guest is authenticated, and the route only requires that.
+  - name: me-04-unsplash-guest
+    method: GET
+    path: "/api/unsplash/"
+    query:
+      query: "plane"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # `IsAuthenticated` says nothing about workspace membership.
+  - name: me-05-unsplash-non-member
+    method: GET
+    path: "/api/unsplash/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: me-06-unsplash-tz-berlin
+    method: GET
+    path: "/api/unsplash/"
+    query:
+      per_page: "1"
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_berlin}}"
+  # No value is validated: `per_page` reaches the URL as the client sent it.
+  - name: me-07-unsplash-junk-values
+    method: GET
+    path: "/api/unsplash/"
+    query:
+      query: "a b&c"
+      page: "not-a-number"
+      per_page: "-1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A soft-deleted workspace member can still hold a session; the cookie is
+  # valid, so the route answers 200 like any other authenticated caller.
+  - name: me-08-unsplash-deleted-member
+    method: GET
+    path: "/api/unsplash/"
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+  - name: me-09-unsplash-anonymous
+    method: GET
+    path: "/api/unsplash/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.40
