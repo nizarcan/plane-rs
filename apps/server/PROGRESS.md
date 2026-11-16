@@ -223,8 +223,20 @@ and only `verified` rows are Rust-owned.
   768M, restart policy `unless-stopped`): it was OOM-killed at 320M with many parallel
   harness vhosts. `dev/compose.yml` still says 320M, so the next recreate restores it.
 
-- One-exchange dynamic SQL (`query_typed_raw`) plus a sweep removing every string-SQL
-  call, and the `workspaces/user.rs` `/user-activity/` LIKE escape: `rs/w2-intake`.
+- Done and merged (`04fb9a250b`): dynamic SQL runs in one unnamed exchange
+  (`Sql::query`/`execute` via `query_typed_raw`, explicit parameter types, no server-side
+  prepared statement). All 29 dynamic call sites are converted, and the remaining static
+  ones use `prepare_cached`, so no string-SQL call is left. Debug, 50 sequential
+  requests, Rust vs Django:
+  - `/api/users/me/`: 3 vs 4 transactions, 1.5 vs 12.1 ms;
+  - issue list: 6 vs 10 transactions, 12.2 vs 49.9 ms;
+  - analytics: 6 vs 7 transactions, 5.0 vs 17.1 ms.
+
+  LIKE escaping was added on the `user-stats` and stored-analytics date filters. The
+  full read suite on the merge commit has 0 diffs on every ported group.
+- Memory: there's no leak. The 176 MiB came from the run the broker wipe invalidated.
+  The plateau is ~89 MiB with mimalloc defaults and 51 MiB with
+  `MIMALLOC_PURGE_DELAY=0` (D3, merging with `rs/mem`).
 - Done and merged (`eddfe5d425`): D17 presigned URL verification in the harness (each
   side's SigV4 signature recomputed with its own credentials and date), and
   `analytics/pyset.rs` deleted, with `project-stats` keys ascending and compared as a key
@@ -238,12 +250,6 @@ and only `verified` rows are Rust-owned.
 
 ## Follow-ups (not blocking)
 
-- **Memory after sustained load (blocks the memory claim):** `plane-api` retained
-  176 MiB after the benchmark matrix (48 MiB fresh). Profile it: mimalloc arena retention
-  (`MIMALLOC_PURGE_DELAY`, `mi_collect`), per-connection buffers (16-connection pool),
-  the statement cache size, and the response cache interner. Re-run with the system
-  allocator and jemalloc (D3 is provisional), and report RSS after the same request
-  count.
 - `reads-project` on Rust is the only non-monotonic row (1,207 rps at concurrency 8,
   932 at 32). Suspect the per-request `recent_visited_task` publish; check its publisher
   path, connection and channel reuse.
@@ -428,8 +434,7 @@ and only `verified` rows are Rust-owned.
    Django according to `ROUTES.md`, as the proxy does; forced authentication becomes a
    real session; databases are transactional so `plane-api` sees the test's rows. Then
    every contract test that touches a Rust-owned route must pass.
-2. Merge the one-exchange dynamic SQL sweep after re-verifying it. Then profile
-   `plane-api`'s memory after sustained load, and re-measure the Phase 3 row in
-   `BENCH.md` on a quiet stack.
+2. Re-measure the Phase 3 row in `BENCH.md` on a quiet stack with the current code (one
+   concurrency level, short windows, per the time budgets).
 3. Phase 4 (job plumbing), only after step 1: the Postgres queue in `plane-jobs`,
    `plane-worker`, and `plane-beat` with advisory locks.

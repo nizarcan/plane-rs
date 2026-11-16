@@ -51,6 +51,12 @@ workspace `Cargo.toml` and upgrade deliberately.
 
 - `mimalloc` 0.1.52 in every binary. Measure against `tikv-jemallocator` 0.7.0 and the
   system allocator in `BENCH.md` before Phase 8. Lowest idle RSS at equal p95 wins.
+- 2026-11-16, Phase 3 memory study (`BENCH.md`, "Phase 3: memory after sustained
+  load"): no leak. With mimalloc defaults, memory plateaus at ~89 MiB after 1.08M
+  requests and stays flat while idle; with `MIMALLOC_PURGE_DELAY=0` it plateaus at
+  51 MiB at the same throughput and p95. **Kept mimalloc, with `MIMALLOC_PURGE_DELAY=0`
+  as the production image default.** jemalloc and the system allocator weren't measured
+  (scope cut, and no measured need). Revisit only if a later phase moves the plateau.
 
 ## D4. HTTP: `axum` 0.8 + `tower` 0.5 + `tower-http` 0.7 on `hyper` 1 (decided, as the brief)
 
