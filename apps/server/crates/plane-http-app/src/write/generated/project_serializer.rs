@@ -8,6 +8,8 @@
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
 use crate::write::{CharOptions, Detail, Serializer};
+use deadpool_postgres::Client;
+use plane_drf::error::ViewError;
 
 pub const PYTHON_SERIALIZER: &str = "plane.app.serializers.project.ProjectSerializer";
 
@@ -29,6 +31,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -48,6 +51,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -67,6 +71,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -86,6 +91,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -105,6 +111,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[("0", "Secret"), ("2", "Public")],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -124,6 +131,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -143,6 +151,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -162,6 +171,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -181,6 +191,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -200,6 +211,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -219,6 +231,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -238,6 +251,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -257,6 +271,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -276,6 +291,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -295,6 +311,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -314,6 +331,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -333,6 +351,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -352,6 +371,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -371,6 +391,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -390,6 +411,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -409,6 +431,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -889,6 +912,7 @@ pub const FIELDS: &[FieldSpec] = &[
         ],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -908,6 +932,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -927,6 +952,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -946,6 +972,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     },
     FieldSpec {
@@ -965,6 +992,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     },
     FieldSpec {
@@ -984,6 +1012,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.FileAsset"),
+        related_table: Some("file_assets"),
         child: None,
     },
     FieldSpec {
@@ -1003,6 +1032,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.Estimate"),
+        related_table: Some("estimates"),
         child: None,
     },
     FieldSpec {
@@ -1022,6 +1052,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.State"),
+        related_table: Some("states"),
         child: None,
     },
 ];
@@ -1094,7 +1125,7 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
-pub fn validate(s: &mut Serializer<'_>) {
+pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.char_field(
         "name",
         CharOptions {
@@ -1181,9 +1212,20 @@ pub fn validate(s: &mut Serializer<'_>) {
             max_length: Some(255),
         },
     );
-    // TODO(primary_key): default_assignee
-    // TODO(primary_key): project_lead
-    // TODO(primary_key): cover_image_asset
-    // TODO(primary_key): estimate
-    // TODO(primary_key): default_state
+    let _ = s
+        .primary_key_field(client, "default_assignee", true, "users")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "project_lead", true, "users")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "cover_image_asset", true, "file_assets")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "estimate", true, "estimates")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "default_state", true, "states")
+        .await?;
+    Ok(())
 }

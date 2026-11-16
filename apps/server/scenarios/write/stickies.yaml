@@ -36,6 +36,7 @@ vars:
   session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
   session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
   admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
 steps:
   # --- create: empty body -> every model default ---------------------------
   - name: write-stickies-01-create-empty
@@ -114,6 +115,100 @@ steps:
         source: db
         table: stickies
         column: id
+
+  # --- audit columns in the body ------------------------------------------
+  # `created_by`/`updated_by` are writable fields on StickySerializer (DRF
+  # validates the pk), but `BaseModel.save` uses `crum.get_current_user()` and
+  # overwrites them: create sets created_by = request user and updated_by =
+  # NULL; update only sets updated_by = request user.
+  - name: write-stickies-04a-create-created-by-existing
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by body"
+      created_by: "{{user_member_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: sticky_identity
+        source: db
+        table: stickies
+        column: id
+  - name: write-stickies-04b-create-created-by-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by missing"
+      created_by: "99999999-9999-4999-8999-999999999999"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04c-create-created-by-bad-type
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Created by bad type"
+      created_by: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04d-create-description-html-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/stickies/"
+    json:
+      name: "Null html"
+      description_html: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04e-patch-updated-by-existing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_identity}}/"
+    json:
+      updated_by: "{{user_member_id}}"
+      name: "Updated by body"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-stickies-04f-patch-updated-by-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_identity}}/"
+    json:
+      updated_by: "99999999-9999-4999-8999-999999999999"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04g-patch-updated-by-bad-type
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_identity}}/"
+    json:
+      updated_by: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-stickies-04h-patch-description-html-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_identity}}/"
+    json:
+      description_html: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
 
   # --- validation errors ---------------------------------------------------
   - name: write-stickies-05-create-null-description

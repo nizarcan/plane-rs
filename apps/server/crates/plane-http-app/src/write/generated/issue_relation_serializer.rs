@@ -8,6 +8,8 @@
 
 use crate::write::Serializer;
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
+use deadpool_postgres::Client;
+use plane_drf::error::ViewError;
 
 pub const PYTHON_SERIALIZER: &str = "plane.app.serializers.issue.IssueRelationSerializer";
 
@@ -28,6 +30,7 @@ pub const FIELDS: &[FieldSpec] = &[FieldSpec {
     choices: &[],
     input_formats: &[],
     related_model: None,
+    related_table: None,
     child: Some(&FieldSpec {
         name: "element",
         source: "element",
@@ -45,6 +48,7 @@ pub const FIELDS: &[FieldSpec] = &[FieldSpec {
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     }),
 }];
@@ -131,7 +135,9 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
-pub fn validate(s: &mut Serializer<'_>) {
+pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     // TODO(list): assignee_ids
     let _ = s; // every writable field is a TODO(kind)
+    let _ = client; // no primary-key field validates against a table
+    Ok(())
 }

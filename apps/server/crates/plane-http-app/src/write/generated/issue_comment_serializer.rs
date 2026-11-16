@@ -8,6 +8,8 @@
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
 use crate::write::{CharOptions, Serializer};
+use deadpool_postgres::Client;
+use plane_drf::error::ViewError;
 
 pub const PYTHON_SERIALIZER: &str = "plane.app.serializers.issue.IssueCommentSerializer";
 
@@ -29,6 +31,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -48,6 +51,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -67,6 +71,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -86,6 +91,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -105,6 +111,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: Some(&FieldSpec {
             name: "element",
             source: "element",
@@ -122,6 +129,7 @@ pub const FIELDS: &[FieldSpec] = &[
             choices: &[],
             input_formats: &[],
             related_model: None,
+            related_table: None,
             child: None,
         }),
     },
@@ -142,6 +150,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[("'INTERNAL'", "INTERNAL"), ("'EXTERNAL'", "EXTERNAL")],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -161,6 +170,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -180,6 +190,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -199,6 +210,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -218,6 +230,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.Description"),
+        related_table: Some("descriptions"),
         child: None,
     },
     FieldSpec {
@@ -237,6 +250,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.User"),
+        related_table: Some("users"),
         child: None,
     },
     FieldSpec {
@@ -256,6 +270,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.IssueComment"),
+        related_table: Some("issue_comments"),
         child: None,
     },
 ];
@@ -363,7 +378,7 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
-pub fn validate(s: &mut Serializer<'_>) {
+pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s.char_field(
         "comment_stripped",
@@ -405,7 +420,12 @@ pub fn validate(s: &mut Serializer<'_>) {
         },
     );
     let _ = s.datetime_field("edited_at", true);
-    // TODO(primary_key): description
-    // TODO(primary_key): actor
-    // TODO(primary_key): parent
+    let _ = s
+        .primary_key_field(client, "description", true, "descriptions")
+        .await?;
+    let _ = s.primary_key_field(client, "actor", true, "users").await?;
+    let _ = s
+        .primary_key_field(client, "parent", true, "issue_comments")
+        .await?;
+    Ok(())
 }

@@ -19,6 +19,7 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use plane_db::JsonText;
 use plane_serde::pyjson::Value as Json;
+use uuid::Uuid;
 
 /// One DRF error: the rendered text and the `code` behind it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +92,56 @@ impl CharOptions {
         self.max_length = Some(max_length);
         self
     }
+}
+
+/// `PrimaryKeyRelatedField.to_internal_value` (`rest_framework/relations.py:
+/// 250-290`): the pk conversion and the two error messages DRF builds.
+///
+/// The queryset lookup is asynchronous and lives in
+/// [`crate::write::Serializer::primary_key_field`]; this half only decides
+/// whether the input is a pk at all. Django's `UUIDField.to_python` accepts an
+/// integer as a 128-bit UUID and reports a non-UUID string with its own
+/// message, which DRF passes through.
+pub fn primary_key(raw: Raw<'_>) -> Result<Uuid, Detail> {
+    match raw {
+        Raw::Text(text) => parse_pk_uuid(text),
+        Raw::Json(Json::Str(value)) => {
+            parse_pk_uuid(value.as_str().ok_or_else(|| incorrect_pk_type("str"))?)
+        }
+        // DRF converts Python `bool` to `incorrect_type` explicitly, before
+        // the queryset sees it (`relations.py:264-265`).
+        Raw::Json(Json::Bool(_)) => Err(incorrect_pk_type("bool")),
+        Raw::Json(Json::Int(value)) if !value.is_negative() => value
+            .to_decimal_string()
+            .parse::<u128>()
+            .map(Uuid::from_u128)
+            .map_err(|_| invalid_pk_uuid(&value.to_decimal_string())),
+        Raw::Json(Json::Int(value)) => Err(invalid_pk_uuid(&value.to_decimal_string())),
+        Raw::Json(Json::Float(value)) => Err(invalid_pk_uuid(&plane_query::pyfloat::repr(*value))),
+        Raw::Json(Json::List(_)) => Err(incorrect_pk_type("list")),
+        Raw::Json(Json::Dict(_)) => Err(incorrect_pk_type("dict")),
+        // `field_value` turns JSON null into `Value::Null` before parsing.
+        Raw::Json(Json::Null) => Err(invalid_pk_uuid("None")),
+    }
+}
+
+fn parse_pk_uuid(value: &str) -> Result<Uuid, Detail> {
+    Uuid::parse_str(value).map_err(|_| invalid_pk_uuid(value))
+}
+
+/// `“%(value)s” is not a valid UUID.` (`django/db/models/fields/__init__.py`,
+/// `UUIDField.to_python`), with DRF's `invalid` code.
+fn invalid_pk_uuid(value: &str) -> Detail {
+    Detail::new(format!("“{value}” is not a valid UUID."), "invalid")
+}
+
+/// `Incorrect type. Expected pk value, received {data_type}.`
+/// (`rest_framework/relations.py:18-22`).
+fn incorrect_pk_type(data_type: &str) -> Detail {
+    Detail::new(
+        format!("Incorrect type. Expected pk value, received {data_type}."),
+        "incorrect_type",
+    )
 }
 
 /// `CharField.to_internal_value` (`rest_framework/fields.py:755-762`).
@@ -526,6 +577,40 @@ mod tests {
 
     fn parse(text: &str) -> pyjson::Value {
         pyjson::loads(text.as_bytes(), "utf-8").expect("json")
+    }
+
+    #[test]
+    fn primary_key_reproduces_drf_and_django_messages() {
+        let value = parse(r#""3f7c1c0e-1d6a-4d47-9a4f-8f6c6d3b2a10""#);
+        assert!(primary_key(Raw::Json(&value)).is_ok());
+
+        let value = parse(r#""not-a-uuid""#);
+        assert_eq!(
+            primary_key(Raw::Json(&value)).expect_err("uuid"),
+            Detail::new("“not-a-uuid” is not a valid UUID.", "invalid")
+        );
+
+        let value = parse("true");
+        assert_eq!(
+            primary_key(Raw::Json(&value)).expect_err("bool"),
+            Detail::new(
+                "Incorrect type. Expected pk value, received bool.",
+                "incorrect_type"
+            )
+        );
+
+        // Django's `UUIDField` accepts an integer as a 128-bit UUID.
+        let value = parse("1");
+        assert_eq!(
+            primary_key(Raw::Json(&value)).expect("int"),
+            Uuid::from_u128(1)
+        );
+
+        let value = parse("1.5");
+        assert_eq!(
+            primary_key(Raw::Json(&value)).expect_err("float"),
+            Detail::new("“1.5” is not a valid UUID.", "invalid")
+        );
     }
 
     #[test]

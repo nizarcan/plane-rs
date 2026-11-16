@@ -8,6 +8,8 @@
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
 use crate::write::{CharOptions, Serializer};
+use deadpool_postgres::Client;
+use plane_drf::error::ViewError;
 
 pub const PYTHON_SERIALIZER: &str = "plane.app.serializers.draft.DraftIssueCreateSerializer";
 
@@ -29,6 +31,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.State"),
+        related_table: Some("states"),
         child: None,
     },
     FieldSpec {
@@ -48,6 +51,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.Issue"),
+        related_table: Some("issues"),
         child: None,
     },
     FieldSpec {
@@ -67,6 +71,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: Some(&FieldSpec {
             name: "element",
             source: "element",
@@ -84,6 +89,7 @@ pub const FIELDS: &[FieldSpec] = &[
             choices: &[],
             input_formats: &[],
             related_model: Some("db.Label"),
+            related_table: Some("labels"),
             child: None,
         }),
     },
@@ -104,6 +110,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: Some(&FieldSpec {
             name: "element",
             source: "element",
@@ -121,6 +128,7 @@ pub const FIELDS: &[FieldSpec] = &[
             choices: &[],
             input_formats: &[],
             related_model: Some("db.User"),
+            related_table: Some("users"),
             child: None,
         }),
     },
@@ -141,6 +149,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -160,6 +169,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -179,6 +189,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -198,6 +209,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -217,6 +229,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -242,6 +255,7 @@ pub const FIELDS: &[FieldSpec] = &[
         ],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -261,6 +275,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -280,6 +295,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -299,6 +315,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -318,6 +335,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &["iso-8601"],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -337,6 +355,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -356,6 +375,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: None,
+        related_table: None,
         child: None,
     },
     FieldSpec {
@@ -375,6 +395,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.Issue"),
+        related_table: Some("issues"),
         child: None,
     },
     FieldSpec {
@@ -394,6 +415,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.State"),
+        related_table: Some("states"),
         child: None,
     },
     FieldSpec {
@@ -413,6 +435,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.EstimatePoint"),
+        related_table: Some("estimate_points"),
         child: None,
     },
     FieldSpec {
@@ -432,6 +455,7 @@ pub const FIELDS: &[FieldSpec] = &[
         choices: &[],
         input_formats: &[],
         related_model: Some("db.IssueType"),
+        related_table: Some("issue_types"),
         child: None,
     },
 ];
@@ -511,9 +535,13 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
-pub fn validate(s: &mut Serializer<'_>) {
-    // TODO(primary_key): state_id
-    // TODO(primary_key): parent_id
+pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
+    let _ = s
+        .primary_key_field(client, "state_id", true, "states")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "parent_id", true, "issues")
+        .await?;
     // TODO(list): label_ids
     // TODO(list): assignee_ids
     let _ = s.datetime_field("deleted_at", true);
@@ -568,8 +596,15 @@ pub fn validate(s: &mut Serializer<'_>) {
             max_length: Some(255),
         },
     );
-    // TODO(primary_key): parent
-    // TODO(primary_key): state
-    // TODO(primary_key): estimate_point
-    // TODO(primary_key): type
+    let _ = s
+        .primary_key_field(client, "parent", true, "issues")
+        .await?;
+    let _ = s.primary_key_field(client, "state", true, "states").await?;
+    let _ = s
+        .primary_key_field(client, "estimate_point", true, "estimate_points")
+        .await?;
+    let _ = s
+        .primary_key_field(client, "type", true, "issue_types")
+        .await?;
+    Ok(())
 }

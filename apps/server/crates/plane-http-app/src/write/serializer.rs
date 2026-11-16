@@ -23,6 +23,7 @@
 //! DRF's `Request._parse`: JSON text/`ParseError`, the 415 for a
 //! wrong `Content-Type`, forms and multipart as a `QueryDict`.
 
+use deadpool_postgres::Client;
 use plane_db::JsonText;
 use plane_drf::error::ViewError;
 use plane_drf::parsers::Data;
@@ -385,6 +386,51 @@ impl<'a> Serializer<'a> {
         let parsed = self.field(name, false, move |raw| fields::integer_choice(raw, allowed))?;
         // `field` stored the int64; a choice is an int16 model column.
         Some(parsed)
+    }
+
+    /// `PrimaryKeyRelatedField` (`rest_framework/relations.py:250-290`): parse
+    /// the pk, then one `SELECT 1 FROM <queryset model> WHERE id = $1`. Django
+    /// runs exactly one `queryset.get(pk=…)` per field, so the round-trip count
+    /// is the same.
+    pub async fn primary_key_field(
+        &mut self,
+        client: &Client,
+        name: &'static str,
+        allow_null: bool,
+        table: &'static str,
+    ) -> Result<Option<uuid::Uuid>, ViewError> {
+        let Some(raw) = self.field_value(name, allow_null, Some(false)) else {
+            return Ok(None);
+        };
+        let value = match fields::primary_key(raw) {
+            Ok(value) => value,
+            Err(detail) => {
+                self.errors.push(name, detail);
+                return Ok(None);
+            }
+        };
+        // The table name is a generated const from model metadata, never input.
+        let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
+        let exists = client
+            .query_opt(sql.as_str(), &[&value])
+            .await
+            .map_err(ViewError::from)?
+            .is_some();
+        if exists {
+            self.values.push((name, Value::Uuid(value)));
+            return Ok(Some(value));
+        }
+        // `Invalid pk "{pk_value}" - object does not exist.` — `pk_value` is the
+        // input as the body carried it.
+        let raw = self.raw_text(name).unwrap_or_else(|| value.to_string());
+        self.errors.push(
+            name,
+            Detail::new(
+                format!("Invalid pk \"{raw}\" - object does not exist."),
+                "does_not_exist",
+            ),
+        );
+        Ok(None)
     }
 
     /// A field whose parser decides the message and whose value the caller

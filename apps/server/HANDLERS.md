@@ -601,6 +601,9 @@ per serializer to `crates/plane-http-app/src/write/generated/`:
   `editable=False` model fields, including ones DRF drops entirely;
 * `EXTRA_KWARGS` — the `Meta.extra_kwargs` overrides;
 * `validate` — the helper calls a handler would make today, in the same order.
+  It is `async` and takes the request's client: a writable
+  `PrimaryKeyRelatedField` in the body runs one `SELECT 1 FROM <model table>
+  WHERE id = $1`, the same single `queryset.get(pk=…)` Django runs.
 
 Regenerate after changing `apps/api`:
 
@@ -616,9 +619,13 @@ it.
 When a field class has no helper in `write/`, `validate` emits a
 `// TODO(kind)` comment instead of guessing, and the generator's summary lists
 every TODO. Today that covers integers/length bounds (`IntegerField`), string
-choices (a custom `field` parser in the handlers), dates, UUIDs, primary-key
-relations, list/many-related fields, nested serializers and file uploads. Add
-the helper to `write/` first; do not hand-write around the TODO.
+choices (a custom `field` parser in the handlers), dates, UUIDs, list/many-
+related fields, nested serializers and file uploads. Primary keys are
+supported by `write::fields::primary_key` + `Serializer::primary_key_field`:
+`Invalid pk "{value}" - object does not exist.` (code `does_not_exist`) after
+the SELECT, and Django's UUID `“{value}” is not a valid UUID.` for a malformed
+value. Add the missing helper to `write/` first; do not hand-write around the
+TODO.
 
 The two hand-ported pilots are the calibration: `--write-equivalence` compares
 the generated table with `stickies/write.rs::apply_body` and
