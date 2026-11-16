@@ -1,0 +1,583 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `pages` group, beyond the generated `pages.yaml`:
+# the beta project's public page (labels, a second project), the guest filters
+# of `list`/`summary` in a project with and without `guest_view_all_features`,
+# a soft-deleted and an archived project (the handler's own
+# `Project.objects.get` 404 versus a zero summary), every `order_by` value the
+# allowlist accepts plus two it rejects, `?search=` terms (including a `_` that
+# must be LIKE-escaped), `?fields=`/`?expand=`/`?ordering=`, which the plain
+# `PageSerializer` ignores, page versions of a page in another project and of
+# another page, three timezones, the live-access action/link branches, and the
+# description endpoint (which stays on Django: see `src/pages/mod.rs`).
+#
+# Deterministic against Django (`--a django --b django` is clean), then run
+# Django vs Rust. The two description steps are the known 501 on Rust.
+
+name: read-pages-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  # `PageViewSet.get_queryset` builds no set-derived lists, but the fixture's
+  # sessions and the other groups in the same run expect the seed pinned.
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  page_project: "a0eb70c7-531a-4fb1-bd48-6c746066c310"
+  page_child: "18f82377-df31-4ca7-9600-a0ac60def218"
+  page_grandchild: "120ee5a8-d39b-4fcf-9719-7a00562c7d8c"
+  page_public: "717c9337-5dc8-4270-88a6-6472c486a0d5"
+  page_private: "1d0ba1df-af27-4705-8ead-5b4c4ceceeaf"
+  page_locked: "2f4ab7d5-1db8-4b1b-9305-05e6985e02c4"
+  page_archived: "f73087a0-0b3f-4bb0-a8ba-5293670c42fa"
+  page_parent: "b3613ad7-ebd4-4cc9-aec3-a15eaa972482"
+  page_version_public_0: "09ee7a39-1f2c-4e71-9d68-a73aba762c6e"
+  page_version_child_0: "6474f478-f59d-4aba-b263-15cd5112a3e5"
+  label_cross_cutting: "6a68d88a-c0eb-4f42-9cab-84c915488824"
+  label_design_system: "3be976f6-630e-4a7e-829c-66cb027c2696"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- list: a second project, labels, project_ids --------------------------
+  - name: pe-01-list-beta-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-02-list-beta-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # guest is a beta member with role 5 and beta has guest_view_all_features
+  # false, so `list` narrows to pages the guest owns: none.
+  - name: pe-03-list-beta-guest-own-pages-only
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # epsilon enables guest_view_all_features, so the guest filter does not apply.
+  - name: pe-04-list-epsilon-guest-all-pages
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/pages/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # theta lives in the second workspace; nonmember is its admin.
+  - name: pe-05-list-theta-other-workspace
+    method: GET
+    path: "/api/workspaces/{{ws2}}/projects/{{project_theta}}/pages/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: pe-06-list-alpha-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      fields: "id,name"
+      expand: "owned_by"
+      ordering: "name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- list: every allowed order_by and the rejected forms ------------------
+  - name: pe-07-order-by-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      order_by: "name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-08-order-by-minus-updated-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      order_by: "-updated_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-09-order-by-sort-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      order_by: "sort_order"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-10-order-by-created-at-asc
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      order_by: "created_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Not in PAGE_ORDER_BY_ALLOWLIST and a double dash: both fall back to
+  # -created_at (`plane/utils/order_queryset.py:151-155`).
+  - name: pe-11-order-by-unknown
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      order_by: "owned_by__password"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-12-order-by-double-dash
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      order_by: "--created_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- list: SearchFilter -----------------------------------------------
+  - name: pe-13-search-one-term
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      search: "Alpha"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-14-search-two-terms
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      search: "Alpha Project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-15-search-no-match
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      search: "Handbook"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `_` is a LIKE wildcard; Django escapes it, so this matches nothing.
+  - name: pe-16-search-underscore-escaped
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    query:
+      search: "Alpha_Project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-17-search-with-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/"
+    query:
+      search: "Handbook"
+      order_by: "name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- summary ----------------------------------------------------------
+  - name: pe-18-summary-beta-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages-summary/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-19-summary-beta-guest-own-pages-only
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages-summary/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: pe-20-summary-epsilon-guest-all-pages
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_epsilon}}/pages-summary/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: pe-21-summary-empty-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/pages-summary/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # gamma is archived: the queryset's `projects__archived_at IS NULL` removes
+  # every page, but `Project.objects.get` still returns the row.
+  - name: pe-22-summary-archived-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/pages-summary/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # delta is soft-deleted: the permission class accepts the active membership,
+  # then the view's own `Project.objects.get(pk=...)` raises DoesNotExist.
+  - name: pe-23-summary-soft-deleted-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/pages-summary/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-24-list-soft-deleted-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/pages/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-25-summary-theta-other-workspace
+    method: GET
+    path: "/api/workspaces/{{ws2}}/projects/{{project_theta}}/pages-summary/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+
+  # --- retrieve ---------------------------------------------------------
+  - name: pe-26-retrieve-beta-public-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-27-retrieve-other-project-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_public}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-28-retrieve-wrong-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/00000000-0000-4000-8000-000000000000/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A malformed UUID does not match the `<uuid:page_id>` converter: Django's
+  # resolver answers 404 before any view runs.
+  - name: pe-29-retrieve-malformed-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Nested page that is not linked to any project.
+  - name: pe-30-retrieve-unlinked-grandchild
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_grandchild}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A private page (owned by member) with no project link.
+  - name: pe-31-retrieve-private-page-owner
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_private}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-32-retrieve-archived-page-not-linked
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-33-retrieve-locked-page-not-linked
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_locked}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `track_visit` is compared case-insensitively with "true"; "0" skips the
+  # enqueue.
+  - name: pe-34-retrieve-track-visit-zero
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/"
+    query:
+      track_visit: "0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-35-retrieve-track-visit-upper
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/"
+    query:
+      track_visit: "TRUE"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+  - name: pe-36-retrieve-search-and-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/"
+    query:
+      search: "Handbook"
+      order_by: "-name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-37-retrieve-search-no-match
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/"
+    query:
+      search: "Alpha"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- timezones --------------------------------------------------------
+  - name: pe-38-retrieve-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_project}}/"
+    jar: tz_kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: pe-39-list-newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: tz_newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  # tokyo is a beta member, not an alpha one.
+  - name: pe-40-list-tokyo-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/"
+    jar: tz_tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: pe-41-versions-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/versions/"
+    jar: tz_berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+
+  # --- versions ---------------------------------------------------------
+  - name: pe-42-versions-beta-public-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/versions/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-43-version-detail-beta-public
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/versions/{{page_version_public_0}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # The page belongs to alpha, not beta: the policy denies.
+  - name: pe-44-versions-page-of-other-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_child}}/versions/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # A version of another page under this page's URL: `.get()` is a 404.
+  - name: pe-45-version-detail-of-another-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/versions/{{page_version_child_0}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-46-version-detail-wrong-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/versions/00000000-0000-4000-8000-000000000000/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+
+  # --- live access ------------------------------------------------------
+  - name: pe-47-live-access-edit-beta-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/{{page_public}}/live-access/"
+    query:
+      action: "edit"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # The private page's owner is the member, so the owner branch grants edit.
+  - name: pe-48-live-access-edit-private-owner
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/{{page_private}}/live-access/"
+    query:
+      action: "edit"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # Same page, a different user: not a member of any project the page belongs
+  # to, so there is no link and the answer is the 404.
+  - name: pe-49-live-access-private-non-owner
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/{{page_private}}/live-access/"
+    query:
+      action: "view"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Nested private page in alpha: member is not the owner.
+  - name: pe-50-live-access-private-child-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/{{page_child}}/live-access/"
+    query:
+      action: "view"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-51-live-access-wrong-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/00000000-0000-4000-8000-000000000000/live-access/"
+    query:
+      action: "view"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The action match is exact and case-sensitive (`live.py:31-33`).
+  - name: pe-52-live-access-uppercase-action
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/{{page_public}}/live-access/"
+    query:
+      action: "VIEW"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-53-live-access-empty-action
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/{{page_public}}/live-access/"
+    query:
+      action: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # guest2 is not a beta member, so there is no link at all.
+  - name: pe-54-live-access-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/pages/{{page_public}}/live-access/"
+    query:
+      action: "view"
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+
+  # --- permission denials the policy owns (unchanged shapes) ------------
+  - name: pe-55-list-deleted-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: deleted_member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+  - name: pe-56-list-workspace-member-without-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+
+  # --- description endpoint (still Django; see src/pages/mod.rs) --------
+  - name: pe-57-description-beta-public
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_public}}/description/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-58-description-private-child-owner
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The two remaining `ORDER BY` clauses of the allowlist matrix; every other
+  # value is exercised above.
+  - name: pe-59-order-by-updated-at-asc
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/"
+    query:
+      order_by: "updated_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-60-order-by-minus-sort-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/"
+    query:
+      order_by: "-sort_order"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
