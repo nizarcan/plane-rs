@@ -173,6 +173,14 @@ invariants (each domain registers only its group's actions; every `rust` row in
 - Tasks for these routes stay Celery-owned and are published byte-identically. Known so
   far: `webhook_task.model_activity`, `webhook_task.webhook_activity` and
   `deletion_task.soft_delete_related_objects`.
+- Satellites merged (`6e7f76d3ac`): `write/projects-extra.yaml` 31/31 in both
+  directions; gates and 831 tests pass; the `projects`/`issues`/`views` reads are clean.
+  **Flipped:** 90 `rust(GET,PATCH)`, 147 `rust(POST)`, 149 `rust(GET,POST)`, 150
+  `rust(DELETE)`, 153 `rust(POST,DELETE)`, 154 `rust(GET,PATCH)`.
+- **Held:** deploy boards 151/152. The orchestrator's contract run (`--assume-rust`) has
+  2 failures on create: Rust answers 200, but Django's ORM finds no `DeployBoard` row.
+  The differential scenario missed it, because each side was consistent with itself.
+  Sent back with steps to add.
 - The first attempt overran: project create is one handler plus about 15 supporting
   pieces. Lesson: split heavy domains into shared pieces first, then parallel route
   sets.
