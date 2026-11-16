@@ -1,0 +1,594 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written extra cases for the `workspaces` group, run against the rich read
+# fixture template `plane_fix_tpl`. It complements the generated
+# `scenarios/read/workspaces.yaml`, which covers one request per identity per
+# route; this file adds:
+#
+#   * response-cache-free idempotence of the two GETs that create rows
+#     (`home-preferences/`, `sidebar-preferences/`): a second request must not
+#     insert anything;
+#   * `fields=` / `expand=` variants — these views never forward either to the
+#     serializer, so the bodies must be identical to the plain request;
+#   * five more users, so the same route renders in Europe/Berlin, Asia/Tokyo,
+#     America/New_York and Pacific/Auckland (the generated file only has
+#     UTC/Asia/Kolkata/Australia/Sydney callers, and no non-member beyond
+#     `fix.nonmember`);
+#   * wrong slugs and unknown/uppercase/absent `uuid:` path segments;
+#   * the issue-list extras of `/user-issues/`: a second page, `order_by`,
+#     filters, `group_by`/`sub_group_by` (including the 400 pair and an unknown
+#     group field), and a target user that is not a workspace member;
+#   * the upstream 500s: `user-stats/?priority=high` (an `issue_filters` lookup
+#     that cannot resolve on `IssueSubscriber`) and the two routes whose handler
+#     signature lacks the route's kwarg (already in the generated file, restated
+#     here with the other identities);
+#   * guest and non-member callers on the per-user endpoints.
+#
+# Sessions are the fixture's signed session rows, as in the generated file.
+
+name: read-workspaces-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  workspace_invite_id: "29664d31-6ced-4919-87c9-50edbcbb95bc"
+  workspace_member_ws_member: "8fcc0bc6-e248-4474-9579-329acd71e94e"
+  workspace_theme_0: "3968d242-913a-4871-aff7-9ed5a59ce05f"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_newyork_id: "2439a238-465d-452a-8136-f5e5840414cb"
+  user_lonely_id: "a69a1178-503e-4e62-a07b-f89c6af07687"
+  user_guest_id: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  missing_uuid: "00000000-0000-4000-8000-000000000001"
+  missing_uuid_upper: "00000000-0000-4000-8000-00000000000A"
+  favorite_project: "5ebb99fe-be66-47a5-85e8-956cfa114f97"
+  favorite_folder: "9110f4c5-226c-4ee5-9866-ba7c3043cfa7"
+  quick_link_0: "fd04c878-c81d-4ca3-a768-70eeafbfb7a3"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_lonely: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_invitee: "bee2ce8d1b4c4779957ca8eae897f3a2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- workspace-slug-check: taken, restricted, empty -----------------------
+  - name: extra-slug-check-taken
+    method: GET
+    path: "/api/workspace-slug-check/"
+    query:
+      slug: "{{ws}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-slug-check-restricted
+    method: GET
+    path: "/api/workspace-slug-check/"
+    query:
+      slug: "api"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-slug-check-empty
+    method: GET
+    path: "/api/workspace-slug-check/"
+    query:
+      slug: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- workspace retrieve: unknown slug, another timezone -------------------
+  - name: extra-workspace-unknown-slug
+    method: GET
+    path: "/api/workspaces/no-such-workspace/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-workspace-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+
+  # --- themes: fields=/expand= are not forwarded, unknown and bad pk -------
+  - name: extra-themes-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    query:
+      fields: "id,name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-themes-expand
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    query:
+      expand: "workspace"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-theme-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-theme-uppercase-pk
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{missing_uuid_upper}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- members: New York rendering, unknown pk, guest and non-member -------
+  - name: extra-members-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/members/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+  - name: extra-member-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/members/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-member-not-a-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/members/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-members-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/members/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+  - name: extra-member-me-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-members/me/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+  - name: extra-project-members-tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-members/"
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: extra-project-members-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-members/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+
+  # --- invitations: unknown id, unknown join, anonymous join ---------------
+  - name: extra-invitation-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/invitations/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-join-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/invitations/{{missing_uuid}}/join/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-join-anonymous
+    method: GET
+    path: "/api/workspaces/{{ws}}/invitations/{{workspace_invite_id}}/join/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.11
+
+  # --- user-stats: filters, other timezone, non-member caller --------------
+  - name: extra-user-stats-priority-filter
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-stats/{{user_member_id}}/"
+    query:
+      priority: "high"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-stats-project-filter
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-stats/{{user_member_id}}/"
+    query:
+      project: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-stats-created-at
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-stats/{{user_member_id}}/"
+    query:
+      created_at: "2026-01-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-stats-guest-self
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-stats/{{user_guest_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-user-stats-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-stats/{{user_member_id}}/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+  - name: extra-user-stats-target-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-stats/{{user_lonely_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-stats-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-stats/{{user_member_id}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+
+  # --- user-activity: paging, ordering, filters, timezones ----------------
+  - name: extra-user-activity-per-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-activity-page-two
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-activity-order-asc
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      order_by: "created_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-activity-order-updated
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      order_by: "-updated_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-activity-order-bogus
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      order_by: "password"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-activity-project-filter
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      project: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-activity-guest-self
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_guest_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-user-activity-bad-per-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      per_page: "0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-activity-bad-cursor
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"
+    query:
+      cursor: "nonsense"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- user-profile: other timezone, guest caller, non-member caller ------
+  - name: extra-user-profile-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-profile/{{user_member_id}}/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+  - name: extra-user-profile-target-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-profile/{{user_lonely_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-profile-guest-caller
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-profile/{{user_member_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-user-profile-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-profile/{{user_member_id}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+
+  # --- user-issues: paging, ordering, filters, grouping -------------------
+  - name: extra-user-issues-page-two
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-order-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      order_by: "name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-order-updated
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      order_by: "-updated_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-priority-filter
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      priority: "urgent"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-group-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      group_by: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-sub-grouped
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      group_by: "state_id"
+      sub_group_by: "priority"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-same-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      group_by: "state_id"
+      sub_group_by: "state_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-bad-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      group_by: "password"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-guest-self
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_guest_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-user-issues-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+  - name: extra-user-issues-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_member_id}}/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-user-issues-target-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-issues/{{user_lonely_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- user-properties: other timezone, non-member ------------------------
+  - name: extra-user-properties-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+  - name: extra-user-properties-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+
+  # --- favourites: unknown group id, guest caller, fields= ----------------
+  - name: extra-favorite-group-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-favorites/{{missing_uuid}}/group/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-favorites-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-favorites-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- quick links: unknown pk -------------------------------------------
+  - name: extra-quick-link-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/quick-links/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- the two GETs that create rows: a second request inserts nothing ----
+  - name: extra-home-preferences-member-first
+    method: GET
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    jar: lonely2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: extra-home-preferences-member-second
+    method: GET
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    jar: lonely2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  - name: extra-sidebar-preferences-new-york-first
+    method: GET
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+  - name: extra-sidebar-preferences-new-york-second
+    method: GET
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
+
+  # --- recent visits: entity_name narrowing, other timezone ---------------
+  - name: extra-recent-visits-issues
+    method: GET
+    path: "/api/workspaces/{{ws}}/recent-visits/"
+    query:
+      entity_name: "issue"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-recent-visits-pages
+    method: GET
+    path: "/api/workspaces/{{ws}}/recent-visits/"
+    query:
+      entity_name: "page"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-recent-visits-new-york
+    method: GET
+    path: "/api/workspaces/{{ws}}/recent-visits/"
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_newyork}}"
