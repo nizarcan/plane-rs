@@ -10,18 +10,18 @@
 //! `django_redis.cache.RedisCache` writes and what
 //! `rest_framework.throttling.SimpleRateThrottle` does with it:
 //!
-//! * [`cache`] — django-redis key making (`:1:<key>`), protocol-4 pickled
-//!   histories, `SET ... PX <ms>` and `GET`;
-//! * [`pickle`] — the encoder/decoder for `list[float]`, verified against
-//!   CPython's bytes;
+//! * [`cache`] — the throttle-shaped view of `plane_cache`: `:1:<key>` keys,
+//!   protocol-4 pickled histories, `SET ... PX <ms>` and `GET`;
 //! * [`rate`] — `parse_rate`, `wait()` and `time.time`;
 //! * [`classes`] — every throttle class Plane uses, with its scope, rate and
 //!   cache key;
 //! * [`throttle`] — `allow_request` and `check_throttles`, including the
 //!   non-atomic read-modify-write Django has;
-//! * [`render`] — the 429 body/headers and the auth-flow redirect;
-//! * [`redis`] — one lazy `ConnectionManager` per process, built from
-//!   `Settings` with redis-py's URL rules.
+//! * [`render`] — the 429 body/headers and the auth-flow redirect.
+//!
+//! The Redis connection and the pickle codec are [`plane_cache`]'s; this crate
+//! re-exports [`Redis`] and [`ParsedUrl`] from there so existing call sites
+//! keep working.
 //!
 //! The typical call site, in the order Django runs it (after authentication and
 //! permission checks, before the view body):
@@ -59,17 +59,15 @@
 pub mod cache;
 pub mod classes;
 pub mod error;
-pub mod pickle;
 pub mod rate;
-pub mod redis;
 pub mod render;
 pub mod throttle;
 
 pub use cache::Cache;
 pub use classes::ThrottleClass;
 pub use error::{Error, RateError};
+pub use plane_cache::{ParsedUrl, Redis};
 pub use rate::{Rate, now, parse_rate, wait};
-pub use redis::{ParsedUrl, Redis};
 pub use render::{
     RATE_LIMIT_EXCEEDED_CODE, RATE_LIMIT_EXCEEDED_MESSAGE, ThrottleRejection,
     rate_limit_redirect_url,

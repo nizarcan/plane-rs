@@ -68,6 +68,18 @@ pub const GZIP_RANDOM_WHY: &str = "Django's gzip adds a random 1-100 byte filena
 pub const REDIS_FLOAT_WHY: &str =
     "Redis timestamps (throttle histories) are float seconds relative to the step clock";
 pub const SESSION_SIGNED_AT_KEY: &str = "$signed_at";
+/// Django's page-cache key for one response
+/// (`django/utils/cache.py:_generate_cache_key`), under django-redis's `:1:`.
+pub const DJANGO_PAGE_KEY: &str = "views.decorators.cache.cache_page.";
+/// Django's per-URL registry of the `Vary` header list that went into the key
+/// (`learn_cache_key`). Rust has no second key: the handler computes the list
+/// itself, so this entry has no counterpart and is dropped.
+pub const DJANGO_PAGE_HEADER_KEY: &str = "views.decorators.cache.cache_header.";
+/// `plane_cache::page::KEY_PREFIX`: the Rust page cache's own namespace
+/// (DECISIONS.md D5a).
+pub const RUST_PAGE_KEY: &str = "plane_rs.cache_page.";
+pub const PAGE_CACHE_HEADER_WHY: &str = "Django's page cache needs a second key to remember the Vary header list; Rust computes the list itself, so the registry key has no counterpart (DECISIONS.md D5a)";
+pub const PAGE_CACHE_WHY: &str = "page-cache entries live in different key namespaces and value formats by design (DECISIONS.md D5a); presence and the TTL bucket are compared, not the key name or the value";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BodyValue {
@@ -685,6 +697,13 @@ impl TargetNormalizer {
                 }
             }
             RuleMode::UnixTime => self.normalize_unix_time(value),
+            RuleMode::HttpDate => {
+                if let Value::String(text) = value
+                    && let Some(relative) = self.relative_expiry(text)
+                {
+                    *value = Value::String(relative);
+                }
+            }
             RuleMode::SessionPayload => self.apply_session_payload(rule, value, path),
             RuleMode::Password => self.apply_password(rule, value, path),
             RuleMode::Drop => {}
@@ -976,6 +995,7 @@ impl TargetNormalizer {
                     RuleMode::SessionPayload => "<session>",
                     RuleMode::RelativeTime => "<relative>",
                     RuleMode::UnixTime => "<epoch>",
+                    RuleMode::HttpDate => "<http-date>",
                     RuleMode::Drop => "<dropped>",
                 }),
                 None => out.push_str(&self.mask_text(&value.to_string())),
@@ -1111,8 +1131,34 @@ impl TargetNormalizer {
         let mut changed = BTreeMap::new();
         let mut removed = BTreeSet::new();
         let mut seen: BTreeSet<Vec<u8>> = BTreeSet::new();
+        // Page-cache entries are numbered per TTL bucket so a wrong timeout
+        // shows up as a different placeholder name (DECISIONS.md D5a).
+        let mut page_cache_index: BTreeMap<i64, usize> = BTreeMap::new();
         for raw in keys {
-            let normalised = self.normalize_redis_key(&raw);
+            let entry = diff
+                .added
+                .get(&raw)
+                .or_else(|| diff.changed.get(&raw))
+                .cloned();
+            let mut is_page = false;
+            let normalised = match page_cache_key(&raw) {
+                Some(PageCacheKey::Header) => {
+                    // No counterpart on the Rust side; its presence is implied
+                    // by the page entry it describes.
+                    self.record("redis:page-cache-header", PAGE_CACHE_HEADER_WHY);
+                    continue;
+                }
+                Some(PageCacheKey::Page) => {
+                    is_page = true;
+                    let ttl = entry.as_ref().map_or(-1, |entry| entry.ttl_ms);
+                    let bucket = page_cache_ttl_bucket(ttl);
+                    let index = page_cache_index.entry(bucket).or_insert(0);
+                    *index += 1;
+                    self.record("redis:page-cache", PAGE_CACHE_WHY);
+                    format!(":1:<page-cache:{bucket}:{index}>").into_bytes()
+                }
+                None => self.normalize_redis_key(&raw),
+            };
             if !seen.insert(normalised.clone()) {
                 self.violations.push(Violation::new(
                     "redis",
@@ -1122,11 +1168,17 @@ impl TargetNormalizer {
                 continue;
             }
             if let Some(mut entry) = diff.added.get(&raw).cloned() {
+                if is_page {
+                    self.normalize_page_cache_entry(&mut entry);
+                }
                 self.normalize_redis_entry(&mut entry, &normalised);
                 added.insert(normalised, entry);
                 continue;
             }
             if let Some(mut entry) = diff.changed.get(&raw).cloned() {
+                if is_page {
+                    self.normalize_page_cache_entry(&mut entry);
+                }
                 self.normalize_redis_entry(&mut entry, &normalised);
                 changed.insert(normalised, entry);
                 continue;
@@ -1136,6 +1188,13 @@ impl TargetNormalizer {
         diff.added = added;
         diff.changed = changed;
         diff.removed = removed;
+    }
+
+    /// A page-cache entry's value and byte length are format-specific by
+    /// design (D5a), so only its type and TTL are compared.
+    fn normalize_page_cache_entry(&self, entry: &mut RedisEntry) {
+        entry.size = 0;
+        entry.value = Some(Value::String("<page-cache>".to_string()));
     }
 
     fn normalize_redis_key(&mut self, raw: &[u8]) -> Vec<u8> {
@@ -1335,6 +1394,44 @@ pub fn hex_encode(bytes: &[u8]) -> String {
         out.push(HEX[(byte & 0x0f) as usize] as char);
     }
     out
+}
+
+/// `django.utils.http.http_date`, for the selftest.
+pub fn http_date_for_test(epoch_seconds: i64) -> String {
+    use chrono::{DateTime, Utc};
+    DateTime::<Utc>::from_timestamp(epoch_seconds, 0)
+        .map(|moment| moment.format("%a, %d %b %Y %H:%M:%S GMT").to_string())
+        .unwrap_or_default()
+}
+
+/// Which page-cache key family a Redis key belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PageCacheKey {
+    /// Django's `views.decorators.cache.cache_header..` registry entry.
+    Header,
+    /// A page entry: Django's `cache_page..` or Rust's `plane_rs.cache_page.`.
+    Page,
+}
+
+fn page_cache_key(raw: &[u8]) -> Option<PageCacheKey> {
+    let text = String::from_utf8_lossy(raw);
+    if text.contains(DJANGO_PAGE_HEADER_KEY) {
+        Some(PageCacheKey::Header)
+    } else if text.contains(DJANGO_PAGE_KEY) || text.contains(RUST_PAGE_KEY) {
+        Some(PageCacheKey::Page)
+    } else {
+        None
+    }
+}
+
+/// A page entry's `PTTL` rounded to the nearest 10 s. Two targets snapshot the
+/// same key a moment apart, so 7199 ms and 7200 ms must land in one bucket; a
+/// genuinely different timeout (3600 vs 7200) does not.
+fn page_cache_ttl_bucket(ttl_ms: i64) -> i64 {
+    if ttl_ms < 0 {
+        return -1;
+    }
+    (ttl_ms + 5_000) / 10_000
 }
 
 #[cfg(test)]

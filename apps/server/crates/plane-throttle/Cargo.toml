@@ -12,23 +12,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# DECISIONS.md D5: `redis` 1.8 with a multiplexed `ConnectionManager`.
-# `tokio-rustls-comp` brings TLS for `rediss://`; `tls-rustls-insecure` is what
-# redis-rs requires to honour `ssl_cert_reqs=none` (an existing deployment
-# option, ENV.md §1.4). DECISIONS.md D9 (one crypto provider, aws-lc-rs) is
-# satisfied by enabling `aws_lc_rs` on the `rustls` dependency the crate pulls
-# in indirectly, because Cargo unifies features across one build.
-redis = { version = "1.8", default-features = false, features = [
-  "tokio-comp",
-  "connection-manager",
-  "tokio-rustls-comp",
-  "tls-rustls-insecure",
-] }
-rustls = { workspace = true, default-features = false, features = [
-  "aws_lc_rs",
-  "std",
-  "tls12",
-] }
+# The cache client (and its Redis connection) lives in `plane-cache`: one
+# django-redis implementation for throttles, response caching and page caching.
+plane-cache = { path = "../plane-cache" }
 
 http.workspace = true
 # `plane_auth::RequestUser` is the production `request.user`; the throttle

@@ -23,7 +23,8 @@
 //!    between the two runs.
 //!
 //! Requires `PLANE_RS_TEST_REDIS_URL` pointing at an isolated dev database
-//! (9, 10 or 11 — the test refuses anything else because it calls `FLUSHDB`).
+//! (9-11, 13 or 14 — the test refuses anything else because it calls
+//! `FLUSHDB`).
 //! Without the variable the test is skipped with a notice unless
 //! `PLANE_RS_REQUIRE_DB_TESTS=1`.
 
@@ -369,8 +370,8 @@ fn test_redis_url() -> Option<String> {
 fn checked_redis(url: &str) -> Redis {
     let parsed = ParsedUrl::parse(url).expect("PLANE_RS_TEST_REDIS_URL must parse");
     assert!(
-        matches!(parsed.db, 9..=11),
-        "the interop test only runs against Redis databases 9-11 (got {}): it FLUSHDBs them",
+        matches!(parsed.db, 9..=11 | 13 | 14),
+        "the interop test only runs against Redis databases 9-11 or 13-14 (got {}): it FLUSHDBs them",
         parsed.db
     );
     Redis::from_url(url).expect("redis client")
@@ -543,8 +544,7 @@ async fn rust_trace(
                     buckets.push(Bucket {
                         key: Some(key),
                         full_key: Some(full),
-                        value_hex: value
-                            .map(|bytes| plane_throttle::pickle::to_hex(bytes.as_slice())),
+                        value_hex: value.map(|bytes| plane_cache::hex(bytes.as_slice())),
                         ttl: Some(ttl),
                     });
                 }
@@ -553,7 +553,7 @@ async fn rust_trace(
                         .get_raw(&make_key_opt(None))
                         .await
                         .expect("get :1:None")
-                        .map(|bytes| plane_throttle::pickle::to_hex(bytes.as_slice()))
+                        .map(|bytes| plane_cache::hex(bytes.as_slice()))
                 } else {
                     None
                 };
@@ -613,7 +613,7 @@ async fn rust_trace(
                     allowed: None,
                     key: Some(key.clone()),
                     full_key: Some(full),
-                    value_hex: value.map(|bytes| plane_throttle::pickle::to_hex(bytes.as_slice())),
+                    value_hex: value.map(|bytes| plane_cache::hex(bytes.as_slice())),
                     ttl: Some(ttl),
                     wait: None,
                     meta: BTreeMap::new(),
@@ -631,7 +631,7 @@ async fn rust_trace(
                     allowed: None,
                     key: Some(key.clone()),
                     full_key: Some(full),
-                    value_hex: value.map(|bytes| plane_throttle::pickle::to_hex(bytes.as_slice())),
+                    value_hex: value.map(|bytes| plane_cache::hex(bytes.as_slice())),
                     ttl: Some(ttl),
                     wait: None,
                     meta: BTreeMap::new(),

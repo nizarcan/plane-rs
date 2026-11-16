@@ -181,11 +181,18 @@ fn rules() -> Arc<NormalizeRules> {
             placeholder("background_color", "colour", "hex_colour"),
             named("epoch", "whole-second wall clock", RuleMode::UnixTime),
         ],
-        volatile_headers: vec![named(
-            "X-RateLimit-Reset",
-            "now + the throttle window",
-            RuleMode::UnixTime,
-        )],
+        volatile_headers: vec![
+            named(
+                "X-RateLimit-Reset",
+                "now + the throttle window",
+                RuleMode::UnixTime,
+            ),
+            named(
+                "Expires",
+                "cache_page writes http_date(now + 7200)",
+                RuleMode::HttpDate,
+            ),
+        ],
         volatile_celery_headers: vec![
             named("id", "celery task id", RuleMode::Drop),
             named("root_id", "celery root id", RuleMode::Drop),
@@ -905,6 +912,157 @@ pub fn run() -> Result<()> {
             .and_then(Value::as_array)
             .map(|values| values[0] == json!("<now>") && values[1] == json!("<now>"))
             .unwrap_or(false),
+    )?;
+
+    // -- page cache (DECISIONS.md D5a) ------------------------------------
+    // `Expires` is `http_date(now + 7200)`: the wall-clock value differs per
+    // target, the offset from the step clock does not.
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    let expires_a = crate::normalize::http_date_for_test(start.timestamp() + 7200);
+    let expires_b = crate::normalize::http_date_for_test(start.timestamp() + 7202);
+    let headers_a = a.normalize_headers(&[("Expires".to_string(), expires_a)]);
+    let headers_b = b.normalize_headers(&[("Expires".to_string(), expires_b)]);
+    checks.accepted(
+        "page-cache Expires two seconds apart",
+        &compare_headers(&headers_a, &headers_b),
+    )?;
+    checks.ok(
+        "Expires becomes <expires+7200s>",
+        headers_a[0].1 == "<expires+7200s>" && headers_b[0].1 == "<expires+7200s>",
+    )?;
+    let wrong_expires = b.normalize_headers(&[(
+        "Expires".to_string(),
+        crate::normalize::http_date_for_test(start.timestamp() + 60),
+    )]);
+    checks.detected(
+        "a page-cache Expires with the wrong age",
+        "headers",
+        &compare_headers(&headers_a, &wrong_expires),
+    )?;
+    // A cached hit serves the stored `Expires`, which is still `now + 7200`
+    // from *its* store time - but a hit that re-derived `Expires` instead of
+    // serving the stored header would be thousands of seconds off.
+    let stale_expires = b.normalize_headers(&[(
+        "Expires".to_string(),
+        crate::normalize::http_date_for_test(start.timestamp() - 3600),
+    )]);
+    checks.detected(
+        "an Expires from before the step",
+        "headers",
+        &compare_headers(&headers_a, &stale_expires),
+    )?;
+
+    // `Age` is `int(now) - int(stored_at)`; the two targets observe the hit a
+    // moment apart, so one second of skew is accepted and nothing more.
+    let age_5 = vec![("Age".to_string(), "5".to_string())];
+    for (label, other, expected) in [
+        ("one second apart", "6", true),
+        ("identical", "5", true),
+        ("two seconds apart", "7", false),
+        ("an hour apart", "3605", false),
+    ] {
+        let differences = compare_headers(&age_5, &[("Age".to_string(), other.to_string())]);
+        checks.ok(
+            &format!(
+                "page-cache Age {label} is {}",
+                if expected { "accepted" } else { "detected" }
+            ),
+            differences.is_empty() == expected,
+        )?;
+    }
+    checks.detected(
+        "an Age only one side sends",
+        "headers",
+        &compare_headers(&age_5, &[]),
+    )?;
+    checks.detected(
+        "a non-numeric Age",
+        "headers",
+        &compare_headers(&age_5, &[("Age".to_string(), "old".to_string())]),
+    )?;
+
+    // Page-cache Redis keys: Django writes a page key plus a `cache_header..`
+    // registry key, Rust writes one key in its own namespace. Presence and the
+    // TTL bucket are compared, nothing else.
+    let mut a = normalizer("http://127.0.0.1:18000");
+    let mut b = normalizer("http://127.0.0.1:18001");
+    a.start_step(start, start);
+    b.start_step(start, start);
+    let digest_a = "11111111111111111111111111111111";
+    let digest_b = "22222222222222222222222222222222";
+    let mut page_a = RedisDiff::default();
+    page_a.added.insert(
+        format!(":1:views.decorators.cache.cache_header..{digest_a}.en-us.UTC").into_bytes(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 4,
+            ttl_ms: 7_200_000,
+            value: Some(json!([])),
+        },
+    );
+    page_a.added.insert(
+        format!(":1:views.decorators.cache.cache_page..GET.{digest_a}.{digest_a}.en-us.UTC")
+            .into_bytes(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 900,
+            ttl_ms: 7_200_000,
+            // Django pickles a `Response`; the harness cannot read it.
+            value: None,
+        },
+    );
+    let mut page_b = RedisDiff::default();
+    page_b.added.insert(
+        format!(":1:plane_rs.cache_page.GET.{digest_b}.{digest_b}.en-us.UTC").into_bytes(),
+        RedisEntry {
+            kind: "string".to_string(),
+            size: 120,
+            ttl_ms: 7_198_500,
+            value: Some(json!({"$bytes": "50525331"})),
+        },
+    );
+    a.normalize_redis_diff(&mut page_a);
+    b.normalize_redis_diff(&mut page_b);
+    checks.ok(
+        "the cache_header registry key is dropped",
+        page_a.added.len() == 1
+            && page_a
+                .added
+                .keys()
+                .all(|key| String::from_utf8_lossy(key).contains("page-cache")),
+    )?;
+    checks.accepted(
+        "a Django page key and a Rust page key match",
+        &compare_redis(&page_a, &page_b),
+    )?;
+    checks.ok(
+        "page-cache keys are named by TTL bucket",
+        page_a
+            .added
+            .keys()
+            .next()
+            .map(|key| String::from_utf8_lossy(key).into_owned())
+            == Some(":1:<page-cache:720:1>".to_string()),
+    )?;
+
+    let mut page_missing = page_b.clone();
+    page_missing.added.clear();
+    checks.detected(
+        "a page-cache entry only one side stored",
+        "redis",
+        &compare_redis(&page_a, &page_missing),
+    )?;
+    let mut page_wrong_ttl = page_b.clone();
+    for entry in page_wrong_ttl.added.values_mut() {
+        entry.ttl_ms = 3_600_000;
+    }
+    checks.detected(
+        "a page-cache entry with a different timeout",
+        "redis",
+        &compare_redis(&page_a, &page_wrong_ttl),
     )?;
 
     // -- DB diffs ----------------------------------------------------------

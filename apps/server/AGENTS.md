@@ -84,6 +84,10 @@ index or key prefix, and your own RabbitMQ vhost. Drop what you create when done
   ```
 - Must pass, from `apps/server/`: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+- `crates/plane-testkit` is a separate Cargo workspace (feature isolation, see
+  DECISIONS.md). The root commands above do not reach it: if you touch it, also run
+  `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`
+  inside `apps/server/crates/plane-testkit/`.
 - `unsafe` is forbidden outside the global-allocator declaration.
 - No `unwrap()`/`expect()` on request paths; errors map to the DRF-compatible error type
   in `plane-core`.

@@ -38,8 +38,8 @@ use crate::cache::Cache;
 use crate::classes::{ThrottleClass, ident_for};
 use crate::error::Error;
 use crate::rate::{Rate, wait};
-use crate::redis::Redis;
 use crate::render::ThrottleRejection;
+use plane_cache::Redis;
 use plane_core::config::ThrottlingSettings;
 
 /// The parts of `request.user` that DRF throttles read: `is_authenticated` and

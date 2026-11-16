@@ -35,10 +35,11 @@ use redis::aio::ConnectionManager;
 use redis::{Client, TlsCertificates};
 use tokio::sync::OnceCell;
 
-use crate::error::Error;
 use plane_core::Settings;
 use plane_core::config::RedisSettings;
 use plane_core::py;
+
+use crate::error::Error;
 
 /// How long a command may wait for a reply. django-redis leaves the redis-py
 /// default (`socket_timeout=None`, no timeout) but a hung Redis must not pin a
@@ -150,6 +151,32 @@ impl Redis {
         Ok(value)
     }
 
+    /// `MGET`, the command `DefaultClient.get_many` issues.
+    pub async fn mget(&self, full_keys: &[String]) -> Result<Vec<Option<Vec<u8>>>, Error> {
+        if full_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut connection = self.connection().await?;
+        let mut command = redis::cmd("MGET");
+        for key in full_keys {
+            command.arg(key);
+        }
+        let values: Vec<Option<Vec<u8>>> = command.query_async(&mut connection).await?;
+        Ok(values)
+    }
+
+    /// `SET key value`, the command `DefaultClient.set` issues without a
+    /// timeout.
+    pub async fn set_bytes(&self, full_key: &str, value: &[u8]) -> Result<(), Error> {
+        let mut connection = self.connection().await?;
+        let _: () = redis::cmd("SET")
+            .arg(full_key)
+            .arg(value)
+            .query_async(&mut connection)
+            .await?;
+        Ok(())
+    }
+
     /// `SET key value PX <milliseconds>`, the command `DefaultClient.set`
     /// issues with a timeout (`django_redis/client/default.py:257-283`).
     pub async fn set_bytes_px(
@@ -169,7 +196,7 @@ impl Redis {
         Ok(())
     }
 
-    /// `DEL`, used only for the non-positive-timeout branch of `cache.set`.
+    /// `DEL key`. Returns whether a key was removed.
     pub async fn del(&self, full_key: &str) -> Result<bool, Error> {
         let mut connection = self.connection().await?;
         let deleted: i64 = redis::cmd("DEL")
@@ -177,6 +204,40 @@ impl Redis {
             .query_async(&mut connection)
             .await?;
         Ok(deleted > 0)
+    }
+
+    /// `DEL key...`. Returns how many keys were removed.
+    ///
+    /// An empty list issues no command, which is what
+    /// `DefaultClient.delete_many` does (`default.py:527-548`).
+    pub async fn del_many(&self, full_keys: &[String]) -> Result<usize, Error> {
+        if full_keys.is_empty() {
+            return Ok(0);
+        }
+        let mut connection = self.connection().await?;
+        let mut command = redis::cmd("DEL");
+        for key in full_keys {
+            command.arg(key);
+        }
+        let deleted: i64 = command.query_async(&mut connection).await?;
+        Ok(usize::try_from(deleted).unwrap_or(0))
+    }
+
+    /// `KEYS <pattern>`, the command `DefaultClient.keys` issues.
+    ///
+    /// `KEYS` walks the whole keyspace and blocks the server for the duration,
+    /// which is why `delete_pattern`/`iter_keys` exist. `plane/utils/cache.py`
+    /// calls `cache.keys(f"*{key}*")` anyway, so the port issues the same
+    /// command instead of silently switching to `SCAN`: the server-side cost,
+    /// the latency spike and the blocking behaviour are part of the behaviour
+    /// being reproduced (`django_redis/client/default.py:851-874`).
+    pub async fn keys(&self, pattern: &str) -> Result<Vec<String>, Error> {
+        let mut connection = self.connection().await?;
+        let keys: Vec<String> = redis::cmd("KEYS")
+            .arg(pattern)
+            .query_async(&mut connection)
+            .await?;
+        Ok(keys)
     }
 
     /// `PTTL` of a full key in milliseconds (`-1` no TTL, `-2` missing).
@@ -482,9 +543,9 @@ mod tests {
         assert_eq!(parsed.client_url(), "redis://plane-redis:6379/0");
         assert!(!parsed.tls());
 
-        let parsed = ParsedUrl::parse("redis://127.0.0.1:56379/9").unwrap();
-        assert_eq!(parsed.db, 9);
-        assert_eq!(parsed.client_url(), "redis://127.0.0.1:56379/9");
+        let parsed = ParsedUrl::parse("redis://127.0.0.1:56379/13").unwrap();
+        assert_eq!(parsed.db, 13);
+        assert_eq!(parsed.client_url(), "redis://127.0.0.1:56379/13");
 
         // `?db=` overrides the path (redis-py: "querystring value wins").
         let parsed = ParsedUrl::parse("redis://host:6379/9?db=3").unwrap();

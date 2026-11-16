@@ -12,31 +12,11 @@
 /// Why a throttle could not be evaluated.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// `REDIS_URL` is unset for a role that needs Redis (`ENV.md` §0).
-    #[error("REDIS_URL is not set")]
-    RedisUrlMissing,
-
-    /// `redis-py` rejects anything but `redis://`, `rediss://`, `unix://`
-    /// (`redis/connection.py:882-891`); Django raises `ValueError` at import.
-    #[error("Redis URL must specify one of the following schemes (redis://, rediss://, unix://)")]
-    RedisUrlScheme,
-
-    /// A malformed `REDIS_URL` part (port, db, escaped userinfo).
-    #[error("invalid REDIS_URL: {0}")]
-    RedisUrl(&'static str),
-
-    /// `REDIS_SSL_CERT_REQS` outside `none`/`optional`/`required`, which
-    /// `redis.connection.SSLConnection` rejects (`connection.py:726-729`).
-    #[error("Invalid SSL Certificate Requirements Flag: {0}")]
-    SslCertReqs(String),
-
-    /// `REDIS_SSL_CA_CERTS` could not be read.
-    #[error("cannot read REDIS_SSL_CA_CERTS: {0}")]
-    SslCaCerts(String),
-
-    /// The Redis connection or command failed.
-    #[error("redis: {0}")]
-    Redis(#[from] redis::RedisError),
+    /// The cache could not be read or written: a Redis failure, a malformed
+    /// `REDIS_URL`, a TLS option redis-py would reject, or a value whose
+    /// pickle cannot be decoded. `plane_cache::Error` carries the detail.
+    #[error(transparent)]
+    Cache(#[from] plane_cache::Error),
 
     /// `DRF`'s `parse_rate` failed: `ValueError` on the split or the integer,
     /// `IndexError` on an empty period, `KeyError` on an unknown period.

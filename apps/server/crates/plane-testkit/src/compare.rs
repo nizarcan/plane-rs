@@ -136,6 +136,9 @@ pub fn compare_headers(a: &[(String, String)], b: &[(String, String)]) -> Vec<Di
                 }
                 for (index, (a_value, b_value)) in a_values.iter().zip(b_values.iter()).enumerate()
                 {
+                    if age_within_one_second(name, a_value, b_value) {
+                        continue;
+                    }
                     if a_value != b_value {
                         out.push(
                             Difference::new(
@@ -160,6 +163,23 @@ pub fn compare_headers(a: &[(String, String)], b: &[(String, String)]) -> Vec<Di
         }
     }
     out
+}
+
+/// `Age` is `int(now) - int(stored_at)` for a page-cache hit
+/// (`FetchFromCacheMiddleware.process_request`). The two targets store the
+/// page and observe the hit at their own wall-clock instants, so a second
+/// boundary can legitimately put them one second apart. Every other header is
+/// compared exactly, and so is `Age` when the two differ by more than one —
+/// including when only one side sends it, which means one side hit the cache
+/// and the other did not.
+fn age_within_one_second(name: &str, a: &str, b: &str) -> bool {
+    if !name.eq_ignore_ascii_case("age") {
+        return false;
+    }
+    let (Ok(a), Ok(b)) = (a.trim().parse::<i64>(), b.trim().parse::<i64>()) else {
+        return false;
+    };
+    (a - b).abs() <= 1
 }
 
 fn header_map(headers: &[(String, String)]) -> BTreeMap<String, Vec<String>> {

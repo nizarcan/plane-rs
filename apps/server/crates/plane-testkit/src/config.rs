@@ -529,6 +529,11 @@ pub enum RuleMode {
     /// A Unix timestamp in seconds close to the step clock: replace with
     /// `<epoch>`.
     UnixTime,
+    /// An HTTP date (RFC 5322) compared as an offset from the step clock,
+    /// rounded to 10 s — the same rule a cookie's `Expires` gets. Used for a
+    /// page-cache response's `Expires`, which is `http_date(now + timeout)`
+    /// (`django/utils/cache.py:patch_response_headers`).
+    HttpDate,
     /// A Django signed session payload: verify the signature with the target's
     /// `SECRET_KEY`, decode it, and replace the value with the decoded
     /// dictionary so both targets compare structurally.
@@ -781,7 +786,7 @@ fn validate_spec(
                 bail!("normalize: {what} rule {name:?}: `placeholder` does not apply to this mode");
             }
         }
-        RuleMode::RelativeTime | RuleMode::UnixTime => {
+        RuleMode::RelativeTime | RuleMode::UnixTime | RuleMode::HttpDate => {
             if spec.placeholder.is_some() {
                 bail!("normalize: {what} rule {name:?}: `placeholder` does not apply to this mode");
             }

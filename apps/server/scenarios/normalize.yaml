@@ -92,6 +92,39 @@ volatile_headers:
   - name: X-RateLimit-Reset
     mode: unix_time
     why: "int(now + throttle duration), an absolute Unix timestamp (plane/api/views/base.py:123-136)"
+  # `cache_page` sets `Expires = http_date(now + page_timeout)` on a miss
+  # (django/utils/cache.py:patch_response_headers). The wall-clock value
+  # differs between the two targets, so it is compared as `<expires+Ns>` from
+  # the step clock, rounded to 10 s - the same rule a cookie's `Expires` gets.
+  # A cached hit serves the *stored* `Expires` unchanged, so the offset grows
+  # with the age of the entry: `<expires+7200s>` right after the store,
+  # `<expires+N+7200s>` N seconds later. Both targets therefore keep serving
+  # the same offset for the same step, and a hit that re-derived the header
+  # instead of serving the stored one is off by thousands of seconds.
+  - name: Expires
+    mode: http_date
+    why: "cache_page writes http_date(now + 7200); the age from the step clock is what must match (django/utils/cache.py:patch_response_headers)"
+
+# Two rules are built in rather than configurable, because both need something
+# outside a single value:
+#
+#   * `Age` (cache_page hits) is `int(now) - int(stored_at)`
+#     (django/middleware/cache.py:FetchFromCacheMiddleware.process_request).
+#     Each target stores the page and observes the hit at its own wall-clock
+#     instant, so the two can legitimately differ by one second; the comparator
+#     accepts a difference of at most one and nothing else. One side sending
+#     `Age` and the other not is always a difference: it means one side served
+#     from the page cache and the other did not.
+#
+#   * Page-cache Redis keys live in different namespaces by design
+#     (DECISIONS.md D5a): Django writes `views.decorators.cache.cache_page..`
+#     plus a `cache_header..` registry entry and pickles a `Response` object;
+#     Rust writes `plane_rs.cache_page.` and its own binary format. The
+#     normaliser maps both page keys to `:1:<page-cache:<ttl-bucket>:<n>>`
+#     (10-second buckets, so a millisecond of skew does not matter while a
+#     3600 s timeout still differs from 7200 s), drops the value, and drops the
+#     `cache_header..` registry key, which has no Rust counterpart. Presence
+#     and TTL bucket are therefore compared; key names and values are not.
 
 # Intermediate and final timestamps are compared to an exact value only when
 # they fall outside [request start - slack, response end + slack].

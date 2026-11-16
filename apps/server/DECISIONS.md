@@ -70,6 +70,36 @@ workspace `Cargo.toml` and upgrade deliberately.
   backends must share them (throttle histories). Rust does not cache responses itself;
   it does invalidate the Django cache keys a Django write would invalidate.
 
+## D5a. Page cache (`cache_page`): same behaviour, separate namespace (decided)
+
+- One Plane view uses Django's page cache: `TimezoneEndpoint.get`
+  (`plane/app/views/timezone/base.py:23`, `cache_page(60 * 60 * 2)`), which is
+  `CacheMiddleware` with `page_timeout=7200`.
+- Rust reproduces everything a client can observe: the entry lives for 7200 s,
+  a miss carries `Expires`
+  (`http_date(now + 7200)`) and `Cache-Control: max-age=7200`
+  (`django/utils/cache.py:patch_response_headers`), a hit serves the stored
+  status, headers and body unchanged plus
+  `Age = max(0, max_age - (expires - now))`
+  (`django/middleware/cache.py:FetchFromCacheMiddleware.process_request`),
+  `GET`/`HEAD` only, `200` only, and the same store-suppressing guards
+  (`private`/`no-cache`/`no-store`, `Vary: *`, a cookie with `Vary: Cookie`).
+  Entries are shared across replicas through the same Redis.
+- Rust does **not** use Django's keys. Django pickles a
+  `rest_framework.response.Response` object under
+  `:1:views.decorators.cache.cache_page.<prefix>.<method>.<md5(uri)>.<md5(headers)>.<lang>.<tz>`
+  (plus a `cache_header..` registry key); Rust writes
+  `:1:plane_rs.cache_page.<method>.<md5(uri)>.<md5(headers)>.<lang>.<tz>` in a
+  private binary format (`plane_cache::page`). Routing the endpoint back to
+  Django therefore never makes Django `pickle.loads` a Rust-written value, and
+  the reverse is impossible because Rust never reads Django's keys.
+- The differential harness bridges the two: page-cache keys are matched by
+  presence and 10-second TTL bucket only, their values are not compared, and
+  Django's `cache_header..` registry key (which has no Rust counterpart) is
+  dropped. `Age` is compared with a one-second tolerance (the two targets store
+  and observe at their own wall-clock instants); one side sending it and the
+  other not is always a difference.
+
 ## D6. Object storage: a small SigV4 client (`rusty-s3` + `reqwest`) instead of `aws-sdk-s3` (provisional)
 
 - `aws-sdk-s3` costs build time, binary size and memory for a handful of operations
