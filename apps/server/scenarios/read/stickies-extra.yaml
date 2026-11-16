@@ -1,0 +1,188 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written extra steps for the `stickies` group. What the generated file
+# does not cover:
+#
+#   * the `OffsetPaginator` envelope: `per_page`, the next/previous cursor, and
+#     every parse/validation error (`per_page` not an int, <= 0, > 1000, a
+#     malformed cursor, a negative offset);
+#   * the `is_prev` branch whose negative re-slice Django refuses (`ValueError`
+#     -> 500) — `cursor=5:0:1`;
+#   * the `query` filter, including LIKE metacharacters (`_`, `%`) that Django
+#     escapes;
+#   * a second workspace, a non-member and a guest who owns no sticky.
+
+name: read-stickies-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  sticky_1: "af997032-2357-46f5-a77e-59b47c0358e9"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: stickies-x-per-page-one
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      per_page: "1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-per-page-one-second-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      per_page: "1"
+      cursor: "1:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-per-page-two
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-per-page-zero
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      per_page: "0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-per-page-not-an-int
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      per_page: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-per-page-above-max
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      per_page: "1001"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-cursor-malformed
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      cursor: "not-a-cursor"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-cursor-negative-offset
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      cursor: "20:-1:1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-cursor-prev-with-other-value
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      cursor: "5:0:1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-query-release
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      query: "Release"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-query-underscore-is-literal
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      query: "_"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-query-percent-is-literal
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      query: "%"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-query-case-insensitive
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      query: "interview"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: stickies-x-query-empty-is-no-filter
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      query: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: stickies-x-guest-query
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    query:
+      query: "Release"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: stickies-x-second-workspace
+    method: GET
+    path: "/api/workspaces/{{ws2}}/stickies/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+  - name: stickies-x-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: stickies-x-detail-guard
+    method: GET
+    path: "/api/workspaces/{{ws}}/stickies/{{sticky_1}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
