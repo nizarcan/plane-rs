@@ -683,13 +683,27 @@ and only `verified` rows are Rust-owned.
   - task order differs between comment and reaction deletes.
 - Harness: `'epoch': <n>` inside `kwargsrepr` is normalised within the epoch window. The
   contract runner replays into every active call-site mock.
-- Pending:
-  - set C (83/83): deduplicating its second epoch-in-repr normaliser;
-  - set D: the labels `sort_order: null` live fix, drafts 11/11, v2 attachments 4/4.
-    Being corrected to port v1 attachments' Django 500 as it is (Plane's `S3Storage`
-    lacks `file_overwrite`/`location` for `django-storages` 1.14.6) and to cover
-    multi-element draft arrays;
-  - set A: still running.
+- Set C, links/relations/subscribers/sub-issues (merged `12e094bdc6`): 83/83 in both
+  directions; the orchestrator's contract run is 93/93 Rust-touching. **Flipped**
+  (`d0f93cac67`): 73/74/83/93 `rust(GET,POST)`, 75 `rust(GET,PATCH,DELETE)` (link PUT
+  is a real update and stays on Django until a scenario covers it), 84 `rust(DELETE)`,
+  85 `rust(GET,POST,DELETE)`, 94 `rust(POST)`. Its duplicate epoch normaliser was
+  dropped in favour of set B's. `crawl_work_item_link_title` gets a UUID at every app
+  call site (`TASKS.md` corrected).
+- Set D, attachments and drafts (merged `ef0254db4b`): drafts 11/11 (a scoped D16 rule
+  for the create response's unordered `ArrayAgg` arrays, multi-element steps), and
+  attachments 7/7. **v1 attachments 500 in Django:** Plane's `S3Storage.__init__` never
+  calls `S3Boto3Storage.__init__`, so `file_overwrite`/`location` are missing with the
+  pinned `django-storages` 1.14.6. Environment-independent, so ported as it is. Also a
+  live labels fix: PATCH `sort_order: null` gives DRF's null message.
+  - The orchestrator's contract run is 115/115 Rust-touching. The full read sweep and
+    every write scenario are clean.
+  - **Flipped** (`a9f2edcced`), only the method/path pairs the scenario covers:
+    76/78/215 `rust(GET,POST)`, 77 `rust(GET,DELETE)`, 79/216 `rust(GET,PATCH,DELETE)`.
+  - 217 (draft-to-issue) is held for set A.
+- Set A, issue core: 118/118 in both directions. Catching up with B, C and D before
+  the merge, removing its harness overlaps, and adding per-DB contract vhosts.
+- Planning in parallel, read-only: `plans/CYCLES.md` and `plans/MODULES.md`.
 
 ## Next three steps
 
