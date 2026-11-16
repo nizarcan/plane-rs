@@ -167,7 +167,13 @@ invariants (each domain registers only its group's actions; every `rust` row in
   The dev Postgres limit (2 GiB in `dev/compose.yml`) must go back to 640M at the same time.
 
 - Wave 2 GET ports (one worktree each): views/stickies/search/webhooks;
-  intake/notifications; analytics; assets + `/api/unsplash/`.
+  intake/notifications; analytics.
+- Wave 2 assets: **merged** (15 GET endpoints: file assets v1/v2, static, presigned
+  downloads, checks, v2 issue attachments, and `/api/unsplash/`). The meta group is now
+  fully on Rust. The attachment list takes 2 statements where Django takes 4 for the
+  fixture (1 per row). Debug Rust averaged 27.7 ms per request on the scenario, Django
+  91.6 ms. The write methods stay on Django (Phase 5). Presigned URLs can differ by one
+  second between the targets; see D17. The harness rule is in progress on `rs/w2-assets`.
 - Wave 2 pages: **merged** (6 GET endpoints: summary, list, retrieve, versions list/detail,
   live access; orders 123-125, 131, 132, 134). List/retrieve take 2 statements where Django
   takes 5/4 (two prefetches Django never serialises). `GET …/pages/{id}/description/`
@@ -197,7 +203,13 @@ invariants (each domain registers only its group's actions; every `rust` row in
 - Issue list SQL is DB-bound (grouped list 18.9 ms Rust vs 37.5 ms Python on the dev stack):
   profile the generated statements with `EXPLAIN ANALYZE` in the performance pass.
 - `ViewCtx` has no storage (`plane-storage`) or outbound HTTP (`plane-net`) handle yet;
-  wave 2 asset code builds them per module. Add accessors like `cache()`/`celery()`.
+  `assets/support.rs` builds a process-wide `OnceLock<Storage>` from settings. Also move
+  the duplicated `asset_url`/`build_absolute_uri` helpers (users-me, assets) and the
+  Fernet code (`meta/unsplash.rs`, needed by the license routes in Phase 7) into `common/`.
+- Harness: two sides of the same target kind can get the same port (one `PortAllocator`
+  per side over the same `port_range`), so a `--a django --b django` run can quietly
+  compare one gunicorn with itself. Agents work around it with a second target
+  definition. Add accessors like `cache()`/`celery()`.
 - Rows ordered by Django without a unique tiebreak (or with no `ORDER BY`) come out in
   the planner's order. Rust issues the same query shape so the planner behaves the same,
   but that order is not a guarantee on either side.
@@ -242,6 +254,16 @@ invariants (each domain registers only its group's actions; every `rust` row in
   `page_labels.deleted_at`. The visibility join ignores `project_members.deleted_at`.
   `live-access` answers 404 on every denial and matches `action` case-sensitively
   (`plane/app/views/page/live.py`).
+- Assets: `/api/workspaces/{slug}/file-assets/`, `/api/users/file-assets/` and the
+  collection shapes of the v2 workspace/project asset routes always return 500, because
+  their URL patterns don't pass the arguments the shared `get` needs
+  (`plane/app/views/asset/base.py:27,87`, `v2.py:496,721`). `UserAssetsEndpoint.get`
+  serialises a queryset without `many=True` (`base.py:90`). The Unsplash search URL has a
+  literal `$page` (`plane/app/views/external/base.py:235`). `attributes.get("name",
+  uuid4().hex)` gives a different download filename on each request when the name is
+  missing (`v2.py:987,1022`). The attachment detail never checks `entity_type`, and the
+  attachment list never checks that the issue belongs to the project
+  (`plane/app/views/issue/attachment.py:212-238`).
 - `ApiKeyRateThrottle` puts the raw API token in the Redis key (`plane/api/rate_limit.py:23`).
 - `is_allowed_origin` compares host only, not scheme (`plane/authentication/session.py:51`).
 - `project_invitations.delay(...)` is called on a list and the task module is never

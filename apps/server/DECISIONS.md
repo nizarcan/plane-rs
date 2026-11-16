@@ -381,6 +381,24 @@ workspace `Cargo.toml` and upgrade deliberately.
 - The scenarios keep `PYTHONHASHSEED=0` for Django so Django-vs-Django runs stay
   reproducible; Rust never depends on it.
 
+## D17. Presigned S3 URLs are compared by verifying each signature, not by bytes (decided 2026-11-16)
+
+- Django (boto3) and Rust (`plane-storage`, D6) sign presigned URLs at the current second.
+  The two targets of a differential run answer at slightly different times, so a step
+  that straddles a second boundary differs in `X-Amz-Date`, and therefore in
+  `X-Amz-Signature`. Nothing else in the URL changes. Observed on the asset routes: up to 2
+  of 13 presign steps per run, with Rust on the earlier second because it answers faster.
+- The harness compares these URLs in a `presigned_url` mode: everything except those two
+  query parameters must be byte-identical (scheme, host, path, parameter order and
+  encoding, `X-Amz-Expires`, credential scope). It then recomputes each side's SigV4
+  signature with the dev stack credentials and that side's own `X-Amz-Date`. The step
+  fails if either signature is invalid, if a date falls outside its request's time
+  window, or if the dates differ by more than 2 seconds. Masking the signature without
+  recomputing it is not allowed, because it would hide signing bugs.
+- The orchestrator checked this by hand before the rule existed, with
+  `/tmp/orch-scripts/sigv4check.py`: on the asset merge commit both sides' signatures
+  were valid for their own dates, one second apart.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
