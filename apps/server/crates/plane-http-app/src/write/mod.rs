@@ -56,6 +56,7 @@
 //! ```
 
 pub mod fields;
+pub mod generated;
 pub mod html;
 pub mod serializer;
 

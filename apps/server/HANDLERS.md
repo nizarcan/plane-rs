@@ -588,6 +588,44 @@ absent field, and a non-object body is `non_field_errors` (`data=None` is the
 "No data provided" special case). A form body has html-input semantics
 (`''` can mean `null` or "absent"); `CharOptions` carries `allow_blank`.
 
+### 2a. Generated field tables
+
+Retyping DRF's field list into `apply_body` is exactly the kind of work
+codegen should do. `tools/inventory/serializers.py --rust` writes one module
+per serializer to `crates/plane-http-app/src/write/generated/`:
+
+* `FIELDS` — the writable fields in `self.fields` order (DRF's validation
+  order), with the effective `required`/`allow_null`/`allow_blank`, default,
+  length/range bounds, choices, input formats, related model and children;
+* `READ_ONLY_FIELDS` — declared read-only fields, `Meta.read_only_fields`, and
+  `editable=False` model fields, including ones DRF drops entirely;
+* `EXTRA_KWARGS` — the `Meta.extra_kwargs` overrides;
+* `validate` — the helper calls a handler would make today, in the same order.
+
+Regenerate after changing `apps/api`:
+
+```sh
+apps/api/.venv/bin/python apps/server/tools/inventory/serializers.py --rust
+```
+
+`--check` fails when the committed modules are stale, the same way
+`gen_caddy.py --check` does. The default set is the work-items domain plus
+`StickySerializer` and `ProjectSerializer`; `--write-serializers A,B` overrides
+it.
+
+When a field class has no helper in `write/`, `validate` emits a
+`// TODO(kind)` comment instead of guessing, and the generator's summary lists
+every TODO. Today that covers integers/length bounds (`IntegerField`), string
+choices (a custom `field` parser in the handlers), dates, UUIDs, primary-key
+relations, list/many-related fields, nested serializers and file uploads. Add
+the helper to `write/` first; do not hand-write around the TODO.
+
+The two hand-ported pilots are the calibration: `--write-equivalence` compares
+the generated table with `stickies/write.rs::apply_body` and
+`projects/write.rs::read_body` and reports field order, kind and option
+differences. It is a diagnostic (the hand-written side can be the one that is
+wrong), so it is not part of `--check`.
+
 ### 3. CSRF
 
 Nothing to do in a handler: the dispatcher runs
