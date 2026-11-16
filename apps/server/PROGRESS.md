@@ -595,6 +595,18 @@ and only `verified` rows are Rust-owned.
   group value; grouped `total_count` counts model rows, not issues.
 - Celery `saferepr` truncation can emit unbalanced brackets in `argsrepr`.
 
+### Phase 5: live stickies fix via the generated serializer table (merged `589ed34708`)
+
+- The generator's equivalence check found two real differences on live routes. Rust
+  accepted a missing or malformed `created_by`/`updated_by` pk (Django: 400 `Invalid pk
+  …` or `“x” is not a valid UUID.`, then `BaseModel.save` overwrites the value), and
+  accepted `description_html: null` (Django: 400 `This field may not be null.`).
+- Stickies now validate through `write::generated::sticky_serializer::validate`.
+  `write::fields::primary_key` reproduces DRF's and Django's messages, with one existence
+  SELECT per present key. `write/stickies.yaml` 39/39 in both directions.
+- Lesson: hand-written field tables hide such gaps. An equivalence audit of every live
+  write route's serializer comes next.
+
 ### Phase 5: states (merged `17f9beec2d`, 2026-11-16)
 
 - Create, PATCH, mark-default and DELETE. H19 is the slug (Django's `slugify`, NFKD via
