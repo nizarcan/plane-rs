@@ -21,6 +21,7 @@
 //! | H03 | `SoftDeleteModel.delete` (`plane/db/mixins.py:65-77`) | [`soft_delete::delete_instance`] |
 //! | H23 | `Sticky.save` (`plane/db/models/sticky.py:38-54`) | [`sticky::before_save`] |
 //! | H08/H09 | `Project.save` (`plane/db/models/project.py:193-227`) | [`project::before_insert`] / [`project::before_update`] / [`project::retime_intake_snoozes`] |
+//! | H25 | `UserFavorite.save` (`plane/db/models/favorite.py:52-72`) | [`favorite::before_insert`] |
 //! | H32 | `ProjectMember.save` (`plane/db/models/project.py:276-293`) | [`project_member::before_insert`] |
 //!
 //! Every other row of `MODEL_HOOKS.md` is `not-ported`; a domain ports its own
@@ -43,7 +44,9 @@
 //!   never calls the clock twice for one save.
 
 pub mod audit;
+pub mod favorite;
 pub mod html;
+pub mod json_merge;
 pub mod project;
 pub mod project_member;
 pub mod soft_delete;

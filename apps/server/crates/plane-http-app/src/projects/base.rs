@@ -81,7 +81,7 @@ const PROJECT_ORDER_BY_ALLOWLIST: &[&str] =
 
 /// One `ProjectListSerializer` row: the model row plus its annotations and the
 /// page-level side queries.
-struct ProjectRow {
+pub(crate) struct ProjectRow {
     project: Project,
     is_favorite: bool,
     member_role: Option<i16>,
@@ -321,7 +321,6 @@ pub fn list_detail<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespons
 /// `ProjectViewSet.retrieve` (`plane/app/views/project/base.py:226-256`).
 pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
-        let slug = ctx.kwarg("slug").ok_or(ViewError::Key)?;
         let pk = ctx.kwarg("pk").ok_or(ViewError::Key)?.to_string();
         let project_id = lookup::uuid_kwarg("pk", &pk)?;
         let member_id = ctx
@@ -329,19 +328,10 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
             .id()
             .ok_or(ViewError::Api(ApiError::NotAuthenticated))?;
 
-        let client = client(ctx)?;
-        let row = client
-            .query_opt(
-                queries::PROJECT_DETAIL_ONE.sql,
-                &[&slug, &member_id, &project_id],
-            )
-            .await?;
-        let Some(row) = row else {
+        let Some(project) = load_one(ctx, project_id).await? else {
             return error_body(404, "Project does not exist");
         };
-        let mut rows = vec![row_project(&row)?];
-        enrich(ctx, &mut rows).await?;
-        let project = &rows[0];
+        let project = &project;
 
         // `member_ids = [str(m.member_id) for m in project.members_list]` and
         // `if str(request.user.id) not in member_ids` (`project/base.py:233-245`).
@@ -369,9 +359,7 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
 
         // `ProjectListSerializer(project)`: no `fields=`, no `expand=`.
         let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
-        let serializer = project_serializer(project);
-        let body = plane_serializers::render(&serializer, &RenderCtx::full(&timezone))?;
-        Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
+        render_project_row(project, &timezone, 200)
     })
 }
 
@@ -605,6 +593,48 @@ async fn load_cover_assets(
         out.insert(row.project.id, url);
     }
     Ok(out)
+}
+
+/// `self.get_queryset().filter(pk=…).first()` — one annotated row plus the
+/// serializer's side queries, for a write handler that has to answer with the
+/// list serializer after writing (`project/base.py:298`, `:362`).
+///
+/// `None` when the row is not visible through the list queryset (a soft-deleted
+/// project, a slug that does not match).
+pub(crate) async fn load_one(
+    ctx: &ViewCtx<'_>,
+    project_id: Uuid,
+) -> Result<Option<ProjectRow>, ViewError> {
+    let slug = ctx.kwarg("slug").ok_or(ViewError::Key)?;
+    let member_id = ctx
+        .user
+        .id()
+        .ok_or(ViewError::Api(ApiError::NotAuthenticated))?;
+    let client = client(ctx)?;
+    let row = client
+        .query_opt(
+            queries::PROJECT_DETAIL_ONE.sql,
+            &[&slug, &member_id, &project_id],
+        )
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let mut rows = vec![row_project(&row)?];
+    enrich(ctx, &mut rows).await?;
+    Ok(rows.pop())
+}
+
+/// `ProjectListSerializer(row.project).data` as a response body, in the
+/// request's timezone. The GET detail route and the write handlers share it, so
+/// a serializer change cannot make one of them drift.
+pub(crate) fn render_project_row(
+    row: &ProjectRow,
+    timezone: &chrono_tz::Tz,
+    status: u16,
+) -> Result<ViewResponse, ViewError> {
+    let body = plane_serializers::render(&project_serializer(row), &RenderCtx::full(timezone))?;
+    Ok(ViewResponse::raw(status, APPLICATION_JSON, body))
 }
 
 /// `ProjectListSerializer(row.project)`.

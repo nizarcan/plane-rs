@@ -134,6 +134,134 @@ pub fn char(raw: Raw<'_>, options: &CharOptions) -> Result<String, Detail> {
     Ok(value)
 }
 
+/// `BooleanField.to_internal_value` (`rest_framework/fields.py:695-720`):
+/// `True`/`"True"`/`"true"`/`"1"`/`1` are true, `False`/`"False"`/`"false"`/
+/// `"0"`/`0` false, anything else `Must be a valid boolean.`.
+pub fn boolean(raw: Raw<'_>) -> Result<bool, Detail> {
+    let invalid = || Detail::new("Must be a valid boolean.", "invalid");
+    match raw {
+        Raw::Json(Json::Bool(value)) => Ok(*value),
+        Raw::Json(Json::Int(value)) => match value.as_i64() {
+            Some(1) => Ok(true),
+            Some(0) => Ok(false),
+            _ => Err(invalid()),
+        },
+        Raw::Json(Json::Str(value)) => {
+            let text = value.as_str().ok_or_else(invalid)?;
+            boolean_text(text).ok_or_else(invalid)
+        }
+        Raw::Text(text) => boolean_text(text).ok_or_else(invalid),
+        Raw::Json(_) => Err(invalid()),
+    }
+}
+
+fn boolean_text(text: &str) -> Option<bool> {
+    match text {
+        "True" | "true" | "1" => Some(true),
+        "False" | "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// `ChoiceField.to_internal_value` (`rest_framework/fields.py:1940-1960`):
+/// the input is compared as Python `str(data)` and the returned value is the
+/// choice key. `"{input}" is not a valid choice.` is the failure message.
+pub fn integer_choice(raw: Raw<'_>, allowed: &[i16]) -> Result<i16, Detail> {
+    let text = match raw {
+        Raw::Json(Json::Int(value)) => value.as_i64().map(|value| value.to_string()),
+        Raw::Json(Json::Str(value)) => value.as_str().map(str::to_owned),
+        Raw::Text(text) => Some(text.to_owned()),
+        _ => None,
+    };
+    let Some(text) = text else {
+        return Err(Detail::new(
+            format!("\"{}\" is not a valid choice.", python_str(raw)),
+            "invalid_choice",
+        ));
+    };
+    // `data == ''` returns `''` in Python; every caller writes that into an
+    // integer column and fails, so it is reported as an invalid choice here.
+    let parsed: i16 = text.parse().unwrap_or(i16::MIN);
+    if text.is_empty() || !allowed.contains(&parsed) {
+        return Err(Detail::new(
+            format!("\"{text}\" is not a valid choice."),
+            "invalid_choice",
+        ));
+    }
+    Ok(parsed)
+}
+
+/// Python `str(value)` for the choice error message.
+fn python_str(raw: Raw<'_>) -> String {
+    match raw {
+        Raw::Text(text) => text.to_owned(),
+        Raw::Json(Json::Bool(value)) => {
+            if *value {
+                "True".to_owned()
+            } else {
+                "False".to_owned()
+            }
+        }
+        Raw::Json(Json::Int(value)) => value.to_string(),
+        Raw::Json(Json::Float(value)) => plane_query::pyfloat::repr(*value),
+        Raw::Json(Json::Str(value)) => value.as_str().unwrap_or_default().to_owned(),
+        Raw::Json(Json::Null) => "None".to_owned(),
+        Raw::Json(_) => String::new(),
+    }
+}
+
+/// `IntegerField.to_internal_value`: `int(value)`, with
+/// `A valid integer is required.` on failure and Python's 32-bit range check
+/// left to Postgres (DRF does not bound it).
+pub fn integer(raw: Raw<'_>) -> Result<i32, Detail> {
+    let invalid = || Detail::new("A valid integer is required.", "invalid");
+    let overflow = || Detail::new("A valid integer is required.", "invalid");
+    match raw {
+        Raw::Json(Json::Int(value)) => value
+            .as_i64()
+            .and_then(|value| i32::try_from(value).ok())
+            .ok_or_else(overflow),
+        Raw::Json(Json::Str(value)) => {
+            let text = value.as_str().ok_or_else(invalid)?;
+            integer_text(text)
+        }
+        Raw::Text(text) => integer_text(text),
+        Raw::Json(Json::Float(value)) => {
+            // `int(2.0)` succeeds; `int(2.5)` truncates in Python only via
+            // `int()`, which DRF calls on the *string* form.
+            integer_text(&plane_query::pyfloat::repr(*value))
+        }
+        _ => Err(invalid()),
+    }
+}
+
+fn integer_text(text: &str) -> Result<i32, Detail> {
+    let invalid = || Detail::new("A valid integer is required.", "invalid");
+    text.trim()
+        .parse::<i64>()
+        .ok()
+        .and_then(|value| i32::try_from(value).ok())
+        .ok_or_else(invalid)
+}
+
+/// `PrimaryKeyRelatedField`'s UUID coercion
+/// (`rest_framework/relations.py:250-290`): a malformed value is
+/// `Incorrect type. Expected pk value, received str.` in DRF 3.18
+/// (`PKOnlyObject`/`to_internal_value` catches `TypeError`/`ValueError`).
+pub fn uuid(raw: Raw<'_>) -> Result<uuid::Uuid, Detail> {
+    let invalid = || Detail::new("Incorrect type. Expected pk value.", "incorrect_type");
+    let text = match raw {
+        Raw::Json(Json::Str(value)) => value.as_str().map(str::to_owned),
+        Raw::Json(Json::Int(value)) => value.as_i64().map(|value| value.to_string()),
+        Raw::Text(text) => Some(text.to_owned()),
+        _ => None,
+    };
+    let Some(text) = text else {
+        return Err(invalid());
+    };
+    uuid::Uuid::parse_str(&text).map_err(|_| invalid())
+}
+
 /// `FloatField.to_internal_value` (`rest_framework/fields.py:964-982`).
 pub fn float(raw: Raw<'_>) -> Result<f64, Detail> {
     const MAX_STRING_LENGTH: usize = 1000;
@@ -448,6 +576,74 @@ mod tests {
         assert_eq!(float(Raw::Json(&value)).expect("bool"), 1.0);
         let value = parse("\"inf\"");
         assert!(float(Raw::Json(&value)).is_err());
+    }
+
+    #[test]
+    fn booleans_follow_drf_spellings() {
+        for (text, expected) in [
+            ("true", true),
+            ("True", true),
+            ("1", true),
+            ("false", false),
+            ("False", false),
+            ("0", false),
+        ] {
+            let value = parse(&format!("\"{text}\""));
+            assert_eq!(boolean(Raw::Json(&value)).expect(text), expected);
+        }
+        let value = parse("1");
+        assert!(boolean(Raw::Json(&value)).expect("int 1"));
+        let value = parse("2");
+        assert_eq!(
+            boolean(Raw::Json(&value)).expect_err("2"),
+            Detail::new("Must be a valid boolean.", "invalid")
+        );
+        let value = parse("\"yes\"");
+        assert!(boolean(Raw::Json(&value)).is_err());
+        assert_eq!(
+            boolean(Raw::Text("nope")).expect_err("text"),
+            Detail::new("Must be a valid boolean.", "invalid")
+        );
+    }
+
+    #[test]
+    fn choices_keep_drfs_message() {
+        let value = parse("2");
+        assert_eq!(integer_choice(Raw::Json(&value), &[0, 2]).expect("2"), 2);
+        let value = parse("\"0\"");
+        assert_eq!(integer_choice(Raw::Json(&value), &[0, 2]).expect("0"), 0);
+        let value = parse("\"x\"");
+        assert_eq!(
+            integer_choice(Raw::Json(&value), &[0, 2]).expect_err("x"),
+            Detail::new("\"x\" is not a valid choice.", "invalid_choice")
+        );
+        let value = parse("3");
+        assert_eq!(
+            integer_choice(Raw::Json(&value), &[0, 2]).expect_err("3"),
+            Detail::new("\"3\" is not a valid choice.", "invalid_choice")
+        );
+        assert_eq!(
+            integer_choice(Raw::Text("y"), &[0, 2]).expect_err("y"),
+            Detail::new("\"y\" is not a valid choice.", "invalid_choice")
+        );
+    }
+
+    #[test]
+    fn integers_and_pks() {
+        let value = parse("\" 12 \"");
+        assert_eq!(integer(Raw::Json(&value)).expect("12"), 12);
+        let value = parse("\"abc\"");
+        assert_eq!(
+            integer(Raw::Json(&value)).expect_err("abc"),
+            Detail::new("A valid integer is required.", "invalid")
+        );
+        let value = parse("\"not-a-uuid\"");
+        assert_eq!(
+            uuid(Raw::Json(&value)).expect_err("uuid"),
+            Detail::new("Incorrect type. Expected pk value.", "incorrect_type")
+        );
+        let value = parse("\"0f0e7a3a-2f5c-4b1e-9c3f-1a2b3c4d5e6f\"");
+        assert!(uuid(Raw::Json(&value)).is_ok());
     }
 
     #[test]
