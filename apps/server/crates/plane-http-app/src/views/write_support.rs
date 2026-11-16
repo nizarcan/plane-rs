@@ -25,7 +25,7 @@ use plane_serde::pyjson::{PyDict, PyStr, Value};
 use uuid::Uuid;
 
 /// `request.data.get(key)`, as the Python value the view would have received.
-pub(super) enum Body<'a> {
+pub(crate) enum Body<'a> {
     /// The key is absent (or the body is an empty object): `request.data.get`
     /// returns its default.
     Missing,
@@ -36,7 +36,7 @@ pub(super) enum Body<'a> {
 }
 
 /// `request.data.get(key)`; `request.data` must be a dict/`QueryDict`.
-pub(super) fn body_get<'a>(data: &'a Data, key: &str) -> Result<Body<'a>, ViewError> {
+pub(crate) fn body_get<'a>(data: &'a Data, key: &str) -> Result<Body<'a>, ViewError> {
     match data {
         Data::Form(query) => Ok(query.get(key).map_or(Body::Missing, Body::Form)),
         Data::Json(Value::Dict(members)) => Ok(members.get(key).map_or(Body::Missing, Body::Json)),
@@ -116,7 +116,7 @@ pub(super) fn json_or_empty_object(data: &Data, key: &str) -> Result<Option<Json
 /// Every SQLSTATE class 23 error is an `IntegrityError` in Django — unique
 /// violations (the duplicate-favourite index) and NOT NULL violations (a `null`
 /// `view_props`) alike.
-pub(super) fn integrity(error: tokio_postgres::Error) -> ViewError {
+pub(crate) fn integrity(error: tokio_postgres::Error) -> ViewError {
     if error
         .code()
         .is_some_and(|code| code.code().starts_with("23"))
