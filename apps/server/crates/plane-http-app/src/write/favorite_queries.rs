@@ -6,10 +6,11 @@
 //! `UserFavorite.delete(soft=False)`, Django's deletion collector over the
 //! self-referential `user_favorites.parent` relation.
 //!
-//! One catalog for the helper because three routes call it (page favourites
-//! 126, module favourites 111, view favourites 184) and each domain's own
-//! catalog already has its lookup; duplicating these two statements per domain
-//! would let their texts drift apart.
+//! One catalog for the helper because five routes call it (page favourites
+//! 126, module favourites 111, view favourites 184, project favourites 150 and
+//! cycle favourites 37) and each domain's own catalog already has its lookup;
+//! duplicating these two statements per domain would let their texts drift
+//! apart.
 
 use plane_db::plane_query;
 

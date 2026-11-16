@@ -21,10 +21,11 @@
 # neither, start>end), one-sided PATCH dates left unconverted, the
 # completed-cycle guard, the archived-cycle guard, the missing/foreign-cycle
 # 500s, date-check overlap/exclusion/bad format, favourites (duplicate 400,
-# hard delete, 404), user properties (201 from the in-memory instance, null ->
-# 400, missing row -> 404), archive/unarchive (the archive POST removes every
-# user's favourite), the unconditional 41/42 500s, DELETE then GET, the
-# permission matrix, and the foreign-origin 403.
+# hard delete, 404, the `user_favorites.parent` cascade behind
+# `delete(soft=False)` — `cycles-fixture.sql`), user properties (201 from the
+# in-memory instance, null -> 400, missing row -> 404), archive/unarchive (the
+# archive POST removes every user's favourite), the unconditional 41/42 500s,
+# DELETE then GET, the permission matrix, and the foreign-origin 403.
 
 name: write-cycles
 template_db: plane_fix_tpl
@@ -501,6 +502,29 @@ steps:
       Cookie: "session-id={{session_member}}"
     json:
       cycle: "{{cycle_beta_current}}"
+    expect_status: 404
+
+  # The collector: this favourite of `Alpha Sprint 0` has a live child (the
+  # admin's), a soft-deleted child and a grandchild under each. Django's
+  # `delete(soft=False)` deletes all five rows (`user_favorites.parent` is
+  # CASCADE and read through `_base_manager`), so the SQL is one probe per
+  # depth level and then a single `DELETE … WHERE id = ANY(…)`.
+  - name: cy-37b-favorite-destroy-cascade
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/{{cycle_alpha_archived}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: cy-37c-favorite-destroy-cascade-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/{{cycle_alpha_archived}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
     expect_status: 404
 
   # --- cycle user properties ------------------------------------------------

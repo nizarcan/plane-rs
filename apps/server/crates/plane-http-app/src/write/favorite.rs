@@ -12,11 +12,8 @@
 //! | 126 `DELETE …/favorite-pages/{page_id}/` | `PageFavoriteViewSet.destroy` (`plane/app/views/page/base.py:482-492`) |
 //! | 111 `DELETE …/user-favorite-modules/{module_id}/` | `ModuleFavoriteViewSet.destroy` (`plane/app/views/module/base.py:833-844`) |
 //! | 184 `DELETE …/user-favorite-views/{view_id}/` | `IssueViewFavoriteViewSet.destroy` (`plane/app/views/view/base.py:471-479`) |
-//!
-//! The project (150, `plane/app/views/project/base.py:527-535`) and cycle
-//! (37, `plane/app/views/cycle/base.py:587-595`) favourite destroys call the
-//! same `delete(soft=False)` and still delete one row; they should use
-//! [`hard_delete`] too.
+//! | 150 `DELETE …/user-favorite-projects/{project_id}/` | `ProjectFavoritesViewSet.destroy` (`plane/app/views/project/base.py:527-535`) |
+//! | 37 `DELETE …/user-favorite-cycles/{cycle_id}/` | `CycleFavoriteViewSet.destroy` (`plane/app/views/cycle/base.py:587-595`) |
 //!
 //! Each one loads the row, then calls `favourite.delete(soft=False)`. That is
 //! **not** a single-row `DELETE`: `SoftDeleteModel.delete` hands the instance to

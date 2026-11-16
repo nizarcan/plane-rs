@@ -243,17 +243,6 @@ plane_query! {
 }
 
 plane_query! {
-    /// `project_favorite.delete(soft=False)` → `Model.delete()`
-    /// (`plane/app/views/project/base.py:536`, `plane/db/mixins.py:65-77`): a
-    /// hard `DELETE`, not a soft delete, so no cascade task is published.
-    ///
-    /// Bind order: `$1` row id.
-    USER_FAVORITE_DELETE = "projects_write_user_favorite_delete",
-    "DELETE FROM user_favorites WHERE \"id\" = $1",
-    []
-}
-
-plane_query! {
     /// `ProjectUserProperty.objects.get(user=request.user, project_id=…)`
     /// (`plane/app/views/issue/base.py:749-752`).
     ///
@@ -616,7 +605,6 @@ pub static ALL_QUERIES: &[&Query] = &[
     &PROJECT_FAVORITE_GATE,
     &USER_FAVORITE_INSERT,
     &USER_FAVORITE_FOR_PROJECT,
-    &USER_FAVORITE_DELETE,
     &PROJECT_USER_PROPERTY_BY_USER,
     &PROJECT_USER_PROPERTY_INSERT,
     &PROJECT_USER_PROPERTY_UPDATE,

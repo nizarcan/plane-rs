@@ -27,7 +27,8 @@
 //! requires one (family 500); a PATCH on a missing/foreign cycle dereferences
 //! `None`; the completed-cycle guard builds `request_data` but the serializer
 //! still receives `request.data`; archive POST deletes **every** user's
-//! favourite; destroy hard-deletes **every** user's recent visit; one-sided
+//! favourite; destroy hard-deletes **every** user's recent visit; a favourite
+//! destroy hard-deletes the whole `user_favorites.parent` tree; one-sided
 //! PATCH dates skip `convert_to_utc`.
 
 use std::str::FromStr;
@@ -1194,10 +1195,10 @@ pub fn favorite_destroy<'a>(
             return Err(ViewError::ObjectDoesNotExist);
         };
         let id: Uuid = row.try_get(0).map_err(ViewError::from)?;
-        client
-            .execute(queries::USER_FAVORITE_HARD_DELETE.sql, &[&id])
-            .await
-            .map_err(ViewError::from)?;
+        // `delete(soft=False)` → Django's deletion collector over the
+        // self-referential `parent` CASCADE (`plane/db/mixins.py:72-82`,
+        // `plane/db/models/favorite.py:25-31`); shared with 126/111/150/184.
+        write::favorite::hard_delete(client, id).await?;
         Ok(ViewResponse::empty(204))
     })
 }
