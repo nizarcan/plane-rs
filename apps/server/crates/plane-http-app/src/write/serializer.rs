@@ -128,6 +128,12 @@ impl From<bool> for Value {
     }
 }
 
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
 impl From<i16> for Value {
     fn from(value: i16) -> Self {
         Self::Int(i64::from(value))
@@ -337,6 +343,38 @@ impl<'a> Serializer<'a> {
         self.field(name, false, fields::boolean)
     }
 
+    /// `BooleanField` over a value the *view* supplies rather than the body —
+    /// `ProjectViewSet.partial_update`'s `{**request.data, "intake_view":
+    /// request.data.get("inbox_view", project.intake_view)}`
+    /// (`plane/app/views/project/base.py:342-355`).
+    ///
+    /// `raw` carries the injected value: a JSON value for a JSON body, the
+    /// form value for a form (`''` is DRF's `empty`, i.e. skipped).
+    pub fn bool_field_value(&mut self, name: &'static str, raw: fields::Raw<'_>) -> Option<bool> {
+        if self.fatal {
+            return None;
+        }
+        if let fields::Raw::Json(Json::Null) = raw {
+            self.errors.push(name, Detail::null());
+            return None;
+        }
+        if let fields::Raw::Text("") = raw {
+            // `get_value`'s html branch: `''` on a non-required field without
+            // `allow_blank` is `empty` (`rest_framework/fields.py:394-418`).
+            return None;
+        }
+        match fields::boolean(raw) {
+            Ok(value) => {
+                self.values.push((name, Value::Bool(value)));
+                Some(value)
+            }
+            Err(detail) => {
+                self.errors.push(name, detail);
+                None
+            }
+        }
+    }
+
     /// `ChoiceField` over integer choices (`network`): the input is compared as
     /// `str(data)` and the field returns the choice key.
     pub fn integer_choice_field(
@@ -478,6 +516,56 @@ impl<'a> Serializer<'a> {
         } else {
             Err(self.errors)
         }
+    }
+
+    /// Whether a field or the body has already failed. `validate()` and
+    /// `validate_<field>` only run when `to_internal_value` succeeded, so a
+    /// handler must not add their errors on top of a field error.
+    #[must_use]
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+
+    /// Record an error on a field (`validate_<field>` / `validate()`).
+    pub fn push_error(&mut self, field: &'static str, detail: Detail) {
+        self.errors.push(field, detail);
+    }
+
+    /// Discard a validated value and record an error in its place — a
+    /// `PrimaryKeyRelatedField` whose `queryset.get(pk=…)` missed
+    /// (`rest_framework/relations.py:250-290`).
+    pub fn reject(&mut self, field: &'static str, detail: Detail) {
+        self.values.retain(|(name, _)| *name != field);
+        self.errors.push(field, detail);
+    }
+
+    /// The raw text of a field's value, for an error message that quotes the
+    /// input (`PrimaryKeyRelatedField`'s `Invalid pk "{pk_value}"…`).
+    #[must_use]
+    pub fn raw_text(&self, name: &str) -> Option<String> {
+        match self.body.as_ref()?.raw(name)? {
+            Raw::Text(text) => Some(text.to_owned()),
+            Raw::Json(Json::Str(value)) => value.as_str().map(str::to_owned),
+            Raw::Json(Json::Int(value)) => Some(value.to_string()),
+            Raw::Json(Json::Bool(value)) => Some(if *value { "True" } else { "False" }.to_owned()),
+            Raw::Json(Json::Float(value)) => Some(plane_query::pyfloat::repr(*value)),
+            Raw::Json(_) => None,
+        }
+    }
+
+    /// `Field.validate_empty_values`'s `required` branch: the field is absent
+    /// from a non-`partial` body (`rest_framework/fields.py:494-530`).
+    ///
+    /// A `char_field` call cannot distinguish "absent" from "invalid"; this
+    /// tells the caller which one to report for a required field.
+    #[must_use]
+    pub fn missing_required(&self, name: &'static str) -> bool {
+        !self.partial
+            && !self.fatal
+            && self
+                .body
+                .as_ref()
+                .is_some_and(|body| body.raw(name).is_none())
     }
 }
 

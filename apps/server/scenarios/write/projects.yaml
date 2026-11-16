@@ -1,0 +1,823 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5: the project write routes.
+#
+#   POST   /api/workspaces/{slug}/projects/            (order 135)
+#   PATCH  /api/workspaces/{slug}/projects/{pk}/       (order 137)
+#   DELETE /api/workspaces/{slug}/projects/{pk}/       (order 137)
+#   PUT    /api/workspaces/{slug}/projects/{pk}/       (order 137, 405)
+#
+# Covers: minimal and full creates (the latter with `project_lead` equal to and
+# different from the caller), every model default and JSON-column default, the
+# duplicate-name/identifier validators, the field validators (`name`/
+# `identifier` characters, max lengths, `network` choices, `archive_in`/
+# `close_in` range, the `timezone` choices, the FK existence checks and the
+# workspace-membership `validate()` rule), read-only fields, non-object and
+# null bodies, the permission matrix (workspace admin, project admin, member,
+# guest, non-member), the origin check on all three unsafe methods, a PATCH of
+# `identifier` and `timezone` (H09a retimes the fixture's snoozed intake issue),
+# `inbox_view` turning true with and without an existing default Intake,
+# the archived-project 400, PUT's 405, and DELETE followed by the list and the
+# detail — including H04 on the fixture's deploy board and user favourites.
+#
+# The fixture's projects: ALP `b0063033…` (UTC, one snoozed intake issue
+# `2f456ddd…` and a default "Alpha Intake"), GAM `4f9d99bc…` (archived).
+# Sessions: admin `d44ae570…` (workspace + project admin), member `78100240…`
+# (workspace member, ALP project member role 15), guest `31a752d6…`,
+# non-member `e15c61cc…`.
+#
+# Unsafe `/api/` methods go through `BaseSessionAuthentication.enforce_csrf`
+# (`plane/authentication/session.py:56-63`), an origin check: the harness sends
+# `Origin: http://<Host>` by default; `origin: "http://evil.example"` is the
+# 403 and `origin: false` (no header) is allowed.
+
+name: write-projects
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_gamma_archived: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_zeta_empty: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  unknown_project: "55555555-5555-4555-8555-555555555555"
+  unknown_user: "66666666-6666-4666-8666-666666666666"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  member2_id: "bc437914-c250-4c9f-ac69-85003fdf6205"
+  nonmember_id: "e15c61cc-f495-4e69-a88f-9c2cf5cdca7b"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- create: minimal body (workspace timezone via H08) --------------------
+  - name: write-projects-01-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Write Minimal"
+      identifier: "wmn"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: project_minimal
+        source: db
+        table: projects
+        column: id
+
+  # --- create: full body, project_lead = the caller, read-only fields ------
+  - name: write-projects-02-create-full-lead-self
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      id: "77777777-7777-4777-8777-777777777777"
+      workspace: "88888888-8888-4888-8888-888888888888"
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      deleted_at: "2026-01-01T00:00:00Z"
+      name: "Write Full Self"
+      identifier: "wfs"
+      description: "Full body, lead is the caller"
+      description_text:
+        type: "doc"
+        content: []
+      description_html: "<p onclick=\"x\">Hello <strong>world</strong></p><script>bad()</script>"
+      network: 0
+      emoji: "🚀"
+      icon_prop:
+        in_use: "emoji"
+        emoji:
+          value: "🚀"
+      module_view: true
+      cycle_view: true
+      issue_views_view: true
+      page_view: false
+      inbox_view: true
+      is_time_tracking_enabled: true
+      is_issue_type_enabled: true
+      guest_view_all_features: true
+      cover_image: "https://example.com/cover.png"
+      archive_in: 12
+      close_in: 3
+      logo_props:
+        in_use: "emoji"
+        emoji:
+          value: "🚀"
+          unicode: "1f680"
+      timezone: "Asia/Kolkata"
+      external_source: "fixture"
+      external_id: "write-full-self"
+      project_lead: "{{admin_id}}"
+      default_assignee: "{{admin_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: project_full
+        source: db
+        table: projects
+        column: id
+
+  # --- create: project_lead different from the caller ----------------------
+  - name: write-projects-03-create-full-lead-other
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Write Lead Other"
+      identifier: "wlo"
+      project_lead: "{{member2_id}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    capture:
+      - name: project_lead_other
+        source: db
+        table: projects
+        column: id
+
+  # --- create: a workspace member becomes its project's admin --------------
+  - name: write-projects-04-create-member-owned
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Write Member Owned"
+      identifier: "wmo"
+      project_lead: "{{member_id}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    capture:
+      - name: project_member_owned
+        source: db
+        table: projects
+        column: id
+
+  # --- PATCH: the creator is the project admin, not a workspace admin ------
+  # (Immediately after the create: `current_instance` is the pre-update row,
+  # and both targets must see its `created_at` inside the step's timestamp
+  # window.)
+  - name: write-projects-04b-patch-project-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_member_owned}}/"
+    json:
+      name: "Write Member Renamed"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+
+  # --- create: duplicate name and identifier are 400 -----------------------
+  - name: write-projects-05-create-duplicate-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Alpha Platform"
+      identifier: "DUP1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-06-create-duplicate-identifier
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Duplicate identifier"
+      identifier: "ALP"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-07-create-duplicate-both
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Beta Mobile"
+      identifier: "BET"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: field validation -------------------------------------------
+  - name: write-projects-08-create-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-09-create-null-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    # `json: null` means "no body" to the harness; this is the JSON `null`
+    # literal. `create` builds `data={**request.data}`, so a non-mapping body
+    # raises TypeError inside the view — Plane's generic 500.
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+  - name: write-projects-10-create-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+  - name: write-projects-11-create-name-special
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Bad, name"
+      identifier: "BAD1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-12-create-identifier-special
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Bad identifier"
+      identifier: "A,B"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-13-create-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      identifier: "LONG1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-14-create-identifier-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Long identifier"
+      identifier: "ABCDEFGHIJKLM"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-15-create-name-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: null
+      identifier: "NUL1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-16-create-name-blank
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "   "
+      identifier: "BLK1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-17-create-name-bool
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: true
+      identifier: "BOOL1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-18-create-description-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Null description"
+      identifier: "NULD"
+      description: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-19-create-network-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Bad network"
+      identifier: "NET1"
+      network: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-20-create-archive-in-high
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Archive too high"
+      identifier: "ARC1"
+      archive_in: 13
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-21-create-close-in-low
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Close too low"
+      identifier: "CLS1"
+      close_in: -1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-22-create-timezone-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Bad timezone"
+      identifier: "TZ1"
+      timezone: "Nowhere/Fake"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-23-create-lead-outsider
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Lead outsider"
+      identifier: "OUT1"
+      project_lead: "{{nonmember_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-24-create-lead-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Lead missing"
+      identifier: "MIS1"
+      default_assignee: "{{unknown_user}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-25-create-several-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Bad, name"
+      identifier: "ABCDEFGHIJKLM"
+      network: 1
+      archive_in: 20
+      timezone: "Nowhere/Fake"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: permission matrix and origin --------------------------------
+  - name: write-projects-26-create-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Guest project"
+      identifier: "GUEST"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-projects-27-create-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Non-member project"
+      identifier: "NONM"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+  - name: write-projects-28-create-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "CSRF project"
+      identifier: "CSRF"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+  - name: write-projects-29-create-no-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "No origin"
+      identifier: "NORG"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: false
+    expect_status: 201
+    capture:
+      - name: project_no_origin
+        source: db
+        table: projects
+        column: id
+
+  # --- PATCH: identifier and timezone (H09a) -------------------------------
+  - name: write-projects-30-patch-identifier
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    json:
+      identifier: "alp2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-projects-31-patch-timezone
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    json:
+      timezone: "Europe/Berlin"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- PATCH: inbox_view creates the default Intake ------------------------
+  # Zeta Empty is a fixture project with no intake (fixture timestamps keep
+  # `current_instance` stable across targets).
+  - name: write-projects-32-patch-inbox-view-creates-intake
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta_empty}}/"
+    json:
+      inbox_view: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-projects-33-patch-inbox-view-existing-intake
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    json:
+      inbox_view: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- PATCH: validation ---------------------------------------------------
+  - name: write-projects-35-patch-name-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      name: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-36-patch-duplicate-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      name: "Beta Mobile"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-37-patch-duplicate-identifier
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      identifier: "ALP2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-38-patch-network-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      network: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-39-patch-archive-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      archive_in: 13
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-40-patch-timezone-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      timezone: "Nowhere/Fake"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-41-patch-lead-outsider
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      project_lead: "{{nonmember_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-42-patch-lead-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      default_assignee: "{{unknown_user}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-43-patch-description-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      description: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-44-patch-inbox-view-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      inbox_view: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-45-patch-inbox-view-garbage
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      inbox_view: "maybe"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-projects-46-patch-list-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+  - name: write-projects-47-patch-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{unknown_project}}/"
+    json:
+      name: "Missing"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-projects-48-patch-archived
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/"
+    json:
+      name: "Archived rename"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- PATCH: permission matrix and origin --------------------------------
+  - name: write-projects-49-patch-member-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    json:
+      name: "Member rename"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+  - name: write-projects-50-patch-guest-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    json:
+      name: "Guest rename"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-projects-51-patch-nonmember-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    json:
+      name: "Non-member rename"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+  - name: write-projects-52-patch-wrong-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      name: "CSRF rename"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- PUT is refused by the viewset guard --------------------------------
+  - name: write-projects-53-put-not-allowed
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    json:
+      name: "PUT rename"
+      identifier: "PUT1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  # --- list: the created rows are visible ---------------------------------
+  # (deleted at the end of this section: a list that still contains a created
+  # project has a uuid4 in it, and `ProjectViewSet.list` returns hash order
+  # without an ORDER BY, so the normaliser's id placeholders would depend on
+  # the row order — see scenarios/normalize.yaml.)
+
+  # --- DELETE --------------------------------------------------------------
+  - name: write-projects-55-delete-project-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_member_owned}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+  - name: write-projects-56-delete-minimal
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-projects-57-delete-lead-other
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_lead_other}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-projects-58-delete-no-origin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_no_origin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-projects-59-delete-full
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-projects-60-delete-alpha-with-related-rows
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-projects-61-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-projects-62-detail-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-projects-63-delete-member-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_full}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+  - name: write-projects-64-delete-guest-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_minimal}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-projects-65-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{unknown_project}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-projects-66-delete-wrong-origin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_no_origin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+  - name: write-projects-67-second-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

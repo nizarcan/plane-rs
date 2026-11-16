@@ -1282,11 +1282,44 @@ impl TargetNormalizer {
                     RuleMode::PresignedUrl => "<presigned-url>",
                     RuleMode::Drop => "<dropped>",
                 }),
-                None => out.push_str(&self.mask_text(&value.to_string())),
+                // Known fixture UUIDs are identical on both targets, so they
+                // may disambiguate two rows that differ only by a foreign key
+                // (two memberships of one created project). Only the
+                // run-specific UUIDs are masked.
+                None => out.push_str(&self.mask_text_stable(&value.to_string())),
             }
             out.push('\u{1f}');
         }
         out
+    }
+
+    /// [`Self::mask_text`] for a row sort key: a UUID that both targets share
+    /// (a fixture row) is kept, because it orders rows deterministically; a
+    /// run-generated UUID is masked, because its value is random.
+    fn mask_text_stable(&self, text: &str) -> String {
+        let masked = uuid_regex()
+            .replace_all(text, |captures: &regex::Captures<'_>| {
+                let matched = captures
+                    .get(0)
+                    .map(|m| m.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if self.known_uuids.contains(&matched.to_ascii_lowercase()) {
+                    matched
+                } else {
+                    "00000000-0000-0000-0000-000000000000".to_string()
+                }
+            })
+            .into_owned();
+        timestamp_regex()
+            .replace_all(&masked, |captures: &regex::Captures<'_>| {
+                let matched = captures.get(0).map(|m| m.as_str()).unwrap_or_default();
+                match parse_timestamp(matched) {
+                    Some(at) if self.in_window(at) => "<now>".to_string(),
+                    _ => matched.to_string(),
+                }
+            })
+            .into_owned()
     }
 
     fn mask_text(&self, text: &str) -> String {

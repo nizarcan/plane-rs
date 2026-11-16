@@ -962,6 +962,25 @@ pub static ALL_QUERIES: &[&Query] = &[
     &PROJECT_LIST_MEMBER,
     &WORKSPACE_MEMBER_HAS_ROLE,
     &PROJECT_DETAIL_ONE,
+    &PROJECT_INSERT,
+    &PROJECT_IDENTIFIER_INSERT,
+    &PROJECT_MEMBER_INSERT,
+    &PROJECT_USER_PROPERTY_MEMBER_INSERT,
+    &PROJECT_BY_PK,
+    &PROJECT_UPDATE,
+    &PROJECT_SOFT_DELETE,
+    &PROJECT_DEPLOY_BOARDS_SOFT_DELETE,
+    &PROJECT_FAVORITES_SOFT_DELETE,
+    &WORKSPACE_ADMIN_EXISTS,
+    &PROJECT_ADMIN_EXISTS,
+    &WORKSPACE_MEMBER_EXISTS,
+    &RELATED_USER_EXISTS,
+    &RELATED_FILE_ASSET_EXISTS,
+    &RELATED_ESTIMATE_EXISTS,
+    &RELATED_STATE_EXISTS,
+    &WORKSPACE_LOGO_ASSET,
+    &DEFAULT_INTAKE_EXISTS,
+    &INTAKE_INSERT,
     &PROJECT_MEMBERS_PREFETCH,
     &ISSUE_SEQUENCE_MAX,
     &PROJECT_IDENTIFIERS,
@@ -980,3 +999,286 @@ pub static ALL_QUERIES: &[&Query] = &[
     &USERS_BY_IDS,
     &ASSETS_BY_IDS,
 ];
+
+// ---------------------------------------------------------------------------
+// Phase 5: project writes (`plane/app/views/project/base.py:258-425`).
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `Project.objects.create(**validated_data, workspace_id=…)`
+    /// (`plane/app/serializers/project.py:107-113`): the row after H08
+    /// (identifier upper-cased, workspace timezone) and H01 (audit columns).
+    PROJECT_INSERT = "projects_insert",
+    "INSERT INTO projects (created_at, updated_at, created_by_id, updated_by_id, \
+     deleted_at, id, name, description, description_text, description_html, \
+     network, workspace_id, identifier, default_assignee_id, project_lead_id, \
+     emoji, icon_prop, module_view, cycle_view, issue_views_view, page_view, \
+     intake_view, is_time_tracking_enabled, is_issue_type_enabled, \
+     guest_view_all_features, cover_image, cover_image_asset_id, estimate_id, \
+     archive_in, close_in, logo_props, default_state_id, archived_at, timezone, \
+     external_source, external_id) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
+     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, \
+     $31, $32, $33, $34, $35, $36)",
+    []
+}
+
+plane_query! {
+    /// `ProjectIdentifier.objects.create(name=project.identifier, project=…,
+    /// workspace_id=…)` (`serializers/project.py:111`). `ProjectIdentifier`
+    /// extends `AuditModel` (no `BaseModel`), so its `id` is the implicit
+    /// auto field and the insert omits it.
+    PROJECT_IDENTIFIER_INSERT = "projects_identifier_insert",
+    "INSERT INTO project_identifiers (created_at, updated_at, created_by_id, \
+     updated_by_id, workspace_id, project_id, name) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    []
+}
+
+plane_query! {
+    /// `ProjectMember.objects.create(project_id=…, member=…, role=…)`
+    /// (`project/base.py:267-271`, `:276-280`) with the model defaults
+    /// (`project.py:260-275`); `ProjectBaseModel.save` copies the project's
+    /// workspace.
+    PROJECT_MEMBER_INSERT = "projects_member_insert",
+    "INSERT INTO project_members (created_at, updated_at, created_by_id, \
+     updated_by_id, deleted_at, id, project_id, workspace_id, member_id, \
+     comment, role, view_props, default_props, preferences, sort_order, \
+     is_active) \
+     VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, NULL, $9, $10, $11, $12, \
+     $13, TRUE)",
+    []
+}
+
+plane_query! {
+    /// H32's `ProjectUserProperty.objects.create(...)`
+    /// (`project.py:284-290`) with the model defaults.
+    PROJECT_USER_PROPERTY_MEMBER_INSERT = "projects_user_property_member_insert",
+    "INSERT INTO project_user_properties (created_at, updated_at, created_by_id, \
+     updated_by_id, id, project_id, workspace_id, user_id, filters, \
+     display_filters, display_properties, rich_filters, preferences, sort_order) \
+     VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, '{}', $11, $12)",
+    []
+}
+
+plane_query! {
+    /// `Project.objects.get(pk=pk, workspace__slug=slug)`
+    /// (`project/base.py:341`, `:399`), every column.
+    PROJECT_BY_PK = "projects_by_pk",
+    "SELECT p.created_at, p.updated_at, p.created_by_id, p.updated_by_id, \
+     p.deleted_at, p.id, p.name, p.description, p.description_text, \
+     p.description_html, p.network, p.workspace_id, p.identifier, \
+     p.default_assignee_id, p.project_lead_id, p.emoji, p.icon_prop, \
+     p.module_view, p.cycle_view, p.issue_views_view, p.page_view, \
+     p.intake_view, p.is_time_tracking_enabled, p.is_issue_type_enabled, \
+     p.guest_view_all_features, p.cover_image, p.cover_image_asset_id, \
+     p.estimate_id, p.archive_in, p.close_in, p.logo_props, p.default_state_id, \
+     p.archived_at, p.timezone, p.external_source, p.external_id \
+     FROM projects p \
+     INNER JOIN workspaces w ON p.workspace_id = w.id \
+     WHERE p.id = $1 AND w.slug = $2 AND p.deleted_at IS NULL \
+     LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("name", Varchar),
+        ("description", Text),
+        ("description_text", Jsonb),
+        ("description_html", Jsonb),
+        ("network", Int2),
+        ("workspace_id", Uuid),
+        ("identifier", Varchar),
+        ("default_assignee_id", Uuid),
+        ("project_lead_id", Uuid),
+        ("emoji", Varchar),
+        ("icon_prop", Jsonb),
+        ("module_view", Bool),
+        ("cycle_view", Bool),
+        ("issue_views_view", Bool),
+        ("page_view", Bool),
+        ("intake_view", Bool),
+        ("is_time_tracking_enabled", Bool),
+        ("is_issue_type_enabled", Bool),
+        ("guest_view_all_features", Bool),
+        ("cover_image", Text),
+        ("cover_image_asset_id", Uuid),
+        ("estimate_id", Uuid),
+        ("archive_in", Int4),
+        ("close_in", Int4),
+        ("logo_props", Jsonb),
+        ("default_state_id", Uuid),
+        ("archived_at", Timestamptz),
+        ("timezone", Varchar),
+        ("external_source", Varchar),
+        ("external_id", Varchar),
+    ]
+}
+
+plane_query! {
+    /// `Project.save()` on an existing row: a full-row `UPDATE` (`Model.save()`
+    /// with no `update_fields`), after H09 normalised the identifier and H01 set
+    /// `updated_by`/`updated_at`.
+    PROJECT_UPDATE = "projects_update",
+    "UPDATE projects SET created_at = $1, updated_at = $2, created_by_id = $3, \
+     updated_by_id = $4, deleted_at = $5, name = $6, description = $7, \
+     description_text = $8, description_html = $9, network = $10, \
+     workspace_id = $11, identifier = $12, default_assignee_id = $13, \
+     project_lead_id = $14, emoji = $15, icon_prop = $16, module_view = $17, \
+     cycle_view = $18, issue_views_view = $19, page_view = $20, \
+     intake_view = $21, is_time_tracking_enabled = $22, \
+     is_issue_type_enabled = $23, guest_view_all_features = $24, \
+     cover_image = $25, cover_image_asset_id = $26, estimate_id = $27, \
+     archive_in = $28, close_in = $29, logo_props = $30, \
+     default_state_id = $31, archived_at = $32, timezone = $33, \
+     external_source = $34, external_id = $35 \
+     WHERE id = $36",
+    []
+}
+
+plane_query! {
+    /// `project.delete()` → `SoftDeleteModel.delete` (`plane/db/mixins.py:65-77`):
+    /// `deleted_at`, a full save (H09 identifier + H01 `updated_by`/`updated_at`).
+    PROJECT_SOFT_DELETE = "projects_soft_delete",
+    "UPDATE projects SET deleted_at = $1, updated_at = $1, updated_by_id = $2, \
+     identifier = $3 \
+     WHERE id = $4 AND deleted_at IS NULL",
+    []
+}
+
+plane_query! {
+    /// `DeployBoard.objects.filter(project_id=pk, workspace__slug=slug).delete()`
+    /// (`project/base.py:415`) — H04: a bare `deleted_at` update, no
+    /// `updated_at` and no cascade task.
+    PROJECT_DEPLOY_BOARDS_SOFT_DELETE = "projects_deploy_boards_soft_delete",
+    "UPDATE deploy_boards SET deleted_at = $1 \
+     FROM workspaces w \
+     WHERE deploy_boards.workspace_id = w.id AND w.slug = $2 \
+       AND deploy_boards.project_id = $3 AND deploy_boards.deleted_at IS NULL",
+    []
+}
+
+plane_query! {
+    /// `UserFavorite.objects.filter(project_id=pk, workspace__slug=slug).delete()`
+    /// (`project/base.py:418`), H04.
+    PROJECT_FAVORITES_SOFT_DELETE = "projects_favorites_soft_delete",
+    "UPDATE user_favorites SET deleted_at = $1 \
+     FROM workspaces w \
+     WHERE user_favorites.workspace_id = w.id AND w.slug = $2 \
+       AND user_favorites.project_id = $3 AND user_favorites.deleted_at IS NULL",
+    []
+}
+
+plane_query! {
+    /// `WorkspaceMember.objects.filter(member=…, workspace__slug=…, is_active=True,
+    /// role=20).exists()` (`project/base.py:317-322`, `:385-390`).
+    WORKSPACE_ADMIN_EXISTS = "projects_workspace_admin_exists",
+    "SELECT 1 AS \"exists\" FROM workspace_members wm \
+     INNER JOIN workspaces w ON wm.workspace_id = w.id \
+     WHERE wm.deleted_at IS NULL AND wm.member_id = $1 AND w.slug = $2 \
+       AND wm.is_active AND wm.role = 20 \
+     LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `ProjectMember.objects.filter(member=…, workspace__slug=…, project_id=…,
+    /// role=20, is_active=True).exists()` (`project/base.py:324-330`, `:391-397`).
+    PROJECT_ADMIN_EXISTS = "projects_project_admin_exists",
+    "SELECT 1 AS \"exists\" FROM project_members pm \
+     INNER JOIN workspaces w ON pm.workspace_id = w.id \
+     WHERE pm.deleted_at IS NULL AND pm.member_id = $1 AND w.slug = $2 \
+       AND pm.project_id = $3 AND pm.role = 20 AND pm.is_active \
+     LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `WorkspaceMember.objects.filter(workspace_id=…, member=…,
+    /// is_active=True).exists()` in `ProjectSerializer.validate()`
+    /// (`serializers/project.py:93-101`).
+    WORKSPACE_MEMBER_EXISTS = "projects_workspace_member_exists",
+    "SELECT 1 AS \"exists\" FROM workspace_members \
+     WHERE workspace_id = $1 AND member_id = $2 AND is_active \
+       AND deleted_at IS NULL \
+     LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `PrimaryKeyRelatedField(queryset=User.objects)` for
+    /// `project_lead`/`default_assignee` (`models/user.py:131`: Django's
+    /// `UserManager`, no soft-delete predicate).
+    RELATED_USER_EXISTS = "projects_related_user_exists",
+    "SELECT 1 AS \"exists\" FROM users WHERE id = $1 LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `PrimaryKeyRelatedField(queryset=FileAsset.objects)` for
+    /// `cover_image_asset`; `BaseModel`'s manager is a `SoftDeletionManager`.
+    RELATED_FILE_ASSET_EXISTS = "projects_related_file_asset_exists",
+    "SELECT 1 AS \"exists\" FROM file_assets WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `PrimaryKeyRelatedField(queryset=Estimate.objects)` for `estimate`.
+    RELATED_ESTIMATE_EXISTS = "projects_related_estimate_exists",
+    "SELECT 1 AS \"exists\" FROM estimates WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `PrimaryKeyRelatedField(queryset=State.objects)` for `default_state`:
+    /// `StateManager` hides soft-deleted rows and triage states
+    /// (`plane/db/models/state.py:65-70`).
+    RELATED_STATE_EXISTS = "projects_related_state_exists",
+    "SELECT 1 AS \"exists\" FROM states \
+     WHERE id = $1 AND deleted_at IS NULL AND \"group\" <> 'triage' \
+     LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `Workspace.logo_url` -> `self.logo_asset` (`workspace.py:145-154`): the
+    /// five `FileAsset` columns [`plane_http_app::common::asset_url::AssetRef`]
+    /// reads, joined through the asset's own workspace. A foreign-key access
+    /// uses `_base_manager`, so no soft-delete predicate applies.
+    WORKSPACE_LOGO_ASSET = "projects_workspace_logo_asset",
+    "SELECT fa.id, fa.entity_type, aw.slug AS workspace_slug, fa.project_id, fa.issue_id \
+     FROM file_assets fa \
+     LEFT JOIN workspaces aw ON aw.id = fa.workspace_id \
+     WHERE fa.id = $1",
+    [
+        ("id", Uuid),
+        ("entity_type", Varchar),
+        ("workspace_slug", Varchar),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
+    ]
+}
+
+plane_query! {
+    /// `Intake.objects.filter(project=project, is_default=True).first()`
+    /// (`project/base.py:360-366`) and the create when it is missing.
+    DEFAULT_INTAKE_EXISTS = "projects_default_intake_exists",
+    "SELECT 1 AS \"exists\" FROM intakes \
+     WHERE project_id = $1 AND is_default AND deleted_at IS NULL \
+     LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
+    /// `Intake.objects.create(name=f"{project.name} Intake", project=…,
+    /// is_default=True)` (`project/base.py:363-367`).
+    INTAKE_INSERT = "projects_intake_insert",
+    "INSERT INTO intakes (created_at, updated_at, created_by_id, updated_by_id, \
+     deleted_at, id, project_id, workspace_id, name, description, is_default, \
+     view_props, logo_props) \
+     VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, '', TRUE, '{}', '{}')",
+    []
+}

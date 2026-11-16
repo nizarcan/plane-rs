@@ -50,6 +50,7 @@ pub mod member;
 pub mod not_found;
 pub mod queries;
 pub mod serializer;
+pub mod write;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -57,7 +58,11 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .viewset("plane.app.views.project.base.ProjectViewSet")?
         .action("list", base::list)?
         .action("list_detail", base::list_detail)?
-        .action("retrieve", base::retrieve)?;
+        .action("retrieve", base::retrieve)?
+        .action("create", write::create)?
+        .action("update", write::guard_only)?
+        .action("partial_update", write::patch)?
+        .action("destroy", write::destroy)?;
 
     registry
         .api_view("plane.app.views.project.base.ProjectIdentifierEndpoint")?
