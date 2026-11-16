@@ -1,0 +1,843 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5: the state write routes.
+#
+#   POST   /api/workspaces/{slug}/projects/{project_id}/states/            (158)
+#   PATCH  /api/workspaces/{slug}/projects/{project_id}/states/{pk}/       (159)
+#   DELETE /api/workspaces/{slug}/projects/{project_id}/states/{pk}/       (159)
+#   POST   /api/workspaces/{slug}/projects/{project_id}/states/{pk}/mark-default/ (161)
+#
+# Covers: create (H19 sequence/slug, the serializer's read-only fields and the
+# declared non-model `order`), full validation, the duplicate-name IntegrityError
+# (400 `{"name": …}`), the project-admin permission matrix including a project
+# admin who is not a workspace admin (BET), and create in an archived project.
+# PATCH: name/color/group/description/sequence/order, the slug recomputation,
+# the sequence staying put, triage/archived/foreign-project 404s, the duplicate
+# name and every field error. mark-default: the CASE swap over the project, the
+# triage 404 and the permission matrix. DELETE: the default-state 400, the
+# non-empty-state 400 (`Issue.objects`, soft-deleted rows only), a successful
+# delete followed by list/detail, the soft-deleted-name reuse, triage and
+# foreign-project 404s, and the archived-project quirk (the destroy lookup has
+# no `archived_at` filter). Origin check on all four unsafe methods.
+#
+# Fixture: ALP `b0063033…` (states Backlog `5943efbb…` default, Todo
+# `84b8f4a5…`, In Review `56fab2f3…` with 12 issues, Won't Do `239f0cfe…`
+# live and empty, Blocked `2bdcaf4d…` soft-deleted, Triage `8e4eb107…`),
+# GAM `4f9d99bc…` archived
+# (admin is project admin), BET `ca8f652c…` (the `member` session `78100240…`
+# is its project admin while only a workspace member).
+
+name: write-states
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma_archived: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  unknown_state: "55555555-5555-4555-8555-555555555555"
+  state_backlog: "5943efbb-5e08-4133-bf4a-e9547a8691ec"
+  state_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  state_in_review: "56fab2f3-9606-4b4d-a5be-e85e49b9af04"
+  state_wont_do: "239f0cfe-fcf1-4802-8e88-9f86f83f4549"
+  state_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
+  state_beta_backlog: "85defd20-a58b-40d3-953f-0bba411719e1"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- create --------------------------------------------------------------
+  - name: write-states-01-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "QA Minimal"
+      color: "#123456"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: state_minimal
+        source: db
+        table: states
+        column: id
+
+  - name: write-states-02-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      id: "77777777-7777-4777-8777-777777777777"
+      project_id: "{{project_beta}}"
+      workspace_id: "88888888-8888-4888-8888-888888888888"
+      name: "QA Full"
+      color: "#abcdef"
+      group: "started"
+      default: true
+      is_triage: true
+      slug: "client-slug"
+      description: "full body"
+      sequence: 1.0
+      external_source: "ignored"
+      external_id: "ignored"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: state_full
+        source: db
+        table: states
+        column: id
+
+  - name: write-states-03-create-unicode-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Café & Crème"
+      color: "#00FF00"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: state_unicode
+        source: db
+        table: states
+        column: id
+
+  # Create has no archived-project filter: only the project-admin permission
+  # applies (`plane/app/views/state/base.py:56-75`).
+  - name: write-states-04-create-in-archived-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/states/"
+    json:
+      name: "QA Archived"
+      color: "#654321"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: state_archived
+        source: db
+        table: states
+        column: id
+
+  # --- create: validation --------------------------------------------------
+  - name: write-states-05-create-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-06-create-null-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-07-create-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-08-create-name-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: null
+      color: "#111111"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-09-create-name-blank
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "   "
+      color: "#111111"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-10-create-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      color: "#111111"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-11-create-color-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "No colour"
+      color: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-12-create-color-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Long colour"
+      color: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-13-create-group-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Bad group"
+      color: "#111111"
+      group: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-14-create-group-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Triage attempt"
+      color: "#111111"
+      group: "triage"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-15-create-description-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Null description"
+      color: "#111111"
+      description: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-16-create-sequence-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Bad sequence"
+      color: "#111111"
+      sequence: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-17-create-order-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Bad order"
+      color: "#111111"
+      order: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  # `ModelSerializer.create` passes the declared non-model `order` to
+  # `State.objects.create`; Django 500s (`TypeError: State() got unexpected
+  # keyword arguments: 'order'`).
+  - name: write-states-17b-create-order
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Ordered state"
+      color: "#111111"
+      order: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+  - name: write-states-18-create-duplicate-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Backlog"
+      color: "#111111"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-19-create-several-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: ""
+      color: null
+      group: "nope"
+      sequence: "nope"
+      order: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: permission matrix and origin --------------------------------
+  - name: write-states-20-create-member-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Member state"
+      color: "#111111"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+  - name: write-states-21-create-guest-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Guest state"
+      color: "#111111"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-states-22-create-nonmember-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Non-member state"
+      color: "#111111"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+  - name: write-states-23-create-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "CSRF state"
+      color: "#111111"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- PATCH --------------------------------------------------------------
+  - name: write-states-24-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      name: "QA Renamed"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-states-25-patch-full
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_full}}/"
+    json:
+      name: "Über Café"
+      color: "#FEDCBA"
+      group: "completed"
+      description: "patched"
+      sequence: 12.5
+      order: 0.25
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-states-26-patch-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_unicode}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-states-27-patch-read-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_unicode}}/"
+    json:
+      id: "99999999-9999-4999-8999-999999999999"
+      project_id: "{{project_beta}}"
+      workspace_id: "88888888-8888-4888-8888-888888888888"
+      default: true
+      is_triage: true
+      slug: "hacked"
+      name: "QA Unicode"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-states-28-patch-duplicate-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      name: "Todo"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-29-patch-group-triage
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      group: "triage"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-30-patch-name-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      name: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-31-patch-group-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      group: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-32-patch-sequence-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      sequence: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-33-patch-description-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      description: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-34-patch-triage-state
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_triage}}/"
+    json:
+      name: "Triage rename"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-35-patch-other-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_beta_backlog}}/"
+    json:
+      name: "Cross project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-36-patch-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{unknown_state}}/"
+    json:
+      name: "Missing"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-37-patch-member-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      name: "Member rename"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+  - name: write-states-38-patch-guest-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      name: "Guest rename"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-states-39-patch-nonmember-forbidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      name: "Non-member rename"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+  - name: write-states-40-patch-wrong-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    json:
+      name: "CSRF rename"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- mark-default --------------------------------------------------------
+  - name: write-states-41-mark-default
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_wont_do}}/mark-default/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-states-42-delete-now-default
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_wont_do}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-43-mark-default-back
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_backlog}}/mark-default/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  - name: write-states-44-mark-default-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_triage}}/mark-default/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-45-mark-default-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_beta_backlog}}/mark-default/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-46-mark-default-unknown
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{unknown_state}}/mark-default/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-47-mark-default-member-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_todo}}/mark-default/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+  - name: write-states-48-mark-default-guest-forbidden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_todo}}/mark-default/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-states-49-mark-default-wrong-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_todo}}/mark-default/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- DELETE --------------------------------------------------------------
+  - name: write-states-50-delete-with-issues
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_in_review}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+  - name: write-states-51-delete-empty
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_wont_do}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  # A soft-deleted state's name can be reused: the partial unique constraint is
+  # `WHERE deleted_at IS NULL`, and `State.objects` hides the deleted row.
+  - name: write-states-52-create-same-name-after-delete
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    json:
+      name: "Won't Do"
+      color: "#222222"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: state_blocked_new
+        source: db
+        table: states
+        column: id
+  - name: write-states-53-patch-soft-deleted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_wont_do}}/"
+    json:
+      name: "Deleted state"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-54-delete-triage
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_triage}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-55-delete-other-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_beta_backlog}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-56-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{unknown_state}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-57-delete-member-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+  - name: write-states-58-delete-guest-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+  - name: write-states-59-delete-nonmember-forbidden
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+  - name: write-states-60-delete-wrong-origin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+  - name: write-states-61-delete-minimal
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+  # The archived-project state was creatable, and `destroy` has no
+  # `archived_at` filter either (`plane/app/views/state/base.py:113`).
+  - name: write-states-62-delete-archived-project-state
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/states/{{state_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # --- follow-up reads -----------------------------------------------------
+  - name: write-states-63-list-after-writes
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-states-64-list-grouped
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      grouped: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-states-65-detail-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_minimal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+  - name: write-states-66-detail-kept
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- project admin who is not a workspace admin (BET) --------------------
+  - name: write-states-67-beta-create-project-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/states/"
+    json:
+      name: "QA Beta"
+      color: "#334455"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+    capture:
+      - name: state_beta_created
+        source: db
+        table: states
+        column: id
+  - name: write-states-68-beta-patch-project-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/states/{{state_beta_created}}/"
+    json:
+      name: "QA Beta Renamed"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+  - name: write-states-69-beta-mark-default-project-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/states/{{state_beta_created}}/mark-default/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+  - name: write-states-70-beta-delete-default
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/states/{{state_beta_created}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+  - name: write-states-71-beta-restore-default
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/states/{{state_beta_backlog}}/mark-default/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+  - name: write-states-72-beta-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/states/{{state_beta_created}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
