@@ -429,8 +429,23 @@ impl LegacyFilters {
             }
         }
         if params.contains("inbox_status") {
-            filters.intake_status =
-                filter_int_list(&params.get("inbox_status"), method, "inbox_status")?;
+            match method {
+                FilterMethod::Get => {
+                    filters.intake_status =
+                        filter_int_list(&params.get("inbox_status"), method, "inbox_status")?;
+                }
+                FilterMethod::Post => {
+                    // `filter_inbox_status`'s POST guard
+                    // (`issue_filters.py:370-374`): the same `__in` key as
+                    // `intake_status`, so a passing guard *replaces* the value
+                    // the earlier branch wrote — and a failing one leaves it
+                    // alone.
+                    let guard = params.get("inbox_status");
+                    if guard.is_truthy() && guard.len()? > 0 && !guard.is_null_word() {
+                        filters.intake_status = filter_int_list(&guard, method, "inbox_status")?;
+                    }
+                }
+            }
         }
         if params.contains("sub_issue") {
             let value = params.get("sub_issue");
@@ -649,9 +664,15 @@ impl LegacyFilters {
                         builder.and(frag);
                     }
                     DateOperand::Contains(text) => {
+                        // `__contains` on a date column is still a
+                        // `PatternLookup`, so Django escapes the term
+                        // (`django/db/models/lookups.py:637-645`).
                         let mut frag = column.clone();
                         frag.push_raw("::text LIKE ");
-                        frag.push(Frag::bind(Value::Text(format!("%{text}%"))));
+                        frag.push(Frag::bind(Value::Text(format!(
+                            "%{}%",
+                            crate::sql::prep_for_like_query(text)
+                        ))));
                         builder.and(frag);
                     }
                 }
@@ -859,27 +880,39 @@ fn filter_int_list(
             Ok(Some(statuses))
         }
         FilterMethod::Post => {
-            if !value.is_truthy() || matches!(value, ParamValue::Missing | ParamValue::Null) {
+            if matches!(value, ParamValue::Missing | ParamValue::Null) {
                 // `status__in = None`: Django's `In` lookup raises because the
                 // value is not iterable.
                 return Err(QueryError::unsupported(
                     "Field 'status' expected a number but got None",
                 ));
             }
-            if value.len()? > 0 && !value.is_null_word() {
-                let mut statuses = Vec::new();
-                for item in value.iter_in()? {
-                    let text = item.into_text().ok_or_else(|| {
-                        QueryError::unsupported("Field 'status' expected a number")
-                    })?;
-                    statuses.push(text.parse::<i32>().map_err(|error| {
-                        QueryError::unsupported(format!("invalid literal for int(): {error}"))
-                    })?);
-                }
-                Ok(Some(statuses))
-            } else {
-                Ok(None)
+            // A plain string is iterated **character by character**, exactly as
+            // Python's `In` lookup iterates `params.get("inbox_status")`; only a
+            // one-character string is a valid status. `"null"` therefore
+            // reaches `int('n')` and raises, which is the copy-paste bug
+            // (`issue_filters.py:361`).
+            let items: Vec<String> = match value {
+                ParamValue::Text(text) => text.chars().map(|ch| ch.to_string()).collect(),
+                other => other
+                    .iter_in()?
+                    .into_iter()
+                    .map(|item| {
+                        item.into_text().ok_or_else(|| {
+                            QueryError::unsupported("Field 'status' expected a number")
+                        })
+                    })
+                    .collect::<Result<_, _>>()?,
+            };
+            let mut statuses = Vec::with_capacity(items.len());
+            for item in items {
+                statuses.push(item.parse::<i32>().map_err(|_| {
+                    QueryError::unsupported(format!(
+                        "Field 'status' expected a number but got '{item}'"
+                    ))
+                })?);
             }
+            Ok(Some(statuses))
         }
     }
 }
@@ -1057,6 +1090,10 @@ fn string_date_filter(
 }
 
 /// `django.utils.dateparse.parse_date`, which accepts `YYYY-MM-DD` only.
+///
+/// Django's `DateField.to_python` raises `ValidationError` for anything else,
+/// and that surfaces when the queryset compiles: the request is a 400 with the
+/// family handler's `{"error": "Please provide valid detail"}`, not a 500.
 fn parse_date(value: &str) -> Result<NaiveDate, QueryError> {
     let bytes = value.as_bytes();
     let valid = bytes.len() == 10
@@ -1067,12 +1104,9 @@ fn parse_date(value: &str) -> Result<NaiveDate, QueryError> {
             .enumerate()
             .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
     if !valid {
-        return Err(QueryError::unsupported(format!(
-            "“{value}” value has an invalid date format. It must be in YYYY-MM-DD format."
-        )));
+        return Err(QueryError::Validation);
     }
-    NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map_err(|_| QueryError::unsupported(format!("“{value}” is not a valid date.")))
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| QueryError::Validation)
 }
 
 /// `timezone.now().date()` in the frozen/real clock.

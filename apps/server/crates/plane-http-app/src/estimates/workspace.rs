@@ -19,7 +19,7 @@
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use plane_cache::PyValue;
+use plane_cache::{PyInterner, PyValue};
 use plane_core::error::ApiError;
 use plane_db::models::estimate::Estimate;
 use plane_drf::error::ViewError;
@@ -33,63 +33,6 @@ use crate::estimates::ser;
 
 /// `cache_response(60 * 60 * 2)` (`plane/app/views/workspace/estimate.py:21`).
 const CACHE_SECONDS: i64 = 2 * 60 * 60;
-
-/// One `PyValue` per distinct string, shared by every occurrence.
-///
-/// CPython's pickler memoises by object identity, and a DRF `serializer.data`
-/// graph shares its dict keys (they are the serializer's class-level field
-/// names) and the empty string (CPython's singleton), so Django's frame
-/// references them with `BINGET` after their first occurrence. Building each
-/// `PyValue::string` independently would emit the literal again and grow the
-/// entry: the same value measured 4223 bytes against Django's 3041, which is
-/// past the differential harness's 4096-byte comparison cap.
-///
-/// Interning also collapses equal *values* that Python created separately. That
-/// is still a valid pickle with the identical decoded value, and it never makes
-/// the frame larger than Django's.
-#[derive(Default)]
-struct Interner {
-    strings: std::collections::HashMap<String, PyValue>,
-}
-
-impl Interner {
-    /// A dict key: DRF's field names are class-level strings, so every object
-    /// in a page shares one.
-    fn key(&mut self, name: &str) -> PyValue {
-        if let Some(existing) = self.strings.get(name) {
-            return existing.clone();
-        }
-        let py = PyValue::string(name.to_string());
-        self.strings.insert(name.to_string(), py.clone());
-        py
-    }
-
-    /// A value read from the database. CPython shares the empty string (its
-    /// singleton) and every identifier-like literal (the compiler interns them),
-    /// which matters because a `ChoiceField` renders a model `choices` entry by
-    /// returning the class-level object — so an estimate whose `type` is
-    /// `"points"` is the same string object as the `points` dict key and Django's
-    /// frame references it with `BINGET`. Two equal non-identifier values from
-    /// different rows are distinct objects in Python; sharing them here only
-    /// makes the frame smaller, never larger.
-    fn value(&mut self, text: &str) -> PyValue {
-        if text.is_empty() || is_python_identifier(text) {
-            return self.key(text);
-        }
-        PyValue::string(text.to_string())
-    }
-}
-
-/// Whether CPython would intern `text` as an identifier: ASCII letters,
-/// digits and underscores, not starting with a digit.
-fn is_python_identifier(text: &str) -> bool {
-    let mut bytes = text.bytes();
-    match bytes.next() {
-        Some(first) if first.is_ascii_alphabetic() || first == b'_' => {}
-        _ => return false,
-    }
-    bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-}
 
 /// `WorkspaceEstimatesEndpoint.get` (`plane/app/views/workspace/estimate.py:22-30`).
 pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
@@ -127,7 +70,7 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
             // active timezone (this route runs `TimezoneMixin`).
             let prepared = crate::common::render::RequestRender::from_ctx(ctx);
             let timezone = prepared.timezone();
-            let mut interner = Interner::default();
+            let mut interner = PyInterner::new();
             let data = PyValue::return_list(
                 estimates
                     .iter()
@@ -170,7 +113,7 @@ fn estimate_value(
     estimate: &Estimate,
     points: &[plane_db::models::estimate::EstimatePoint],
     tz: Tz,
-    strings: &mut Interner,
+    strings: &mut PyInterner,
 ) -> Result<PyValue, ViewError> {
     let mut point_values = Vec::with_capacity(points.len());
     for point in points {
@@ -234,7 +177,9 @@ fn estimate_value(
             strings.key("description"),
             strings.value(&estimate.description),
         ),
-        (strings.key("type"), strings.value(&estimate.r#type)),
+        // `Estimate.type` is a `ChoiceField`: DRF returns the model's choice
+        // constant, the same compiler-interned object as a field name.
+        (strings.key("type"), strings.choice(&estimate.r#type)),
         (strings.key("last_used"), PyValue::bool(estimate.last_used)),
         (
             strings.key("created_by"),

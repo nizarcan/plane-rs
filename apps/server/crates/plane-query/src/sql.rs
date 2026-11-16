@@ -87,6 +87,9 @@ pub enum Value {
     TextArray(Vec<String>),
     Int(i32),
     IntArray(Vec<i32>),
+    /// A 64-bit parameter: `LIMIT $1`/`OFFSET $1` and any column Django maps to
+    /// `BigIntegerField`. Without it callers had to write `LIMIT $1::int4`.
+    Int8(i64),
     Bool(bool),
     Date(NaiveDate),
     Timestamp(DateTime<Utc>),
@@ -105,6 +108,7 @@ impl ToSql for Value {
             Self::TextArray(value) => value.to_sql(ty, out),
             Self::Int(value) => value.to_sql(ty, out),
             Self::IntArray(value) => value.to_sql(ty, out),
+            Self::Int8(value) => value.to_sql(ty, out),
             Self::Bool(value) => value.to_sql(ty, out),
             Self::Date(value) => value.to_sql(ty, out),
             Self::Timestamp(value) => value.to_sql(ty, out),
@@ -118,6 +122,7 @@ impl ToSql for Value {
             || Vec::<String>::accepts(ty)
             || i32::accepts(ty)
             || Vec::<i32>::accepts(ty)
+            || i64::accepts(ty)
             || bool::accepts(ty)
             || NaiveDate::accepts(ty)
             || DateTime::<Utc>::accepts(ty)
@@ -135,6 +140,7 @@ impl ToSql for Value {
             Self::TextArray(value) => value.to_sql_checked(ty, out),
             Self::Int(value) => value.to_sql_checked(ty, out),
             Self::IntArray(value) => value.to_sql_checked(ty, out),
+            Self::Int8(value) => value.to_sql_checked(ty, out),
             Self::Bool(value) => value.to_sql_checked(ty, out),
             Self::Date(value) => value.to_sql_checked(ty, out),
             Self::Timestamp(value) => value.to_sql_checked(ty, out),
@@ -321,10 +327,12 @@ impl Frag {
         frag
     }
 
-    /// `UPPER(column::text) LIKE UPPER(?)`, Django 5.2's `icontains`.
+    /// `UPPER(column::text) LIKE UPPER(?)`, Django 5.2's `icontains`
+    /// (`django/db/backends/postgresql/operations.py:165-182`,
+    /// `django/db/models/lookups.py:637-645`).
     pub fn icontains(column: &str, needle: &str) -> Self {
         let mut frag = Self::raw(format!("UPPER({column}::text) LIKE UPPER("));
-        frag.push(Self::bind(format!("%{needle}%")));
+        frag.push(Self::bind(format!("%{}%", prep_for_like_query(needle))));
         frag.push_raw(")");
         frag
     }
@@ -332,7 +340,39 @@ impl Frag {
     /// `column::text LIKE ?`, Django's `contains`.
     pub fn contains(column: &str, needle: &str) -> Self {
         let mut frag = Self::raw(format!("{column}::text LIKE "));
-        frag.push(Self::bind(format!("%{needle}%")));
+        frag.push(Self::bind(format!("%{}%", prep_for_like_query(needle))));
+        frag
+    }
+
+    /// `column::text LIKE ?` with `needle%`, Django's `startswith`.
+    pub fn startswith(column: &str, needle: &str) -> Self {
+        let mut frag = Self::raw(format!("{column}::text LIKE "));
+        frag.push(Self::bind(format!("{}%", prep_for_like_query(needle))));
+        frag
+    }
+
+    /// `UPPER(column::text) LIKE UPPER(?)` with `needle%`, Django's
+    /// `istartswith`.
+    pub fn istartswith(column: &str, needle: &str) -> Self {
+        let mut frag = Self::raw(format!("UPPER({column}::text) LIKE UPPER("));
+        frag.push(Self::bind(format!("{}%", prep_for_like_query(needle))));
+        frag.push_raw(")");
+        frag
+    }
+
+    /// `column::text LIKE ?` with `%needle`, Django's `endswith`.
+    pub fn ends_with(column: &str, needle: &str) -> Self {
+        let mut frag = Self::raw(format!("{column}::text LIKE "));
+        frag.push(Self::bind(format!("%{}", prep_for_like_query(needle))));
+        frag
+    }
+
+    /// `UPPER(column::text) LIKE UPPER(?)` with `%needle`, Django's
+    /// `iendswith`.
+    pub fn iends_with(column: &str, needle: &str) -> Self {
+        let mut frag = Self::raw(format!("UPPER({column}::text) LIKE UPPER("));
+        frag.push(Self::bind(format!("%{}", prep_for_like_query(needle))));
+        frag.push_raw(")");
         frag
     }
 
@@ -355,6 +395,18 @@ impl Frag {
             params: self.params,
         }
     }
+}
+
+/// `DatabaseOperations.prep_for_like_query`
+/// (`django/db/backends/base/operations.py:516-518`, shared by every backend):
+/// a LIKE pattern's special characters are escaped before Django wraps the
+/// value in `%…%`. Without it `?name=100%` matches every name that contains
+/// `100` and `name=_` matches every non-empty name.
+pub fn prep_for_like_query(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// A finished statement: `$n` placeholders and their parameters.
@@ -626,6 +678,29 @@ mod tests {
         assert_eq!(Frag::empty().or(Frag::raw("x")).sql, "x");
         assert_eq!(Frag::raw("x").or(Frag::empty()).sql, "x");
         assert!(Frag::empty().or(Frag::empty()).is_empty());
+    }
+
+    #[test]
+    fn like_needles_are_escaped_like_django() {
+        // `DatabaseOperations.prep_for_like_query`: `\\` -> `\\\\`, `%` -> `\\%`,
+        // `_` -> `\\_` (django/db/backends/base/operations.py:516-518).
+        assert_eq!(prep_for_like_query("plain"), "plain");
+        assert_eq!(prep_for_like_query("100%"), "100\\%");
+        assert_eq!(prep_for_like_query("a_b"), "a\\_b");
+        assert_eq!(prep_for_like_query("a\\b"), "a\\\\b");
+        assert_eq!(prep_for_like_query("\\%_"), "\\\\\\%\\_");
+
+        let sql = Frag::icontains("issues.name", "100%").into_sql();
+        assert_eq!(
+            sql.params,
+            vec![Value::Text("%100\\%%".to_owned())],
+            "{:?}",
+            sql.params
+        );
+        let sql = Frag::startswith("issues.name", "_x").into_sql();
+        assert_eq!(sql.params, vec![Value::Text("\\_x%".to_owned())]);
+        let sql = Frag::ends_with("issues.name", "a\\").into_sql();
+        assert_eq!(sql.params, vec![Value::Text("%a\\\\".to_owned())]);
     }
 
     #[test]

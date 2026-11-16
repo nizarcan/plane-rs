@@ -31,11 +31,11 @@ use http::Method;
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
-use plane_query::issue::model::ValueField;
+use plane_query::issue::model::{ValueField, manager_predicate};
 use plane_query::issue::query::IssueScope;
 use plane_query::json::Json;
 use plane_query::paginator::{Cursor, MAX_LIMIT, PageQuery};
-use plane_query::sql::{Frag, Join, Select, Value};
+use plane_query::sql::{Frag, Select, Value};
 use uuid::Uuid;
 
 use super::list_common::{
@@ -145,6 +145,13 @@ fn detail_endpoint<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespons
             timezone,
             now: plane_query::global::now(),
             extra: Frag::empty(),
+            options: plane_query::ListOptions {
+                // Neither of these two views calls `issue_queryset_grouper`:
+                // `?group_by=` is ignored, so the through-table join it would
+                // add must not reach the page.
+                grouping: false,
+                ..plane_query::ListOptions::issue_viewset()
+            },
         };
         let query = match build_issue_query(&request) {
             Ok(query) => query,
@@ -167,8 +174,7 @@ fn detail_endpoint<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespons
             &query,
             &page,
             Serializer::IssueListDetail,
-            false,
-            user,
+            &request.options,
             &expand,
             timezone,
         )
@@ -201,6 +207,18 @@ fn workspace_issues<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespon
             timezone,
             now: plane_query::global::now(),
             extra: Frag::empty(),
+            options: plane_query::ListOptions {
+                // Neither of these two views calls `issue_queryset_grouper`:
+                // `?group_by=` is ignored, so the through-table join it would
+                // add must not reach the page.
+                grouping: false,
+                // `WorkspaceViewIssuesViewSet.get_queryset` is
+                // `Issue.issue_objects.filter(workspace__slug=…)` plus
+                // `_get_project_permission_filters()`
+                // (`plane/app/views/view/base.py:177-248`).
+                scope: Some(workspace_scope(user)),
+                ..plane_query::ListOptions::issue_viewset()
+            },
         };
         let query = match build_issue_query(&request) {
             Ok(query) => query,
@@ -221,14 +239,37 @@ fn workspace_issues<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespon
             &query,
             &page,
             Serializer::ViewIssueList,
-            true,
-            user,
+            &request.options,
             &[],
             timezone,
         )
         .await?;
         Ok(rendered(200, &body))
     })
+}
+
+/// `_get_project_permission_filters` (`plane/app/views/view/base.py:177-197`):
+/// an `INNER JOIN project_members` with the caller's membership row and one of
+/// three role branches. The join is what can duplicate a row when a
+/// (project, member) pair has more than one matching row, exactly as Django's
+/// join does — it has no `deleted_at` condition, so neither does this.
+fn workspace_scope(user: Uuid) -> plane_query::issue::query::IssueScopeFilter {
+    let mut predicate = Frag::raw(
+        "(((projects.guest_view_all_features AND project_members.role = 5) \
+         OR (issues.created_by_id = ",
+    );
+    predicate.push(Frag::bind(Value::Uuid(user)));
+    predicate.push_raw(
+        " AND NOT projects.guest_view_all_features AND project_members.role = 5) \
+         OR project_members.role > 5) \
+         AND project_members.is_active AND project_members.member_id = ",
+    );
+    predicate.push(Frag::bind(Value::Uuid(user)));
+    predicate.push_raw(")");
+    plane_query::issue::query::IssueScopeFilter::new(manager_predicate().and(predicate)).with_join(
+        plane_query::issue::model::Relation::ProjectMembers,
+        plane_query::sql::JoinKind::Inner,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -246,20 +287,17 @@ async fn page_serialized(
     query: &plane_query::issue::query::IssueQuery,
     page: &PageQuery,
     serializer: Serializer,
-    workspace_permission: bool,
-    user: Uuid,
+    options: &plane_query::ListOptions,
     expand: &[&str],
     timezone: chrono_tz::Tz,
 ) -> Result<Json, ViewError> {
     let limit = i64::from(page.per_page.min(MAX_LIMIT));
     let page_index = page.cursor.offset;
     let offset = page_index * limit;
+    let scope = options.scope.as_ref();
 
     // The page: the filtered queryset plus the paginator's ordering.
-    let mut select = query.filtered_select();
-    if workspace_permission {
-        add_workspace_membership(&mut select, user);
-    }
+    let mut select = query.filtered_select_with(scope);
     select.projection = projection(serializer);
     // `OffsetPaginator.get_result` re-applies the key with `NULLS LAST` and
     // `-created_at` as the tiebreak.
@@ -279,10 +317,7 @@ async fn page_serialized(
 
     // `total_count = total_count_queryset.count()`: the *unannotated* filtered
     // queryset, before the serializer's annotations and without `DISTINCT`.
-    let mut count_select = query.filtered_base();
-    if workspace_permission {
-        add_workspace_membership(&mut count_select, user);
-    }
+    let count_select = query.filtered_base_with(scope);
     let total = count(client, &count_select).await?;
 
     let mut results = Vec::with_capacity(rows.len());
@@ -310,41 +345,6 @@ async fn page_serialized(
         total_pages,
         Json::Array(results),
     ))
-}
-
-/// The `project__project_projectmember` permission filters of
-/// `WorkspaceViewIssuesViewSet` (`plane/app/views/view/base.py:177-197`).
-///
-/// Django joins `project_members` from the *project* relation; the issue has the
-/// same `project_id`, so the join is direct. One membership row per matching
-/// project member — duplicates are kept, as Django's join keeps them.
-fn add_workspace_membership(select: &mut Select, user: Uuid) {
-    select.joins.push(Join::inner(
-        "project_members",
-        "project_members_permission",
-        Frag::raw(
-            "project_members_permission.project_id = issues.project_id \
-             AND project_members_permission.member_id = ",
-        )
-        .append(Frag::bind(Value::Uuid(user)))
-        .and(Frag::raw(
-            "project_members_permission.is_active \
-             AND project_members_permission.deleted_at IS NULL",
-        )),
-    ));
-    // The three role branches of `_get_project_permission_filters`.
-    select.predicate = select.predicate.take().map(|predicate| {
-        predicate.and(
-            Frag::raw(
-                "((project_members_permission.role = 5 AND projects.guest_view_all_features) \
-                 OR (project_members_permission.role = 5 \
-                     AND NOT projects.guest_view_all_features \
-                     AND issues.created_by_id = ",
-            )
-            .append(Frag::bind(Value::Uuid(user)))
-            .append(Frag::raw(") OR project_members_permission.role > 5)")),
-        )
-    });
 }
 
 /// The projection of one serializer, in its `to_representation` key order.
@@ -592,9 +592,6 @@ async fn count(client: &Client, select: &Select) -> Result<i64, ViewError> {
 
 async fn fetch(client: &Client, select: &Select) -> Result<Vec<tokio_postgres::Row>, ViewError> {
     let sql = select.clone().into_sql();
-    if std::env::var("PLANE_DEBUG_SQL").is_ok() {
-        eprintln!("SQL: {} PARAMS: {:?}", sql.text, sql.params);
-    }
     let statement = client.prepare(&sql.text).await.map_err(ViewError::from)?;
     let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
         .params

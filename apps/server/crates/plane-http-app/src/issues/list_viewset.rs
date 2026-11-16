@@ -60,15 +60,10 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
         let timezone = user_timezone(ctx);
         let now = plane_query::global::now();
 
-        // A date lookup Django rejects at compile time (a `ValidationError`
-        // the family handler turns into its 400) is detected before anything
-        // else; see `legacy_date_error`.
-        if let Some(response) = super::list_common::legacy_date_error(ctx.query()) {
-            return Ok(response);
-        }
-
         // `issue_filters` and `filter_queryset` run before the task; the
-        // paginator runs after it (`:292-322`).
+        // paginator runs after it (`:292-322`). A date lookup Django rejects
+        // at compile time is *not* a filter error: it surfaces with the page,
+        // after the task, so `prevalidate_list_filters` lets it through.
         if let Err(error) = prevalidate_list_filters(ctx.query(), timezone, now) {
             return match query_error_response(&error) {
                 Some(response) => Ok(response),
@@ -114,6 +109,9 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
             timezone,
             now,
             extra,
+            // `filter_backends = (ComplexFilterBackend,)`
+            // (`plane/app/views/issue/base.py:209`).
+            options: plane_query::ListOptions::issue_viewset(),
         };
 
         match run_issue_list(client, &request).await {

@@ -295,6 +295,20 @@ def generate_filter_cases() -> list[dict]:
         payload = {key: rng.choice(FILTER_POOL_POST[key]) for key in keys}
         case_id += 1
         cases.append(filters_case(case_id, payload, "POST"))
+
+    # A legacy date lookup whose first `;` segment is not a date. `date_filter`
+    # writes `{term}__gte = "after"` and `DateField.get_prep_value` raises
+    # `ValidationError` while the filter is built, which the view family renders
+    # as `400 {"error": "Please provide valid detail"}` — not a 500.
+    #
+    # Appended after the generated cases (not added to a pool) so every id above
+    # stays stable for `PLANE_QUERY_CASE`.
+    for key in ["created_at", "updated_at", "completed_at", "start_date", "target_date"]:
+        for value in ["after;2025-01-01", "before;2025-01-01"]:
+            add(f"{key}={value}")
+    # One valid and one invalid entry in the same parameter value: the invalid
+    # one still reaches the ORM, so the request is the same 400.
+    add("created_at=2025-01-01;after,2026-01-01;before")
     return cases
 
 

@@ -634,6 +634,40 @@ impl DbRule {
     }
 }
 
+/// How an `unordered_json_paths` rule rewrites the document at its path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnorderedMode {
+    /// Sort the array's elements (a multiset: a missing, extra or duplicated
+    /// element still differs, only the order is ignored).
+    Array,
+    /// Compare the object's **key order** as unordered; the key set and every
+    /// value are still compared exactly.
+    ObjectKeys,
+    /// Replace the scalar with the path component that matched the pattern's
+    /// first `*` — for the raw group column of a row that Django copies into
+    /// every group an issue belongs to, whose value is whichever of the
+    /// issue's rows the database returned first.
+    ParentKey,
+}
+
+/// A path-scoped unordered comparison (DECISIONS.md D16).
+///
+/// `path` is a glob over the JSON document: `$` is the root, `.key` and
+/// `[index]` are path components, `*` matches exactly one component (object
+/// key or array index) and `**` matches any number of them. `request` is an
+/// optional glob over the step's `METHOD path?query`, so a rule can be limited
+/// to the endpoints whose response Django builds from a Python `set`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnorderedPathRule {
+    pub path: String,
+    pub mode: UnorderedMode,
+    #[serde(default)]
+    pub request: Option<String>,
+    pub why: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NormalizeRules {
@@ -658,6 +692,10 @@ pub struct NormalizeRules {
     pub db_schemas: Vec<String>,
     #[serde(default)]
     pub db_exclude_tables: Vec<String>,
+    /// Path-scoped unordered rules (JSON document paths and an optional
+    /// request glob). See [`UnorderedPathRule`].
+    #[serde(default)]
+    pub unordered_json_paths: Vec<UnorderedPathRule>,
 }
 
 impl NormalizeRules {
@@ -713,6 +751,28 @@ impl NormalizeRules {
             }
             let name = format!("{}.{}", rule.table, rule.column);
             validate_spec("database column", &name, &rule.spec(), &self.shapes)?;
+        }
+        for rule in &self.unordered_json_paths {
+            if rule.why.trim().is_empty() {
+                bail!(
+                    "normalize: unordered_json_paths rule {} has no justification",
+                    rule.path
+                );
+            }
+            if !rule.path.starts_with('$') {
+                bail!(
+                    "normalize: unordered_json_paths path {:?} must start with `$`",
+                    rule.path
+                );
+            }
+            if let Some(request) = &rule.request
+                && request.trim().is_empty()
+            {
+                bail!(
+                    "normalize: unordered_json_paths rule {} has an empty request glob",
+                    rule.path
+                );
+            }
         }
         for schema in &self.db_schemas {
             if schema.is_empty() {

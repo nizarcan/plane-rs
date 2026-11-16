@@ -44,9 +44,42 @@ let body = plane_query::issue::run(client, &plane_query::issue::ListRequest {
 Ok(ViewResponse::json(200, body.to_serde()))
 ```
 
+`issue::run_with` takes the switches a *view* hardcodes, in `ListOptions`:
+
+| field | `IssueViewSet.list` | why the views differ |
+| --- | --- | --- |
+| `filter_backends` | `ComplexOnly` | every `/api/` issue list declares `filter_backends = (ComplexFilterBackend,)`: `?filters=` filters and the plain parameters belong to `issue_filters` only (`plane/app/views/issue/base.py:209`, `plane/utils/filters/filter_backend.py:31-53`). `run` keeps the old "filterset + `?filters=`" behaviour. |
+| `scope` | `None` | replaces the `Issue.issue_objects` manager predicate: the archived list uses `Issue.objects` + `archived_at IS NOT NULL` + the epic exclusion (`issue/archive.py:78-86`), the cycle/module lists add their through-table join, the workspace view list adds the membership predicate (`view/base.py:177-197`). |
+| `projection` | `Grouped` | `Projection::Aggregate` is the cycle/module/workspace-user annotation: `COUNT(...)` without an inner `GROUP BY`, so an issue with no links renders `0`, not `null`. |
+| `group_values_queryset` | `true` | the cycle and archived lists call `issue_group_values` without a queryset, which makes `start_date`/`target_date`/`created_by` grouping an `AttributeError` (500). |
+| `default_order_by` | `-created_at` | the module list defaults to `created_at` (`module/issue.py:113`). |
+| `grouping` | `true` | `IssueDetailEndpoint` and `WorkspaceViewIssuesViewSet` ignore `?group_by=`; parsing it would add the grouper's join to a page Django returns ungrouped. |
+| `scope_override` | `None` | the full `IssueScope` when it is not the one `ListRequest` describes (no `project_id`, or a `created_by` the handler already resolved). |
+
+### Pieces for lists that are not issue lists
+
+* `paginator::OffsetWindow` + `paginator::offset_page` are
+  `OffsetPaginator.get_result` for a caller-composed `Select`: the
+  `per_page`/`cursor` parse (`PageQuery`), the `offset = page * limit` slice
+  with its `limit + 1`th row, `total_count_queryset.count()` and both cursors.
+  A list that is not an issue list should not re-implement the arithmetic.
+* `global::page_with` takes the caller's projection in order plus optional extra
+  columns (the v2 list appends `description_html` after `sub_issues_count`).
+* `sql::Value::Int8` binds a 64-bit parameter, so `LIMIT $1`/`OFFSET $1` no
+  longer needs a `::int4` cast.
+* `sql::prep_for_like_query` is Django's `prep_for_like_query`
+  (`django/db/backends/base/operations.py:516-518`): `\`→`\\`, `%`→`\%`,
+  `_`→`\_`. `Frag::icontains`, `contains`, `startswith`, `istartswith`,
+  `ends_with` and `iends_with` apply it, so `?name=100%` matches a literal
+  `100%` instead of every name containing `100`. Any hand-written `LIKE` built
+  from a request value must call it too.
+* `issue::ListOptions::validate_page_first` moves the paginator's parameter
+  checks ahead of the filters', for a view that calls `paginate` before
+  `filter_queryset` (the issue lists filter first, the default).
+
 The lower layers (`issue::filter`, `issue::order`, `issue::query`,
-`paginator::issue_list_page`) are public so a cycle's or a module's issue list
-can reuse them with a different scope.
+`paginator::issue_list_page_with`, `issue::values::field_expression`) are public
+so a cycle's or a module's issue list can reuse them with a different scope.
 
 ## Why hand-written SQL
 
@@ -71,7 +104,7 @@ evicting an entry never sends `DEALLOCATE`. Every filter combination, every
 accumulates one prepared plan per request for the life of the connection.
 
 Measured on the dev stack (`apps/server/dev/compose.yml`, Postgres cgroup limit
-384 MiB), replaying the 1,053-case filter corpus:
+384 MiB), replaying the 1,064-case filter corpus:
 
 | prepare policy | container peak | outcome |
 | --- | --- | --- |
@@ -133,7 +166,7 @@ records them under `tests/golden/`:
 
 | file | cases | content |
 | --- | --- | --- |
-| `filters.json` | 1,053 | legacy `issue_filters` combinations: sorted ids, raw count, distinct count, or the exception Django raises |
+| `filters.json` | 1,064 | legacy `issue_filters` combinations: sorted ids, raw count, distinct count, or the exception Django raises (`ValidationError` for a non-date first segment, which is a 400; `FieldError`/`TypeError`/`ValueError`, which are 500s) |
 | `order.json` | 38 | `order_issue_queryset` for every allowed `order_by` (with and without `-`), plus invalid values, and the paginator's re-ordering |
 | `group_values.json` | 17 | `issue_group_values` per group field, project- and workspace-scoped |
 | `paginator.json` | 32 cases / 101 pages | full response bodies for every group field, seven sub-group pairs, cursor walks forward and backward, and the 400 responses |
@@ -146,15 +179,19 @@ byte against DRF's rendered body; errors are compared structurally.
 ### Documented normalisations
 
 Three things in the Python are not reproducible and are normalised in **both**
-the golden and the port (nothing else is weakened):
+the golden and the port (nothing else is weakened). The differential harness
+applies the same three through path-scoped `unordered_json_paths` rules in
+`scenarios/normalize.yaml` (DECISIONS.md D16), so it compares them the same way:
 
 1. `GroupedOffsetPaginator.__query_multi_grouper` builds the `label_ids` /
    `assignee_ids` / `module_ids` arrays from `list(set(...))`, whose order
-   depends on `PYTHONHASHSEED`. Sorted.
-2. The same method keys its result dict by that set's order, and picks each
-   issue's representative row from rows that share `created_at` (undefined
-   order). Group keys are sorted and the row's group column is set to the group
-   it is filed under (redundant with the key; `label_ids` carries the membership).
+   depends on `PYTHONHASHSEED`. Sorted, i.e. compared as a multiset (a missing,
+   extra or duplicated element still differs).
+2. The same method keys its result dict by that set's order, and copies one row
+   dict into every group the issue belongs to, so that row's raw group column
+   (`labels__id`, …) is whichever of the issue's rows Postgres returned first.
+   Group keys are sorted and the row's group column is set to the group it is
+   filed under (redundant with the key; `assignee_ids` carries the membership).
 3. `__get_subgroup_total_queryset` has no `ORDER BY`, so the order of a group's
    sub-groups is whatever Postgres returns. Cell keys are sorted.
 
@@ -186,6 +223,8 @@ number formatting — is compared as Django emits it.
 | CONTAINS on a grouped window: `next` is computed with `row_number >= stop` in a separate query | `paginator.py:272` |
 | `priority_order` and `state_order` are `CASE` expressions with parameters, so Postgres needs `ORDER BY <ordinal>` under `DISTINCT` | `order_queryset.py:166-182` |
 | `total_results` for an m2m group uses `.get(key)` (may be JSON `null`); for other groups `.get(key, 0)` | `paginator.py:311,363` |
+| `total_pages` is `ceil(raw_count / limit)` from the **unadjusted** `COUNT(…) FILTER`, while `total_results` maps a zero count to 1 — so the archived list (whose filter excludes every archived row) reports `total_pages: 0` next to `total_results: 1` | `paginator.py:283-288,311-313` |
+| A grouped page with no rows is `results: {}`, not the pre-created group dict | `paginator.py:380-389,622-632` |
 | A sub-grouped response raises `KeyError` (500) when a row's group/sub-group is not in the precomputed lists — e.g. any NULL state with `group_by=state_id&sub_group_by=…` | `paginator.py:618` |
 | `is_archived=true` / `is_draft=true` can never match `Issue.issue_objects` (the manager already excludes them) | `filterset.py:202-211`, `issue.py:92` |
 | JSON leaf lists (`{"priority__in": [...]}`) become a repeated query key; the filterset reads `.get()` (the **last** value), so only the last element filters | `filter_backend.py:261-268` |

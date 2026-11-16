@@ -44,7 +44,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::celery::CeleryMessage;
-use crate::config::{NormalizeRules, RuleCheck, RuleMode};
+use crate::config::{NormalizeRules, RuleCheck, RuleMode, UnorderedMode, UnorderedPathRule};
 use crate::cookies::{ParsedCookie, canonical_set_cookie, parse_set_cookie};
 use crate::csrf;
 use crate::db::DbDiff;
@@ -157,6 +157,123 @@ impl Rule {
     }
 }
 
+/// One `unordered_json_paths` rule after validation: the path tokens, the
+/// optional request glob and the mode.
+#[derive(Debug, Clone)]
+struct UnorderedRule {
+    path: Vec<String>,
+    request: Option<String>,
+    mode: UnorderedMode,
+    why: String,
+}
+
+impl UnorderedRule {
+    fn from_spec(spec: &UnorderedPathRule) -> Self {
+        Self {
+            path: json_path_tokens(&spec.path),
+            request: spec.request.clone(),
+            mode: spec.mode,
+            why: spec.why.clone(),
+        }
+    }
+
+    fn applies(&self, document_path: &str, request: Option<&str>) -> bool {
+        if let Some(glob) = &self.request {
+            match request {
+                Some(request) if glob_matches(glob, request) => {}
+                _ => return false,
+            }
+        }
+        let tokens = json_path_tokens(document_path);
+        tokens_match(&self.path, &tokens)
+    }
+
+    /// The path component the pattern's first `*` matched, for
+    /// [`UnorderedMode::ParentKey`].
+    fn captured_key(&self, document_path: &str) -> Option<String> {
+        let index = self.path.iter().position(|token| token == "*")?;
+        json_path_tokens(document_path).get(index).cloned()
+    }
+}
+
+/// Split a JSON path into components: `$.results[3].label_ids` becomes
+/// `["results", "*", "label_ids"]`. Array indices are `*` components, because a
+/// glob cannot name the index it means.
+fn json_path_tokens(path: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut chars = path.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '$' => {}
+            '.' => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            '[' => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+                for inner in chars.by_ref() {
+                    if inner == ']' {
+                        break;
+                    }
+                }
+                tokens.push("*".to_owned());
+            }
+            other => current.push(other),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// A `*` component matches one component, `**` matches zero or more.
+fn tokens_match(pattern: &[String], tokens: &[String]) -> bool {
+    match pattern.split_first() {
+        None => tokens.is_empty(),
+        Some((head, rest)) if head == "**" => {
+            (0..=tokens.len()).any(|skip| tokens_match(rest, &tokens[skip..]))
+        }
+        Some((head, rest)) => match tokens.split_first() {
+            None => false,
+            Some((first, tail)) => (head == "*" || head == first) && tokens_match(rest, tail),
+        },
+    }
+}
+
+/// A glob with `*` wildcards over a whole string (`*group_by=labels__id*`).
+fn glob_matches(pattern: &str, text: &str) -> bool {
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        return pattern == text;
+    }
+    let mut rest = text;
+    for (index, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if index == 0 {
+            match rest.strip_prefix(part) {
+                Some(tail) => rest = tail,
+                None => return false,
+            }
+            continue;
+        }
+        if index == parts.len() - 1 && !pattern.ends_with('*') {
+            return rest.ends_with(part);
+        }
+        match rest.find(part) {
+            Some(position) => rest = &rest[position + part.len()..],
+            None => return false,
+        }
+    }
+    pattern.ends_with('*') || rest.is_empty()
+}
+
 /// Everything a target's normaliser needs that is not part of the rules file.
 #[derive(Clone)]
 pub struct NormalizerConfig {
@@ -196,6 +313,11 @@ pub struct TargetNormalizer {
     headers: HashMap<String, Rule>,
     celery_dropped: BTreeSet<String>,
     db_columns: HashMap<String, Rule>,
+    /// `unordered_json_paths` after validation.
+    unordered: Vec<UnorderedRule>,
+    /// `METHOD path?query` of the request being normalised, for the rules that
+    /// are scoped to an endpoint.
+    request: Option<String>,
     /// The `csrftoken` cookie secret of the response being normalised.
     csrf_secret: Option<String>,
     violations: Vec<Violation>,
@@ -240,8 +362,15 @@ impl TargetNormalizer {
                 )
             })
             .collect();
+        let unordered: Vec<UnorderedRule> = rules
+            .unordered_json_paths
+            .iter()
+            .map(UnorderedRule::from_spec)
+            .collect();
         Self {
             shapes: rules.compile_shapes().into_iter().collect(),
+            unordered,
+            request: None,
             rules,
             base_url: config.base_url,
             known_uuids: config.known_uuids,
@@ -261,6 +390,13 @@ impl TargetNormalizer {
             csrf_secret: None,
             violations: Vec::new(),
         }
+    }
+
+    /// The step's request, for the `unordered_json_paths` rules that name one.
+    ///
+    /// Called before the response is normalised.
+    pub fn set_request(&mut self, request: impl Into<String>) {
+        self.request = Some(request.into());
     }
 
     /// Open the step's timestamp window: request start − slack to response end
@@ -556,6 +692,7 @@ impl TargetNormalizer {
     }
 
     fn normalize_json(&mut self, value: &mut Value, path: &str) {
+        self.apply_unordered_rule(value, path);
         match value {
             Value::Object(map) => {
                 if self.normalize_kombu_envelope(map) {
@@ -589,6 +726,49 @@ impl TargetNormalizer {
                 *text = self.normalize_text(text);
             }
             _ => {}
+        }
+    }
+
+    /// DECISIONS.md D16: at a path an `unordered_json_paths` rule names, sort
+    /// an array's elements (multiset semantics — duplicates still count) or an
+    /// object's keys (its key set and values are still compared exactly).
+    fn apply_unordered_rule(&mut self, value: &mut Value, path: &str) {
+        if self.unordered.is_empty() {
+            return;
+        }
+        let request = self.request.clone();
+        let matching: Vec<UnorderedRule> = self
+            .unordered
+            .iter()
+            .filter(|rule| rule.applies(path, request.as_deref()))
+            .cloned()
+            .collect();
+        for rule in matching {
+            match (rule.mode, &mut *value) {
+                (UnorderedMode::Array, Value::Array(items)) => {
+                    items.sort_by_key(|item| serde_json::to_string(item).unwrap_or_default());
+                    self.record(&format!("unordered:array:{}", path), &rule.why);
+                }
+                (UnorderedMode::ObjectKeys, Value::Object(map)) => {
+                    let mut keys: Vec<String> = map.keys().cloned().collect();
+                    keys.sort();
+                    let mut sorted = Map::with_capacity(map.len());
+                    for key in keys {
+                        if let Some(value) = map.remove(&key) {
+                            sorted.insert(key, value);
+                        }
+                    }
+                    *map = sorted;
+                    self.record(&format!("unordered:object_keys:{}", path), &rule.why);
+                }
+                (UnorderedMode::ParentKey, slot) => {
+                    if let Some(key) = rule.captured_key(path) {
+                        *slot = Value::String(key);
+                        self.record(&format!("unordered:parent_key:{}", path), &rule.why);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1486,6 +1666,7 @@ mod tests {
         shapes.insert("auth_user_hash".to_string(), shape(r"^[0-9a-f]{64}$"));
         shapes.insert("hex64".to_string(), shape(r"^[0-9a-f]{64}$"));
         Arc::new(NormalizeRules {
+            unordered_json_paths: Vec::new(),
             ignore_headers: default_ignore_headers_for_tests(),
             shapes,
             volatile_cookies: vec![named(

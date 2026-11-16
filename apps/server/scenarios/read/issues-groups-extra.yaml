@@ -1,0 +1,1566 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The m2m groupings of the four issue-list routes. `plane-query` emits the id
+# arrays and, for a single m2m group, the group keys in ascending order, while
+# Django builds them from `list(set(...))` (DECISIONS.md D16); the harness
+# compares exactly those places as multisets / key sets
+# (`scenarios/normalize.yaml`, `unordered_json_paths`). Everything else — ids,
+# order, counts, `total_pages`, key order, empty groups — is exact.
+#
+# Covered per route: every m2m field as `group_by` with every other m2m field
+# and with a non-m2m sub-group as `sub_group_by`, the reverse (a non-m2m group
+# with an m2m sub-group), forward and backward cursor walks on an m2m page, a
+# `?filters=` tree and a legacy filter combined with a grouping, an empty page
+# (a filter that matches nothing) and a cursor past the last page.
+#
+#   ./target/debug/difftest run --targets /tmp/targets-rs-query-batch.yaml \
+#     --scenario scenarios/read/issues-groups-extra.yaml \
+#     --a django --b django --a-redis-db 12 --b-redis-db 15
+#   ./target/debug/difftest run --targets /tmp/targets-rs-query-batch.yaml \
+#     --scenario scenarios/read/issues-groups-extra.yaml \
+#     --a django --b rust --a-redis-db 12 --b-redis-db 15
+
+name: read-issues-groups-extra
+template_db: plane_fix_tpl
+redis_db: [12, 15]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  cycle_beta_current: "ea38d39b-18b7-4df1-be8b-f2ab43d4ab97"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  module_beta_in_progress: "381b0fc4-1835-4ec3-bf58-a946281dfc74"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_alpha_child: "42c68569-5178-4a34-8c17-0488d036ed0c"
+  user_admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+
+  # -- IssueViewSet.list (project scope) --------------------------------
+  - name: project-group-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "7"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-group-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "7"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-group-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "7"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-labels-id-sub-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "7"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-labels-id-sub-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "7"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-assignees-id-sub-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "7"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-assignees-id-sub-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "7"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-issue_module-module_id-sub-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "7"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-issue_module-module_id-sub-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "7"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-labels-id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "7"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-labels-id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "7"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-labels-id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "7"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-labels-id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "7"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-assignees-id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "7"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-assignees-id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "7"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-assignees-id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "7"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-assignees-id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "7"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-issue_module-module_id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "7"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-issue_module-module_id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "7"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-issue_module-module_id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "7"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-m2m-issue_module-module_id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "7"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-state_id-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "7"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-state_id-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "7"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-state_id-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "7"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-priority-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "priority"
+      per_page: "7"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-priority-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "priority"
+      per_page: "7"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-priority-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "priority"
+      per_page: "7"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-state-group-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state__group"
+      per_page: "7"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-state-group-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state__group"
+      per_page: "7"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-state-group-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state__group"
+      per_page: "7"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-cycle_id-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "7"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-cycle_id-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "7"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-cycle_id-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "7"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- CycleIssueViewSet.list -------------------------------------------
+  - name: cycle-group-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-group-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-group-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-labels-id-sub-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-labels-id-sub-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-assignees-id-sub-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-assignees-id-sub-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-issue_module-module_id-sub-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-issue_module-module_id-sub-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-labels-id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-labels-id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-labels-id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-labels-id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-assignees-id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-assignees-id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-assignees-id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-assignees-id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-issue_module-module_id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-issue_module-module_id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-issue_module-module_id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-m2m-issue_module-module_id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-state_id-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state_id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-state_id-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state_id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-state_id-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state_id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-priority-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "priority"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-priority-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "priority"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-priority-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "priority"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-state-group-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state__group"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-state-group-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state__group"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-state-group-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state__group"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-cycle_id-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-cycle_id-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-cycle_id-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- ModuleIssueViewSet.list ------------------------------------------
+  - name: module-group-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-group-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-group-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-labels-id-sub-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-labels-id-sub-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-assignees-id-sub-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-assignees-id-sub-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-issue_module-module_id-sub-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-issue_module-module_id-sub-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-labels-id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-labels-id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-labels-id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-labels-id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "5"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-assignees-id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-assignees-id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-assignees-id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-assignees-id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "5"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-issue_module-module_id-sub-state_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-issue_module-module_id-sub-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-issue_module-module_id-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "state__group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-m2m-issue_module-module_id-sub-cycle_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "5"
+      sub_group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-state_id-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-state_id-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-state_id-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-priority-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "priority"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-priority-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "priority"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-priority-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "priority"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-state-group-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state__group"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-state-group-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state__group"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-state-group-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "state__group"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-cycle_id-sub-m2m-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "5"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-cycle_id-sub-m2m-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "5"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-cycle_id-sub-m2m-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "cycle_id"
+      per_page: "5"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- WorkspaceViewIssuesViewSet.list: grouping is ignored -------------
+  - name: workspace-group-labels-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query:
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: workspace-group-assignees-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query:
+      group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: workspace-group-issue_module-module_id
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: workspace-group-labels-sub-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/issues/"
+    query:
+      group_by: "labels__id"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- cursors on an m2m page -------------------------------------------
+  - name: cursor-labels-page-0
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "3:0:0"
+      group_by: "labels__id"
+      per_page: "3"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-labels-page-1
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "3:1:0"
+      group_by: "labels__id"
+      per_page: "3"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-labels-page-2
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "3:2:0"
+      group_by: "labels__id"
+      per_page: "3"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-labels-page-3
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "3:3:0"
+      group_by: "labels__id"
+      per_page: "3"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-labels-back-from-3
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "3:1:1"
+      group_by: "labels__id"
+      per_page: "3"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-labels-back-from-last
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "3:2:1"
+      group_by: "labels__id"
+      per_page: "3"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-subgroup-page-0
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "2:0:0"
+      group_by: "assignees__id"
+      per_page: "2"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-subgroup-page-1
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "2:1:0"
+      group_by: "assignees__id"
+      per_page: "2"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-subgroup-page-2
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "2:2:0"
+      group_by: "assignees__id"
+      per_page: "2"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-subgroup-back
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "2:1:1"
+      group_by: "assignees__id"
+      per_page: "2"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-past-end-plain-m2m
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "3:999:0"
+      group_by: "assignees__id"
+      per_page: "3"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cursor-past-end-subgroup
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      cursor: "2:999:0"
+      group_by: "assignees__id"
+      per_page: "2"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- filters combined with an m2m grouping ----------------------------
+  - name: project-filter-json-priority-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      filters: "{\"priority\":\"urgent\"}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-filter-json-and-labels-sub-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      filters: "{\"and\":[{\"priority__in\":[\"high\",\"urgent\"]}]}"
+      group_by: "labels__id"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-filter-legacy-priority-module-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      priority: "urgent"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-filter-legacy-assignees-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      assignees: "{{user_member_id}}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-filter-legacy-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      labels: "{{user_admin_id}}"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-filter-name-labels-sub-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      name: "work item"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-empty-filter-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-empty-filter-assignees-sub-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      group_by: "assignees__id"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-empty-filter-plain
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      per_page: "2"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-filter-json-priority-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      filters: "{\"priority\":\"urgent\"}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-filter-json-and-labels-sub-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      filters: "{\"and\":[{\"priority__in\":[\"high\",\"urgent\"]}]}"
+      group_by: "labels__id"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-filter-legacy-priority-module-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issue_module__module_id"
+      priority: "urgent"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-filter-legacy-assignees-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      assignees: "{{user_member_id}}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-filter-legacy-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "assignees__id"
+      labels: "{{user_admin_id}}"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-filter-name-labels-sub-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      name: "work item"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-empty-filter-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-empty-filter-assignees-sub-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      group_by: "assignees__id"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-empty-filter-plain
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      per_page: "2"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-filter-json-priority-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      filters: "{\"priority\":\"urgent\"}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-filter-json-and-labels-sub-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      filters: "{\"and\":[{\"priority__in\":[\"high\",\"urgent\"]}]}"
+      group_by: "labels__id"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-filter-legacy-priority-module-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      priority: "urgent"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-filter-legacy-assignees-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      assignees: "{{user_member_id}}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-filter-legacy-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      labels: "{{user_admin_id}}"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-filter-name-labels-sub-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      name: "work item"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-empty-filter-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-empty-filter-assignees-sub-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      group_by: "assignees__id"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-empty-filter-plain
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      filters: "{\"is_draft\":true}"
+      per_page: "2"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- a second project / cycle / module, and a member session ----------
+  - name: project-beta-labels-sub-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/issues/"
+    query:
+      group_by: "labels__id"
+      sub_group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-beta-labels-sub-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/{{cycle_beta_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-beta-assignees-sub-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/modules/{{module_beta_in_progress}}/issues/"
+    query:
+      group_by: "assignees__id"
+      sub_group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-member-labels-sub-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      sub_group_by: "assignees__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_member }}" }
+  - name: cycle-member-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_member }}" }
+  - name: module-member-module
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_member }}" }
+
+  # -- query-parameter and lookup-error shapes on the three routes ----
+  - name: project-legacy-priority-csv-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      priority: "urgent,high"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-invalid-legacy-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      start_date: "after;2026-10-02"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-invalid-legacy-date-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      created_at: "before;2026-01-01"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-legacy-priority-csv-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "labels__id"
+      priority: "urgent,high"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-invalid-legacy-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      start_date: "after;2026-10-02"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-invalid-legacy-date-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      created_at: "before;2026-01-01"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-legacy-priority-csv-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "labels__id"
+      priority: "urgent,high"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-invalid-legacy-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      start_date: "after;2026-10-02"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-invalid-legacy-date-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      created_at: "before;2026-01-01"
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: cycle-group-start-date-500
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "start_date"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: module-group-start-date
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/issues/"
+    query:
+      group_by: "start_date"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: project-group-created-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "created_by"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- D16 scoping: the same arrays stay EXACT on a non-m2m grouping --
+  - name: scope-exact-state-id-two-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      name: "Add keyboard shortcut for new work item"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: scope-exact-priority-two-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "priority"
+      name: "Add keyboard shortcut for new work item"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: scope-exact-state-id-sub-priority-two-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      name: "Add keyboard shortcut for new work item"
+      sub_group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: scope-multiset-assignees-two-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      name: "Add keyboard shortcut for new work item"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+
+  # -- SubIssuesEndpoint: its own group_by shaping and state_distribution --
+  - name: sub-issues-plain
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-assignees-ids
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "assignees__ids"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-assignees-ids-order-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "assignees__ids"
+      order_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "priority"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "state_group"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-state-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "state_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-cycle-id
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "cycle_id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-is-draft
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "is_draft"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-module-ids
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "module_ids"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-labels-id-500
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "labels__id"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-group-unknown-500
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/sub-issues/"
+    query:
+      group_by: "nope"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }
+  - name: sub-issues-empty
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_child}}/sub-issues/"
+    query:
+      group_by: "assignees__ids"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{ session_admin }}" }

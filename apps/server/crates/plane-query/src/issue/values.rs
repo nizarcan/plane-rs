@@ -30,21 +30,45 @@ mod constants {
     pub const TRIAGE_GROUP: &str = "triage";
 }
 
-/// Which `assignee_ids` subquery to use.
+/// Which annotation shape to project.
+///
+/// The three differ in two independent ways: the `assignee_ids` subquery and
+/// the three `COUNT` annotations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Projection {
-    /// `issue_queryset_grouper`'s annotation: every live assignee row.
+    /// `IssueViewSet.apply_annotations` (`plane/app/views/issue/base.py:227-263`)
+    /// and `issue_queryset_grouper`: every live assignee row, and a `COUNT`
+    /// with a `GROUP BY` inside the subquery, so an issue with no related row
+    /// gets `null` (the subquery selects nothing).
     #[default]
     Grouped,
-    /// `IssueListEndpoint`'s annotation: only assignees with an active project
-    /// membership (`assignee__member_project__is_active=True`,
-    /// `plane/app/views/issue/base.py:939`).
+    /// `IssueListEndpoint`'s and `IssuePaginatedViewSet`'s annotation: only
+    /// assignees with an active project membership
+    /// (`assignee__member_project__is_active=True`,
+    /// `plane/app/views/issue/base.py:939`), with the same `COUNT ... GROUP BY`
+    /// shape.
     IssueListEndpoint,
+    /// The cycle, module and workspace-user issue lists' annotation
+    /// (`plane/app/views/cycle/issue.py:55-105`,
+    /// `plane/app/views/module/issue.py:54-82`,
+    /// `plane/app/views/view/base.py:199-245`): the plain assignee array and
+    /// `COUNT(...)` **without** a `GROUP BY`, which returns one row with `0`
+    /// for an empty relation instead of no row.
+    Aggregate,
 }
 
 /// The SQL projection for `fields`, each expression aliased to its JSON key.
 pub fn projection(fields: &[ValueField]) -> Vec<Frag> {
     projection_with(Projection::Grouped, fields)
+}
+
+/// One field's expression, without its `AS "key"` alias.
+///
+/// Handlers that compose their own projection (the sub-issues endpoint's
+/// `.values()` order differs from `issue_on_results`) reuse the expression so
+/// the two cannot drift.
+pub fn field_expression(kind: Projection, field: ValueField) -> Frag {
+    expression(field, kind)
 }
 
 /// [`projection`] for one of the two annotation variants.
@@ -76,18 +100,27 @@ fn expression(field: ValueField, kind: Projection) -> Frag {
         ValueField::ProjectId => Frag::raw("issues.project_id"),
         ValueField::ParentId => Frag::raw("issues.parent_id"),
         ValueField::CycleId => cycle_id_expression(),
-        ValueField::SubIssuesCount => sub_issues_count(),
+        ValueField::SubIssuesCount => match kind {
+            Projection::Aggregate => sub_issues_count_plain(),
+            _ => sub_issues_count(),
+        },
         ValueField::CreatedAt => Frag::raw("issues.created_at"),
         ValueField::UpdatedAt => Frag::raw("issues.updated_at"),
         ValueField::CreatedBy => Frag::raw("issues.created_by_id"),
         ValueField::UpdatedBy => Frag::raw("issues.updated_by_id"),
-        ValueField::AttachmentCount => attachment_count(),
-        ValueField::LinkCount => link_count(),
+        ValueField::AttachmentCount => match kind {
+            Projection::Aggregate => attachment_count_plain(),
+            _ => attachment_count(),
+        },
+        ValueField::LinkCount => match kind {
+            Projection::Aggregate => link_count_plain(),
+            _ => link_count(),
+        },
         ValueField::IsDraft => Frag::raw("issues.is_draft"),
         ValueField::ArchivedAt => Frag::raw("issues.archived_at"),
         ValueField::StateGroup => Frag::raw("states.group"),
         ValueField::AssigneeIds => match kind {
-            Projection::Grouped => array_aggregate(
+            Projection::Grouped | Projection::Aggregate => array_aggregate(
                 "issue_assignees",
                 "assignee_id",
                 "issue_assignees.deleted_at IS NULL",
@@ -160,6 +193,44 @@ fn link_count() -> Frag {
         "(SELECT COUNT(issue_links.id) FROM issue_links \
          WHERE issue_links.deleted_at IS NULL AND issue_links.issue_id = issues.id \
          GROUP BY issue_links.issue_id)",
+    )
+}
+
+/// `sub_issues_count` without the inner `GROUP BY` (`Projection::Aggregate`):
+/// `COUNT` over no rows is `0`, and there is always one row.
+fn sub_issues_count_plain() -> Frag {
+    let mut frag = Frag::raw(
+        "(SELECT COUNT(sub_issues.id) FROM issues sub_issues \
+         LEFT OUTER JOIN states sub_states ON sub_issues.state_id = sub_states.id \
+         INNER JOIN projects sub_projects ON sub_issues.project_id = sub_projects.id \
+         WHERE sub_issues.deleted_at IS NULL AND (sub_states.group IS NULL OR sub_states.group <> ",
+    );
+    frag.push(Frag::bind(Value::Text(constants::TRIAGE_GROUP.to_owned())));
+    frag.push_raw(
+        ") AND sub_issues.archived_at IS NULL AND sub_projects.archived_at IS NULL \
+         AND NOT sub_issues.is_draft AND sub_issues.parent_id = issues.id)",
+    );
+    frag
+}
+
+/// `attachment_count` without the inner `GROUP BY`.
+fn attachment_count_plain() -> Frag {
+    let mut frag = Frag::raw(
+        "(SELECT COUNT(file_assets.id) FROM file_assets \
+         WHERE file_assets.deleted_at IS NULL AND file_assets.entity_type = ",
+    );
+    frag.push(Frag::bind(Value::Text(
+        constants::IS_ISSUE_ATTACHMENT.to_owned(),
+    )));
+    frag.push_raw(" AND file_assets.issue_id = issues.id)");
+    frag
+}
+
+/// `link_count` without the inner `GROUP BY`.
+fn link_count_plain() -> Frag {
+    Frag::raw(
+        "(SELECT COUNT(issue_links.id) FROM issue_links \
+         WHERE issue_links.deleted_at IS NULL AND issue_links.issue_id = issues.id)",
     )
 }
 
@@ -292,6 +363,38 @@ mod tests {
         let sql = link_count().into_sql().text;
         assert!(sql.contains("COUNT(issue_links.id)"));
         assert!(sql.contains("GROUP BY issue_links.issue_id"));
+    }
+
+    #[test]
+    fn aggregate_counts_have_no_inner_group_by() {
+        // The cycle/module/workspace-user annotations are
+        // `.order_by().annotate(count=Func(...)).values("count")`: `COUNT` over
+        // no rows is 0, so the response has 0 where the `Subquery … GROUP BY`
+        // form has `null` (`plane/app/views/cycle/issue.py:55-105`).
+        let grouped = projection_with(
+            Projection::Grouped,
+            &[
+                ValueField::SubIssuesCount,
+                ValueField::AttachmentCount,
+                ValueField::LinkCount,
+            ],
+        );
+        let aggregate = projection_with(
+            Projection::Aggregate,
+            &[
+                ValueField::SubIssuesCount,
+                ValueField::AttachmentCount,
+                ValueField::LinkCount,
+            ],
+        );
+        for frag in &grouped {
+            let sql = frag.clone().into_sql().text;
+            assert!(sql.contains("GROUP BY"), "{sql}");
+        }
+        for frag in &aggregate {
+            let sql = frag.clone().into_sql().text;
+            assert!(!sql.contains("GROUP BY"), "{sql}");
+        }
     }
 
     #[test]
