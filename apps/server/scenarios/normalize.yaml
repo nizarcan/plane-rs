@@ -81,6 +81,24 @@ shapes:
   anchor_hex:
     pattern: '^[0-9a-f]{32}$'
     why: "deploy board anchor: uuid4().hex (plane/db/models/deploy_board.py:14-15)"
+  # FileAsset.asset = f"{workspace.id}/{uuid4().hex}-{sanitize(filename)}"
+  # (`plane/db/models/asset.py:20-25`); a fixture key is identical on both
+  # sides, a newly uploaded one is not.
+  asset_key:
+    pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{32}-.+$'
+    why: "FileAsset.asset: workspace id + uuid4().hex + filename (plane/db/models/asset.py:20-25)"
+  upload_policy:
+    pattern: '^[A-Za-z0-9+/]+=*$'
+    why: "base64 policy of a presigned POST (botocore signers.py:723-846)"
+  upload_signature:
+    pattern: '^[0-9a-f]{64}$'
+    why: "SigV4 signature of a presigned POST policy"
+  upload_date:
+    pattern: '^[0-9]{8}T[0-9]{6}Z$'
+    why: "SigV4 signing date of a presigned POST"
+  upload_credential:
+    pattern: '^[^/]+/[0-9]{8}/[a-z0-9-]+/s3/aws4_request$'
+    why: "SigV4 credential scope of a presigned POST"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -275,6 +293,23 @@ unordered_json_paths:
     request: "GET /api/workspaces/*/projects/"
     why: "plane/app/views/project/base.py:147-226 has no ORDER BY (GROUP BY p.id); D16 compares the page as a multiset"
 
+  # The draft create/update response's m2m arrays come from `ArrayAgg` with no
+  # `ORDER BY` (`plane/app/views/workspace/draft.py:93-124`); PostgreSQL is free
+  # to return the rows in any order. Compare the elements as a multiset, like
+  # the paginator's set-derived arrays above.
+  - path: "$.assignee_ids"
+    mode: array
+    request: "POST /api/workspaces/*/draft-issues/"
+    why: "plane/app/views/workspace/draft.py:93-124 ArrayAgg has no ORDER BY; the create response's assignee_ids order is undefined"
+  - path: "$.label_ids"
+    mode: array
+    request: "POST /api/workspaces/*/draft-issues/"
+    why: "plane/app/views/workspace/draft.py:93-124 ArrayAgg has no ORDER BY; the create response's label_ids order is undefined"
+  - path: "$.module_ids"
+    mode: array
+    request: "POST /api/workspaces/*/draft-issues/"
+    why: "plane/app/views/workspace/draft.py:93-124 ArrayAgg has no ORDER BY; the create response's module_ids order is undefined"
+
 volatile_cookies:
   - name: session-id
     placeholder: session
@@ -329,6 +364,34 @@ volatile_json_keys:
     placeholder: anchor
     shape: anchor_hex
     why: "DeployBoard.anchor = uuid4().hex on create (plane/db/models/deploy_board.py:14-15); DECISIONS.md D16"
+  - name: asset
+    mode: placeholder_if_new
+    placeholder: asset
+    shape: asset_key
+    request: "*api/assets/v2/*attachments*"
+    why: "FileAsset.asset = workspace/uuid4().hex-filename (plane/db/models/asset.py:20-25); a fixture key stays literal"
+  - name: key
+    mode: placeholder_if_new
+    placeholder: asset
+    shape: asset_key
+    request: "POST *attachments*"
+    why: "presigned POST field `key` is the newly generated FileAsset.asset"
+  - name: policy
+    placeholder: upload-policy
+    shape: upload_policy
+    why: "presigned POST policy contains the signing instant (botocore signers.py:723-846)"
+  - name: x-amz-signature
+    placeholder: upload-signature
+    shape: upload_signature
+    why: "presigned POST SigV4 signature"
+  - name: x-amz-date
+    placeholder: upload-date
+    shape: upload_date
+    why: "presigned POST signing date"
+  - name: x-amz-credential
+    placeholder: upload-credential
+    shape: upload_credential
+    why: "presigned POST credential scope"
   - name: epoch
     mode: unix_time
     why: "int(timezone.now().timestamp()) at enqueue time (plane/app/views/issue/base.py:429); two runs can land in different seconds"
@@ -394,6 +457,12 @@ volatile_db_columns:
     placeholder: anchor
     shape: anchor_hex
     why: "DeployBoard.anchor = uuid4().hex on create (plane/db/models/deploy_board.py:14-15); DECISIONS.md D16"
+  - table: file_assets
+    column: asset
+    mode: placeholder_if_new
+    placeholder: asset
+    shape: asset_key
+    why: "FileAsset.asset = workspace/uuid4().hex-filename (plane/db/models/asset.py:20-25); a fixture key stays literal"
 
 # Celery transport headers: not part of the task's observable behaviour, so
 # they are dropped rather than placeholdered (their values are per-process).

@@ -46,6 +46,7 @@
 //!   never calls the clock twice for one save.
 
 pub mod audit;
+pub mod draft_issue;
 pub mod favorite;
 pub mod html;
 /// Generated data tables for [`html`] (CPython's `html.entities.html5` and its

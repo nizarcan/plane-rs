@@ -1,0 +1,82 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Issue attachments: v1 multipart (76/77) and v2 presigned upload (78/79).
+
+name: write-issue-attachments
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  attachment_id: "80bc6632-0e4a-4d3e-9c8f-ec0b9bf351e9"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: at-01-v2-post
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "harness.txt"
+      type: "text/plain"
+      size: 123
+    capture:
+      - name: asset_v2
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+  - name: at-02-v2-patch
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/{{asset_v2}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+  - name: at-03-v2-delete
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/{{asset_v2}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+  - name: at-04-v2-bad-type
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { name: "x.exe", type: "application/x-msdownload", size: 10 }
+    expect_status: 400
+  # v1: Plane's S3Storage never calls S3Boto3Storage.__init__, so the pinned
+  # django-storages raises AttributeError before any row/task is written.
+  - name: at-05-v1-post-storage-bug
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/issue-attachments/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    multipart:
+      fields: {}
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello attachment"
+    expect_status: 500
+  - name: at-06-v1-post-missing-file
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/issue-attachments/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    multipart:
+      fields:
+        note: "no file"
+    expect_status: 400
+  - name: at-07-v1-delete-storage-bug
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/issue-attachments/{{attachment_id}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 500

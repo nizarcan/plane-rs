@@ -46,6 +46,7 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.issue.attachment.IssueAttachmentV2Endpoint")?
         .method(Method::GET, get)?;
+    crate::issues::write_attachment::register_v2(registry)?;
     Ok(())
 }
 

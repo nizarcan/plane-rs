@@ -37,8 +37,11 @@ pub mod lists;
 pub mod queries;
 pub mod row;
 mod sub_resources;
+pub mod write_attachment;
 pub mod write_comment;
 pub mod write_comment_queries;
+pub mod write_draft;
+pub mod write_draft_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -57,7 +60,6 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
             http::Method::PATCH,
             crate::projects::settings_write::user_properties,
         )?;
-
     // Set B: comments and reactions (routes 81, 82, 86, 87, 88, 89).
     registry
         .viewset("plane.app.views.issue.comment.IssueCommentViewSet")?
@@ -72,5 +74,13 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .viewset("plane.app.views.issue.comment.CommentReactionViewSet")?
         .action("create", write_comment::comment_reaction_create)?
         .action("destroy", write_comment::comment_reaction_destroy)?;
+
+    // Set D: drafts (attachments register below).
+    registry
+        .viewset("plane.app.views.workspace.draft.WorkspaceDraftIssueViewSet")?
+        .action("create", write_draft::create)?
+        .action("partial_update", write_draft::partial_update)?
+        .action("destroy", write_draft::destroy)?;
+    write_attachment::register(registry)?;
     Ok(())
 }
