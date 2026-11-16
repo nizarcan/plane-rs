@@ -172,6 +172,38 @@ async fn create_sets_sequence_sort_order_and_the_issue_sequence_row() {
     assert_eq!(row.get::<_, i64>(0), i64::from(second.sequence_id));
 }
 
+/// H07: `ProjectBaseModel.save` reaches `self.project.workspace` through the
+/// forward FK, i.e. `Project._base_manager` — a plain `Manager`, because no
+/// model in `plane/db/models/` sets `base_manager_name`. It therefore carries
+/// no `deleted_at` predicate and a soft-deleted project still resolves; only a
+/// missing row is `Project.DoesNotExist`. The fixture's `DEL` project is
+/// soft-deleted, so this needs no setup of its own.
+#[tokio::test]
+async fn a_soft_deleted_project_still_resolves_its_workspace() {
+    let Some(db) = database().await else { return };
+    let _guard = db_lock().lock().await;
+    let client = db.client().await;
+    let row = client
+        .query_one(
+            "SELECT id, workspace_id FROM projects \
+             WHERE identifier = 'DEL' AND deleted_at IS NOT NULL LIMIT 1",
+            &[],
+        )
+        .await
+        .expect("soft-deleted fixture project DEL");
+    let (project_id, workspace_id): (Uuid, Uuid) = (row.get(0), row.get(1));
+
+    let mut issue = new_issue(
+        project_id,
+        Uuid::nil(),
+        &format!("deleted project {}", Uuid::new_v4()),
+    );
+    issue_hooks::create_issue_row(&client, &mut issue, None, now())
+        .await
+        .expect("a soft-deleted project resolves through the base manager");
+    assert_eq!(issue.workspace_id, workspace_id);
+}
+
 #[tokio::test]
 async fn concurrent_creates_get_distinct_consecutive_sequences() {
     let Some(db) = database().await else { return };

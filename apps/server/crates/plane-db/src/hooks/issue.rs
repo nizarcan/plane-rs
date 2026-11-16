@@ -35,7 +35,10 @@
 //! 4. `MAX(issues.sort_order)` for `project+state` over `Issue.objects`
 //!    (`deleted_at IS NULL` only; archived/triage/draft count) → `+10000`,
 //!    otherwise the supplied/default 65535 stays.
-//! 5. `projects.workspace_id` (H07/`ProjectBaseModel.save`).
+//! 5. `projects.workspace_id` (H07/`ProjectBaseModel.save`): the forward-FK
+//!    read uses `Project._base_manager`, a plain `Manager` (no model in
+//!    `plane/db/models/` sets `base_manager_name`), so a soft-deleted project
+//!    still resolves and only a missing row is an error.
 //! 6. `INSERT issues`.
 //! 7. `INSERT issue_sequences` (H11; one row per issue, audit columns from the
 //!    acting user).
@@ -230,23 +233,47 @@ async fn create_issue_row_inner(
 
     // 4. `MAX(Issue.sort_order)` over `Issue.objects` (soft-delete only) for
     //    project+state; otherwise the supplied/default value stays
-    //    (`issue.py:198-203`).
-    let row = client
-        .query_one(
-            "SELECT MAX(sort_order) FROM issues \
-             WHERE project_id = $1 AND state_id = $2 AND deleted_at IS NULL",
-            &[&issue.project_id, &issue.state_id],
-        )
-        .await?;
+    //    (`issue.py:198-203`). `Issue.objects` is the bare
+    //    `SoftDeletionManager`, so archived/triage/draft rows count.
+    //    `filter(state=self.state)` with a `None` state is `state_id IS NULL`
+    //    in Django, not `state_id = NULL`.
+    let row = match issue.state_id {
+        Some(state_id) => {
+            client
+                .query_one(
+                    "SELECT MAX(sort_order) FROM issues \
+                     WHERE project_id = $1 AND state_id = $2 AND deleted_at IS NULL",
+                    &[&issue.project_id, &state_id],
+                )
+                .await?
+        }
+        None => {
+            client
+                .query_one(
+                    "SELECT MAX(sort_order) FROM issues \
+                     WHERE project_id = $1 AND state_id IS NULL AND deleted_at IS NULL",
+                    &[&issue.project_id],
+                )
+                .await?
+        }
+    };
     let largest_sort_order: Option<f64> = row.get(0);
     if let Some(largest) = largest_sort_order {
         issue.sort_order = largest + 10_000.0;
     }
 
     // 5. H07: `workspace = project.workspace` (`project.py:237-239`).
+    //
+    //    That is a forward-FK read, so it goes through
+    //    `Project._base_manager` — a plain `Manager`, because no model in
+    //    `plane/db/models/` sets `base_manager_name` — and therefore carries
+    //    **no** `deleted_at` predicate: a soft-deleted project still resolves
+    //    and its issue is still created. Only a missing row raises
+    //    `Project.DoesNotExist`, which the family answers as
+    //    `{"error": "The required object does not exist."}` (404).
     let row = client
         .query_opt(
-            "SELECT workspace_id FROM projects WHERE id = $1 AND deleted_at IS NULL",
+            "SELECT workspace_id FROM projects WHERE id = $1",
             &[&issue.project_id],
         )
         .await?;

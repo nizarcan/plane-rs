@@ -78,6 +78,66 @@ pub const SOFT_DELETE_MODULES: &str = "UPDATE draft_issue_modules SET deleted_at
 pub const SOFT_DELETE_CYCLES: &str = "UPDATE draft_issue_cycles SET deleted_at = $1 WHERE draft_issue_id = $2 \
      AND deleted_at IS NULL";
 
+// ---------------------------------------------------------------------------
+// `create_draft_to_issue` (`plane/app/views/workspace/draft.py:243-371`)
+// ---------------------------------------------------------------------------
+
+/// `self.get_queryset().filter(pk=draft_id, created_by=request.user).first()`
+/// (`draft.py:247`) for the conversion view.
+///
+/// The 24 `DraftIssue` columns plus the three project values the view reads:
+/// `draft_issue.project.workspace_id` and
+/// `draft_issue.project.default_assignee_id` are forward-FK reads (Django's
+/// `_base_manager`, so a soft-deleted project still resolves — no
+/// `deleted_at` predicate on the join), and the workspace id is
+/// `workspace__slug`'s join, which the permission layer already proved exists.
+/// `project` is nullable, so the join is a LEFT one and a draft without a
+/// project still reaches the view's own 400 (`draft.py:255-259`).
+pub const DRAFT_TO_ISSUE: &str = "SELECT d.created_at, d.updated_at, d.created_by_id, \
+     d.updated_by_id, d.deleted_at, d.id, d.workspace_id, d.project_id, d.parent_id, \
+     d.state_id, d.estimate_point_id, d.name, d.description_json, d.description_html, \
+     d.description_stripped, d.description_binary, d.priority, d.start_date, \
+     d.target_date, d.sort_order, d.completed_at, d.external_source, d.external_id, \
+     d.type_id, w.id, p.workspace_id, p.default_assignee_id \
+     FROM draft_issues d \
+     INNER JOIN workspaces w ON w.id = d.workspace_id \
+     LEFT JOIN projects p ON p.id = d.project_id \
+     WHERE d.id = $1 AND w.slug = $2 AND d.created_by_id = $3 AND d.deleted_at IS NULL \
+     LIMIT 1";
+
+/// `CycleIssue.objects.create(...)` (`draft.py:300-307`).
+///
+/// `ProjectBaseModel.save` re-derives `workspace_id` from `project.workspace`
+/// and `BaseModel.save` overwrites the audit columns from `crum`'s current
+/// user: `created_by_id` is the caller and `updated_by_id` is NULL, whatever
+/// the draft's values were (`plane/db/models/base.py:23-44`).
+pub const INSERT_CYCLE_ISSUE: &str = "INSERT INTO cycle_issues (created_at, updated_at, \
+     created_by_id, updated_by_id, deleted_at, id, project_id, workspace_id, issue_id, \
+     cycle_id) VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9)";
+
+/// `FileAsset.objects.filter(draft_issue_id=draft_id).update(...)`
+/// (`draft.py:359-364`). The manager is the soft-deletion one, so the WHERE
+/// carries `deleted_at IS NULL`; `QuerySet.update` writes no `updated_at`.
+pub const REASSIGN_FILE_ASSETS: &str = "UPDATE file_assets SET issue_id = $1, \
+     entity_type = 'ISSUE_DESCRIPTION', draft_issue_id = NULL \
+     WHERE draft_issue_id = $2 AND deleted_at IS NULL";
+
+/// `issue.assignees.all()` inside `IssueCreateSerializer.to_representation`
+/// (`plane/app/serializers/issue.py:126-132`): the M2M manager joins the
+/// through table and orders by the target model's `Meta.ordering`
+/// (`users.created_at DESC`). The through row's `deleted_at` is *not* part of
+/// the relation filter.
+pub const ISSUE_ASSIGNEE_IDS: &str = "SELECT u.id FROM users u \
+     INNER JOIN issue_assignees ia ON u.id = ia.assignee_id \
+     WHERE ia.issue_id = $1 ORDER BY u.created_at DESC";
+
+/// `issue.labels.all()`: `Label.objects` is the soft-deletion manager, so its
+/// predicate lands in the WHERE (`labels.deleted_at IS NULL`), unlike the
+/// assignee join.
+pub const ISSUE_LABEL_IDS: &str = "SELECT l.id FROM labels l \
+     INNER JOIN issue_labels il ON l.id = il.label_id \
+     WHERE l.deleted_at IS NULL AND il.issue_id = $1 ORDER BY l.created_at DESC";
+
 pub const INSERT_ASSIGNEE: &str = "INSERT INTO draft_issue_assignees (created_at, updated_at, \
      deleted_at, id, assignee_id, created_by_id, draft_issue_id, project_id, updated_by_id, \
      workspace_id) VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9)";
