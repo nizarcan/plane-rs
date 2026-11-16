@@ -20,12 +20,15 @@
 //!
 //! H09a (`_retime_intake_snoozes`) runs in the same transaction as the timezone
 //! update: it locks the project's snoozed `intake_issues` and moves
-//! `snoozed_till` to the same calendar day's midnight in the new zone.
+//! `snoozed_till` to the same calendar day's midnight in the new zone. The
+//! midnight is `project_day_start`'s, i.e. pytz `localize(is_dst=False)`
+//! ([`intake_issue::project_day_start`]), never chrono's `earliest()`.
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use uuid::Uuid;
 
+use crate::hooks::intake_issue;
 use crate::pool::DbError;
 
 /// H08: the `identifier` and `timezone` a create writes.
@@ -56,11 +59,35 @@ pub fn before_update(identifier: &str) -> String {
     identifier.trim().to_uppercase()
 }
 
+/// H09a per row (`project.py:189`):
+///
+/// ```python
+/// project_day_start(intake_issue.snoozed_till.astimezone(old_tz).date(), new_tz)
+/// ```
+///
+/// The old day is Python's `datetime.astimezone`: the instant read with the old
+/// zone's offset *at that instant*, which is [`DateTime::with_timezone`], not a
+/// wall-clock re-localisation. Only the new midnight has pytz semantics; see
+/// [`intake_issue::project_day_start`].
+#[must_use]
+pub fn retimed_snooze(
+    snoozed_till: DateTime<Utc>,
+    old_timezone: Tz,
+    new_timezone: Tz,
+) -> DateTime<Utc> {
+    let day = snoozed_till.with_timezone(&old_timezone).date_naive();
+    intake_issue::project_day_start(day, new_timezone)
+}
+
 /// H09a: `_retime_intake_snoozes` (`project.py:169-191`).
 ///
-/// `project_day_start(date, tz)` is midnight of `date` in `tz`
-/// (`plane/utils/timezone_converter.py`). The rows are locked (`FOR UPDATE`) in
-/// the caller's transaction, exactly like `select_for_update()`.
+/// One row becomes [`retimed_snooze`]: the calendar day the stored instant has
+/// in the **old** zone, at midnight in the **new** zone. The midnight uses
+/// `project_day_start` (`plane/utils/timezone_converter.py:98-100`), i.e. pytz's
+/// `localize(..., is_dst=False)`: an ambiguous midnight takes standard time and a
+/// nonexistent one still resolves to an instant — Django never skips a row. The
+/// rows are locked (`FOR UPDATE`) in the caller's transaction, exactly like
+/// `select_for_update()`.
 ///
 /// # Errors
 ///
@@ -102,16 +129,7 @@ where
     for row in &rows {
         let id: Uuid = row.get(0);
         let snoozed_till: DateTime<Utc> = row.get(1);
-        let local_date: NaiveDate = snoozed_till.with_timezone(&old_timezone).date_naive();
-        let naive = local_date.and_hms_opt(0, 0, 0).expect("midnight");
-        let Some(start) = new_timezone
-            .from_local_datetime(&naive)
-            .earliest()
-            .map(|value| value.with_timezone(&Utc))
-        else {
-            continue;
-        };
-        updates.push((id, start));
+        updates.push((id, retimed_snooze(snoozed_till, old_timezone, new_timezone)));
     }
     if updates.is_empty() {
         return Ok(());
@@ -168,5 +186,85 @@ mod tests {
     fn h09_normalises_the_identifier_on_update() {
         assert_eq!(before_update(" gam "), "GAM");
         assert_eq!(before_update("θ"), "Θ");
+    }
+
+    fn at(value: &str) -> DateTime<Utc> {
+        value.parse::<DateTime<Utc>>().expect("RFC 3339")
+    }
+
+    fn zone(name: &str) -> Tz {
+        name.parse().expect("known zone")
+    }
+
+    /// The expected values are the **real** retime expression
+    /// `project_day_start(st.astimezone(old_tz).date(), new_tz)` in UTC, run with
+    /// CPython 3.12.13 and pytz 2024.1 from `apps/api/.venv`: both functions
+    /// (`project_day_start`, and `pytz.timezone(...).localize`) live in
+    /// `plane/utils/timezone_converter.py`, which imports `plane.db.models`, so
+    /// the function body was extracted with `ast` and executed with the module's
+    /// own `datetime`/`time` names. Each case is
+    /// `(snoozed_till, old zone, new zone, expected)`.
+    const RETIME_GOLDEN: &[(&str, &str, &str, &str)] = &[
+        // Ambiguous midnight (Havana falls back 01:00 -> 00:00 on 2026-11-01):
+        // pytz's is_dst=False picks standard time, 05:00Z, where `.earliest()`
+        // would have picked 04:00Z.
+        (
+            "2026-11-01T15:00:00Z",
+            "UTC",
+            "America/Havana",
+            "2026-11-01T05:00:00Z",
+        ),
+        // Nonexistent midnight (Sao Paulo's DST began at 00:00 on 2018-11-04):
+        // pytz still returns an instant, 03:00Z with the pre-transition offset;
+        // the old code skipped the row and left it at the stored value.
+        (
+            "2018-11-04T12:00:00Z",
+            "UTC",
+            "America/Sao_Paulo",
+            "2018-11-04T03:00:00Z",
+        ),
+        // The ordinary case the scenario covers: ALP's snoozed issue in UTC
+        // moved to Europe/Berlin.
+        (
+            "2026-11-23T00:00:00Z",
+            "UTC",
+            "Europe/Berlin",
+            "2026-11-22T23:00:00Z",
+        ),
+        // The same row back to UTC: the old day is Berlin's (the 23rd), because
+        // `astimezone` reads the instant with that zone's offset.
+        (
+            "2026-11-22T23:00:00Z",
+            "Europe/Berlin",
+            "UTC",
+            "2026-11-23T00:00:00Z",
+        ),
+        // The old day is the old zone's, not UTC's: 00:00Z is still the 22nd in
+        // Los Angeles.
+        (
+            "2026-11-23T00:00:00Z",
+            "America/Los_Angeles",
+            "UTC",
+            "2026-11-22T00:00:00Z",
+        ),
+        // Reading the old day never re-localises: 12:00Z is the 4th in Sao Paulo
+        // (DST, -02:00 at that instant) and the new midnight is UTC's.
+        (
+            "2018-11-04T12:00:00Z",
+            "America/Sao_Paulo",
+            "UTC",
+            "2018-11-04T00:00:00Z",
+        ),
+    ];
+
+    #[test]
+    fn h09a_retimes_to_the_new_zones_midnight_with_pytz_semantics() {
+        for &(snoozed_till, old, new, expected) in RETIME_GOLDEN {
+            assert_eq!(
+                retimed_snooze(at(snoozed_till), zone(old), zone(new)),
+                at(expected),
+                "{snoozed_till} {old} -> {new}"
+            );
+        }
     }
 }
