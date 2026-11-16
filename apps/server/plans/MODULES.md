@@ -130,3 +130,12 @@ in one block.
   both directions, links url prefix/validator, favourites duplicate, user-properties PATCH
   201) plus contract `--assume-rust 103,104,105,106,107,108,109,110,111,112,113
   --methods POST,PUT,PATCH,DELETE`; `PLANE_RS_REQUIRE_DB_TESTS=1` for the new catalog.
+
+## Orchestrator decision (2026-11-16)
+
+No shared `write_membership` module. The cycles plan (`plans/CYCLES.md`) shows different
+semantics: `CycleIssue` uses `bulk_create` without `ignore_conflicts` (a re-add is a 400)
+plus `bulk_update` moves, while `ModuleIssue` ignores conflicts. The common part, an
+all-or-nothing batched insert in one transaction, is `plane_db::hooks::issue_m2m`'s
+pattern. Generalise that helper if needed, and keep each domain's membership rules in
+its own files. Move `django_url_valid` to `write::url` when modules needs it.
