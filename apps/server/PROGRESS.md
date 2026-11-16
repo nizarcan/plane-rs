@@ -158,7 +158,7 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
-### Phase 5: projects domain, in progress (2026-11-16)
+### Phase 5: projects domain, done (2026-11-16)
 
 - Merged: the project hooks H08/H09/H09a/H32 (`c87d2e6aad`), and the shared write
   additions (`d4572b6427`): bool, integer-choice, integer and PK parsers, error and
@@ -196,6 +196,18 @@ invariants (each domain registers only its group's actions; every `rust` row in
 
   **Flipped:** 151 `rust(GET,POST)`, 152 `rust(GET,PATCH,DELETE)`. Lesson: differential
   scenarios must exercise both branches of every get-or-create.
+- Project create/update/delete merged (`5b8198a0fd`): `write/projects.yaml` 66/66 in
+  both directions; the orchestrator's contract run (`--assume-rust 135,137`) 59/59;
+  gates, 832 tests, selftest 136, and the full read sweep 0 diffs. **Flipped:** 135
+  `rust(GET,POST)`, 137 `rust(GET,PUT,PATCH,DELETE)` (PUT is Django's guard 405,
+  covered).
+  - Celery `argsrepr`/`kwargsrepr` are now compared strictly: exactly when untruncated,
+    by normalised prefix when truncated. That found two publisher bugs, both fixed:
+    `current_instance` datetimes are DRF strings with microseconds, and nested JSON
+    arguments collapse at `saferepr`'s depth limit.
+  - Upstream bugs are kept as they are: a non-mapping body is a 500; `ProjectIdentifier`
+    is never updated or soft-deleted; the project list has no ORDER BY (scoped unordered
+    rule); a PATCH'd lead isn't made a member.
 - One `plane-api` target died mid-sweep with no panic and no SIGTERM (an outside kill,
   most likely another agent's cleanup). The file re-ran 102/102. Agents must stop
   processes by PID only.
@@ -585,10 +597,9 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. Phase 5 domains in the brief's order, starting with **projects and members** (project
-   create/update/archive/delete, members, invites, joins, and their tasks and model
-   hooks). Each domain ports its tasks with it, writes `scenarios/write/<group>.yaml`,
-   and runs the contract tests with `--assume-rust` before its flip.
+1. Phase 5, **states and labels** (next in the brief's order): split into the shared
+   pieces first, then parallel route sets. Every get-or-create in the scenarios must
+   cover both branches.
 2. A serializer field-table generator for `write::Serializer`, before the work-items
    domain.
 3. Re-measure the Phase 3 benchmark row and add container numbers for `plane-worker` and
