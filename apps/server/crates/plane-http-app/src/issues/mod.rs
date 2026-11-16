@@ -40,8 +40,10 @@ pub mod row;
 mod sub_resources;
 /// The issue-core write routes (`plans/WORK_ITEMS.md` set A).
 ///
-/// `pub(crate)` because the intake-issue create reuses `prepare_create`'s
-/// nested-body variant and its task publishers (`plans/INTAKE.md` §2d).
+/// `pub(crate)` since the intake-issue create/PATCH sets reuse the shared
+/// pieces the plan lists (`plans/INTAKE.md` §2d): `validate_issue` with
+/// `allow_triage`, `apply_patch`, `ensure_state_for_save`, `recheck_manager_fields`,
+/// `field_order`, `fk_value`, `strip_html` and the two task publishers.
 pub(crate) mod write_issue;
 pub mod write_issue_queries;
 pub(crate) mod write_support;
