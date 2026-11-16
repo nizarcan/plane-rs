@@ -29,7 +29,8 @@ use plane_serializers::generated::app_workspace::WorkSpaceSerializer;
 use serde::Serialize;
 
 use super::queries;
-use super::support::{self, AssetRef};
+use super::support;
+use crate::common::asset_url::{self, AssetRef};
 
 /// Register this module's handlers.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -165,7 +166,7 @@ fn workspaces<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             let role: Option<i16> = row.try_get(14)?;
             let total_members: i64 = row.try_get(15)?;
             let logo = AssetRef::from_row(row, 16)?;
-            logo_urls.push(support::workspace_logo_url(
+            logo_urls.push(asset_url::workspace_logo_url(
                 workspace.logo.as_deref(),
                 &logo,
             )?);
