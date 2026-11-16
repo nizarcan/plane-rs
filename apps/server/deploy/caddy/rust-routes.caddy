@@ -210,7 +210,10 @@ handle @plane_rs_projects {
 	expression <<CEL
 		({env.PLANE_RS_GROUP_STATES} == "" ? "rust" : {env.PLANE_RS_GROUP_STATES}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/states/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/states/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/states/$")))
+			(method("GET", "POST") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/states/$")))
+			|| 			(method("GET", "PATCH", "DELETE") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/states/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("POST") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/states/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/mark-default/$")))
+			|| 			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/states/$")))
 		)
 	CEL
 }

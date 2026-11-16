@@ -595,6 +595,24 @@ and only `verified` rows are Rust-owned.
   group value; grouped `total_count` counts model rows, not issues.
 - Celery `saferepr` truncation can emit unbalanced brackets in `argsrepr`.
 
+### Phase 5: states (merged `17f9beec2d`, 2026-11-16)
+
+- Create, PATCH, mark-default and DELETE. H19 is the slug (Django's `slugify`, NFKD via
+  `unicode-normalization`) plus `MAX(sequence)+15000`. `write/states.yaml` 73/73 in both
+  directions; the orchestrator's contract run (`--assume-rust 158,159,161`) 66/66; gates
+  and 834 tests pass. **Flipped:** 158 `rust(GET,POST)`, 159 `rust(GET,PATCH,DELETE)`,
+  161 `rust(POST)`.
+- Upstream bugs are kept as they are:
+  - create with `order` is a 500;
+  - no archived-project filter on create or delete;
+  - mark-default ignores `is_triage`;
+  - the duplicate-name body is a bare string;
+  - the delete guard counts draft, archived and triage issues.
+- Serializer field-table generator merged (`790cd41d04`). Its equivalence check matches
+  the hand-written project table, but found two stickies mismatches (`created_by` and
+  `updated_by` are writable in DRF; DRF rejects `description_html: null`). Being settled
+  against Django.
+
 ## Next three steps
 
 1. In progress: states (158/159/161, `rs-p5-states`) and labels (68/69/70,

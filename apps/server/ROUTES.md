@@ -245,10 +245,10 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 155 | `/api/workspaces/{slug}/search/` | GET | `plane.app.views.search.base.GlobalSearchEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 156 | `/api/workspaces/{slug}/projects/{project_id}/search-issues/` | GET | `plane.app.views.search.issue.IssueSearchEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 157 | `/api/workspaces/{slug}/entity-search/` | GET | `plane.app.views.search.base.SearchEndpoint` | WorkspaceUserPermission | rust(GET) | verified |
-| 158 | `/api/workspaces/{slug}/projects/{project_id}/states/` | GET:list, POST:create | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); POST allow(ADMIN;PROJECT) | rust(GET) | verified |
-| 159 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); PATCH,DELETE allow(ADMIN;PROJECT) | rust(GET) | verified |
+| 158 | `/api/workspaces/{slug}/projects/{project_id}/states/` | GET:list, POST:create | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); POST allow(ADMIN;PROJECT) | rust(GET,POST) | verified |
+| 159 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); PATCH,DELETE allow(ADMIN;PROJECT) | rust(GET,PATCH,DELETE) | verified |
 | 160 | `/api/workspaces/{slug}/projects/{project_id}/intake-state/` | GET | `plane.app.views.state.base.IntakeStateEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
-| 161 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/mark-default/` | POST:mark_as_default | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; POST allow(ADMIN;PROJECT) | django | not-started |
+| 161 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/mark-default/` | POST:mark_as_default | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; POST allow(ADMIN;PROJECT) | rust(POST) | verified |
 | 162 | `/api/users/me/` | GET:retrieve, PATCH:partial_update, DELETE:deactivate | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 163 | `/api/users/session/` | GET | `plane.app.views.user.base.UserSessionEndpoint` | AllowAny | rust(GET) | verified |
 | 164 | `/api/users/me/settings/` | GET:retrieve_user_settings | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET) | verified |
