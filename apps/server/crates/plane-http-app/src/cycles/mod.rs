@@ -11,22 +11,58 @@
 //! * `/api/workspaces/*/projects/*/archived-cycles/**`
 //! * `/api/workspaces/*/projects/*/user-favorite-cycles/**`
 //!
-//! Nothing is registered yet: every route of this group still answers Django,
-//! so `register` is empty. It stops being empty one route at a time, each one
-//! only after its `scenarios/read/` (and, for a write, its write) scenario is
-//! clean against Django — `apps/server/HANDLERS.md` is the procedure. Once a
-//! group is fully ported, the orchestrator flips its `Owner` column in
-//! `ROUTES.md`; a domain agent never edits that file.
+//! One file per Python module under `plane/app/views/`:
+//!
+//! | Rust | Python |
+//! | --- | --- |
+//! | [`base`] | `cycle/base.py` — `CycleViewSet`, `CycleUserPropertiesEndpoint`, `CycleProgressEndpoint`, `CycleAnalyticsEndpoint` |
+//! | [`archive`] | `cycle/archive.py` — `CycleArchiveUnarchiveEndpoint` |
+//! | [`issue`] | `cycle/issue.py` — `CycleIssueViewSet` |
+//! | [`workspace`] | `workspace/cycle.py` — `WorkspaceCyclesEndpoint` |
+//!
+//! `+ GET …/cycles/{cycle_id}/cycle-issues/{issue_id}/` and `+ GET
+//! …/user-favorite-cycles/` are answered by the runtime's `BaseViewSet` guard
+//! (`405 {"detail": "Method \"GET\" not allowed."}`), so they register nothing.
 
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod archive;
+pub mod base;
+pub mod issue;
+pub mod issue_list;
 pub mod queries;
+pub mod workspace;
 
 /// Register this group's handlers, in the order they were ported.
-///
-/// `apps/server/HANDLERS.md` has the step list. Return the first
-/// [`RegistryError`]: a route that cannot be registered must fail startup
-/// rather than fall back to a 501 nobody notices.
-pub fn register(_registry: &mut Registry) -> Result<(), RegistryError> {
+pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    registry
+        .viewset("plane.app.views.cycle.base.CycleViewSet")?
+        .action("list", base::list)?
+        .action("retrieve", base::retrieve)?;
+    registry
+        .viewset("plane.app.views.cycle.issue.CycleIssueViewSet")?
+        .action("list", issue::list)?
+        // `GET …/cycle-issues/{issue_id}/`: the guard answers 405.
+        .action("retrieve", base::guard_only)?;
+    registry
+        .viewset("plane.app.views.cycle.base.CycleFavoriteViewSet")?
+        // `GET …/user-favorite-cycles/`: `ListModelMixin` with no authorizing
+        // permission class, so the guard answers 405.
+        .action("list", base::guard_only)?;
+    registry
+        .api_view("plane.app.views.cycle.base.CycleUserPropertiesEndpoint")?
+        .method(http::Method::GET, base::user_properties_get)?;
+    registry
+        .api_view("plane.app.views.cycle.base.CycleProgressEndpoint")?
+        .method(http::Method::GET, base::progress)?;
+    registry
+        .api_view("plane.app.views.cycle.base.CycleAnalyticsEndpoint")?
+        .method(http::Method::GET, base::analytics)?;
+    registry
+        .api_view("plane.app.views.cycle.archive.CycleArchiveUnarchiveEndpoint")?
+        .method(http::Method::GET, archive::get)?;
+    registry
+        .api_view("plane.app.views.workspace.cycle.WorkspaceCyclesEndpoint")?
+        .method(http::Method::GET, workspace::get)?;
     Ok(())
 }

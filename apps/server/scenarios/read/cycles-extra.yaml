@@ -1,0 +1,582 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra `cycles` steps beyond the generated read scenario: the shapes whose
+# behaviour the generated cases cannot reach — `cycle_view` values, users in
+# other profile timezones (the list/detail convert datetimes with the
+# *project's* timezone while analytics' `TruncDate` uses the user's), `fields=`
+# and `expand=` (both ignored by these views), the archive routes for a second
+# project, the issue list's filters/ordering/cursors/grouping error paths, and
+# the per-user properties `get_or_create` (a database side effect).
+#
+# The m2m group fields (`labels__id`, `assignees__id`,
+# `issue_module__module_id`) are deliberately absent: the grouper builds their
+# group-key order from a Python `set`, which `plane-query` documents as not
+# reproducible (its golden corpus normalises it), so such a step could never be
+# byte-identical. Their row *counts* on a registered route are covered through a
+# non-m2m group over an m2m filter instead.
+#
+# Run against the rich fixture template `plane_fix_tpl`:
+#   ./target/debug/difftest run --scenario scenarios/read/cycles-extra.yaml \
+#     --a django --b rust --targets /tmp/targets-rs-cycles-modules.yaml
+
+name: read-cycles-extra
+template_db: plane_fix_tpl
+redis_db: [12, 15]
+target_env:
+  # Some views build their response from a Python `set`, so JSON key order
+  # follows the process's string-hash seed. Pinning the seed makes the two
+  # targets agree without normalising the body.
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  cycle_alpha_past: "e6f4b40f-2492-4a1e-97f1-d84204ff65c1"
+  cycle_alpha_upcoming: "1df0c827-94ce-419f-b6ed-4e69b69769ae"
+  cycle_alpha_archived: "2aa0956c-78ad-4002-8d90-1232ff2ae659"
+  cycle_beta_current: "ea38d39b-18b7-4df1-be8b-f2ab43d4ab97"
+  cycle_beta_upcoming: "d20893f9-544a-4808-be18-259358ebf13b"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- the list's cycle_view branches and the project timezone ---------------
+  - name: extra-cycles-0001-list-current-count
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    query:
+      cycle_view: "count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0002-list-current
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    query:
+      cycle_view: "current"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0003-list-upcoming
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/"
+    query:
+      cycle_view: "upcoming"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0004-list-empty-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0005-list-tz-kolkata-alpha
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: extra-cycles-0006-list-tz-tokyo-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: extra-cycles-0007-list-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    query:
+      fields: "id,name"
+      expand: "project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- detail: project timezone, archived exclusion, tenant checks -----------
+  - name: extra-cycles-0010-retrieve-tz-newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  - name: extra-cycles-0011-retrieve-tz-tokyo-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/{{cycle_beta_current}}/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: extra-cycles-0012-retrieve-upcoming
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_upcoming}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-cycles-0013-retrieve-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-cycles-0014-retrieve-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: extra-cycles-0015-retrieve-wrong-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/{{cycle_alpha_current}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0016-retrieve-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/"
+    query:
+      fields: "id,name,status"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- progress -------------------------------------------------------------
+  - name: extra-cycles-0020-progress-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/progress/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: extra-cycles-0021-progress-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/{{cycle_beta_current}}/progress/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0022-progress-archived
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_archived}}/progress/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-cycles-0023-progress-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/progress/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+
+  # --- analytics (the fixture cycles carry a progress_snapshot) -------------
+  - name: extra-cycles-0030-analytics-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/analytics/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: extra-cycles-0031-analytics-points-tz-newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/analytics/"
+    query:
+      type: "points"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  - name: extra-cycles-0032-analytics-issues-empty-type
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/analytics/"
+    query:
+      type: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0033-analytics-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/{{cycle_beta_current}}/analytics/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0034-analytics-upcoming
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_upcoming}}/analytics/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+
+  # --- per-user properties: get, then create for a user who has none --------
+  - name: extra-cycles-0040-props-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/user-properties/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-cycles-0041-props-create-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/user-properties/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: extra-cycles-0042-props-existing-tz-kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/user-properties/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: extra-cycles-0043-props-missing-cycle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{missing}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- archive routes -------------------------------------------------------
+  - name: extra-cycles-0050-archived-list-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: extra-cycles-0051-archived-retrieve-tz-berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/{{cycle_alpha_archived}}/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: extra-cycles-0052-archived-retrieve-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/{{cycle_alpha_archived}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-cycles-0053-archive-post-only-route
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_archived}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-cycles-0054-archived-list-beta
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/archived-cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- workspace-wide list --------------------------------------------------
+  - name: extra-cycles-0060-workspace-list-tz-tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/cycles/"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: extra-cycles-0061-workspace-list-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/cycles/"
+    query:
+      fields: "id,name"
+      expand: "project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- the issue list: filters, ordering, cursors, grouping, errors --------
+  - name: extra-cycles-0070-issues-filter-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      priority: "low,urgent"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0071-issues-filter-state
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      state: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0072-issues-filter-labels
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      labels: "3e6f9c26-e729-4009-ab69-974b067075aa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0073-issues-filter-assignees
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      assignees: "f1d4b6e4-0f7b-4fec-8130-208fa8cecc93"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0074-issues-filter-json
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      filters: "{\"and\": [{\"priority\": \"high\"}, {\"state__group\": \"completed\"}]}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0075-issues-filter-json-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      filters: "{\"not_a_field\": \"x\"}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0076-issues-order-priority
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      order_by: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0077-issues-order-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      order_by: "name"
+      per_page: "5"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0078-issues-order-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      order_by: "not_a_field"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0080-issues-page-2
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      per_page: "3"
+      cursor: "3:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0081-issues-page-prev
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      per_page: "3"
+      cursor: "3:1:1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0082-issues-bad-cursor
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      cursor: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0083-issues-bad-per-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      per_page: "1001"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0084-issues-group-duplicate-rows
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state__group"
+      labels: "3e6f9c26-e729-4009-ab69-974b067075aa,4e684b34-0406-4516-96ce-361f9f3f1665"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0085-issues-group-duplicate-page
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state__group"
+      labels: "3e6f9c26-e729-4009-ab69-974b067075aa,4e684b34-0406-4516-96ce-361f9f3f1665"
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0086-issues-group-cycle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "cycle_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0087-issues-group-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "project_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0088-issues-group-created-by
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "created_by"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0089-issues-group-sub-state-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "state__group"
+      sub_group_by: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0090-issues-group-invalid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "issues__name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0091-issues-empty-cycle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_archived}}/cycle-issues/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: extra-cycles-0092-issues-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: extra-cycles-0093-issues-tz-kolkata-group
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    query:
+      group_by: "start_date"
+    jar: tz
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: extra-cycles-0094-issues-missing-cycle
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{missing}}/cycle-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # --- projects without cycles / archived projects --------------------------
+  - name: extra-cycles-0100-list-current-empty-falls-through
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/cycles/"
+    query:
+      cycle_view: "current"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0101-list-archived-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0102-workspace-list-member-pojects
+    method: GET
+    path: "/api/workspaces/{{ws}}/cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+
+  # --- error shapes the generated cases cannot reach ------------------------
+  - name: extra-cycles-0110-archived-retrieve-live-cycle-is-500
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/{{cycle_alpha_current}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: extra-cycles-0111-archived-retrieve-upcoming-is-500
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/{{cycle_alpha_upcoming}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
