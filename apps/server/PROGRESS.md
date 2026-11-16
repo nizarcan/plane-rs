@@ -703,15 +703,20 @@ and only `verified` rows are Rust-owned.
   - 217 (draft-to-issue) is held for set A.
 - Set A, issue core: 118/118 in both directions. Catching up with B, C and D before
   the merge, removing its harness overlaps, and adding per-DB contract vhosts.
-- Planning in parallel, read-only: `plans/CYCLES.md` and `plans/MODULES.md`.
+- Plans committed: `plans/MODULES.md` (`978ac601e5`) and `plans/CYCLES.md`
+  (`e90a873a30`). Decision: no shared membership module; cycles and modules differ in
+  conflict handling and moves.
+- Cycles in progress, in parallel: set A, cycle core (`rs-p5-cy-a`); set B, cycle issues
+  and transfer (`rs-p5-cy-b`). Modules start after work items set A merges.
+- Disk hygiene: the orchestrator's verification checkout grew to 16 GB of stale debug
+  artefacts plus incremental cache. Wiped, and verification now builds with
+  `CARGO_INCREMENTAL=0`. Idle worktrees' `target/debug/incremental` can be dropped
+  safely.
 
 ## Next three steps
 
-1. In progress: the work-items route sets from `plans/WORK_ITEMS.md` §3, in parallel:
-   - A, issue core (`rs-p5-wi-a`);
-   - B, comments and reactions (`rs-p5-wi-b`);
-   - C, links, relations, subscribers and sub-issues (`rs-p5-wi-c`);
-   - D, attachments and drafts (`rs-p5-wi-d`; 217 after A), plus the labels serializer
-     audit.
-2. Then cycles, then modules.
-3. Re-measure the Phase 3 benchmark row on a quiet stack, once the four sets merge.
+1. Merge work items set A (catching up), then set D's draft-to-issue (217).
+2. Merge cycles sets A and B; then modules sets A and B, per `plans/MODULES.md`.
+3. Then views → pages → intake → notifications → favourites → webhooks → exports →
+   analytics → search, each planned read-only first. Re-measure the Phase 3 benchmark row
+   on a quiet stack once work items, cycles and modules are in.
