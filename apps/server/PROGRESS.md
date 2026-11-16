@@ -926,7 +926,18 @@ and only `verified` rows are Rust-owned.
   intake, while retrieve 500s; the creator permission branch is unscoped and goes through
   the soft-delete manager, so a repeat DELETE by the creator is 403 while an admin gets
   404; a live link over a soft-deleted issue is a 500 and leaves the link live.
-- Running: intake B (create 55/59) and C (PATCH 56/60).
+- Intake B (merged `95ddf854e0`, flipped with this entry): 55/59 `rust(GET,POST)`.
+  `write/intake-issues-create.yaml` 33/33 in both directions; all 24 write scenarios plus
+  `read/intake*` are clean DvR on the merge. No contract test reaches 55/59. Shared
+  change: `recheck_manager_fields` now also re-checks `state` against `State.objects`
+  (`INVALID_STATE_MANAGER`: soft-deleted or triage). That was a latent issue-create
+  divergence, now fixed.
+- Upstream quirks kept: `IssueCreateSerializer` can't accept `state` at all here (a
+  triage id is a field error, a normal id is a non-field error); the triage fallback
+  state is written before validation, so a 400 writes; a project without an intake is a
+  500 after the issue/sequence/m2m writes; the fallback state is `group="triage"` with
+  `is_triage=False`; create answers 200; drafts can be linked.
+- Running: intake C (PATCH 56/60).
 
 ## Next three steps
 
