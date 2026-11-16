@@ -70,7 +70,7 @@
 # | --- | --- | ---: | ---: | --- |
 # | health | `PLANE_RS_GROUP_HEALTH` | 1 | 8 | no |
 # | meta | `PLANE_RS_GROUP_META` | 2 | 6 | yes |
-# | users-me | `PLANE_RS_GROUP_USERS_ME` | 22 | 75 | no |
+# | users-me | `PLANE_RS_GROUP_USERS_ME` | 22 | 75 | yes |
 # | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | no |
 # | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | no |
 # | analytics | `PLANE_RS_GROUP_ANALYTICS` | 13 | 41 | no |
@@ -110,5 +110,21 @@
 	CEL
 }
 handle @plane_rs_meta {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# users-me: The signed-in user's own profile, settings, sessions and tokens.
+# 22 route(s), 75 endpoint x method pair(s); PLANE_RS_GROUP_USERS_ME=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_users_me {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_USERS_ME} == "" ? "rust" : {env.PLANE_RS_GROUP_USERS_ME}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/users/me/workspaces/[^/]+/projects/invitations/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/project-roles/$") || path_regexp(r"^/api/users/me/$") || path_regexp(r"^/api/users/session/$") || path_regexp(r"^/api/users/me/settings/$") || path_regexp(r"^/api/users/me/profile/$") || path_regexp(r"^/api/users/me/accounts/$") || path_regexp(r"^/api/users/me/accounts/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/users/me/instance-admin/$") || path_regexp(r"^/api/users/me/activities/$") || path_regexp(r"^/api/users/me/workspaces/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/activity-graph/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/issues-completed-graph/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/dashboard/$") || path_regexp(r"^/api/users/me/workspaces/invitations/$") || path_regexp(r"^/api/users/last-visited-workspace/$") || path_regexp(r"^/api/users/api-tokens/$") || path_regexp(r"^/api/users/api-tokens/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+		)
+	CEL
+}
+handle @plane_rs_users_me {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
