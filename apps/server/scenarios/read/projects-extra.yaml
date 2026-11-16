@@ -1,0 +1,330 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `projects` group, beyond the generated
+# `projects.yaml`: the paginated branch of `ProjectViewSet.list_detail`, the
+# `fields=`/`expand=` handling, the guest/member list filters, archived and
+# soft-deleted projects, the member search filter, and the not-found bodies of
+# the retrieve routes.
+#
+# Every step is a plain GET; the scenario is deterministic against Django
+# (`--a django --b django` is clean) and is then run Django vs Rust.
+
+name: read-projects-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  board_alpha: "8b37f6d5-af8e-422b-8596-17c52aff470e"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  member_row_mia: "30c1a00a-86ec-49a1-9839-4b71a3f9a2b3"
+  member_row_gus: "7cf2583a-8db3-4c01-be40-7304853d0343"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- list_detail: fields=, expand=, and the paginated branch -------------
+  - name: pe-01-details-fields
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      fields: "id,name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-02-details-expand-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      expand: "workspace"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-03-details-page-1
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-04-details-page-2
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-05-details-page-3
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "2:2:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-06-details-order-name
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+      order_by: "name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-07-details-order-name-desc
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+      order_by: "-name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-08-details-order-sort-order
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+      order_by: "sort_order"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-09-details-order-not-allowlisted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "2:0:0"
+      order_by: "identifier"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-10-details-per-page-zero
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "0"
+      cursor: "2:0:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-11-details-bad-cursor
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    query:
+      per_page: "2"
+      cursor: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # --- list_detail: the guest and member role filters ----------------------
+  - name: pe-12-details-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: pe-13-details-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/details/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # --- retrieve: archived, soft-deleted, non-member ------------------------
+  - name: pe-14-retrieve-archived
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-15-retrieve-soft-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-16-retrieve-secret-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: pe-17-retrieve-public-non-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: pe-18-retrieve-bad-uuid
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # --- project identifiers -------------------------------------------------
+  - name: pe-19-identifiers-lowercase
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    query:
+      name: "alp"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-20-identifiers-archived
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    query:
+      name: "GAM"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-21-identifiers-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    query:
+      name: "ZZZ"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # --- deploy boards -------------------------------------------------------
+  - name: pe-22-board-none
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-23-board-of-another-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/{{board_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # --- members -------------------------------------------------------------
+  - name: pe-24-member-own-row-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{member_row_gus}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: pe-25-members-search-one-term
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    query:
+      search: "Mia"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-26-members-search-two-terms
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    query:
+      search: "Mia+Member"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-27-members-search-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    query:
+      search: "guest"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-28-members-search-quoted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    query:
+      search: "\"Gus Guest\""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-29-members-fields-ignored
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-30-member-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/members/00000000-0000-4000-8000-000000000000/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-31-member-me-not-a-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-members/me/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-32-preference-own
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/preferences/member/{{admin_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-33-invitation-missing
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/00000000-0000-4000-8000-000000000000/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: pe-34-invitation-invitee
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/invitations/bb13fc14-7c2b-4ce9-8e0d-d1eead45f53c/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
