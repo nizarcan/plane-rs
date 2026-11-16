@@ -890,7 +890,14 @@ and only `verified` rows are Rust-owned.
 - Bug found by the read sweep: `users_me/support.rs:55` `today()` uses
   `chrono::Local`, while Django's `date.today()` is UTC. So `read/users-me.yaml`
   activity-graph steps 34–35 differ whenever the host's local date ≠ the UTC date
-  (00:00–03:00 at +03). Fix: today in `TIME_ZONE`, and audit every `Local::now`.
+  (00:00–03:00 at +03). **Fixed** (merged `1679d11650`): `today()` is the UTC date via
+  `plane_core::clock::now()`. `read/users-me.yaml` is 57/57 at 01:33 +03, with the local
+  date ≠ the UTC date. Audit of every ported `date.today()`/`datetime.now()`: the
+  activity graph and dashboard windows are fixed; page archive and timezones were
+  already UTC; the rest are unported or deliberately user/project-tz. `chrono::Local`
+  no longer appears in the tree.
+- Intake: plan committed (`2313e2a31d`; claim "53/57 create never writes" verified at
+  `intake/base.py:79-81`). P0 running; sets A–D start after it merges.
 
 ## Next three steps
 
