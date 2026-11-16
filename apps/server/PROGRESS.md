@@ -615,11 +615,13 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. In progress: states (158/159/161, `rs-p5-states`) and labels (68/69/70,
-   `rs-p5-labels`), in parallel.
-2. In progress: the serializer field-table generator (`serializers.py --rust`, into
-   `write/generated/`), with an equivalence check against the hand-written sticky and
-   project tables (`rs-p5-sergen`).
-3. Then the work-items domain: shared pieces first (the generated tables,
-   `issue_activities_task`/`notification_task` publishing), then parallel route sets.
-   After that, re-measure the Phase 3 benchmark row on a quiet stack.
+1. In progress: labels (68/69/70, `rs-p5-labels`), and the stickies serializer mismatches
+   plus the `primary_key` field helper (`rs-p5-sergen`).
+2. In progress: the work-items shared pieces from `plans/WORK_ITEMS.md` §2:
+   - §2a–c: the `issue_activity` publisher, `Issue.save` hooks with the advisory-lock
+     sequence, and the m2m writes (`rs-p5-wi-core`);
+   - §2d/§2f: the HTML/binary validators, `strip_tags`, and the issue row and detail
+     renderers (`rs-p5-wi-render`);
+   - §2e: the list, date and string-choice field helpers (next, in `rs-p5-sergen`).
+3. Then the four work-items route sets A–D in parallel, per the plan. After that,
+   re-measure the Phase 3 benchmark row on a quiet stack.
