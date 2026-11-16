@@ -27,6 +27,12 @@ use plane_drf::registry::{Registry, RegistryError};
 
 pub mod base;
 pub mod queries;
+pub mod write_queries;
+
+// Set B: view favourites (183/184) and the member `workspace-views` write (198).
+mod write_favorite;
+mod write_member_views;
+mod write_support;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -40,5 +46,16 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
             http::Method::POST,
             crate::projects::settings_write::project_views,
         )?;
+    // Set B: view favourites (`user-favorite-views/`, 183/184) and the member
+    // preference write whose path this group selects (`workspace-views/`, 198).
+    // `base::register` already owns this viewset's guard-405 `list`; the actions
+    // here are the two write verbs.
+    registry
+        .viewset("plane.app.views.view.base.IssueViewFavoriteViewSet")?
+        .action("create", write_favorite::create)?
+        .action("destroy", write_favorite::destroy)?;
+    registry
+        .api_view("plane.app.views.workspace.member.WorkspaceMemberUserViewsEndpoint")?
+        .method(http::Method::POST, write_member_views::workspace_views)?;
     Ok(())
 }

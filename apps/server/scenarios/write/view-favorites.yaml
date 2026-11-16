@@ -1,0 +1,585 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Views set B — view favourites and the member `workspace-views` write.
+#
+#   POST   …/projects/{project_id}/user-favorite-views/              (183)
+#   DELETE …/projects/{project_id}/user-favorite-views/{view_id}/    (184)
+#   POST   …/workspace-views/                                        (198)
+#
+# Covers: favourite create for a visible view, the partial-unique duplicate
+# (member already owns the fixture's `alpha_high` favourite), a second
+# favourite, an *archived* view (the gate has no archive predicate), a view of
+# another project and a workspace view (both 404, different gates), the missing
+# key and JSON `null` (both `pk=None` → 404), a non-UUID string (Django's
+# `ValidationError` → 400), an int (`uuid.UUID(int=…)` → 404), a dict
+# (`AttributeError` inside `uuid.UUID` → 400) and a list body (no `.get` on a
+# list → the family 500); hard delete, repeat, unknown, the wrong project
+# (`project_id` is part of the lookup) and a second user's row for the same
+# view; the 183/184 decorator gate (guest, non-member, soft-deleted member) and
+# 198's membership 404s; 198 with a dict, an absent key (`{}`, not the stored
+# value), `null` (NOT NULL → the family 400), a urlencoded form (the JSON
+# *string*), a list body (family 500); a form-body favourite create; foreign
+# origins; and the follow-up GETs (`is_favorite` on the project view list, the
+# `view_props` the member-me endpoint returns).
+#
+# Fixture: all six views are owned by `admin`; only `alpha_high` has a
+# favourite, and it belongs to `member` (`stable("favorite:view:3")`). The
+# `alpha_*` views are `access=1`; `ws_private` is `access=0` but a workspace
+# view, so the project-scoped gate never reaches its access branch.
+#
+# 183's GET is a guard 405 (`ROUTES.md:273`) and is already covered by
+# `scenarios/read/views.yaml`; it is not repeated here.
+
+name: write-view-favorites
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  view_alpha_high: "062b3259-338c-48e4-923c-32bdf03fb91a"
+  view_alpha_started: "626adef8-5e34-4a77-ab26-6bdeceb2afc0"
+  view_alpha_archived: "9998fd44-4c5b-4f9a-9a5b-c464be5c2104"
+  view_beta_bugs: "e0d49e2f-8d9c-4780-bc12-3b7c3264ce11"
+  view_ws_private: "0370f75d-2888-4151-ae08-634d1f46a2d7"
+  unknown_view: "55555555-5555-4555-8555-555555555555"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- 183: favourite create ------------------------------------------------
+  - name: wvw-01-fav-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_high}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The partial unique index `(entity_type, entity_identifier, user) WHERE
+  # deleted_at IS NULL` makes the second POST an IntegrityError → family 400.
+  - name: wvw-02-fav-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_high}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `member` already owns the fixture's favourite for this view.
+  - name: wvw-03-fav-create-member-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_high}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+
+  - name: wvw-04-fav-create-second
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_started}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The gate has no `archived_at` predicate: an archived view is favouritable.
+  - name: wvw-05-fav-create-archived
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_archived}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # An `IssueView` of another project: `in_project = Q(project_id=…)` misses.
+  - name: wvw-06-fav-create-other-project-view
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_beta_bugs}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # A workspace view (`project_id IS NULL`): the project branch never sees it.
+  - name: wvw-07-fav-create-workspace-view
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_ws_private}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `request.data.get("view")` is None → `pk=None` → `id IS NULL` → 404.
+  - name: wvw-08-fav-create-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wvw-09-fav-create-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `uuid.UUID(hex="abc")` → ValueError → Django `ValidationError` → 400.
+  - name: wvw-10-fav-create-invalid-uuid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `isinstance(123, int)` → `uuid.UUID(int=123)`, a valid id no row has.
+  - name: wvw-11-fav-create-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: 123
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `uuid.UUID(hex={})` → AttributeError → Django `ValidationError` → 400.
+  - name: wvw-12-fav-create-dict
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `request.data` is a list, which has no `.get` → AttributeError → family 500.
+  - name: wvw-13-fav-create-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json: [1, 2]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wvw-14-fav-create-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_started}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # The decorator allows ADMIN/MEMBER only: a project guest is refused before
+  # the handler's `access=1` branch could ever matter.
+  - name: wvw-15-fav-create-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_started}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wvw-16-fav-create-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_started}}"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # A soft-deleted `ProjectMember` row: the manager filters it, so no role.
+  - name: wvw-17-fav-create-deleted-member-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_started}}"
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    expect_status: 403
+
+  # A urlencoded body: `QueryDict.get` returns the string, the same value.
+  - name: wvw-18-fav-create-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    form:
+      view: "{{view_alpha_archived}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wvw-19-fav-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/"
+    json:
+      view: "{{view_alpha_started}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: wvw-20-project-views-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- 184: favourite destroy ----------------------------------------------
+  - name: wvw-21-fav-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_high}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wvw-22-fav-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_high}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wvw-23-fav-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{unknown_view}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The URL's `<uuid:view_id>` converter answers 404 before any handler: a
+  # non-UUID path segment never reaches Django's view.
+  - name: wvw-23b-fav-delete-bad-uuid-path
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `project=project_id` is part of the lookup: the right view through the
+  # wrong project is a 404 and leaves the row in place.
+  - name: wvw-24-fav-delete-wrong-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/user-favorite-views/{{view_alpha_started}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The fixture's own view favourite (`stable("favorite:view:3")`, owned by
+  # `member`) has `project_id = NULL` — `create_favorites` passes only
+  # `workspace` (`tools/fixtures/build.py`) — and the destroy lookup filters
+  # `project=project_id`, so even its owner cannot destroy it through this
+  # route. Upstream quirk, ported as is.
+  - name: wvw-25-fav-delete-member-fixture-row
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_high}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # `admin`'s own `alpha_started` row: deletes only the caller's row, so
+  # `member`'s row for the same view (created at wvw-14) survives.
+  - name: wvw-26-fav-delete-own-second
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_started}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wvw-27-fav-delete-own-second-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_started}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # ... and `member` deletes theirs afterwards.
+  - name: wvw-28-fav-delete-member-own
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_started}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wvw-29-fav-delete-member-own-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_started}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wvw-30-fav-delete-guest-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_archived}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wvw-31-fav-delete-nonmember-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_archived}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: wvw-32-fav-delete-deleted-member-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_archived}}/"
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    expect_status: 403
+
+  - name: wvw-33-fav-delete-foreign-origin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: wvw-34-fav-delete-archived
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_alpha_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wvw-35-project-views-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/views/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- 198: workspace-views (member view_props) ----------------------------
+  - name: wvw-36-ws-views-set
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json:
+      view_props:
+        layout: "board"
+        group_by: "state"
+        show_empty_groups: false
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wvw-37-ws-views-me
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-members/me/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # An absent key writes `{}` — it does NOT keep the stored default props.
+  - name: wvw-38-ws-views-absent-key
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json: {}
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wvw-39-ws-views-me-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-members/me/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # `view_props` is NOT NULL: a null body is an IntegrityError → family 400.
+  - name: wvw-40-ws-views-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json:
+      view_props: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # A urlencoded body is a QueryDict: the value is stored as a JSON *string*.
+  - name: wvw-41-ws-views-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    form:
+      view_props: "hello"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  - name: wvw-42-ws-views-me-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-members/me/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 200
+
+  - name: wvw-43-ws-views-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json: [1]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A user with no live `WorkspaceMember` row in this workspace → 404.
+  - name: wvw-44-ws-views-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json:
+      view_props: {}
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 404
+
+  - name: wvw-45-ws-views-deleted-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json:
+      view_props: {}
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    expect_status: 404
+
+  - name: wvw-46-ws-views-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json:
+      view_props: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # A scalar body has no `.get` either.
+  - name: wvw-47-ws-views-string-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-views/"
+    json: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wvw-48-ws-views-me-final
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-members/me/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
