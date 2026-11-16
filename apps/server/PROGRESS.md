@@ -809,9 +809,34 @@ and only `verified` rows are Rust-owned.
   (`views_write_project_workspace`); set A's statement was renamed. **The views domain
   is fully on Rust.**
 
+### Phase 5: pages domain (2026-11-17)
+
+- Plan committed (`2e9bc83bfa`) with an orchestrator revision: H26 runs on every page
+  full save, so the shared pieces landed first (P0) and duplicate became its own set D.
+- P0, shared pieces (merged `c517d4afea`): H26 `hooks::page::before_save` over Plane's
+  `html_processor.strip_tags` (the model's import, not Django's); `PageDetailBody`
+  constructors `retrieve`/`created`/`updated`/`duplicated` (20/19/16/17 keys). The read
+  scenarios `read/pages.yaml` 25/25 and `pages-extra.yaml` 62/62 against Rust.
+- Set C, page favourites (merged `0b96940301`, flipped with this entry): 126
+  `rust(POST,DELETE)`. `write/page-favorites.yaml` 30/30 in both directions;
+  the orchestrator's contract run of `test_favorite_entity_scope_app.py` is 33/33.
+  The hard delete ports Django's collector: per-depth child probes through
+  `_base_manager` (soft-deleted children included), then a single
+  `DELETE … WHERE id = ANY(…)`.
+- Follow-up: `modules/write_favorite.rs:135-136` and `views/write_favorite.rs:147-148`
+  hard-delete only the favourite row and skip the `user_favorites.parent` cascade.
+  This is wrong only for a favourite that has children; fix them with the pages shape.
+- Upstream quirks kept: archived pages are favouritable
+  (`serializers/favorite.py:89-103`); deleting your favourite cascades to other
+  users' favourites parented under it (`models/favorite.py:25-31`; `parent` is writable
+  through the workspace favourites POST); a page favourite with `project_id NULL` can't
+  be destroyed through 126.
+- Running: set A, page core (124, 125, 127); set B, description, lock and access
+  (128, 129, 130); set D, duplicate (133).
+
 ## Next three steps
 
-1. Pages: planned read-only first by a fresh agent, then route sets.
+1. Pages: merge sets A, B and D as they finish.
 2. Then intake → notifications → favourites → webhooks → exports → analytics → search,
    the same way.
 3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items, cycles,

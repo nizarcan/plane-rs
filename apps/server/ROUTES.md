@@ -213,7 +213,7 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 123 | `/api/workspaces/{slug}/projects/{project_id}/pages-summary/` | GET:summary | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
 | 124 | `/api/workspaces/{slug}/projects/{project_id}/pages/` | GET:list, POST:create | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
 | 125 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | rust(GET) | verified |
-| 126 | `/api/workspaces/{slug}/projects/{project_id}/favorite-pages/{page_id}/` | POST:create, DELETE:destroy | `plane.app.views.page.base.PageFavoriteViewSet` | IsAuthenticated; POST,DELETE allow(ADMIN,MEMBER;PROJECT) | django | not-started |
+| 126 | `/api/workspaces/{slug}/projects/{project_id}/favorite-pages/{page_id}/` | POST:create, DELETE:destroy | `plane.app.views.page.base.PageFavoriteViewSet` | IsAuthenticated; POST,DELETE allow(ADMIN,MEMBER;PROJECT) | rust(POST,DELETE) | verified |
 | 127 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/archive/` | POST:archive, DELETE:unarchive | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
 | 128 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/lock/` | POST:lock, DELETE:unlock | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
 | 129 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/access/` | POST:access | `plane.app.views.page.base.PageViewSet` | ProjectPagePermission | django | not-started |
