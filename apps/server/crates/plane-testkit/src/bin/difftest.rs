@@ -95,8 +95,12 @@ struct RunArgs {
     a_db: Option<String>,
     #[arg(long)]
     b_db: Option<String>,
+    /// Redis logical database for target A. Overrides the scenario's first
+    /// index in managed and attach mode.
     #[arg(long)]
     a_redis_db: Option<i64>,
+    /// Redis logical database for target B. Overrides the scenario's second
+    /// index in managed and attach mode.
     #[arg(long)]
     b_redis_db: Option<i64>,
     /// RabbitMQ vhost used by an attached target A.
@@ -433,6 +437,8 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
                 rabbit_password: args.rabbit_password.clone(),
                 a_vars: assignments(&args.a_vars),
                 b_vars: assignments(&args.b_vars),
+                a_redis_db: args.a_redis_db,
+                b_redis_db: args.b_redis_db,
                 no_redis: args.no_redis,
                 attach,
             };
@@ -486,7 +492,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
     }
 }
 
-fn build_attach(args: &RunArgs, scenario: &Scenario) -> Result<Option<AttachOptions>> {
+fn build_attach(args: &RunArgs, _scenario: &Scenario) -> Result<Option<AttachOptions>> {
     let any_attach =
         args.a_url.is_some() || args.b_url.is_some() || args.a_db.is_some() || args.b_db.is_some();
     if !any_attach {
@@ -519,8 +525,6 @@ fn build_attach(args: &RunArgs, scenario: &Scenario) -> Result<Option<AttachOpti
         b_url: b_url.trim_end_matches('/').to_string(),
         a_db: a_db.clone(),
         b_db: b_db.clone(),
-        a_redis_db: args.a_redis_db.unwrap_or(scenario.redis_db[0]),
-        b_redis_db: args.b_redis_db.unwrap_or(scenario.redis_db[1]),
         a_vhost,
         b_vhost,
         celery,

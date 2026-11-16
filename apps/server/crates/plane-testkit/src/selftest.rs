@@ -409,6 +409,38 @@ pub fn run() -> Result<()> {
         normalizer.start_step(start, start);
         normalizer.normalize_text(&known) == known
     })?;
+    // The kombu envelope is the same UUID in Celery's JSON encoding. It has to
+    // follow the text rule, or a fixture id becomes `<id:1>` on one side only
+    // (the side that spells the argument as a JSON string).
+    checks.ok("a baseline UUID inside a kombu envelope keeps its value", {
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: rules(),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::from([known.clone()])),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+        });
+        normalizer.start_step(start, start);
+        let hex = known.replace('-', "");
+        let original = json!([{ "__type__": "uuid", "__value__": { "hex": hex } }]);
+        let mut message = celery_message("plane.tasks.test", original.clone());
+        normalizer.normalize_celery(&mut message);
+        message.args == original
+    })?;
+    checks.ok(
+        "a generated UUID inside a kombu envelope still gets a placeholder",
+        {
+            let mut normalizer = normalizer("http://x");
+            normalizer.start_step(start, start);
+            let generated = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string();
+            let mut message = celery_message(
+                "plane.tasks.test",
+                json!([{ "__type__": "uuid", "__value__": { "hex": generated.replace('-', "") } }]),
+            );
+            normalizer.normalize_celery(&mut message);
+            message.args == json!([{ "__type__": "uuid", "__value__": { "hex": "<id:1>" } }])
+        },
+    )?;
 
     // -- timestamps --------------------------------------------------------
     let mut a = normalizer("http://127.0.0.1:18000");

@@ -42,10 +42,13 @@ undetected. It runs in `cargo test` too.
    `dt_<run>_b` (unless `--a-db`/`--b-db` attach to existing databases).
 2. Flushes the two Redis DB indexes (`redis_db: [1, 2]` in the scenario by
    default) and creates the RabbitMQ vhosts `dt_<run>_a` / `_b` with full
-   permissions for `plane`.
-3. Starts both targets on free ports from their `port_range`, waits for the
-   health path, then replays the steps in order with both targets advancing
-   together.
+   permissions for `plane`. `--a-redis-db` / `--b-redis-db` override the
+   scenario's indexes in managed mode as well as in attach mode, which is how a
+   scenario shared with another agent runs on private indexes without editing
+   the file.
+3. Starts both targets on free ports from their own `port_range` (A from target
+   A's range, B from target B's), waits for the health path, then replays the
+   steps in order with both targets advancing together.
 4. For each step: snapshot the database **and Redis** before and after, send the
    request, drain every queue in the target's vhost, normalise, compare, and
    print `ok` / `DIFF` with a unified diff per difference. Timings per step
@@ -65,7 +68,7 @@ vars:                           # scenario variables, available as {{name}}
   password: Diff-Test-Passw0rd-2026!
 password_vars:                  # plaintexts behind users.password, for verification
   - password
-redis_db: [1, 2]                # Redis DB indexes for A and B
+redis_db: [1, 2]                # Redis DB indexes for A and B (CLI --a-redis-db/--b-redis-db override them)
 steps:
   - name: sign-in
     method: POST

@@ -62,6 +62,10 @@ pub struct RunOptions {
     /// build a deliberately divergent B for the harness self-proof.
     pub a_vars: BTreeMap<String, String>,
     pub b_vars: BTreeMap<String, String>,
+    /// Redis logical database overrides (`--a-redis-db`/`--b-redis-db`). They
+    /// win over the scenario's `redis_db` in managed and attach mode alike.
+    pub a_redis_db: Option<i64>,
+    pub b_redis_db: Option<i64>,
     /// Do not snapshot or compare Redis.
     pub no_redis: bool,
     pub attach: Option<AttachOptions>,
@@ -73,8 +77,6 @@ pub struct AttachOptions {
     pub b_url: String,
     pub a_db: String,
     pub b_db: String,
-    pub a_redis_db: i64,
-    pub b_redis_db: i64,
     pub a_vhost: String,
     pub b_vhost: String,
     pub celery: bool,
@@ -212,6 +214,21 @@ async fn run_inner(
     let spec_a = targets.get(&opts.target_a)?.clone();
     let spec_b = targets.get(&opts.target_b)?.clone();
 
+    // `--a-redis-db`/`--b-redis-db` override the scenario in both modes: the
+    // flags select where the harness flushes and snapshots, so a scenario
+    // shared with another agent can be run on private indexes without editing
+    // it. In managed mode the value also renders `{redis_db}` into the target's
+    // environment, because it is the same variable the harness uses.
+    let plan = target_plan(
+        &spec_a,
+        &spec_b,
+        &scenario,
+        opts.a_redis_db,
+        opts.b_redis_db,
+    );
+    let a_redis_db = plan.a_redis_db;
+    let b_redis_db = plan.b_redis_db;
+
     println!(
         "difftest run {run_id}: scenario {} ({} steps), A={} ({}) B={} ({})",
         scenario.name,
@@ -272,16 +289,12 @@ async fn run_inner(
     let db_admin = DbAdmin::new(&opts.pg_url);
     let mut known_uuids: HashSet<String> = HashSet::new();
 
-    let (a_url, b_url, a_db, b_db, a_redis_db, b_redis_db, a_vhost, b_vhost) = if let Some(attach) =
-        &opts.attach
-    {
+    let (a_url, b_url, a_db, b_db, a_vhost, b_vhost) = if let Some(attach) = &opts.attach {
         (
             attach.a_url.clone(),
             attach.b_url.clone(),
             attach.a_db.clone(),
             attach.b_db.clone(),
-            attach.a_redis_db,
-            attach.b_redis_db,
             attach.a_vhost.clone(),
             attach.b_vhost.clone(),
         )
@@ -292,8 +305,6 @@ async fn run_inner(
         let b_vhost = format!("dt_{run_id}_b");
         validate_identifier(&a_db)?;
         validate_identifier(&b_db)?;
-        let a_redis_db = scenario.redis_db[0];
-        let b_redis_db = scenario.redis_db[1];
 
         for (vhost, database, index) in
             [(&a_vhost, &a_db, a_redis_db), (&b_vhost, &b_db, b_redis_db)]
@@ -329,11 +340,14 @@ async fn run_inner(
         // command line instead.
         let spec_a = spec_a.with_env(&scenario.target_env);
         let spec_b = spec_b.with_env(&scenario.target_env);
-        let mut ports = PortAllocator::new(spec_a.port_range[0], spec_a.port_range[1]);
-        let port_a = ports.allocate().await?;
+        // One allocator per target: B's `port_range` is its own declaration in
+        // `targets.yaml`, not a second draw from A's range.
+        let mut ports_a = PortAllocator::new(plan.a_ports.0, plan.a_ports.1);
+        let mut ports_b = PortAllocator::new(plan.b_ports.0, plan.b_ports.1);
+        let port_a = ports_a.allocate().await?;
         let port_a_context = target_context(port_a, &a_db, a_redis_db, &a_vhost);
         let mut target_a = TargetInstance::start("a", &spec_a, &port_a_context, &log_dir).await?;
-        let port_b = ports.allocate().await?;
+        let port_b = ports_b.allocate().await?;
         let port_b_context = target_context(port_b, &b_db, b_redis_db, &b_vhost);
         let mut target_b = TargetInstance::start("b", &spec_b, &port_b_context, &log_dir).await?;
         let (health_a, health_b) = tokio::join!(
@@ -352,16 +366,21 @@ async fn run_inner(
         let b_url = target_b.base_url.clone();
         resources.targets.push(target_a);
         resources.targets.push(target_b);
-        (
-            a_url, b_url, a_db, b_db, a_redis_db, b_redis_db, a_vhost, b_vhost,
-        )
+        (a_url, b_url, a_db, b_db, a_vhost, b_vhost)
     };
 
-    for (label, database, index) in [("A", &a_db, a_redis_db), ("B", &b_db, b_redis_db)] {
+    for ((label, database, index), url) in [("A", &a_db, a_redis_db), ("B", &b_db, b_redis_db)]
+        .into_iter()
+        .zip([&a_url, &b_url])
+    {
         if opts.attach.is_some() {
             redis.flush_db(index).await?;
         }
-        println!("target {label}: {database} (redis db {index})");
+        // The run header names the endpoint and the Redis index every step will
+        // use: a managed run's ports come from the target's `port_range`, and
+        // `--a-redis-db`/`--b-redis-db` can move the index away from the
+        // scenario's.
+        println!("target {label}: {database} at {url} (redis db {index})");
     }
 
     // The scenario's fixture, if any, is applied to both clones before the
@@ -860,6 +879,44 @@ fn target_context(
         ("vhost", vhost.to_string()),
         ("repo", repo_root().display().to_string()),
     ])
+}
+
+/// The choices managed mode makes before it starts either target: which port
+/// range each side allocates from and which Redis index each side uses.
+///
+/// Kept separate from [`run_inner`] so the regression test can check both
+/// without a database, Redis, broker or process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TargetPlan {
+    a_ports: (u16, u16),
+    b_ports: (u16, u16),
+    a_redis_db: i64,
+    b_redis_db: i64,
+}
+
+/// `spec_a`'s range and indexes for A, `spec_b`'s for B; the CLI overrides the
+/// scenario's `redis_db` per side.
+fn target_plan(
+    spec_a: &crate::config::TargetSpec,
+    spec_b: &crate::config::TargetSpec,
+    scenario: &Scenario,
+    a_redis_db: Option<i64>,
+    b_redis_db: Option<i64>,
+) -> TargetPlan {
+    TargetPlan {
+        a_ports: (spec_a.port_range[0], spec_a.port_range[1]),
+        b_ports: (spec_b.port_range[0], spec_b.port_range[1]),
+        a_redis_db: redis_index(a_redis_db, &scenario.redis_db, 0),
+        b_redis_db: redis_index(b_redis_db, &scenario.redis_db, 1),
+    }
+}
+
+/// The Redis index one side uses: the CLI override when given, else the
+/// scenario's `[A, B]` entry. Side 0 is A, side 1 is B.
+fn redis_index(override_value: Option<i64>, scenario: &[i64], side: usize) -> i64 {
+    // `Scenario::validate` guarantees two entries; `get` keeps this a total
+    // function for a scenario built in a test.
+    override_value.unwrap_or_else(|| scenario.get(side).copied().unwrap_or_default())
 }
 
 fn side_vars(
@@ -1503,5 +1560,49 @@ mod tests {
         ];
         assert_eq!(filter_headers(&headers, &rules, true).len(), 2);
         assert_eq!(filter_headers(&headers, &rules, false).len(), 1);
+    }
+
+    fn spec(first: u16, last: u16) -> crate::config::TargetSpec {
+        serde_yaml_ng::from_str(&format!(
+            "kind: test\nport_range: [{first}, {last}]\ncommand: [\"/bin/true\"]\nhealth: /\n"
+        ))
+        .expect("target spec")
+    }
+
+    fn scenario(redis_db: [i64; 2]) -> crate::config::Scenario {
+        serde_yaml_ng::from_str(&format!(
+            "name: test\nredis_db: [{}, {}]\nsteps: []\n",
+            redis_db[0], redis_db[1]
+        ))
+        .expect("scenario")
+    }
+
+    #[test]
+    fn managed_mode_uses_each_targets_own_port_range_and_redis_index() {
+        // Regression: B used to draw its port from A's range, and both sides
+        // used the scenario's `redis_db` even when the CLI flags disagreed.
+        let spec_a = spec(45100, 45109);
+        let spec_b = spec(45110, 45119);
+        let scenario = scenario([6, 7]);
+
+        let plan = target_plan(&spec_a, &spec_b, &scenario, None, None);
+        assert_eq!(plan.a_ports, (45100, 45109));
+        assert_eq!(plan.b_ports, (45110, 45119));
+        assert_eq!((plan.a_redis_db, plan.b_redis_db), (6, 7));
+
+        // The flags override the scenario per side, in managed mode too.
+        let plan = target_plan(&spec_a, &spec_b, &scenario, Some(9), Some(0));
+        assert_eq!(plan.a_ports, (45100, 45109), "ports are unaffected");
+        assert_eq!(plan.b_ports, (45110, 45119), "ports are unaffected");
+        assert_eq!((plan.a_redis_db, plan.b_redis_db), (9, 0));
+    }
+
+    #[test]
+    fn cli_redis_index_overrides_the_scenario() {
+        let scenario = [6, 7];
+        assert_eq!(redis_index(None, &scenario, 0), 6);
+        assert_eq!(redis_index(None, &scenario, 1), 7);
+        assert_eq!(redis_index(Some(9), &scenario, 0), 9);
+        assert_eq!(redis_index(Some(0), &scenario, 1), 0);
     }
 }

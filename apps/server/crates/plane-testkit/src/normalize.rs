@@ -661,6 +661,14 @@ impl TargetNormalizer {
                 let Some(dashed) = dash_uuid(&hex) else {
                     return false;
                 };
+                // A baseline UUID is a fixture id, not a generated one: the
+                // text path (`normalize_text`) leaves it untouched, and this
+                // envelope must agree with it. Otherwise the same fixture id
+                // becomes `<id:N>` on one backend only, because the other one
+                // spells the argument as text rather than as a kombu envelope.
+                if self.known_uuids.contains(&dashed) {
+                    return false;
+                }
                 let placeholder = self.placeholder_for("id", &dashed, UUID_WHY);
                 *inner = json!({ "hex": placeholder });
                 self.record("celery-kombu-uuid", KOMBU_UUID_WHY);
@@ -1697,5 +1705,57 @@ mod tests {
             true,
         );
         assert!(normalizer.take_violations().is_empty(), "valid pair");
+    }
+
+    #[test]
+    fn a_known_uuid_in_a_kombu_envelope_is_not_placeholdered() {
+        // Regression: the envelope branch used to ignore `known_uuids`, so a
+        // fixture id in a Celery argument became `<id:1>` on one side only.
+        let known = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: rules(),
+            base_url: "http://127.0.0.1:1".to_string(),
+            known_uuids: Arc::new(HashSet::from([known.to_string()])),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+        });
+        start(&mut normalizer);
+        let hex = known.replace('-', "");
+        let original = json!([{ "__type__": "uuid", "__value__": { "hex": hex } }]);
+        let mut message = CeleryMessage {
+            queue: "celery".to_string(),
+            task: Some("plane.tasks.test".to_string()),
+            headers: Default::default(),
+            properties: Default::default(),
+            args: original.clone(),
+            kwargs: json!({}),
+            body_extra: None,
+        };
+        normalizer.normalize_celery(&mut message);
+        assert_eq!(message.args, original);
+        assert_eq!(normalizer.placeholder_count(), 0);
+    }
+
+    #[test]
+    fn a_generated_uuid_in_a_kombu_envelope_is_placeholdered() {
+        let mut normalizer = normalizer();
+        start(&mut normalizer);
+        let mut message = CeleryMessage {
+            queue: "celery".to_string(),
+            task: Some("plane.tasks.test".to_string()),
+            headers: Default::default(),
+            properties: Default::default(),
+            args: json!([{
+                "__type__": "uuid",
+                "__value__": { "hex": "bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb" }
+            }]),
+            kwargs: json!({}),
+            body_extra: None,
+        };
+        normalizer.normalize_celery(&mut message);
+        assert_eq!(
+            message.args,
+            json!([{ "__type__": "uuid", "__value__": { "hex": "<id:1>" } }])
+        );
     }
 }
