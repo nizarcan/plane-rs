@@ -418,6 +418,15 @@ jobs:
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/codegen/models.py --check
 
+      # apps/server/serializers.json, SERIALIZERS.md and
+      # crates/plane-serializers/src/generated/** come from DRF's own
+      # introspection of every Plane serializer (field order, sources,
+      # fields=/expand=). A hand edit, a serializer change without a
+      # regeneration, or a removed generated module fails here.
+      - name: Check the generated serializer inventory is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/inventory/serializers.py --check
+
       - name: Check the generated proxy snippet is current
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/proxy/gen_caddy.py --check

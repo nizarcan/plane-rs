@@ -39,6 +39,7 @@ plane-auth = { path = "../../crates/plane-auth" }
 plane-core = { path = "../../crates/plane-core" }
 plane-db = { path = "../../crates/plane-db" }
 plane-drf = { path = "../../crates/plane-drf" }
+plane-http-app = { path = "../../crates/plane-http-app" }
 plane-serde = { path = "../../crates/plane-serde" }
 plane-throttle = { path = "../../crates/plane-throttle" }
 regex.workspace = true

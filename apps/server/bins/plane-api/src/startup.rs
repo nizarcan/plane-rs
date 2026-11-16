@@ -4,8 +4,9 @@
 
 //! Build the DRF runtime and the handlers registered in this binary.
 //!
-//! Phase 2 has one handler: the policy probe. Phase 3 adds the real handlers in
-//! `handlers/` and registers them here, action by action. A route that is not
+//! The binary registers three things: the two `plane.web` function views, the
+//! ported `/api/` handlers from `plane-http-app`, and (in a `policy-probe`
+//! build) a probe handler for every other route method. A route that is not
 //! registered keeps answering the pipeline's 501, which is what the coexistence
 //! proxy expects while Django still serves it.
 
@@ -38,6 +39,20 @@ pub fn build_runtime(settings: &Settings) -> anyhow::Result<Runtime> {
     // stay real handlers in every build, including the probe: `/` is the
     // harness's health path, so it must answer 200.
     register_web_views(&mut registry).context("registering the plane.web views")?;
+
+    // Every ported `/api/` handler, one module per route group
+    // (`crates/plane-http-app`). A group with nothing ported registers nothing
+    // and keeps answering 501.
+    //
+    // Not in the `policy-probe` build: the probe registers a handler for *every*
+    // non-v1 route method, ported or not, and registering one twice is a
+    // `RegistryError`. The probe build therefore behaves exactly as it did
+    // before this crate existed, and `policy-probe.yaml` still measures the
+    // policy of every route. (`register_with_probe` in `probe.rs` could instead
+    // skip the views already registered here, which would additionally exercise
+    // the real handlers; the probe is a policy oracle, so it does not need to.)
+    #[cfg(not(feature = "policy-probe"))]
+    plane_http_app::register_all(&mut registry).context("registering the /api/ handlers")?;
 
     #[cfg(feature = "policy-probe")]
     crate::probe::register_all(&mut registry).context("registering the policy probe handlers")?;

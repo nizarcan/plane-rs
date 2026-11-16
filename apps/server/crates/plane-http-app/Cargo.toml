@@ -1,0 +1,36 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-http-app"
+description = "Handlers for the /api/ surface, one module per route group"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+deadpool-postgres.workspace = true
+http.workspace = true
+plane-core = { path = "../plane-core" }
+plane-db = { path = "../plane-db" }
+plane-drf = { path = "../plane-drf" }
+plane-query = { path = "../plane-query" }
+plane-serde = { path = "../plane-serde" }
+plane-serializers = { path = "../plane-serializers" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio-postgres.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
