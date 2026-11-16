@@ -177,6 +177,16 @@ invariants (each domain registers only its group's actions; every `rust` row in
   directions; gates and 831 tests pass; the `projects`/`issues`/`views` reads are clean.
   **Flipped:** 90 `rust(GET,PATCH)`, 147 `rust(POST)`, 149 `rust(GET,POST)`, 150
   `rust(DELETE)`, 153 `rust(POST,DELETE)`, 154 `rust(GET,PATCH)`.
+- Members merged (`8421ec7d46`): `write/project-members.yaml` 52/52 in both
+  directions, gates and 832 tests pass, and the orchestrator's contract run
+  (`--assume-rust 139–146`) is 21/21 for the Rust-touching tests. **Flipped:** 139
+  `rust(GET,POST)`, 140 `rust(GET,DELETE)`, 141/143/144 `rust(GET,POST)`, 145
+  `rust(GET,PATCH,DELETE)`, 146 `rust(POST)`. Upstream bugs are kept as they are:
+  - 139 POST always 500s;
+  - 144 `KeyError` on non-canonical UUIDs, and it over-notifies;
+  - 145 does an unguarded `int(role)`;
+  - there's no last-admin guard outside `leave`;
+  - 143 can write partially.
 - **Held:** deploy boards 151/152. The orchestrator's contract run (`--assume-rust`) has
   2 failures on create: Rust answers 200, but Django's ORM finds no `DeployBoard` row.
   The differential scenario missed it, because each side was consistent with itself.
