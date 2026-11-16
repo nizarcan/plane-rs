@@ -743,6 +743,12 @@ and only `verified` rows are Rust-owned.
   briefs. Long-lived sessions had been compacted many times and carried stale context
   (duplicate helpers, parallel harness fixes, unauthorised commits and stashes).
   Running sessions only receive follow-ups on their own work.
+- Disk floor (owner, 2026-11-17): keep **at least 30 GB free**. The orchestrator runs
+  `df -h /` between subagent tasks: before spawning and after each merge. When free space
+  nears the floor, first wipe `/tmp/plane-verify/apps/server/target`, then idle worktrees'
+  `target/debug/incremental`, then idle worktrees' whole `target`. Merged worktrees with
+  no uncommitted changes are removed once nothing runs in them; their branches stay.
+  Docker images are never pruned.
 
 ### Phase 5: draft-to-issue and modules set A (2026-11-16)
 
