@@ -225,12 +225,8 @@ pub(crate) struct PageDetailBody<'a> {
     issue_ids: FieldValue<IssueIds<'a>>,
 }
 
-// The read route uses `retrieve`; the three write shapes are consumed by the
-// P0 follow-up sets (A: create/PATCH, D: duplicate), which land after this one.
-#[allow(
-    dead_code,
-    reason = "constructors for the page write sets that follow P0"
-)]
+// The read route uses `retrieve`; `duplicated` is set D's write shape, and the
+// two set-A constructors land after this branch.
 impl<'a> PageDetailBody<'a> {
     /// `PageViewSet.retrieve` (`page/base.py:227-230`): a `get_queryset()` row
     /// (all three annotations) plus the appended `issue_ids`.
@@ -247,6 +243,7 @@ impl<'a> PageDetailBody<'a> {
     /// `PageViewSet.create` (`page/base.py:158-166`): the response is a
     /// re-fetch through `get_queryset()`, so all three annotations are present
     /// and the view does not append `issue_ids`. 19 keys.
+    #[allow(dead_code, reason = "set A's create handler lands after this branch")]
     pub(crate) fn created(page: &'a PageRow) -> Self {
         Self {
             page,
@@ -260,6 +257,7 @@ impl<'a> PageDetailBody<'a> {
     /// `PageViewSet.partial_update` (`page/base.py:201-212`): the serializer
     /// wraps a plain `Page.objects.get()` instance, so all three annotation
     /// fields raise `SkipField`. 16 keys.
+    #[allow(dead_code, reason = "set A's PATCH handler lands after this branch")]
     pub(crate) fn updated(page: &'a PageRow) -> Self {
         Self {
             page,

@@ -38,6 +38,8 @@ pub mod base;
 pub mod live;
 pub mod queries;
 pub mod version;
+pub mod write_duplicate;
+pub mod write_duplicate_queries;
 mod write_favorite;
 
 /// Register this group's handlers, in the order they were ported.
@@ -65,5 +67,9 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         // Set C: page favourites (126).
         .action("create", write_favorite::create)?
         .action("destroy", write_favorite::destroy)?;
+    // Set D: duplicate (route 133).
+    registry
+        .api_view("plane.app.views.page.base.PageDuplicateEndpoint")?
+        .method(Method::POST, write_duplicate::post)?;
     Ok(())
 }

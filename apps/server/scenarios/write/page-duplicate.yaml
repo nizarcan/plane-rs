@@ -1,0 +1,349 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Pages set D — duplicate (route 133):
+#
+#   POST /api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/duplicate/
+#
+# Covers the whole `PageDuplicateEndpoint.post` (`page/app/views/page/base.py:575-636`):
+#
+#   * the copy is a full re-INSERT of every column (`pk = None` + `save()`):
+#     locked, archived, parented and `is_global`/`moved_to_*`/`external_*`
+#     pages keep those values, `description_binary` is dropped, H26 recomputes
+#     `description_stripped` (including the `''` → NULL arm) and
+#     `owned_by`/`created_by`/`updated_by` become the caller (`created_at`/
+#     `updated_at` are fresh, so the harness normalises them);
+#   * one `ProjectPage` per **live** source link, inserted after the page; a
+#     soft-deleted link is skipped, and the two-link page proves both rows and
+#     the `copy_s3_objects` `project_id` (the last link under `-created_at`, i.e.
+#     beta — not the alpha URL project; `TASKS.md:604` is wrong);
+#   * no labels, logs or versions are copied;
+#   * `ProjectPagePermission` runs first: a missing page, a page linked to
+#     another project and a non-member/deleted-member/guest-non-owner caller
+#     are all 403 from the permission class (the view's own 404 and its
+#     `{"error": "Permission denied"}` 403 are shadowed in practice);
+#   * the private page: the owner succeeds, everyone else is refused before the
+#     handler;
+#   * the guest owner branch (`page.py:57-59`) lets a guest duplicate a page it
+#     owns even though the POST role table would deny a guest;
+#   * the request body is never read, so a malformed JSON body still succeeds;
+#   * `GET` on the route is the pipeline's 405.
+#
+# The source rows (and the two-project link ordering) come from
+# `page-duplicate-fixture.sql`.
+
+name: write-page-duplicate
+template_db: plane_fix_tpl
+redis_db: [11, 12]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/page-duplicate-fixture.sql"
+  ws: "fix-workspace"
+  ws_other: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  missing_project: "00000000-0000-4000-8000-000000000456"
+  missing_page: "00000000-0000-4000-8000-000000000123"
+  page_full: "a1000000-0000-4000-8000-000000000001"
+  page_locked: "a1000000-0000-4000-8000-000000000002"
+  page_archived: "a1000000-0000-4000-8000-000000000003"
+  page_child: "a1000000-0000-4000-8000-000000000004"
+  page_private: "a1000000-0000-4000-8000-000000000005"
+  page_guest_owned: "a1000000-0000-4000-8000-000000000006"
+  page_two_links: "a1000000-0000-4000-8000-000000000007"
+  page_soft_link: "a1000000-0000-4000-8000-000000000008"
+  page_beta_only: "a1000000-0000-4000-8000-000000000009"
+  page_empty_description: "a1000000-0000-4000-8000-00000000000a"
+  page_blank_name: "a1000000-0000-4000-8000-00000000000b"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- the full copy --------------------------------------------------------
+  # Every column: description_json/binary/html, colour, view_props/logo_props,
+  # is_global, moved_to_*, external_*, sort_order. The response must have the
+  # 17 keys (no is_favorite, no label_ids).
+  - name: pd-01-duplicate-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  # A second copy of the same source: the copy names do not collide and the
+  # source page is untouched.
+  - name: pd-02-duplicate-full-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  - name: pd-03-duplicate-locked
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_locked}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  - name: pd-04-duplicate-archived
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_archived}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  # Copied by the member although the admin owns it: owned_by/created_by/
+  # updated_by all move to the caller, and `parent` stays "Engineering Home".
+  - name: pd-05-duplicate-child-by-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/duplicate/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 201
+
+  - name: pd-06-duplicate-empty-description
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_empty_description}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  - name: pd-07-duplicate-blank-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_blank_name}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  # --- links ----------------------------------------------------------------
+  # Two live links (alpha newest, beta oldest): both are copied and the
+  # copy_s3_objects task's project_id is beta, the last loop iteration.
+  - name: pd-08-duplicate-two-links
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_two_links}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  # One live alpha link and one soft-deleted beta link: one copy, and the task
+  # keeps alpha.
+  - name: pd-09-duplicate-soft-link
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_soft_link}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  # --- permission -----------------------------------------------------------
+  # The owner may duplicate a private page.
+  - name: pd-10-duplicate-private-owner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_private}}/duplicate/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 201
+
+  # A project admin who does not own it: ProjectPagePermission refuses before
+  # the view (the view's `{"error": "Permission denied"}` branch is shadowed).
+  - name: pd-11-duplicate-private-non-owner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_private}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 403
+
+  # The guest owns this public page: the permission class's owner branch passes.
+  - name: pd-12-duplicate-guest-owned
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_guest_owned}}/duplicate/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 201
+
+  # A guest who is not the owner: alpha does not set guest_view_all_features,
+  # and the POST role table denies guests anyway.
+  - name: pd-13-duplicate-guest-not-owner
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 403
+
+  - name: pd-14-duplicate-member-public
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 201
+
+  # A page that does not exist: the permission class's page lookup fails first,
+  # so this is the 403 detail, not the view's 404.
+  - name: pd-15-duplicate-missing-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{missing_page}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 403
+
+  # Linked to project beta only, so unreachable through the alpha URL.
+  - name: pd-16-duplicate-foreign-project-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_beta_only}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 403
+
+  # Not a member of the workspace/project at all.
+  - name: pd-17-duplicate-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: {}
+    expect_status: 403
+
+  # A soft-deleted project membership is invisible to the role lookup.
+  - name: pd-18-duplicate-deleted-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: deleted_member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    json: {}
+    expect_status: 403
+
+  - name: pd-19-duplicate-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    origin: "http://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 403
+
+  # The URL project does not contain the page.
+  - name: pd-20-duplicate-through-beta
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 403
+
+  # No project membership in the URL project.
+  - name: pd-21-duplicate-missing-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{missing_project}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 403
+
+  # A workspace the caller is not a member of.
+  - name: pd-22-duplicate-other-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_other}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 403
+
+  # A second member (role 15) may duplicate a public page.
+  - name: pd-23-duplicate-member2
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    json: {}
+    expect_status: 201
+
+  # The view never reads `request.data`, so DRF never parses the body: a
+  # malformed JSON body still duplicates.
+  - name: pd-24-duplicate-malformed-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 201
+
+  # --- the route's other verb ----------------------------------------------
+  - name: pd-25-get-method-not-allowed
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_full}}/duplicate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
