@@ -22,13 +22,18 @@ pub mod base;
 pub mod not_found;
 pub mod queries;
 pub mod workspace;
+pub mod write;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.state.base.StateViewSet")?
         .action("list", base::list)?
-        .action("retrieve", base::retrieve)?;
+        .action("retrieve", base::retrieve)?
+        .action("create", write::create)?
+        .action("partial_update", write::patch)?
+        .action("mark_as_default", write::mark_as_default)?
+        .action("destroy", write::destroy)?;
     registry
         .api_view("plane.app.views.workspace.state.WorkspaceStatesEndpoint")?
         .method(http::Method::GET, workspace::get)?;

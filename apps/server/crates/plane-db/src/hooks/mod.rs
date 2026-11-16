@@ -50,4 +50,5 @@ pub mod json_merge;
 pub mod project;
 pub mod project_member;
 pub mod soft_delete;
+pub mod state;
 pub mod sticky;
