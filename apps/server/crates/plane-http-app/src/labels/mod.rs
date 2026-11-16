@@ -24,15 +24,23 @@ pub mod label;
 pub mod not_found;
 pub mod queries;
 pub mod workspace;
+pub mod write;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.issue.label.LabelViewSet")?
         .action("list", label::list)?
-        .action("retrieve", label::retrieve)?;
+        .action("retrieve", label::retrieve)?
+        .action("create", write::create)?
+        .action("update", write::update)?
+        .action("partial_update", write::partial_update)?
+        .action("destroy", write::destroy)?;
     registry
         .api_view("plane.app.views.workspace.label.WorkspaceLabelsEndpoint")?
         .method(http::Method::GET, workspace::get)?;
+    registry
+        .api_view("plane.app.views.issue.label.BulkCreateIssueLabelsEndpoint")?
+        .method(http::Method::POST, write::bulk_create)?;
     Ok(())
 }

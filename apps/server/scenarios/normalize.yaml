@@ -308,6 +308,17 @@ volatile_json_keys:
     placeholder: colour
     shape: hex_colour
     why: "random default '#rrggbb' colour, mixed case (plane/utils/color.py:9), used by workspaces and profiles"
+  # A label colour is not volatile: a create/PUT/PATCH writes the value the
+  # request carried, so it is compared literally everywhere. Only the bulk
+  # importer generates one per row (`color=f"#{random.randint(0,
+  # 0xFFFFFF + 1):06X}"`, plane/app/views/issue/label.py:111), so the rule is
+  # scoped to that request; every other step keeps the literal colour.
+  - name: color
+    mode: placeholder_if_new
+    placeholder: colour
+    shape: hex_colour
+    request: "POST *bulk-create-labels*"
+    why: "BulkCreateIssueLabelsEndpoint generates one random '#rrggbb' colour per imported label (plane/app/views/issue/label.py:111); no other label write invents a colour"
   # DECISIONS.md D16: the same principle as generated ids. A board created
   # during a run gets `uuid4().hex`; the value is random per side, so it is a
   # placeholder that stays consistent across the body, the DB diff and every
@@ -367,6 +378,13 @@ volatile_db_columns:
     placeholder: colour
     shape: hex_colour
     why: "random default colour, mixed case (plane/db/models/workspace.py:139, plane/utils/color.py:9)"
+  - table: labels
+    column: color
+    mode: placeholder_if_new
+    placeholder: colour
+    shape: hex_colour
+    request: "POST *bulk-create-labels*"
+    why: "the bulk importer's per-row random colour (plane/app/views/issue/label.py:111); every other label write's colour is compared literally"
   # The DB half of the `anchor` rule above: the same raw value gets the same
   # placeholder from the per-target map, so a generated anchor is `<anchor:1>`
   # in the response body and in `deploy_boards.anchor` of the insert diff.

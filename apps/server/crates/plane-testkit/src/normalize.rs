@@ -1299,7 +1299,11 @@ impl TargetNormalizer {
         for (column, value) in map {
             out.push_str(column);
             out.push('=');
-            match self.db_columns.get(&format!("{bare_table}.{column}")) {
+            match self
+                .db_columns
+                .get(&format!("{bare_table}.{column}"))
+                .filter(|rule| rule.matches_request(self.request.as_deref()))
+            {
                 Some(rule) => out.push_str(match rule.mode {
                     RuleMode::Placeholder
                     | RuleMode::PlaceholderIfNonEmpty
@@ -1391,6 +1395,7 @@ impl TargetNormalizer {
             .db_columns
             .get(&format!("{bare_table}.{column}"))
             .cloned()
+            .filter(|rule| rule.matches_request(self.request.as_deref()))
         {
             let before = value.clone();
             self.apply_rule(&rule, value, &format!("db:{bare_table}.{column}"), path);
@@ -1882,6 +1887,7 @@ mod tests {
                     placeholder: Some("session".to_string()),
                     shape: Some("session_key".to_string()),
                     check: None,
+                    request: None,
                 },
                 DbRule {
                     table: "sessions".to_string(),
@@ -1891,6 +1897,7 @@ mod tests {
                     placeholder: None,
                     shape: Some("signed_session".to_string()),
                     check: None,
+                    request: None,
                 },
             ],
             timestamp_slack_secs: 2,
@@ -2114,5 +2121,75 @@ mod tests {
             message.args,
             json!([{ "__type__": "uuid", "__value__": { "hex": "<id:1>" } }])
         );
+    }
+
+    /// A `volatile_db_columns` rule with `request:` only rewrites the column on
+    /// the matching step. Before this, `DbRule` had no request scope, so a rule
+    /// needed to cover an agent-created value leaked into every other step.
+    #[test]
+    fn a_request_scoped_db_rule_only_applies_to_its_request() {
+        let mut rules = (*rules()).clone();
+        rules.volatile_db_columns.push(DbRule {
+            table: "labels".to_string(),
+            column: "color".to_string(),
+            why: "bulk-created labels get a random colour".to_string(),
+            mode: RuleMode::PlaceholderIfNew,
+            placeholder: Some("colour".to_string()),
+            shape: Some("hex_colour".to_string()),
+            check: None,
+            request: Some("POST /api/workspaces/ws/projects/p/bulk-create-labels/".to_string()),
+        });
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(rules),
+            base_url: "http://127.0.0.1:1".to_string(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+
+        let matching = "POST /api/workspaces/ws/projects/p/bulk-create-labels/";
+        normalizer.set_request(matching);
+        start(&mut normalizer);
+        let mut diff = crate::db::DbDiff::default();
+        diff.tables.insert(
+            "public.labels".to_string(),
+            crate::db::TableDiff {
+                inserted: vec![json!({"color": "#ABCDEF"})],
+                ..Default::default()
+            },
+        );
+        normalizer.normalize_db_diff(&mut diff);
+        assert_eq!(
+            diff.tables["public.labels"].inserted[0]["color"],
+            json!("<colour:1>")
+        );
+
+        // A different step keeps the literal: the rule names another request.
+        normalizer.start_step(
+            "2026-11-15T20:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("time"),
+            "2026-11-15T20:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("time"),
+        );
+        normalizer.set_request("PATCH /api/workspaces/ws/projects/p/issue-labels/l/");
+        let mut diff = crate::db::DbDiff::default();
+        diff.tables.insert(
+            "public.labels".to_string(),
+            crate::db::TableDiff {
+                updated: vec![json!({
+                    "pk": ["11111111-1111-4111-8111-111111111111"],
+                    "changed": {"color": {"a": "#ABCDEF", "b": "#123456"}}
+                })],
+                ..Default::default()
+            },
+        );
+        normalizer.normalize_db_diff(&mut diff);
+        let update = &diff.tables["public.labels"].updated[0]["changed"]["color"];
+        assert_eq!(update["b"], json!("#123456"));
+        assert_eq!(update["a"], json!("#ABCDEF"));
+        assert!(normalizer.take_violations().is_empty());
     }
 }

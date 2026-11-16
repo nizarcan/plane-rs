@@ -719,6 +719,10 @@ pub struct DbRule {
     pub shape: Option<String>,
     #[serde(default)]
     pub check: Option<RuleCheck>,
+    /// A glob over the step's `METHOD path?query`, like `NamedRule`'s. A
+    /// request-scoped DB rule leaves every other step's column alone.
+    #[serde(default)]
+    pub request: Option<String>,
 }
 
 /// The parts `NamedRule` and `DbRule` share, after validation.
@@ -752,7 +756,7 @@ impl DbRule {
             placeholder: self.placeholder.clone(),
             shape: self.shape.clone(),
             check: self.check,
-            request: None,
+            request: self.request.clone(),
             why: self.why.clone(),
         }
     }

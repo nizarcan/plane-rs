@@ -1,0 +1,681 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Write scenario for the label routes (68, 69, 70). Generated from those orders
+# by `tools/scenarios/gen_write.py`, then curated: H20 sort order, the two
+# uniqueness checks (serializer `iexact` vs the PATCH exact pre-check), the
+# soft-deleted-row constraints, PUT's missing serializer context, bulk-create's
+# conflict handling, the cache invalidation decorators, and the permission
+# matrix.
+#
+# `lb-` = labels.
+
+name: write-labels
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  label_alpha_api: "426922e5-ed0b-44e6-af4a-12768a3057c9"
+  label_alpha_docs_deleted: "f55108ee-e5be-4439-afb8-7dbcb9b80b83"
+  label_alpha_feature: "4e684b34-0406-4516-96ce-361f9f3f1665"
+  label_beta_ios: "daeeb518-f81d-45fb-8964-5cba9195f11b"
+  label_cross_cutting: "6a68d88a-c0eb-4f42-9cab-84c915488824"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  - name: lb-00-workspace-labels-warm
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: lb-01-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness"}
+    capture:
+      - name: harness_label
+        source: db
+        table: labels
+        column: id
+    expect_status: 201
+
+  - name: lb-02-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Bug"}
+    expect_status: 400
+
+  - name: lb-03-create-duplicate-case
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "bug"}
+    expect_status: 400
+
+  - name: lb-04-create-soft-deleted-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Docs"}
+    capture:
+      - name: docs_label
+        source: db
+        table: labels
+        column: id
+    expect_status: 201
+
+  - name: lb-05-create-missing-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"color": "#111111"}
+    expect_status: 400
+
+  - name: lb-06-create-blank-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "   "}
+    expect_status: 400
+
+  - name: lb-07-create-null-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": null, "parent": null}
+    expect_status: 400
+
+  - name: lb-08-create-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+    expect_status: 400
+
+  - name: lb-09-create-bad-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness2", "parent": "not-a-uuid"}
+    expect_status: 400
+
+  - name: lb-10-create-missing-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness3", "parent": "00000000-0000-0000-0000-000000000000"}
+    expect_status: 400
+
+  - name: lb-11-create-workspace-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness4", "parent": "{{label_cross_cutting}}"}
+    expect_status: 201
+
+  - name: lb-12-create-soft-deleted-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness5", "parent": "{{label_alpha_docs_deleted}}"}
+    expect_status: 400
+
+  - name: lb-13-create-cross-project-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness6", "parent": "{{label_beta_ios}}"}
+    expect_status: 201
+
+  - name: lb-14-create-null-color
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness7", "color": null}
+    expect_status: 400
+
+  - name: lb-14a-create-explicit-colour
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness colour", "color": "#ABCDEF"}
+    capture:
+      - name: colour_label
+        source: db
+        table: labels
+        column: id
+    expect_status: 201
+
+  - name: lb-15-create-sort-order-overridden
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness8", "sort_order": 5}
+    expect_status: 201
+
+  - name: lb-16-create-denied-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"name": "Harness9"}
+    expect_status: 403
+
+  - name: lb-17-create-denied-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: nonmember
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_nonmember}}"
+    json: {"name": "Harness10"}
+    expect_status: 403
+
+  - name: lb-18-create-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: {"name": "Harness11"}
+    expect_status: 403
+
+  - name: lb-19-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness renamed"}
+    expect_status: 200
+
+  - name: lb-20-patch-duplicate-live
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Bug"}
+    expect_status: 400
+
+  - name: lb-21-patch-duplicate-case
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "bug"}
+    expect_status: 400
+
+  - name: lb-22-patch-parent-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"parent": null}
+    expect_status: 200
+
+  - name: lb-23-patch-sort-order
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"sort_order": 123.5}
+    expect_status: 200
+
+  - name: lb-24-patch-color-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"color": ""}
+    expect_status: 200
+
+  - name: lb-24a-patch-colour-explicit
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{colour_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"color": "#123456"}
+    expect_status: 200
+
+  - name: lb-24b-put-colour-explicit
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{colour_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness colour PUT", "color": "#654321"}
+    expect_status: 200
+
+  - name: lb-25-patch-invalid-parent
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"parent": "bad"}
+    expect_status: 400
+
+  - name: lb-26-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/00000000-0000-0000-0000-000000000000/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "nobody"}
+    expect_status: 404
+
+  - name: lb-27-patch-duplicate-before-404
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/00000000-0000-0000-0000-000000000000/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Bug"}
+    expect_status: 400
+
+  - name: lb-28-patch-denied-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"name": "nope"}
+    expect_status: 403
+
+  - name: lb-29-patch-denied-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    json: {"name": "nope"}
+    expect_status: 403
+
+  - name: lb-30-patch-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: {"name": "nope"}
+    expect_status: 403
+
+  - name: lb-31-delete-docs
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{docs_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: lb-32-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{docs_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: lb-33-retrieve-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{docs_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: lb-34-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: lb-35-patch-to-soft-deleted-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Docs"}
+    expect_status: 200
+
+  - name: lb-36-create-now-taken
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Docs"}
+    expect_status: 400
+
+  - name: lb-37-delete-denied-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: lb-38-delete-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: nonmember
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: lb-39-put-full
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness PUT", "color": "#ABCDEF"}
+    expect_status: 200
+
+  - name: lb-40-put-missing-name
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"color": "#111111"}
+    expect_status: 400
+
+  - name: lb-41-put-duplicate-project
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Bug"}
+    expect_status: 400
+
+  - name: lb-42-put-workspace-name
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Cross-cutting"}
+    expect_status: 400
+
+  - name: lb-43-put-case-variant
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "feature"}
+    expect_status: 200
+
+  - name: lb-44-put-cross-project-parent
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness PUT 2", "parent": "{{label_beta_ios}}"}
+    expect_status: 200
+
+  - name: lb-45-put-denied-nonmember
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: nonmember
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_nonmember}}"
+    json: {"name": "nope"}
+    expect_status: 403
+
+  - name: lb-46-put-denied-member
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"name": "Harness member PUT"}
+    expect_status: 403
+
+  - name: lb-47-labels-warm-before-put
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: lb-48-put-no-invalidate
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness stale"}
+    expect_status: 200
+
+  - name: lb-49-labels-after-put
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: lb-50-patch-invalidates
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"name": "Harness fresh"}
+    expect_status: 200
+
+  - name: lb-51-labels-after-patch
+    method: GET
+    path: "/api/workspaces/{{ws}}/labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: lb-52-bulk-valid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"label_data": [{"name": "Bulk A", "description": "first"}, {"name": "Bulk B"}]}
+    expect_status: 201
+
+  - name: lb-53-bulk-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"label_data": [{"name": "Bug"}, {"name": "Bulk C"}]}
+    expect_status: 201
+
+  - name: lb-54-bulk-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"label_data": []}
+    expect_status: 201
+
+  - name: lb-55-bulk-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  - name: lb-56-bulk-defaults
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"label_data": [{}, {}]}
+    expect_status: 201
+
+  - name: lb-57-bulk-null-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"label_data": [{"name": null}]}
+    expect_status: 400
+
+  - name: lb-58-bulk-bad-item
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"label_data": ["x"]}
+    expect_status: 500
+
+  - name: lb-59-bulk-denied-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"label_data": [{"name": "nope"}]}
+    expect_status: 403
+
+  - name: lb-60-bulk-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/bulk-create-labels/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: {"label_data": [{"name": "nope"}]}
+    expect_status: 403
