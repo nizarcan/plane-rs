@@ -615,7 +615,7 @@ pub fn create_draft_to_issue<'a>(
                 "RelatedObjectDoesNotExist: DraftIssue has no project".to_owned(),
             ));
         };
-        let prepared = write_issue::prepare_create(ctx, client, project_id).await?;
+        let prepared = write_issue::prepare_create(ctx, client, project_id, false).await?;
         let write_issue::Created { mut issue, extra } = match prepared {
             write_issue::PreparedCreate::Valid(created) => *created,
             write_issue::PreparedCreate::Invalid(response) => return Ok(response),

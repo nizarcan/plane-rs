@@ -39,6 +39,7 @@ pub mod queries;
 pub mod render;
 pub mod state;
 pub mod versions;
+pub mod write_queries;
 
 /// Register this group's handlers, in route order.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {

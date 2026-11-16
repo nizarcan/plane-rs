@@ -336,11 +336,27 @@ async fn fetch_rows(
 // Serializers
 // ---------------------------------------------------------------------------
 
+/// The five `IntakeIssue` scalar columns the two serializers render
+/// (`plane/app/serializers/intake.py:28-42`, `:100-115`).
+///
+/// Every statement that feeds either serializer selects exactly these columns
+/// first — the read route's `INTAKE_ISSUE_DETAIL`, and the create/PATCH
+/// re-fetches each set owns — so the constructors below take the decoded link
+/// plus the nested parts instead of a row.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct IntakeIssueFields<'a> {
+    pub id: Uuid,
+    pub status: i64,
+    pub duplicate_to: Option<Uuid>,
+    pub snoozed_till: Option<DateTime<Utc>>,
+    pub source: Option<&'a str>,
+}
+
 /// `plane.app.serializers.intake.IntakeIssueSerializer` (`intake.py:28-97`):
 /// seven fields, the nested issue, and `label_ids` copied onto it by
 /// `to_representation`.
 #[derive(Debug)]
-struct IntakeIssueSerializer<'a> {
+pub(super) struct IntakeIssueSerializer<'a> {
     id: Uuid,
     status: i64,
     duplicate_to: Option<Uuid>,
@@ -348,6 +364,27 @@ struct IntakeIssueSerializer<'a> {
     source: Option<&'a str>,
     issue: IssueIntakeSerializer<'a>,
     created_by: Option<Uuid>,
+}
+
+impl<'a> IntakeIssueSerializer<'a> {
+    /// The `list` shape (`plane/app/views/intake/base.py:223-227`): the
+    /// `label_ids` annotation is copied onto the nested issue, and
+    /// `created_by` is the link's creator.
+    pub(super) fn new(
+        fields: IntakeIssueFields<'a>,
+        issue: IssueIntakeSerializer<'a>,
+        created_by: Option<Uuid>,
+    ) -> Self {
+        Self {
+            id: fields.id,
+            status: fields.status,
+            duplicate_to: fields.duplicate_to,
+            snoozed_till: fields.snoozed_till,
+            source: fields.source,
+            issue,
+            created_by,
+        }
+    }
 }
 
 impl DrfSerialize for IntakeIssueSerializer<'_> {
@@ -372,7 +409,7 @@ impl DrfSerialize for IntakeIssueSerializer<'_> {
 /// `plane.app.serializers.intake.IntakeIssueDetailSerializer`
 /// (`intake.py:100-124`).
 #[derive(Debug)]
-struct IntakeIssueDetailSerializer<'a> {
+pub(super) struct IntakeIssueDetailSerializer<'a> {
     id: Uuid,
     status: i64,
     duplicate_to: Option<Uuid>,
@@ -380,6 +417,30 @@ struct IntakeIssueDetailSerializer<'a> {
     duplicate_issue_detail: Option<&'a IssueIntakeSerializer<'a>>,
     source: Option<&'a str>,
     issue: IntakeIssueDetailIssue<'a>,
+}
+
+impl<'a> IntakeIssueDetailSerializer<'a> {
+    /// The `retrieve` shape, shared by `retrieve` (`plane/app/views/intake/
+    /// base.py:551`), the intake-issue create (`:330`) and its PATCH (`:504`).
+    ///
+    /// `duplicate_issue_detail` is the `duplicate_to` expansion, which the
+    /// serializer renders through `IssueIntakeSerializer(source="duplicate_to")`
+    /// (`intake.py:102`); each caller resolves it with its own lookup.
+    pub(super) fn new(
+        fields: IntakeIssueFields<'a>,
+        duplicate_issue_detail: Option<&'a IssueIntakeSerializer<'a>>,
+        issue: IntakeIssueDetailIssue<'a>,
+    ) -> Self {
+        Self {
+            id: fields.id,
+            status: fields.status,
+            duplicate_to: fields.duplicate_to,
+            snoozed_till: fields.snoozed_till,
+            duplicate_issue_detail,
+            source: fields.source,
+            issue,
+        }
+    }
 }
 
 impl DrfSerialize for IntakeIssueDetailSerializer<'_> {
@@ -413,28 +474,28 @@ impl DrfSerialize for IntakeIssueDetailSerializer<'_> {
 /// and DRF skips it. `label_ids`/`assignee_ids` are assigned by the outer
 /// serializer's `to_representation`, so they are always present.
 #[derive(Debug)]
-struct IntakeIssueDetailIssue<'a> {
-    id: Uuid,
-    name: String,
-    state_id: Option<Uuid>,
-    sort_order: f64,
-    completed_at: Option<DateTime<Utc>>,
-    estimate_point: Option<Uuid>,
-    priority: String,
-    start_date: Option<NaiveDate>,
-    target_date: Option<NaiveDate>,
-    sequence_id: i64,
-    project_id: Uuid,
-    parent_id: Option<Uuid>,
-    label_ids: &'a [Uuid],
-    assignee_ids: &'a [Uuid],
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    created_by: Option<Uuid>,
-    updated_by: Option<Uuid>,
-    is_draft: bool,
-    archived_at: Option<NaiveDate>,
-    description_html: String,
+pub(super) struct IntakeIssueDetailIssue<'a> {
+    pub id: Uuid,
+    pub name: String,
+    pub state_id: Option<Uuid>,
+    pub sort_order: f64,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub estimate_point: Option<Uuid>,
+    pub priority: String,
+    pub start_date: Option<NaiveDate>,
+    pub target_date: Option<NaiveDate>,
+    pub sequence_id: i64,
+    pub project_id: Uuid,
+    pub parent_id: Option<Uuid>,
+    pub label_ids: &'a [Uuid],
+    pub assignee_ids: &'a [Uuid],
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub created_by: Option<Uuid>,
+    pub updated_by: Option<Uuid>,
+    pub is_draft: bool,
+    pub archived_at: Option<NaiveDate>,
+    pub description_html: String,
 }
 
 impl DrfSerialize for IntakeIssueDetailIssue<'_> {
@@ -522,7 +583,7 @@ fn decode_list_row(row: &tokio_postgres::Row) -> Result<ListRow, ViewError> {
 }
 
 /// The owned form of the `duplicate_to` expansion.
-struct IssueIntakeRow {
+pub(super) struct IssueIntakeRow {
     id: Uuid,
     name: String,
     priority: String,
@@ -532,7 +593,7 @@ struct IssueIntakeRow {
     created_by: Option<Uuid>,
 }
 
-fn decode_issue_intake(row: &tokio_postgres::Row) -> IssueIntakeRow {
+pub(super) fn decode_issue_intake(row: &tokio_postgres::Row) -> IssueIntakeRow {
     IssueIntakeRow {
         id: row.get(0),
         name: row.get(1),
@@ -545,7 +606,7 @@ fn decode_issue_intake(row: &tokio_postgres::Row) -> IssueIntakeRow {
 }
 
 impl IssueIntakeRow {
-    fn serializer(&self) -> IssueIntakeSerializer<'_> {
+    pub(super) fn serializer(&self) -> IssueIntakeSerializer<'_> {
         IssueIntakeSerializer {
             id: self.id,
             name: &self.name,
@@ -697,15 +758,17 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
                 label_ids: FieldValue::value(row.label_ids.as_slice()),
                 created_by: row.issue_created_by,
             };
-            let serializer = IntakeIssueSerializer {
-                id: row.id,
-                status: row.status,
-                duplicate_to: row.duplicate_to,
-                snoozed_till: row.snoozed_till,
-                source: row.source.as_deref(),
+            let serializer = IntakeIssueSerializer::new(
+                IntakeIssueFields {
+                    id: row.id,
+                    status: row.status,
+                    duplicate_to: row.duplicate_to,
+                    snoozed_till: row.snoozed_till,
+                    source: row.source.as_deref(),
+                },
                 issue,
-                created_by: row.created_by,
-            };
+                row.created_by,
+            );
             results.push(plane_serializers::render(&serializer, &context)?);
         }
 
@@ -839,15 +902,17 @@ fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         let issue = decode_detail_issue(row, &label_ids, &assignee_ids);
 
         let source: Option<String> = row.get(13);
-        let serializer = IntakeIssueDetailSerializer {
-            id: row.get(5),
-            status: i64::from(row.get::<_, i32>(10)),
-            duplicate_to,
-            snoozed_till: row.get(11),
-            duplicate_issue_detail: duplicate_serializer.as_ref(),
-            source: source.as_deref(),
+        let serializer = IntakeIssueDetailSerializer::new(
+            IntakeIssueFields {
+                id: row.get(5),
+                status: i64::from(row.get::<_, i32>(10)),
+                duplicate_to,
+                snoozed_till: row.get(11),
+                source: source.as_deref(),
+            },
+            duplicate_serializer.as_ref(),
             issue,
-        };
+        );
         let context = plain_context(ctx);
         Ok(ViewResponse::raw(
             200,
@@ -890,5 +955,247 @@ mod tests {
         assert_eq!(resolve_order("status").column, "ii.status");
         assert_eq!(resolve_order("-created_at").column, "ii.created_at");
         assert_eq!(resolve_order("-issue__priority").column, "issues.priority");
+    }
+
+    fn timestamp() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .expect("date")
+            .with_timezone(&Utc)
+    }
+
+    fn issue_intake() -> IssueIntakeSerializer<'static> {
+        IssueIntakeSerializer {
+            id: Uuid::from_u128(2),
+            name: "Nested",
+            priority: "none",
+            sequence_id: 7,
+            project_id: Uuid::from_u128(3),
+            created_at: timestamp(),
+            label_ids: FieldValue::value(&[]),
+            created_by: None,
+        }
+    }
+
+    fn render<T: DrfSerialize>(value: &T) -> String {
+        let bytes =
+            plane_serializers::render(value, &RenderCtx::full(&chrono_tz::UTC)).expect("render");
+        String::from_utf8(bytes).expect("utf-8")
+    }
+
+    /// The top-level keys of a rendered JSON object, in output order.
+    ///
+    /// `serde_json`'s default map sorts keys, so the bytes are scanned: the
+    /// assertions below are about DRF's `Meta.fields` order and about which
+    /// keys `SkipField` removes, neither of which survives a `Value` round-trip.
+    fn top_level_keys(json: &str) -> Vec<&str> {
+        fn skip_string(bytes: &[u8], mut at: usize) -> usize {
+            at += 1;
+            while bytes[at] != b'"' {
+                if bytes[at] == b'\\' {
+                    at += 1;
+                }
+                at += 1;
+            }
+            at + 1
+        }
+        fn skip_value(bytes: &[u8], mut at: usize) -> usize {
+            while bytes[at] == b' ' {
+                at += 1;
+            }
+            match bytes[at] {
+                b'"' => skip_string(bytes, at),
+                open @ (b'{' | b'[') => {
+                    let close = if open == b'{' { b'}' } else { b']' };
+                    let mut depth = 0usize;
+                    loop {
+                        match bytes[at] {
+                            b'"' => {
+                                at = skip_string(bytes, at);
+                                continue;
+                            }
+                            byte if byte == open => depth += 1,
+                            byte if byte == close => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    return at + 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                        at += 1;
+                    }
+                }
+                _ => {
+                    while !matches!(bytes[at], b',' | b'}' | b']') {
+                        at += 1;
+                    }
+                    at
+                }
+            }
+        }
+
+        let bytes = json.as_bytes();
+        assert_eq!(bytes[0], b'{');
+        let mut keys = Vec::new();
+        let mut at = 1;
+        loop {
+            while bytes[at] == b' ' {
+                at += 1;
+            }
+            if bytes[at] == b'}' {
+                break;
+            }
+            assert_eq!(bytes[at], b'"', "expected a key at byte {at}");
+            let start = at + 1;
+            at = skip_string(bytes, at);
+            keys.push(&json[start..at - 1]);
+            while bytes[at] != b':' {
+                at += 1;
+            }
+            at = skip_value(bytes, at + 1);
+            while bytes[at] == b' ' {
+                at += 1;
+            }
+            if bytes[at] == b',' {
+                at += 1;
+            } else {
+                break;
+            }
+        }
+        keys
+    }
+
+    /// `IntakeIssueSerializer.Meta.fields` (`plane/app/serializers/intake.py:
+    /// 31-42`): the `read_only_fields` entry `project`/`workspace` is not in
+    /// `fields`, so the output is these seven keys.
+    const SERIALIZER_KEYS: &[&str] = &[
+        "id",
+        "status",
+        "duplicate_to",
+        "snoozed_till",
+        "source",
+        "issue",
+        "created_by",
+    ];
+
+    /// `IntakeIssueDetailSerializer.Meta.fields` (`intake.py:104-115`).
+    const DETAIL_KEYS: &[&str] = &[
+        "id",
+        "status",
+        "duplicate_to",
+        "snoozed_till",
+        "duplicate_issue_detail",
+        "source",
+        "issue",
+    ];
+
+    /// `IssueIntakeSerializer.FIELDS` (`intake.py:28-29`).
+    const ISSUE_INTAKE_KEYS: &[&str] = &[
+        "id",
+        "name",
+        "priority",
+        "sequence_id",
+        "project_id",
+        "created_at",
+        "label_ids",
+        "created_by",
+    ];
+
+    /// The nested `IssueDetailSerializer` of the detail shape, as
+    /// `retrieve` renders it: the 21 keys the serializer emits when the seven
+    /// annotations are absent (`intake/issue.rs`'s `IntakeIssueDetailIssue`).
+    const DETAIL_ISSUE_KEYS: &[&str] = &[
+        "id",
+        "name",
+        "state_id",
+        "sort_order",
+        "completed_at",
+        "estimate_point",
+        "priority",
+        "start_date",
+        "target_date",
+        "sequence_id",
+        "project_id",
+        "parent_id",
+        "label_ids",
+        "assignee_ids",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "updated_by",
+        "is_draft",
+        "archived_at",
+        "description_html",
+    ];
+
+    /// The keys of the object that follows `"<field>":` at the top level.
+    fn nested_keys(json: &str, field: &str) -> Vec<String> {
+        let needle = format!("\"{field}\":");
+        let start = json.find(&needle).expect("nested field") + needle.len();
+        top_level_keys(&json[start..])
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn fields() -> IntakeIssueFields<'static> {
+        IntakeIssueFields {
+            id: Uuid::from_u128(1),
+            status: 1,
+            duplicate_to: None,
+            snoozed_till: None,
+            source: Some("IN_APP"),
+        }
+    }
+
+    /// `list`/create: seven keys, then the eight-key `IssueIntakeSerializer`
+    /// with the `label_ids` annotation copied onto the issue.
+    #[test]
+    fn the_list_shape_has_seven_keys_and_the_intake_issue() {
+        let json = render(&IntakeIssueSerializer::new(
+            fields(),
+            issue_intake(),
+            Some(Uuid::from_u128(4)),
+        ));
+        assert_eq!(top_level_keys(&json), SERIALIZER_KEYS);
+        assert_eq!(nested_keys(&json, "issue"), ISSUE_INTAKE_KEYS);
+        assert!(json.contains(r#""created_by":"00000000-0000-0000-0000-000000000004""#));
+    }
+
+    /// `retrieve`/create/PATCH: [`DETAIL_KEYS`], then the 21-key nested
+    /// issue. `duplicate_issue_detail` is a present `null`, not a skipped key.
+    #[test]
+    fn the_detail_shape_has_seven_keys_and_the_detail_issue() {
+        let detail_issue = IntakeIssueDetailIssue {
+            id: Uuid::from_u128(2),
+            name: "Nested".to_owned(),
+            state_id: None,
+            sort_order: 65_535.0,
+            completed_at: None,
+            estimate_point: None,
+            priority: "none".to_owned(),
+            start_date: None,
+            target_date: None,
+            sequence_id: 7,
+            project_id: Uuid::from_u128(3),
+            parent_id: None,
+            label_ids: &[],
+            assignee_ids: &[],
+            created_at: timestamp(),
+            updated_at: timestamp(),
+            created_by: None,
+            updated_by: None,
+            is_draft: false,
+            archived_at: None,
+            description_html: "<p>x</p>".to_owned(),
+        };
+        let json = render(&IntakeIssueDetailSerializer::new(
+            fields(),
+            None,
+            detail_issue,
+        ));
+        assert_eq!(top_level_keys(&json), DETAIL_KEYS);
+        assert_eq!(nested_keys(&json, "issue"), DETAIL_ISSUE_KEYS);
+        assert!(json.contains(r#""duplicate_issue_detail":null"#));
     }
 }

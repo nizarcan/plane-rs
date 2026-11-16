@@ -451,6 +451,26 @@ plane_query! {
 }
 
 plane_query! {
+    /// `State.triage_objects.filter(project_id=…, pk=…)`, the manager
+    /// `IssueCreateSerializer.validate` picks when the context carries
+    /// `allow_triage_state=True` (`plane/app/serializers/issue.py:134-136`,
+    /// `:179-185`; the intake-issue create is the only caller,
+    /// `plane/app/views/intake/base.py:267`).
+    ///
+    /// `TriageStateManager` is `SoftDeletionManager` plus
+    /// `filter(group='triage')` (`plane/db/models/state.py:62-68`), the exact
+    /// complement of [`VALID_STATE_IN_PROJECT`].
+    ///
+    /// Bind order: `$1` state id, `$2` project id.
+    VALID_TRIAGE_STATE_IN_PROJECT = "issues_write_valid_triage_state_in_project",
+    "SELECT 1::int4 AS exists FROM states \
+     WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL \
+       AND \"group\" = 'triage' \
+     LIMIT 1",
+    [("exists", Int4)]
+}
+
+plane_query! {
     /// `Issue.objects.filter(project_id=…, pk=…)` in the serializer's `validate`
     /// (`plane/app/serializers/issue.py:183-189`).
     ///
@@ -584,6 +604,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &DELETE_RECENT_VISITS,
     &ISSUES_FOR_ISSUE_DATES,
     &VALID_STATE_IN_PROJECT,
+    &VALID_TRIAGE_STATE_IN_PROJECT,
     &VALID_PARENT_IN_PROJECT,
     &VALID_ESTIMATE_POINT_IN_PROJECT,
     &FILTER_ASSIGNEES,
