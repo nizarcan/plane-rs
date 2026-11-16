@@ -17,11 +17,15 @@
 //!    `routes.json` `group` is `app`. This crate serves `/api/` only; a handler
 //!    for `/api/v1/`, `/api/public/`, `/api/instances/` or `/auth/` would be
 //!    dead code in the wrong binary.
-//! 3. Each domain module registers only views whose routes belong to that
-//!    module's group in `deploy/route-groups.yaml` (`src/lib.rs` maps module to
-//!    group: `users_me` → `users-me`). The group is the proxy's unit of
-//!    rollback, so a handler in the wrong directory moves a route with the
-//!    wrong flag.
+//! 3. Each domain module registers an action or method only if every route that
+//!    dispatches to it belongs to that module's group in
+//!    `deploy/route-groups.yaml` (`src/lib.rs` maps module to group: `users_me`
+//!    → `users-me`). The check is per registered `(route, action or method)`
+//!    pair, not per view: one Django view can serve routes in several groups
+//!    (`ModuleIssueViewSet` serves `modules/{module_id}/issues/` with
+//!    `list`/`retrieve` and `issues/{issue_id}/modules/` with
+//!    `create_issue_modules`). The group is the proxy's unit of rollback, so a
+//!    handler in the wrong directory moves a route with the wrong flag.
 //! 4. Proxy safety: every `(route, method)` the Owner column of `ROUTES.md`
 //!    marks `rust` or `rust(GET,…)` is registered. The coexistence proxy emits
 //!    a matcher for exactly those pairs, so an unregistered one is a request
@@ -144,14 +148,6 @@ fn register_module(module: &str) -> RegisterFn {
 
 type RegisterFn = fn(&mut Registry) -> Result<(), plane_drf::registry::RegistryError>;
 
-fn routes_for_view<'a>(policy: &'a PolicyTable, view: &str) -> Vec<&'a RoutePolicy> {
-    policy
-        .routes()
-        .iter()
-        .filter(|route| route.view == view)
-        .collect()
-}
-
 /// Whether a route answers `entry` (an action for a ViewSet, a method name
 /// otherwise) per its policy.
 fn route_answers(route: &RoutePolicy, entry: &str, is_viewset: bool) -> bool {
@@ -237,26 +233,94 @@ fn each_domain_registers_only_its_route_group() {
     }
 
     for (module, group_name, registry) in domain_registries() {
-        for view_name in registry.views().keys() {
-            let routes = routes_for_view(registry.policy(), view_name);
+        check_domain_groups(&groups, module, group_name, &registry);
+    }
+}
+
+/// Invariant 3 for one domain: every `(view, action or method)` it registered
+/// must be dispatched to only by routes in the module's group.
+///
+/// The unit is the registered entry, not the view. `ModuleIssueViewSet` is
+/// served from two groups with disjoint actions, so a per-view check would
+/// refuse the `modules` module for a view that also owns an `issues` route,
+/// even though the actions it registers never reach that route.
+fn check_domain_groups(groups: &[RouteGroup], module: &str, group_name: &str, registry: &Registry) {
+    for (view_name, view) in registry.views() {
+        let is_viewset = view.family.is_viewset();
+        let kind = if is_viewset { "action" } else { "method" };
+        for entry in view.registered() {
+            // The routes whose own policy dispatches to this action/method;
+            // that is exactly how `RegisteredView::handler` resolves a request.
+            let routes: Vec<&RoutePolicy> = registry
+                .policy()
+                .routes()
+                .iter()
+                .filter(|route| route.view == *view_name)
+                .filter(|route| route_answers(route, &entry, is_viewset))
+                .collect();
             assert!(
                 !routes.is_empty(),
-                "{module}::register registers {view_name}, but routes.json has no route for it"
+                "{module}::register registers {kind} {entry:?} on {view_name}, but no routes.json \
+                 row for that view dispatches to it"
             );
             for route in routes {
-                let assigned = assign_group(&groups, &route.group, &route.path_template)
+                let assigned = assign_group(groups, &route.group, &route.path_template)
                     .unwrap_or_else(|error| {
-                        panic!("{module}::register registers {view_name}: {error}")
+                        panic!(
+                            "{module}::register registers {kind} {entry:?} on {view_name}: {error}"
+                        )
                     });
                 assert_eq!(
                     assigned, group_name,
-                    "{module}::register registers {view_name}, whose route {} ({}) is the \
-                     {assigned:?} group in deploy/route-groups.yaml, not {group_name:?}; move the \
-                     handler to the {assigned} module or fix the group's selectors",
+                    "{module}::register registers {kind} {entry:?} on {view_name}, but the route \
+                     that dispatches it, {} ({}) is the {assigned:?} group in \
+                     deploy/route-groups.yaml, not {group_name:?}; move the handler to the \
+                     {assigned} module or fix the group's selectors",
                     route.path_template, route.group
                 );
             }
         }
+    }
+}
+
+/// Shown to fail: the `modules` module registering `create_issue_modules`,
+/// whose only route lives in the `issues` group. A test-only fixture, so no
+/// domain module is edited to demonstrate the check.
+#[test]
+fn invariant_3_rejects_an_action_whose_route_is_in_another_group() {
+    let groups = load_route_groups();
+    let mut registry = Registry::new(policy()).expect("Registry::new(routes.json)");
+    registry
+        .viewset("plane.app.views.module.issue.ModuleIssueViewSet")
+        .expect("ModuleIssueViewSet is a registered ViewSet")
+        .action("create_issue_modules", plane_http_app::modules::issue::list)
+        .expect("create_issue_modules is a policy action");
+    let registry = registry.finish().expect("finish");
+
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        check_domain_groups(&groups, "modules", "modules", &registry);
+    }))
+    .expect_err("an action whose route is in another group must fail invariant 3");
+    let message = failure
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            failure
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_string())
+        })
+        .expect("invariant 3 panics with a formatted message");
+
+    for expected in [
+        "modules::register registers action \"create_issue_modules\" on \
+         plane.app.views.module.issue.ModuleIssueViewSet",
+        "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/modules/ (app)",
+        "is the \"issues\" group in deploy/route-groups.yaml, not \"modules\"",
+    ] {
+        assert!(
+            message.contains(expected),
+            "invariant 3's message does not name {expected:?}: {message}"
+        );
     }
 }
 
