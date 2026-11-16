@@ -39,7 +39,7 @@ pub mod row;
 
 mod sub_resources;
 /// The issue-core write routes (`plans/WORK_ITEMS.md` set A).
-mod write_issue;
+pub(crate) mod write_issue;
 pub mod write_issue_queries;
 mod write_support;
 

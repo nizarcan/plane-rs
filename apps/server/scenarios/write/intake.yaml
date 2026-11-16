@@ -1,0 +1,583 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Intake write scenario, sets A and D of plans/INTAKE.md §3:
+#
+#   POST    /api/workspaces/{slug}/projects/{project_id}/intakes/             (53)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/intakes/{pk}/        (54)
+#   POST    /api/workspaces/{slug}/projects/{project_id}/inboxes/             (57)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/inboxes/{pk}/        (58)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/intake-issues/{pk}/  (56)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/inbox-issues/{pk}/   (60)
+#
+# The quirks the plan records, and which the steps pin:
+#
+#   * 53/57 create never writes. `is_valid(raise_exception=True)` runs first,
+#     so an invalid body is DRF's 400 with `serializer.errors` (field order,
+#     `required`, the `created_by`/`updated_by` pk lookups); a valid body then
+#     reaches the decorated `perform_create`, where `request` is the serializer
+#     and `request.user` is an `AttributeError` → the family 500 body. No row,
+#     no task, and **no role check**: a GUEST and a NON-MEMBER get the same
+#     400/500 as an admin.
+#   * 54/58 destroy: `.first()` → `None.is_default` → 500 for a wrong pk and
+#     for a soft-deleted intake; the default intake is the 400
+#     `You cannot delete the default intake`; anything else is H03 plus the
+#     `soft_delete_related_objects` message. PATCH on both aliases is the
+#     `BaseViewSet` guard's 405.
+#   * 56/60 DELETE takes the **Issue** id, not the link id. The decorator's
+#     `creator=True` lookup is unscoped by workspace/project and returns before
+#     the role check, so a MEMBER or GUEST who created the issue may delete it;
+#     an ADMIN passes by role. A MEMBER who did not create the issue and a
+#     GUEST get 403. A project with no intake, a soft-deleted link and a
+#     missing pk are 404; a live link whose issue is soft-deleted reaches
+#     `None.delete()` → 500 with nothing written.
+#   * status `1` (accepted) deletes only the link; every other status deletes
+#     the issue too, each with its own cascade message.
+#
+# Every row beyond what `plane_fix_tpl` has is seeded by
+# `intake-fixture.sql` (non-default intakes, creator-owned issues, a
+# soft-deleted issue behind a live link, a Zeta issue).
+
+name: write-intake
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/intake-fixture.sql"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  intake_alpha_default: "826885ac-00cd-47cd-b54a-77a52004021c"
+  intake_nondefault_one: "cc000000-0000-4000-8000-000000000001"
+  intake_nondefault_two: "cc000000-0000-4000-8000-000000000002"
+  intake_nondefault_three: "cc000000-0000-4000-8000-000000000003"
+  intake_deleted: "cc000000-0000-4000-8000-000000000004"
+  issue_member: "cc000000-0000-4000-8000-000000000010"
+  issue_guest: "cc000000-0000-4000-8000-000000000011"
+  issue_deleted: "cc000000-0000-4000-8000-000000000012"
+  issue_beta_member: "cc000000-0000-4000-8000-000000000013"
+  issue_zeta: "cc000000-0000-4000-8000-000000000014"
+  link_member: "cc000000-0000-4000-8000-000000000020"
+  link_guest: "cc000000-0000-4000-8000-000000000021"
+  link_deleted_issue: "cc000000-0000-4000-8000-000000000022"
+  intake_issue_alpha_pending_issue: "27a64497-44aa-446b-8136-8197010dea71"
+  intake_issue_alpha_accepted_issue: "b112d8ba-70d1-4161-9fd1-51714c353f9a"
+  intake_issue_alpha_snoozed_issue: "af5220dc-dd0b-4ca5-bccf-3e7e8b919b0f"
+  intake_issue_alpha_duplicate_issue: "93926110-bb2b-46fe-b69f-b24d49886168"
+  intake_issue_alpha_rejected_issue: "840ec3e4-55d0-4ed2-bde2-48c2d52bc40a"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- 53/57 create: an invalid body is the serializer's 400 ---------------
+  - name: iad-01-create-empty-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: iad-02-create-blank-name-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: ""
+    expect_status: 400
+
+  - name: iad-03-create-name-too-long-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness 0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"
+    expect_status: 400
+
+  # A non-mapping JSON body is DRF's `non_field_errors` entry, not a field
+  # error (`rest_framework/serializers.py:589-596`).
+  - name: iad-03b-create-list-body-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '[{"name": "not an object"}]'
+    expect_status: 400
+
+  # `is_default` is a BooleanField; `view_props` a JSONField with
+  # `allow_null=False`.
+  - name: iad-04-create-bad-boolean-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness bad boolean"
+      is_default: "maybe"
+    expect_status: 400
+
+  - name: iad-05-create-null-json-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness null json"
+      logo_props: null
+    expect_status: 400
+
+  # `created_by`/`updated_by` are writable `PrimaryKeyRelatedField`s: a
+  # missing pk is 400 *before* `perform_create`, a live one reaches the 500.
+  - name: iad-06-create-missing-creator-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness missing creator"
+      created_by: "{{missing}}"
+    expect_status: 400
+
+  # --- 53/57 create: a valid body is the decorator's 500 -------------------
+  # Nothing is written and no task is published: the database and Celery diffs
+  # for these steps must be empty.
+  - name: iad-07-create-valid-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness never written"
+    expect_status: 500
+
+  # The full writable surface, valid values, read-only keys ignored. The
+  # `created_by` lookup runs against a live user and succeeds.
+  - name: iad-08-create-full-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      deleted_at: "2026-02-01T00:00:00Z"
+      name: "Harness full body"
+      description: "still never written"
+      is_default: true
+      view_props: {"filters": {"priority": "urgent"}}
+      logo_props: {"in_use": "emoji", "emoji": {"value": "📥"}}
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      id: "11111111-1111-4111-8111-111111111111"
+      project: "{{project_alpha}}"
+      workspace: "00000000-0000-4000-8000-00000000ffff"
+      pending_issue_count: 5
+    expect_status: 500
+
+  # A number is coerced by `CharField.to_internal_value`, so this is valid too.
+  - name: iad-09-create-numeric-name-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: 12345
+    expect_status: 500
+
+  - name: iad-10-create-inboxes-valid-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inboxes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness inbox alias"
+    expect_status: 500
+
+  - name: iad-11-create-inboxes-invalid-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inboxes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: ""
+    expect_status: 400
+
+  # No role check runs: the decorator is on `perform_create` and dies first, so
+  # a guest and a non-member see the same bodies as the admin.
+  - name: iad-12-create-guest-valid-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Harness guest create"
+    expect_status: 500
+
+  - name: iad-13-create-guest-invalid-400
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: ""
+    expect_status: 400
+
+  - name: iad-14-create-nonmember-valid-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "Harness nonmember create"
+    expect_status: 500
+
+  - name: iad-14b-create-member-valid-500
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      name: "Harness member create"
+    expect_status: 500
+
+  # --- 54/58 destroy -------------------------------------------------------
+  - name: iad-15-destroy-nondefault-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{intake_nondefault_one}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: iad-16-destroy-default-400
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{intake_alpha_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: iad-17-destroy-missing-500
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A soft-deleted intake is outside the default manager: `.first()` is None
+  # and `None.is_default` is the 500, not a 404.
+  - name: iad-18-destroy-soft-deleted-500
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{intake_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: iad-19-destroy-inboxes-nondefault-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inboxes/{{intake_nondefault_two}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: iad-20-destroy-inboxes-default-400
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inboxes/{{intake_alpha_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: iad-21-destroy-inboxes-missing-500
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inboxes/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `allow_permission([ADMIN, MEMBER])` on the delete itself, before the
+  # handler's `.first()`.
+  - name: iad-22-destroy-guest-403
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{intake_nondefault_three}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: iad-23-destroy-nonmember-403
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{intake_nondefault_three}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: iad-24-destroy-member-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{intake_nondefault_three}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # --- 54/58 PATCH: the BaseViewSet guard's 405 ----------------------------
+  - name: iad-25-patch-intakes-405
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/{{intake_alpha_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "must not be applied"
+    expect_status: 405
+
+  - name: iad-26-patch-inboxes-405
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inboxes/{{intake_alpha_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "must not be applied either"
+    expect_status: 405
+
+  # The default intake is still there after the 400/405s.
+  - name: iad-27-list-intakes-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intakes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- 56/60 delete: permission -------------------------------------------
+  # A MEMBER who created the issue passes the decorator's unscoped creator
+  # check; both the issue and the link are soft-deleted, each with its own
+  # cascade message.
+  - name: iad-28-delete-by-creator-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # A GUEST who created the issue takes the same creator branch (role GUEST
+  # would otherwise be 403).
+  - name: iad-29-delete-guest-creator-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_guest}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  # MEMBER, issue created by the admin: not the creator, role MEMBER is not in
+  # [ADMIN], so the decorator is the 403.
+  - name: iad-30-delete-member-not-creator-403
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_pending_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: iad-31-delete-guest-not-creator-403
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_snoozed_issue}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # Not a workspace member: the decorator's first check (`creator=True`).
+  - name: iad-32-delete-nonmember-403
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_pending_issue}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # --- 56/60 delete: the handler -------------------------------------------
+  # Accepted (status 1) deletes only the link: the issue stays live.
+  - name: iad-33-delete-accepted-inbox-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inbox-issues/{{intake_issue_alpha_accepted_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Duplicate (status 2) deletes the issue too, through the alias.
+  - name: iad-34-delete-duplicate-inbox-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/inbox-issues/{{intake_issue_alpha_duplicate_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Pending (status -2) deletes both.
+  - name: iad-35-delete-pending-admin-204
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_pending_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # A live link whose issue is soft-deleted: the lookup is `Issue.objects`
+  # (soft-deletion manager), `.first()` is None and `None.delete()` is the 500.
+  # Nothing is written — the link survives.
+  - name: iad-36-delete-soft-deleted-issue-500
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A soft-deleted link is outside `IntakeIssue.objects`: 404 before the status
+  # check.
+  - name: iad-37-delete-soft-deleted-link-404
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_alpha_rejected_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: iad-38-delete-missing-404
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # Zeta has no intake: `intake_id` is NULL and `.get(intake_id=None)` matches
+  # nothing → 404 (`DoesNotExist`), unlike `retrieve`'s `intake_id.id` 500.
+  - name: iad-39-delete-no-intake-404
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/intake-issues/{{issue_zeta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The decorator's creator lookup has no workspace/project filter: this MEMBER
+  # created a **beta** issue, passes the creator branch on an alpha URL, and
+  # then the handler's alpha link lookup 404s. A scoped check would be 403.
+  - name: iad-40-delete-unscoped-creator-404
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_beta_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # The link `iad-28` deleted: the issue is soft-deleted now, so the member's
+  # creator branch no longer matches and the role branch is 403.
+  - name: iad-41-delete-again-creator-403
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  # The admin's role branch still passes; the link lookup is the 404.
+  - name: iad-42-delete-again-admin-404
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # --- read-back: the deleted links are gone from the list -----------------
+  - name: iad-43-list-intake-issues-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      status: "-2,-1,0,1,2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200

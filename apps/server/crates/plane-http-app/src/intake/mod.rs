@@ -27,8 +27,10 @@
 //! | `GET …/description-versions/{pk}/` | the same `get` | `:583` |
 //! | `GET …/intake-state/` | `IntakeStateEndpoint.get` | `state/base.py:151` |
 //!
-//! Every write verb of these views stays on Django: they are part of the same
-//! route rows and are ported in Phase 5.
+//! The write verbs are ported one set at a time (`plans/INTAKE.md` §3):
+//! [`write_intake`] owns 53/54 and their `inboxes/` aliases (57/58),
+//! [`write_intake_issue_delete`] owns the DELETE of 56/60. Create/PATCH of the
+//! intake-issue rows (55/56/59/60) are other sets.
 
 use plane_drf::registry::{Registry, RegistryError};
 
@@ -39,6 +41,10 @@ pub mod queries;
 pub mod render;
 pub mod state;
 pub mod versions;
+pub mod write_intake;
+pub mod write_intake_issue_delete;
+pub mod write_intake_issue_delete_queries;
+pub mod write_intake_queries;
 pub mod write_queries;
 
 /// Register this group's handlers, in route order.
@@ -47,5 +53,9 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     issue::register(registry)?;
     versions::register(registry)?;
     state::register(registry)?;
+    // Set A: intake CRUD (53/54, and the `inboxes/` aliases 57/58).
+    write_intake::register(registry)?;
+    // Set D: intake-issue delete (56, and the `inbox-issues/` alias 60).
+    write_intake_issue_delete::register(registry)?;
     Ok(())
 }
