@@ -786,11 +786,27 @@ and only `verified` rows are Rust-owned.
   `issues/mod.rs`, because the issues route group selects its path. **The modules domain
   is fully on Rust.**
 
+### Phase 5: views domain (2026-11-16)
+
+- Set B, favourites and workspace-views (merged `71c9d9fe08`, flipped `55a253419a`): 183
+  `rust(GET,POST)`, 184 `rust(DELETE)`, 198 `rust(POST)`. `write/view-favorites.yaml`
+  49/49 in both directions; no contract test reaches these routes.
+- Set A, view CRUD (merged `098fea6a06`): 178/180 `rust(GET,POST)`, 179/181
+  `rust(GET,PUT,PATCH,DELETE)` (PUT is the covered 405). `write/views.yaml` 69/69 (with
+  `views-fixture.sql`); the orchestrator's contract run is 140/140 Rust-touching, 4
+  requests reaching create. H24 ports `issue_filters(filters, "POST")`, table-tested
+  against Python outputs; the soft delete is a full save that recomputes `query`.
+  Upstream quirks kept: a duration filter makes every save 500 (a `date` the JSONField
+  can't encode); `intake_status` is stored as `inbox_status`; creator vs owner checks
+  split 400/403; workspace routes edit project views.
+- The merge caught a query-name collision between the two sets
+  (`views_write_project_workspace`); set A's statement was renamed. **The views domain
+  is fully on Rust.**
+
 ## Next three steps
 
-1. In progress: the hard-delete manager audit (`rs-p5-mo-a`); views sets A (178–181)
-   and B (183/184/198) per `plans/VIEWS.md`, fresh agents.
-2. Then pages → intake → notifications → favourites → webhooks → exports → analytics →
-   search, each planned read-only first by a fresh agent.
-3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items, cycles and
-   modules are in.
+1. Pages: planned read-only first by a fresh agent, then route sets.
+2. Then intake → notifications → favourites → webhooks → exports → analytics → search,
+   the same way.
+3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items, cycles,
+   modules and views are in.
