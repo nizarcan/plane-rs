@@ -258,6 +258,17 @@ impl ValidationErrors {
         self.0.is_empty()
     }
 
+    /// Stable-sort the errors into the serializer's `self.fields` order.
+    ///
+    /// A re-check made after `to_internal_value` appends its field at the end;
+    /// DRF's body has the keys in `_readable_fields` order. Fields not in the
+    /// list (`non_field_errors`, a `validate()` field) stay last.
+    pub fn sort_by_field_order(&mut self, order: &[&str]) {
+        let position = |name: &str| order.iter().position(|field| *field == name);
+        self.0
+            .sort_by_key(|(name, _)| position(name).unwrap_or(order.len()));
+    }
+
     /// The 400 `Response(serializer.errors)` body.
     ///
     /// Keys are in field order, each value is a JSON array of strings (or, for
@@ -331,6 +342,9 @@ pub struct Serializer<'a> {
     form: bool,
     errors: ValidationErrors,
     values: Vec<(&'static str, Value)>,
+    /// Fields the serializer made read-only for this request (`get_fields`):
+    /// DRF skips them in `to_internal_value` without reading the body.
+    skipped: Vec<&'static str>,
     /// The `non_field_errors` a non-mapping body produced; kept so field calls
     /// become no-ops and `finish()` reports it.
     fatal: bool,
@@ -353,6 +367,7 @@ impl<'a> Serializer<'a> {
             form: false,
             errors: ValidationErrors::default(),
             values: Vec::new(),
+            skipped: Vec::new(),
             fatal: false,
             timezone,
         };
@@ -393,6 +408,19 @@ impl<'a> Serializer<'a> {
     #[must_use]
     pub fn partial(&self) -> bool {
         self.partial
+    }
+
+    /// Make one field read-only for this request.
+    ///
+    /// Python's `ModelSerializer.get_fields` can flip a generated field's
+    /// `read_only` per instance (`IssueCreateSerializer.get_fields` does it for
+    /// `is_draft` on PATCH, `plane/app/serializers/issue.py:126-131`). DRF's
+    /// `to_internal_value` skips read-only fields without reading the body, so
+    /// the field is neither validated nor added to `validated_data`.
+    pub fn skip_field(&mut self, name: &'static str) {
+        if !self.skipped.contains(&name) {
+            self.skipped.push(name);
+        }
     }
 
     /// `CharField` (`rest_framework/fields.py:718-762`).
@@ -787,7 +815,7 @@ impl<'a> Serializer<'a> {
         allow_null: bool,
         allow_blank: Option<bool>,
     ) -> Option<Raw<'a>> {
-        if self.fatal {
+        if self.fatal || self.skipped.contains(&name) {
             return None;
         }
         let Some(raw) = self.body.as_ref().and_then(|body| body.raw(name)) else {
@@ -864,6 +892,24 @@ impl<'a> Serializer<'a> {
         self.errors.push(field, detail);
     }
 
+    /// [`Self::reject`] for one child of a `ListField`, keeping DRF's
+    /// index-keyed error object (`fields.py:1720-1735`).
+    pub fn reject_indexed(&mut self, field: &'static str, index: usize, detail: Detail) {
+        self.values.retain(|(name, _)| *name != field);
+        self.errors.push_indexed(field, index, detail);
+    }
+
+    /// One validated value, before `finish()` consumes the serializer. Used by
+    /// a handler that must re-check a field with its manager's predicate after
+    /// the generated table-only existence check.
+    #[must_use]
+    pub fn value(&self, name: &str) -> Option<&Value> {
+        self.values
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| value)
+    }
+
     /// The raw text of a field's value, for an error message that quotes the
     /// input (`PrimaryKeyRelatedField`'s `Invalid pk "{pk_value}"…`).
     #[must_use]
@@ -887,6 +933,7 @@ impl<'a> Serializer<'a> {
     pub fn missing_required(&self, name: &'static str) -> bool {
         !self.partial
             && !self.fatal
+            && !self.skipped.contains(&name)
             && self
                 .body
                 .as_ref()

@@ -233,8 +233,21 @@ async fn insert_rows(
                 "INSERT INTO {table} (created_at, updated_at, created_by_id, updated_by_id, \
                  id, project_id, workspace_id, {member_column}, issue_id) VALUES "
             );
-            let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync>> =
-                Vec::with_capacity(batch.len() * 9);
+            // One owned tuple per row: typed values keep the future `Send`,
+            // which a `Box<dyn ToSql + Sync>` vector would not (it is not
+            // `Send` and is held across the `.await`).
+            type Row = (
+                DateTime<Utc>,
+                DateTime<Utc>,
+                Option<Uuid>,
+                Option<Uuid>,
+                Uuid,
+                Uuid,
+                Uuid,
+                Uuid,
+                Uuid,
+            );
+            let mut params: Vec<Row> = Vec::with_capacity(batch.len());
             for (index, member_id) in batch.iter().enumerate() {
                 if index != 0 {
                     sql.push_str(", ");
@@ -252,22 +265,35 @@ async fn insert_rows(
                     base + 8,
                     base + 9
                 ));
-                params.push(Box::new(now));
-                params.push(Box::new(now));
-                params.push(Box::new(issue.created_by_id));
-                params.push(Box::new(issue.updated_by_id));
-                params.push(Box::new(Uuid::new_v4()));
-                params.push(Box::new(issue.project_id));
-                params.push(Box::new(issue.workspace_id));
-                params.push(Box::new(*member_id));
-                params.push(Box::new(issue.id));
+                params.push((
+                    now,
+                    now,
+                    issue.created_by_id,
+                    issue.updated_by_id,
+                    Uuid::new_v4(),
+                    issue.project_id,
+                    issue.workspace_id,
+                    *member_id,
+                    issue.id,
+                ));
             }
             if mode == M2mMode::Update {
                 sql.push_str(" ON CONFLICT DO NOTHING");
             }
             let statement = client.prepare(&sql).await?;
-            let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-                params.iter().map(|value| value.as_ref()).collect();
+            let mut refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+                Vec::with_capacity(params.len() * 9);
+            for row in &params {
+                refs.push(&row.0);
+                refs.push(&row.1);
+                refs.push(&row.2);
+                refs.push(&row.3);
+                refs.push(&row.4);
+                refs.push(&row.5);
+                refs.push(&row.6);
+                refs.push(&row.7);
+                refs.push(&row.8);
+            }
             client.execute(&statement, &refs).await?;
         }
         Ok(())
