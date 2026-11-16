@@ -35,7 +35,10 @@ use crate::write::fields::{self, CharOptions, Detail, Raw};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null,
+    Bool(bool),
+    Int(i64),
     Text(String),
+    Uuid(uuid::Uuid),
     Json(JsonText),
     Float(f64),
     DateTime(chrono::DateTime<chrono::Utc>),
@@ -67,6 +70,30 @@ impl Validated {
         }
     }
 
+    /// A boolean value.
+    pub fn bool(&self, name: &str) -> Option<bool> {
+        match self.get(name) {
+            Some(Value::Bool(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// An integer value (`IntegerField`, `ChoiceField` over ints).
+    pub fn integer(&self, name: &str) -> Option<i64> {
+        match self.get(name) {
+            Some(Value::Int(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// A UUID value (`PrimaryKeyRelatedField`).
+    pub fn uuid(&self, name: &str) -> Option<uuid::Uuid> {
+        match self.get(name) {
+            Some(Value::Uuid(value)) => Some(*value),
+            _ => None,
+        }
+    }
+
     /// The `JsonText` of a `JSONField` value.
     pub fn json(&self, name: &str) -> Option<&JsonText> {
         match self.get(name) {
@@ -92,6 +119,36 @@ impl Validated {
     /// Whether the field was present with an explicit `null`.
     pub fn is_null(&self, name: &str) -> bool {
         matches!(self.get(name), Some(Value::Null))
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+impl From<i16> for Value {
+    fn from(value: i16) -> Self {
+        Self::Int(i64::from(value))
+    }
+}
+
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        Self::Int(i64::from(value))
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Self::Int(value)
+    }
+}
+
+impl From<uuid::Uuid> for Value {
+    fn from(value: uuid::Uuid) -> Self {
+        Self::Uuid(value)
     }
 }
 
@@ -266,6 +323,48 @@ impl<'a> Serializer<'a> {
         match fields::float(raw) {
             Ok(value) => {
                 self.values.push((name, Value::Float(value)));
+                Some(value)
+            }
+            Err(detail) => {
+                self.errors.push(name, detail);
+                None
+            }
+        }
+    }
+
+    /// `BooleanField` (`rest_framework/fields.py:766-790`).
+    pub fn bool_field(&mut self, name: &'static str) -> Option<bool> {
+        self.field(name, false, fields::boolean)
+    }
+
+    /// `ChoiceField` over integer choices (`network`): the input is compared as
+    /// `str(data)` and the field returns the choice key.
+    pub fn integer_choice_field(
+        &mut self,
+        name: &'static str,
+        allowed: &'static [i16],
+    ) -> Option<i16> {
+        let parsed = self.field(name, false, move |raw| fields::integer_choice(raw, allowed))?;
+        // `field` stored the int64; a choice is an int16 model column.
+        Some(parsed)
+    }
+
+    /// A field whose parser decides the message and whose value the caller
+    /// keeps; the validated bag records it for `partial`-style presence tests.
+    pub fn field<T>(
+        &mut self,
+        name: &'static str,
+        allow_null: bool,
+        parse: impl FnOnce(fields::Raw<'_>) -> Result<T, Detail>,
+    ) -> Option<T>
+    where
+        Value: From<T>,
+        T: Clone,
+    {
+        let raw = self.field_value(name, allow_null, Some(false))?;
+        match parse(raw) {
+            Ok(value) => {
+                self.values.push((name, Value::from(value.clone())));
                 Some(value)
             }
             Err(detail) => {

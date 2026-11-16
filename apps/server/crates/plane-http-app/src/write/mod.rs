@@ -67,7 +67,7 @@ pub use serializer::{Serializer, Validated, ValidationErrors, Value};
 use chrono::{DateTime, SubsecRound, Utc};
 use deadpool_postgres::Client;
 use plane_drf::error::ViewError;
-use plane_drf::view::ViewCtx;
+use plane_drf::view::{ViewCtx, ViewResponse};
 use uuid::Uuid;
 
 /// `timezone.now()` at the precision Django stores: microseconds.
@@ -132,6 +132,123 @@ pub async fn publish_soft_delete_cascade(
     crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
         .await?;
     Ok(())
+}
+
+/// `Response({"error": …}, status)` — the body Plane's views build by hand
+/// (`plane/app/views/project/base.py:334-337`, `:422-425`), in DRF's dialect.
+#[must_use]
+pub fn error_body(status: u16, message: &str) -> ViewResponse {
+    ViewResponse::raw(
+        status,
+        plane_core::error::APPLICATION_JSON,
+        plane_query::json::Json::object(vec![("error", plane_query::json::Json::string(message))])
+            .to_drf(),
+    )
+}
+
+/// One field's serializer error, as `validate_<field>` and `validate()` produce
+/// it: `Response(serializer.errors)` renders `{"field": ["message"]}`.
+///
+/// `ValidationError(detail="MSG")` from a field hook is coerced to a
+/// one-element list (`rest_framework/exceptions.py:148-161`), and a
+/// `validate()` dict goes through `as_serializer_error`
+/// (`rest_framework/serializers.py:314-345`), which wraps every dict value in a
+/// list. Both land here.
+#[must_use]
+pub fn field_string_error(field: &str, message: &str) -> ViewResponse {
+    ViewResponse::raw(
+        400,
+        plane_core::error::APPLICATION_JSON,
+        plane_query::json::Json::object(vec![(
+            field,
+            plane_query::json::Json::Array(vec![plane_query::json::Json::string(message)]),
+        )])
+        .to_drf(),
+    )
+}
+
+/// `requested_data=request.data` for the activity/webhook tasks
+/// (`plane_jobs::celery::args::TaskArg::Json`).
+///
+/// For a JSON body this is the parsed tree. A form body is a Django
+/// `QueryDict`, which `json.dumps` refuses, so Django's `.delay()` would raise
+/// `TypeError` and the family handler would answer 500; that is reproduced as
+/// an error rather than a silently different payload.
+///
+/// # Errors
+///
+/// `ViewError::Unknown` for a form body.
+pub fn request_data_arg(ctx: &ViewCtx<'_>) -> Result<plane_jobs::celery::args::TaskArg, ViewError> {
+    match ctx.data()? {
+        plane_drf::parsers::Data::Json(value) => {
+            Ok(plane_jobs::celery::args::TaskArg::Json(value.clone()))
+        }
+        plane_drf::parsers::Data::Form(_) => Err(ViewError::Unknown(
+            "TypeError: Object of type QueryDict is not JSON serializable".to_owned(),
+        )),
+    }
+}
+
+/// `request.data.get(key, current)` for a JSON column.
+///
+/// # Errors
+///
+/// A JSON value Django's encoder refuses.
+pub fn json_or(
+    data: &plane_drf::parsers::Data,
+    key: &str,
+    current: &plane_db::JsonText,
+) -> Result<plane_db::JsonText, ViewError> {
+    match data.json().and_then(|value| value.get(key)) {
+        Some(value) if !value.is_null() => {
+            plane_db::JsonText::from_json(value).map_err(ViewError::from)
+        }
+        _ => Ok(current.clone()),
+    }
+}
+
+/// `request.data.get(key, current)` for a float column; Python `float()`
+/// failures are the 500 the ORM would raise.
+///
+/// # Errors
+///
+/// `ViewError::Unknown` for a non-numeric value.
+pub fn float_or(
+    data: &plane_drf::parsers::Data,
+    key: &str,
+    current: f64,
+) -> Result<f64, ViewError> {
+    let Some(value) = data.get(key) else {
+        return Ok(current);
+    };
+    value
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| ViewError::Unknown(format!("ValueError: could not convert {key} to float")))
+}
+
+/// `request.data.get(key)` as a string (`None` when absent).
+#[must_use]
+pub fn string_field(data: &plane_drf::parsers::Data, key: &str) -> Option<String> {
+    data.get(key).map(str::to_owned)
+}
+
+/// The whole body as a JSON object, for a view that merges `request.data` into
+/// a stored dict.
+///
+/// # Errors
+///
+/// `ViewError::Unknown` when the body is not an object (the `TypeError` a
+/// `.update()` on a non-mapping would raise).
+pub fn json_object(
+    data: &plane_drf::parsers::Data,
+) -> Result<plane_serde::pyjson::Value, ViewError> {
+    match data.json() {
+        Some(value) if matches!(value, plane_serde::pyjson::Value::Dict(_)) => Ok(value.clone()),
+        _ => Err(ViewError::Unknown(
+            "TypeError: 'NoneType' object is not a mapping".to_owned(),
+        )),
+    }
 }
 
 #[cfg(test)]
