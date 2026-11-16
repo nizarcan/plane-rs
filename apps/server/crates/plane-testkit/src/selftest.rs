@@ -24,8 +24,9 @@ use serde_json::{Value, json};
 
 use crate::celery::CeleryMessage;
 use crate::compare::{
-    Difference, FormattingStatus, check_drf_formatting, compare_bodies, compare_celery, compare_db,
-    compare_formatting, compare_headers, compare_redis, compare_status, drf_compact,
+    CONTENT_LENGTH_BODYLESS_RULE, Difference, FormattingStatus, check_drf_formatting,
+    compare_bodies, compare_celery, compare_db, compare_formatting, compare_headers, compare_redis,
+    compare_response_headers, compare_status, drf_compact,
 };
 use crate::config::{
     DbRule, NamedRule, NormalizeRules, RuleCheck, RuleMode, ShapeRule, UnorderedMode,
@@ -1524,6 +1525,58 @@ pub fn run() -> Result<()> {
         "headers",
         &compare_headers(&header_a, &header_a[..1]),
     )?;
+
+    // -- bodyless Content-Length (DECISIONS.md D18) -------------------------
+    let with_length = |value: Option<&str>| -> Vec<(String, String)> {
+        value
+            .map(|value| vec![("Content-Length".to_string(), value.to_string())])
+            .unwrap_or_default()
+    };
+    let (differences, rule) =
+        compare_response_headers(204, 204, &with_length(Some("0")), &with_length(None));
+    checks.accepted(
+        "204 with Content-Length: 0 against 204 without it",
+        &differences,
+    )?;
+    checks.ok(
+        "the bodyless-content-length rule is reported",
+        rule == Some(CONTENT_LENGTH_BODYLESS_RULE),
+    )?;
+    let (differences, rule) =
+        compare_response_headers(304, 304, &with_length(Some("512")), &with_length(None));
+    checks.accepted(
+        "304 with Content-Length against 304 without it",
+        &differences,
+    )?;
+    checks.ok(
+        "the 304 form reports the same rule",
+        rule == Some(CONTENT_LENGTH_BODYLESS_RULE),
+    )?;
+    let (differences, _) =
+        compare_response_headers(204, 204, &with_length(Some("0")), &with_length(Some("5")));
+    checks.detected(
+        "204 Content-Length: 0 against 204 Content-Length: 5",
+        "headers",
+        &differences,
+    )?;
+    let (differences, _) =
+        compare_response_headers(204, 204, &with_length(Some("5")), &with_length(None));
+    checks.detected(
+        "204 Content-Length: 5 against 204 without it",
+        "headers",
+        &differences,
+    )?;
+    let (differences, _) =
+        compare_response_headers(200, 200, &with_length(Some("0")), &with_length(None));
+    checks.detected(
+        "200 Content-Length: 0 against 200 without it",
+        "headers",
+        &differences,
+    )?;
+    let (differences, rule) =
+        compare_response_headers(204, 200, &with_length(Some("0")), &with_length(None));
+    checks.detected("204 against 200", "headers", &differences)?;
+    checks.ok("the rule does not fire across statuses", rule.is_none())?;
 
     // -- JSON bodies -------------------------------------------------------
     let identical = body(serde_json::from_str(r#"{"a":1,"b":[true,null,"x"]}"#).expect("json"));

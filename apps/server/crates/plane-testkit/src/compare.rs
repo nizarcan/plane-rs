@@ -111,6 +111,69 @@ pub fn compare_status(a: u16, b: u16) -> Vec<Difference> {
     }
 }
 
+/// DECISIONS.md D18: a bodyless response's `Content-Length` is not part of the
+/// contract. Django (uvicorn) sends `Content-Length: 0` on a 204; hyper omits
+/// it, as RFC 9110 §8.6 requires, and Caddy strips it before any client sees
+/// either form. The header is ignored only when both sides returned 204 and
+/// the one value present is `0`, or when both returned 304 and only one side
+/// sent the header. Everything else — a different value, a non-zero length on
+/// a 204, or two different statuses — keeps its exact comparison.
+pub const CONTENT_LENGTH_BODYLESS_RULE: &str = "content-length-bodyless";
+pub const CONTENT_LENGTH_BODYLESS_WHY: &str = "DECISIONS.md D18: Django sends `Content-Length: 0` on a 204, hyper omits it, Caddy strips it; a 304 may omit the representation length.";
+
+/// Compare headers with the response statuses known, applying D18.
+///
+/// Returns the differences and, when the bodyless `Content-Length` exception
+/// fired, the rule name so the runner can list it as an applied rule.
+pub fn compare_response_headers(
+    a_status: u16,
+    b_status: u16,
+    a: &[(String, String)],
+    b: &[(String, String)],
+) -> (Vec<Difference>, Option<&'static str>) {
+    if !content_length_is_bodyless(a_status, b_status, a, b) {
+        return (compare_headers(a, b), None);
+    }
+    let without_content_length = |headers: &[(String, String)]| -> Vec<(String, String)> {
+        headers
+            .iter()
+            .filter(|(name, _)| !name.eq_ignore_ascii_case("content-length"))
+            .cloned()
+            .collect()
+    };
+    (
+        compare_headers(&without_content_length(a), &without_content_length(b)),
+        Some(CONTENT_LENGTH_BODYLESS_RULE),
+    )
+}
+
+/// The one `Content-Length` shape D18 allows: equal statuses of 204 or 304,
+/// exactly one value across both sides, and (for a 204) that value is `0`.
+fn content_length_is_bodyless(
+    a_status: u16,
+    b_status: u16,
+    a: &[(String, String)],
+    b: &[(String, String)],
+) -> bool {
+    if a_status != b_status || !matches!(a_status, 204 | 304) {
+        return false;
+    }
+    let values = |headers: &[(String, String)]| -> Vec<String> {
+        headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            .map(|(_, value)| value.trim().to_string())
+            .collect()
+    };
+    let (a_values, b_values) = (values(a), values(b));
+    // Exactly one side sent the header, once.
+    if a_values.len() + b_values.len() != 1 {
+        return false;
+    }
+    let present = a_values.first().or_else(|| b_values.first());
+    a_status == 304 || present.is_some_and(|value| value == "0")
+}
+
 pub fn compare_headers(a: &[(String, String)], b: &[(String, String)]) -> Vec<Difference> {
     let a_map = header_map(a);
     let b_map = header_map(b);
