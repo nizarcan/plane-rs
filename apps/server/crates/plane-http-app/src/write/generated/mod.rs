@@ -71,6 +71,8 @@ pub struct ExtraKwarg {
 }
 
 pub mod comment_reaction_serializer;
+pub mod cycle_user_properties_serializer;
+pub mod cycle_write_serializer;
 pub mod deploy_board_serializer;
 pub mod draft_issue_create_serializer;
 pub mod draft_issue_detail_serializer;
