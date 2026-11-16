@@ -28,6 +28,14 @@ pub fn uuid_regex() -> &'static Regex {
     })
 }
 
+/// `'epoch': <int>` inside a Celery `kwargsrepr` (the Python dict repr of the
+/// task's kwargs). The value is `int(timezone.now().timestamp())`, so two
+/// targets handling the same step in different seconds differ there.
+pub fn celery_epoch_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"'epoch': (-?\d{9,11})").expect("static celery epoch regex"))
+}
+
 pub fn timestamp_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {

@@ -53,6 +53,9 @@ use crate::redis::{RedisDiff, RedisEntry};
 use crate::session;
 use crate::timeparse::{parse_http_date, parse_timestamp, timestamp_regex, uuid_regex};
 
+/// Why the `kwargsrepr` epoch is normalised.
+const CELERY_EPOCH_WHY: &str = "epoch = int(timezone.now().timestamp()) at enqueue time; the two targets can land in different seconds, and the repr is compared as text (plane/app/views/issue/*.py call sites)";
+
 pub const UUID_WHY: &str =
     "UUID generated during the run and not present in the baseline database snapshot";
 pub const TIMESTAMP_WHY: &str = "ISO-8601 timestamp that falls inside the target's own step window";
@@ -504,6 +507,35 @@ impl TargetNormalizer {
                 .into_owned();
             if replaced {
                 self.record("timestamp-window", TIMESTAMP_WHY);
+            }
+        }
+        // `int(timezone.now().timestamp())` inside a Celery `kwargsrepr`.
+        // The `epoch` kwargs rule normalises the JSON value, but the repr is a
+        // string and the two targets can cross a second boundary; see the
+        // `epoch` rule's `why`.
+        if crate::timeparse::celery_epoch_regex().is_match(&result)
+            && let Some((start, _)) = self.window
+        {
+            let mut replaced = false;
+            result = crate::timeparse::celery_epoch_regex()
+                .replace_all(&result, |captures: &regex::Captures<'_>| {
+                    let matched = captures.get(0).map(|m| m.as_str()).unwrap_or_default();
+                    let Some(seconds) = captures
+                        .get(1)
+                        .and_then(|value| value.as_str().parse::<i64>().ok())
+                    else {
+                        return matched.to_string();
+                    };
+                    if seconds.saturating_sub(start.timestamp()).unsigned_abs() <= 400 * 86_400 {
+                        replaced = true;
+                        "'epoch': <epoch>".to_string()
+                    } else {
+                        matched.to_string()
+                    }
+                })
+                .into_owned();
+            if replaced {
+                self.record("celery-epoch", CELERY_EPOCH_WHY);
             }
         }
         // A raw value that already has a placeholder keeps it everywhere, even
@@ -2191,5 +2223,26 @@ mod tests {
         assert_eq!(update["b"], json!("#123456"));
         assert_eq!(update["a"], json!("#ABCDEF"));
         assert!(normalizer.take_violations().is_empty());
+    }
+
+    /// The `epoch` kwarg's `kwargsrepr` copy is normalised too: the JSON value
+    /// and the Python-repr string are compared, and the two targets may cross
+    /// a second boundary.
+    #[test]
+    fn a_celery_repr_epoch_is_normalised_near_the_step() {
+        let mut normalizer = normalizer();
+        start(&mut normalizer);
+        let at = "2026-11-15T20:00:00Z"
+            .parse::<DateTime<Utc>>()
+            .expect("time")
+            .timestamp();
+        let text =
+            format!("{{'type': 'comment.activity.created', 'epoch': {at}, 'notification': True}}");
+        assert_eq!(
+            normalizer.normalize_text(&text),
+            "{'type': 'comment.activity.created', 'epoch': <epoch>, 'notification': True}"
+        );
+        let old = format!("{{'epoch': {}}}", at - 10 * 365 * 86_400);
+        assert_eq!(normalizer.normalize_text(&old), old);
     }
 }
