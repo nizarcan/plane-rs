@@ -20,6 +20,7 @@
 //! | H01 | `BaseModel.save` (`plane/db/models/base.py:23-45`) | [`audit::stamp`] |
 //! | H03 | `SoftDeleteModel.delete` (`plane/db/mixins.py:65-77`) | [`soft_delete::delete_instance`] |
 //! | H14/H15 | `IssueComment.save` (`plane/db/models/issue.py:481-532`) | [`issue_comment::before_save`] / [`issue_comment::description_changes`] |
+//! | H22 | `Cycle.save` (`plane/db/models/cycle.py:88-97`) | [`cycle::before_insert`] |
 //! | H23 | `Sticky.save` (`plane/db/models/sticky.py:38-54`) | [`sticky::before_save`] |
 //! | H08/H09 | `Project.save` (`plane/db/models/project.py:193-227`) | [`project::before_insert`] / [`project::before_update`] / [`project::retime_intake_snoozes`] |
 //! | H20 | `Label.save` (`plane/db/models/label.py:46-54`) | [`label::before_insert`] |
@@ -46,6 +47,7 @@
 //!   never calls the clock twice for one save.
 
 pub mod audit;
+pub mod cycle;
 pub mod draft_issue;
 pub mod favorite;
 pub mod html;

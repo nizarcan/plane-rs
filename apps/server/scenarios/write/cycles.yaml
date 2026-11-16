@@ -1,0 +1,738 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Cycles set A (cycle core) write scenario:
+#
+#   POST    /api/workspaces/{slug}/projects/{project_id}/cycles/                 (31)
+#   PATCH   /api/workspaces/{slug}/projects/{project_id}/cycles/{pk}/            (32)
+#   DELETE  /api/workspaces/{slug}/projects/{project_id}/cycles/{pk}/            (32)
+#   PUT     the same route answers 405                                           (32)
+#   POST    .../cycles/date-check/                                               (35)
+#   POST    .../user-favorite-cycles/                                            (36)
+#   DELETE  .../user-favorite-cycles/{cycle_id}/                                 (37)
+#   PATCH   .../cycles/{cycle_id}/user-properties/                               (39)
+#   POST    .../cycles/{cycle_id}/archive/                                       (40)
+#   DELETE  .../cycles/{cycle_id}/archive/                                       (40)
+#   POST    .../archived-cycles/ and .../archived-cycles/{pk}/ (both 500)        (41, 42)
+#   DELETE  the same two routes (both 500)                                       (41, 42)
+#
+# Covers the timezone conversion (UTC, a Europe/Berlin DST-edge date, both-or
+# neither, start>end), one-sided PATCH dates left unconverted, the
+# completed-cycle guard, the archived-cycle guard, the missing/foreign-cycle
+# 500s, date-check overlap/exclusion/bad format, favourites (duplicate 400,
+# hard delete, 404), user properties (201 from the in-memory instance, null ->
+# 400, missing row -> 404), archive/unarchive (the archive POST removes every
+# user's favourite), the unconditional 41/42 500s, DELETE then GET, the
+# permission matrix, and the foreign-origin 403.
+
+name: write-cycles
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  cycle_alpha_past: "e6f4b40f-2492-4a1e-97f1-d84204ff65c1"
+  cycle_alpha_archived: "2aa0956c-78ad-4002-8d90-1232ff2ae659"
+  cycle_alpha_upcoming: "1df0c827-94ce-419f-b6ed-4e69b69769ae"
+  cycle_beta_current: "ea38d39b-18b7-4df1-be8b-f2ab43d4ab97"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- create: both dates absent, then both present ------------------------
+  - name: cy-01-create-no-dates
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness no dates"
+    capture:
+      - name: cycle_no_dates
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+
+  - name: cy-02-create-utc-dates
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness UTC dates"
+      description: "created with dates"
+      start_date: "2027-03-01"
+      end_date: "2027-03-10"
+      view_props: {"layout": "board"}
+      progress_snapshot: {"completed": 1}
+      sort_order: 42
+      external_source: "harness"
+      external_id: "cy-2"
+      logo_props: {"icon": "cycle"}
+      timezone: "UTC"
+      version: 3
+    capture:
+      - name: cycle_utc_dates
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+
+  - name: cy-03-create-berlin-dst-dates
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness DST edge"
+      start_date: "2026-03-29"
+      end_date: "2026-03-30"
+    capture:
+      - name: cycle_dst
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+
+  - name: cy-04-create-start-only
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness one date"
+      start_date: "2027-01-01"
+    expect_status: 400
+
+  - name: cy-05-create-both-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness null dates"
+      start_date: null
+      end_date: null
+    capture:
+      - name: cycle_null_dates
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+
+  - name: cy-06-create-start-after-end
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness reversed"
+      start_date: "2027-05-10"
+      end_date: "2027-05-01"
+    expect_status: 400
+
+  - name: cy-07-create-missing-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      description: "no name"
+    expect_status: 400
+
+  - name: cy-08-create-invalid-timezone
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness bad timezone"
+      timezone: "Mars/Olympus"
+    expect_status: 400
+
+  - name: cy-09-create-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Harness guest"
+    expect_status: 403
+
+  - name: cy-10-create-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "Harness nonmember"
+    expect_status: 403
+
+  - name: cy-11-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    origin: "http://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness foreign origin"
+    expect_status: 403
+
+  # --- PATCH: partial name, one-sided dates, both dates, guards ------------
+  - name: cy-12-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Harness no dates edited"
+    expect_status: 200
+
+  - name: cy-13-patch-one-sided-start
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2027-04-01"
+    expect_status: 200
+
+  - name: cy-14-patch-one-sided-end
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      end_date: "2027-04-30"
+    expect_status: 200
+
+  - name: cy-15-patch-both-dates
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2027-06-01"
+      end_date: "2027-06-10"
+    expect_status: 200
+
+  - name: cy-16-patch-completed-guard
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_past}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "past cycle edit"
+    expect_status: 400
+
+  - name: cy-17-patch-completed-sort-order
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_past}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      sort_order: 4321.5
+    expect_status: 200
+
+  - name: cy-18-patch-archived
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_archived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "archived cycle edit"
+    expect_status: 400
+
+  - name: cy-19-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "missing cycle"
+    expect_status: 500
+
+  - name: cy-20-patch-cross-project
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_beta_current}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "foreign project cycle"
+    expect_status: 500
+
+  - name: cy-21-patch-guest-denied
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "guest edit"
+    expect_status: 403
+
+  - name: cy-22-put-method-not-allowed
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_utc_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "put is 405"
+    expect_status: 405
+
+  # --- date-check -----------------------------------------------------------
+  - name: cy-23-date-check-overlap
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/date-check/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2027-03-05"
+      end_date: "2027-03-06"
+    expect_status: 200
+
+  - name: cy-24-date-check-free
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/date-check/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2028-02-01"
+      end_date: "2028-02-05"
+    expect_status: 200
+
+  - name: cy-25-date-check-exclude-self
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/date-check/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2027-03-01"
+      end_date: "2027-03-10"
+      cycle_id: "{{cycle_utc_dates}}"
+    expect_status: 200
+
+  - name: cy-26-date-check-iso-datetime
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/date-check/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: "2027-03-01T00:00:00Z"
+      end_date: "2027-03-10"
+    expect_status: 500
+
+  - name: cy-27-date-check-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/date-check/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      start_date: ""
+    expect_status: 400
+
+  - name: cy-28-date-check-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/date-check/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      start_date: "2028-02-01"
+      end_date: "2028-02-05"
+    expect_status: 403
+
+  # --- favourites -----------------------------------------------------------
+  # The fixture's cycle favourite for the member has `project_id` NULL, which
+  # this route's `.get(project=…)` cannot find: deleting it is a 404 even
+  # though the row exists (ported as-is below).
+  - name: cy-29-favorite-fixture-null-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/{{cycle_alpha_current}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: cy-30-favorite-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      cycle: "{{cycle_alpha_upcoming}}"
+    expect_status: 204
+
+  - name: cy-31-favorite-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      cycle: "{{cycle_alpha_upcoming}}"
+    expect_status: 400
+
+  - name: cy-32-favorite-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/{{cycle_alpha_upcoming}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: cy-33-favorite-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/{{cycle_alpha_upcoming}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: cy-34-favorite-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/user-favorite-cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      cycle: "{{cycle_beta_current}}"
+    expect_status: 204
+
+  - name: cy-35-favorite-create-for-archive
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      cycle: "{{cycle_alpha_past}}"
+    expect_status: 204
+
+  - name: cy-36-favorite-missing-cycle
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      cycle: "{{missing}}"
+    expect_status: 404
+
+  - name: cy-37-favorite-cross-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      cycle: "{{cycle_beta_current}}"
+    expect_status: 404
+
+  # --- cycle user properties ------------------------------------------------
+  - name: cy-38-user-properties-patch
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: {"priority": "urgent"}
+      rich_filters: {"and": []}
+      display_filters: {"layout": "board"}
+      display_properties: {"assignee": false}
+    expect_status: 201
+
+  - name: cy-39-user-properties-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: null
+    expect_status: 400
+
+  - name: cy-40-user-properties-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters: {"priority": "low"}
+    expect_status: 404
+
+  - name: cy-41-user-properties-guest-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/user-properties/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      filters: {"priority": "low"}
+    expect_status: 404
+
+  # --- archive / unarchive --------------------------------------------------
+  - name: cy-42-archive-not-completed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: cy-43-archive-completed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_past}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: cy-44-patch-after-archive
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_past}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      sort_order: 99
+    expect_status: 400
+
+  - name: cy-45-unarchive
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_past}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: cy-46-archive-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{missing}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: cy-47-archive-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/archive/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- 41/42: archived-cycles POST/DELETE are unconditional family 500s ----
+  - name: cy-48-archived-list-post
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  - name: cy-49-archived-list-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: cy-50-archived-detail-post
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/{{cycle_alpha_past}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  - name: cy-51-archived-detail-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/{{cycle_alpha_past}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # --- DELETE: permission matrix, the soft delete and the missing id -------
+  - name: cy-52-delete-member-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_utc_dates}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: cy-53-delete-as-creator
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: cy-54-get-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_no_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: cy-55-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: cy-56-delete-guest-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_null_dates}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- member creates and deletes its own cycle (creator=Cycle) -------------
+  - name: cy-57-member-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      name: "Harness member cycle"
+    capture:
+      - name: cycle_member
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+
+  - name: cy-58-member-delete-own
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # --- reads after the writes ----------------------------------------------
+  - name: cy-59-get-created
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_utc_dates}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: cy-60-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
