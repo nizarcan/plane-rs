@@ -44,8 +44,14 @@
 //!
 //! `UserFavorite.objects.get(project=…, user=…, workspace__slug=…,
 //! entity_type="view", entity_identifier=view_id)` → a miss is the family 404;
-//! then `delete(soft=False)` — `super().delete()`, i.e. a **hard** `DELETE`
-//! with no `deleted_at` update and no cascade task (`plane/db/mixins.py:72-78`).
+//! then `view_favorite.delete(soft=False)`. `SoftDeleteModel.delete` hands the
+//! instance to `super().delete()` (`plane/db/mixins.py:72-78`), so this is
+//! **not** a bare `DELETE … WHERE id = $1`: Django's deletion collector follows
+//! the self-referential `user_favorites.parent` CASCADE
+//! (`plane/db/models/favorite.py:25-31`) at every depth, soft-deleted children
+//! included, and deletes the whole tree in one statement
+//! (`django/db/models/deletion.py:398-410,497-510`). [`write::favorite`] is the
+//! shared port of that collector.
 
 use plane_db::hooks;
 use plane_drf::error::ViewError;
@@ -143,9 +149,9 @@ pub fn destroy<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
             .ok_or(ViewError::ObjectDoesNotExist)?;
         let id: Uuid = row.get(0);
 
-        // `delete(soft=False)` — a hard delete, no cascade task.
-        let statement = queries::USER_FAVORITE_HARD_DELETE.prepare(client).await?;
-        client.execute(&statement, &[&id]).await?;
+        // `delete(soft=False)` → Django's deletion collector over the
+        // self-referential `parent` CASCADE, shared with 126 and 111.
+        write::favorite::hard_delete(client, id).await?;
 
         Ok(ViewResponse::empty(204))
     })

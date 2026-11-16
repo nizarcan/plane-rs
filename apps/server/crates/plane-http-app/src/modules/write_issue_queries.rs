@@ -258,16 +258,6 @@ plane_query! {
     [("id", Uuid)]
 }
 
-plane_query! {
-    /// `module_favorite.delete(soft=False)` (`module/base.py:842`): a hard
-    /// `DELETE`, no `deleted_at`, no cascade task.
-    ///
-    /// Bind order: `$1` favourite id.
-    USER_FAVORITE_HARD_DELETE = "modules_write_favorite_hard_delete",
-    "DELETE FROM user_favorites WHERE id = $1",
-    []
-}
-
 /// The catalog entry `tests/schema_check.rs` verifies against a migrated
 /// database.
 pub static ALL_QUERIES: &[&plane_db::Query] = &[
@@ -285,5 +275,4 @@ pub static ALL_QUERIES: &[&plane_db::Query] = &[
     &PROJECT_WORKSPACE_ANY,
     &USER_FAVORITE_INSERT,
     &USER_FAVORITE_LOOKUP,
-    &USER_FAVORITE_HARD_DELETE,
 ];

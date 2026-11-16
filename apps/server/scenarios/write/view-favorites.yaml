@@ -17,12 +17,16 @@
 # (`AttributeError` inside `uuid.UUID` → 400) and a list body (no `.get` on a
 # list → the family 500); hard delete, repeat, unknown, the wrong project
 # (`project_id` is part of the lookup) and a second user's row for the same
-# view; the 183/184 decorator gate (guest, non-member, soft-deleted member) and
-# 198's membership 404s; 198 with a dict, an absent key (`{}`, not the stored
-# value), `null` (NOT NULL → the family 400), a urlencoded form (the JSON
-# *string*), a list body (family 500); a form-body favourite create; foreign
-# origins; and the follow-up GETs (`is_favorite` on the project view list, the
-# `view_props` the member-me endpoint returns).
+# view; the collector behind `delete(soft=False)` (a favourite's live child,
+# soft-deleted child and grandchildren must all disappear with it —
+# `view-favorites-fixture.sql`, `plane/db/mixins.py:72-78`,
+# `django/db/models/deletion.py:398-410`); the 183/184 decorator gate (guest,
+# non-member, soft-deleted member) and 198's membership 404s; 198 with a dict,
+# an absent key (`{}`, not the stored value), `null` (NOT NULL → the family
+# 400), a urlencoded form (the JSON *string*), a list body (family 500); a
+# form-body favourite create; foreign origins; and the follow-up GETs
+# (`is_favorite` on the project view list, the `view_props` the member-me
+# endpoint returns).
 #
 # Fixture: all six views are owned by `admin`; only `alpha_high` has a
 # favourite, and it belongs to `member` (`stable("favorite:view:3")`). The
@@ -36,12 +40,14 @@ name: write-view-favorites
 template_db: plane_fix_tpl
 redis_db: [5, 6]
 vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/view-favorites-fixture.sql"
   ws: "fix-workspace"
   project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
   project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
   view_alpha_high: "062b3259-338c-48e4-923c-32bdf03fb91a"
   view_alpha_started: "626adef8-5e34-4a77-ab26-6bdeceb2afc0"
   view_alpha_archived: "9998fd44-4c5b-4f9a-9a5b-c464be5c2104"
+  view_cascade: "a9000000-0000-4000-8000-000000000020"
   view_beta_bugs: "e0d49e2f-8d9c-4780-bc12-3b7c3264ce11"
   view_ws_private: "0370f75d-2888-4151-ae08-634d1f46a2d7"
   unknown_view: "55555555-5555-4555-8555-555555555555"
@@ -432,6 +438,30 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 204
+
+  # The collector: the admin's fixture favourite of `Seed Favourite Cascade`
+  # has a live child (the member's), a soft-deleted child and a grandchild
+  # under each. Django's `delete(soft=False)` deletes all five rows
+  # (`user_favorites.parent` is CASCADE and read through `_base_manager`), so
+  # the SQL is one probe per depth level and then a single
+  # `DELETE … WHERE id = ANY(…)`.
+  - name: wvw-34b-fav-delete-cascade
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_cascade}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wvw-34c-fav-delete-cascade-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-views/{{view_cascade}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
 
   - name: wvw-35-project-views-list-after
     method: GET
