@@ -158,6 +158,25 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
+### Phase 5: projects domain, in progress (2026-11-16)
+
+- Merged: the project hooks H08/H09/H09a/H32 (`c87d2e6aad`), and the shared write
+  additions (`d4572b6427`): bool, integer-choice, integer and PK parsers, error and
+  task-argument helpers, H25, the json merge, and `projects::base::{load_one,
+  render_project_row}`, now used by `retrieve`. Verified with gates (829 tests), the
+  `projects`/`users-me`/`workspaces` reads and `write/stickies`: 0 diffs.
+- Split across three agents:
+  - create/PATCH/DELETE (135/137, `rs-p5-projects`);
+  - archive, favourites, project-views, user-properties, preferences and deploy boards
+    (153/147/149/150/90/154/151/152, `rs-p5-projx`);
+  - members, invitations, join and leave (139–146, `rs-p5-members`).
+- Tasks for these routes stay Celery-owned and are published byte-identically. Known so
+  far: `webhook_task.model_activity`, `webhook_task.webhook_activity` and
+  `deletion_task.soft_delete_related_objects`.
+- The first attempt overran: project create is one handler plus about 15 supporting
+  pieces. Lesson: split heavy domains into shared pieces first, then parallel route
+  sets.
+
 ### Phase 5: write pipeline and stickies writes (merged `d804326e34`, 2026-11-16)
 
 - `plane-http-app::write`:
