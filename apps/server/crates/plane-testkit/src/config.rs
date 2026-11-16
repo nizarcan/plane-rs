@@ -556,6 +556,15 @@ pub enum RuleMode {
     /// Drop the value entirely. Only used for Celery transport headers, which
     /// are not part of the task's observable behaviour.
     Drop,
+    /// A presigned S3 URL (DECISIONS.md D17): everything except `X-Amz-Date`
+    /// and `X-Amz-Signature` must be byte-identical, and each side's signature
+    /// is recomputed with that target's own credentials and `X-Amz-Date`.
+    ///
+    /// The value is verified and rewritten to a canonical form whose date is
+    /// `<presigned-date:<epoch>>` and whose signature is
+    /// `<presigned-signature>`; the comparator then accepts two dates at most
+    /// two seconds apart and everything else exactly.
+    PresignedUrl,
 }
 
 /// A check that needs something outside the value itself.
@@ -582,6 +591,11 @@ pub struct NamedRule {
     pub shape: Option<String>,
     #[serde(default)]
     pub check: Option<RuleCheck>,
+    /// A glob over the step's `METHOD path?query`. The rule only applies to a
+    /// matching step; every other step is normalised by the default rules, so a
+    /// mode like `presigned_url` cannot relax a header on an unrelated route.
+    #[serde(default)]
+    pub request: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -607,6 +621,7 @@ pub struct RuleSpec {
     pub placeholder: Option<String>,
     pub shape: Option<String>,
     pub check: Option<RuleCheck>,
+    pub request: Option<String>,
     pub why: String,
 }
 
@@ -617,6 +632,7 @@ impl NamedRule {
             placeholder: self.placeholder.clone(),
             shape: self.shape.clone(),
             check: self.check,
+            request: self.request.clone(),
             why: self.why.clone(),
         }
     }
@@ -629,6 +645,7 @@ impl DbRule {
             placeholder: self.placeholder.clone(),
             shape: self.shape.clone(),
             check: self.check,
+            request: None,
             why: self.why.clone(),
         }
     }
@@ -834,6 +851,11 @@ fn validate_spec(
     if spec.why.trim().is_empty() {
         bail!("normalize: {what} rule {name:?} has no justification");
     }
+    if let Some(request) = &spec.request
+        && request.trim().is_empty()
+    {
+        bail!("normalize: {what} rule {name:?} has an empty `request` glob");
+    }
     match spec.mode {
         RuleMode::Placeholder | RuleMode::PlaceholderIfNonEmpty => {
             let Some(placeholder) = &spec.placeholder else {
@@ -853,7 +875,7 @@ fn validate_spec(
                 );
             }
         }
-        RuleMode::Password | RuleMode::SessionPayload => {
+        RuleMode::Password | RuleMode::SessionPayload | RuleMode::PresignedUrl => {
             if spec.placeholder.is_some() {
                 bail!("normalize: {what} rule {name:?}: `placeholder` does not apply to this mode");
             }

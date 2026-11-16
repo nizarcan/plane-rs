@@ -139,6 +139,9 @@ pub fn compare_headers(a: &[(String, String)], b: &[(String, String)]) -> Vec<Di
                     if age_within_one_second(name, a_value, b_value) {
                         continue;
                     }
+                    if presigned_urls_agree(a_value, b_value) {
+                        continue;
+                    }
                     if a_value != b_value {
                         out.push(
                             Difference::new(
@@ -163,6 +166,14 @@ pub fn compare_headers(a: &[(String, String)], b: &[(String, String)]) -> Vec<Di
         }
     }
     out
+}
+
+/// Two canonical presigned URLs (DECISIONS.md D17) whose dates are at most two
+/// seconds apart and whose remaining bytes are identical. Anything else —
+/// a different path, parameter, credential scope or expiry — keeps its exact
+/// comparison.
+fn presigned_urls_agree(a: &str, b: &str) -> bool {
+    crate::presign::equivalent(a, b) == Some(true)
 }
 
 /// `Age` is `int(now) - int(stored_at)` for a page-cache hit
@@ -371,7 +382,7 @@ fn walk_json(path: &str, a: &Value, b: &Value, out: &mut Vec<JsonDiff>) {
             }
         }
         (Value::String(a_text), Value::String(b_text)) => {
-            if a_text != b_text {
+            if a_text != b_text && !presigned_urls_agree(a_text, b_text) {
                 out.push(JsonDiff {
                     path: path.to_string(),
                     message: format!("string differs ({a_text:?} vs {b_text:?})"),

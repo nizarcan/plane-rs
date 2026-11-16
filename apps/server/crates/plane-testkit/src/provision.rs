@@ -42,6 +42,16 @@ pub fn render_template(template: &str, values: &BTreeMap<&str, String>) -> Resul
 /// use quoting, and a value can contain anything but NUL. The script sees the
 /// target's own `PLANE_DB`, `PLANE_REDIS_DB` and `PLANE_MQ_VHOST`, which is how
 /// `dev/django-env.sh` selects a target's database and Redis index.
+/// The dev stack's environment, as `dev/django-serve.sh` sources it. Used only
+/// for values the target definition does not carry itself (the object-storage
+/// credentials a `django` target's command reads from `django-env.sh`).
+fn dev_environment(ctx: &BTreeMap<&str, String>) -> Result<BTreeMap<String, String>> {
+    script_environment(
+        &crate::util::repo_root().join("apps/server/dev/django-env.sh"),
+        ctx,
+    )
+}
+
 fn script_environment(
     script: &Path,
     ctx: &BTreeMap<&str, String>,
@@ -150,6 +160,10 @@ pub struct TargetInstance {
     pub port: u16,
     pub base_url: String,
     pub log_path: PathBuf,
+    /// The object-storage credentials the target runs with, read from its
+    /// environment (DECISIONS.md D17). `None` when neither the target's env nor
+    /// `dev/django-env.sh` provides them.
+    pub aws_credentials: Option<crate::presign::Credentials>,
     child: Child,
     stopped: bool,
 }
@@ -189,6 +203,21 @@ impl TargetInstance {
         };
         for (key, value) in &spec.env {
             env.insert(key.clone(), render_template(value, ctx)?);
+        }
+        // Presigned-URL verification (D17) needs the credentials the *target*
+        // signs with. A `rust` target sources `dev/django-env.sh` through
+        // `env_from`; the `django` target's command sources the same script
+        // itself, so read them from there when the env map does not carry them.
+        let aws_credentials = match crate::presign::Credentials::from_env(&env) {
+            Ok(credentials) => Some(credentials),
+            Err(_) => dev_environment(ctx)
+                .ok()
+                .and_then(|env| crate::presign::Credentials::from_env(&env).ok()),
+        };
+        if aws_credentials.is_none() {
+            tracing::warn!(
+                "target {name}: no AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; presigned_url rules cannot verify"
+            );
         }
         let workdir = match &spec.workdir {
             Some(template) => PathBuf::from(render_template(template, ctx)?),
@@ -238,6 +267,7 @@ impl TargetInstance {
             port,
             base_url: format!("http://127.0.0.1:{port}"),
             log_path,
+            aws_credentials,
             child,
             stopped: false,
         })
