@@ -297,6 +297,16 @@ steps:
     json: {"sort_order": 123.5}
     expect_status: 200
 
+  - name: lb-23a-patch-sort-order-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"sort_order": null}
+    expect_status: 400
+
   - name: lb-24-patch-color-empty
     method: PATCH
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issue-labels/{{harness_label}}/"

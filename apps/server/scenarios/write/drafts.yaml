@@ -1,0 +1,135 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Draft issues: POST /draft-issues/, PATCH/DELETE /draft-issues/{pk}/.
+# `DraftIssue.save` picks the default state, derives `completed_at`, strips the
+# HTML and assigns `sort_order`; the create response is the view's `.values()`
+# projection, not the serializer.
+
+name: write-drafts
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  state_alpha_done: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+  label_alpha_api: "426922e5-ed0b-44e6-af4a-12768a3057c9"
+  module_alpha_backlog: "c36df15d-45cc-4e0d-84cf-a2aed3cb5b37"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: dr-01-create-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    capture:
+      - name: draft_empty
+        source: json
+        pointer: /id
+    expect_status: 201
+  - name: dr-02-patch-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_empty}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { name: "renamed draft" }
+    expect_status: 204
+  - name: dr-03-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+      name: "Harness draft"
+      priority: "high"
+      description_html: "<p>draft <strong>body</strong></p>"
+      state_id: "{{state_alpha_todo}}"
+      label_ids: ["{{label_alpha_bug}}", "{{label_alpha_api}}"]
+      assignee_ids: ["{{user_member_id}}", "{{admin_id}}"]
+      cycle_id: "{{cycle_alpha_current}}"
+      module_ids: ["{{module_alpha_in_progress}}", "{{module_alpha_backlog}}"]
+      start_date: "2026-11-01"
+      target_date: "2026-11-30"
+    capture:
+      - name: draft_full
+        source: json
+        pointer: /id
+    expect_status: 201
+  - name: dr-04-patch-full
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_full}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "Harness draft edited"
+      priority: "low"
+      description_html: "<p>edited</p>"
+      start_date: "2026-11-02"
+    expect_status: 204
+  - name: dr-04b-patch-related
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_full}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      label_ids: ["{{label_alpha_api}}"]
+      assignee_ids: []
+      cycle_id: null
+      module_ids: []
+    expect_status: 204
+  - name: dr-04c-patch-completed
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_full}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      state_id: "{{state_alpha_done}}"
+    expect_status: 204
+  - name: dr-05-create-bad-priority
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { priority: "nope" }
+    expect_status: 400
+  - name: dr-06-create-date-order
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      start_date: "2026-12-01"
+      target_date: "2026-11-01"
+    expect_status: 400
+  - name: dr-07-create-bad-state
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+      state_id: "00000000-0000-4000-8000-000000000000"
+    expect_status: 400
+  - name: dr-08-delete-full
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_full}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204
+  - name: dr-09-delete-empty
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/draft-issues/{{draft_empty}}/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    expect_status: 204

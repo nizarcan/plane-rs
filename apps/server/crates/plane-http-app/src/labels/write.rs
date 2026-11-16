@@ -207,6 +207,7 @@ async fn validate(
     // `sort_order`: `FloatField(required=False)`.
     match field(data, "sort_order") {
         FieldValue::Absent => {}
+        FieldValue::Json(Json::Null) => errors.push("sort_order", Detail::null()),
         value => match fields::float(raw(value)) {
             Ok(value) => validated.sort_order = Some(value),
             Err(detail) => errors.push("sort_order", detail),

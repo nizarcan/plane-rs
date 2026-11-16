@@ -1955,6 +1955,7 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.project.ProjectMemberSerializer",
     "plane.app.serializers.project.DeployBoardSerializer",
     "plane.app.serializers.issue.ProjectUserPropertySerializer",
+    "plane.app.serializers.issue.LabelSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is

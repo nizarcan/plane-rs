@@ -62,21 +62,21 @@ const ROLE_GUEST: i16 = 5;
 const HTML_UTF8: &str = "text/html; charset=utf-8";
 
 /// The caller's `request.user.id`.
-pub(super) fn user_id(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
+pub(crate) fn user_id(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
     ctx.user
         .id()
         .ok_or(ViewError::Api(ApiError::NotAuthenticated))
 }
 
 /// `view.kwargs["<name>"]` (`KeyError` → 400 `The required key does not exist.`).
-pub(super) fn kwarg<'a>(ctx: &'a ViewCtx<'a>, name: &str) -> Result<&'a str, ViewError> {
+pub(crate) fn kwarg<'a>(ctx: &'a ViewCtx<'a>, name: &str) -> Result<&'a str, ViewError> {
     ctx.kwarg(name).ok_or(ViewError::Key)
 }
 
 /// A UUID URL kwarg. The router already enforces Django's `<uuid:…>` converter,
 /// so a parse failure is unreachable; the variant keeps the Python mapping
 /// (`ValidationError` → 400) if it ever is not.
-pub(super) fn uuid_kwarg(ctx: &ViewCtx<'_>, name: &str) -> Result<Uuid, ViewError> {
+pub(crate) fn uuid_kwarg(ctx: &ViewCtx<'_>, name: &str) -> Result<Uuid, ViewError> {
     let value = kwarg(ctx, name)?;
     Uuid::parse_str(value).map_err(|_| ViewError::Validation)
 }
@@ -117,7 +117,7 @@ impl Attributes {
 
 /// The storage client, built once per process from `Settings` (see the module
 /// docs for why this is not on `ViewCtx`).
-fn storage(settings: &Settings) -> Result<&'static Storage, ViewError> {
+pub(crate) fn storage(settings: &Settings) -> Result<&'static Storage, ViewError> {
     static STORAGE: OnceLock<Result<Storage, String>> = OnceLock::new();
     match STORAGE.get_or_init(|| {
         Storage::from_process_env(&settings.storage).map_err(|error| error.to_string())
@@ -172,7 +172,7 @@ pub(super) fn redirect(location: &str) -> ViewResponse {
 }
 
 /// A JSON object built in the view (`Response({...})`), in dict order.
-pub(super) fn json_object(status: u16, object: &Object) -> Result<ViewResponse, ViewError> {
+pub(crate) fn json_object(status: u16, object: &Object) -> Result<ViewResponse, ViewError> {
     let body = plane_serde::to_vec(plane_serde::Dialect::Drf, object)
         .map_err(|error| ViewError::Unknown(format!("rendering the response failed: {error}")))?;
     Ok(ViewResponse::raw(status, APPLICATION_JSON, body))
@@ -234,7 +234,7 @@ pub(super) fn file_asset_serializer<'a>(
 /// (`plane/app/views/issue/attachment.py:240`): DRF's `FileField` therefore
 /// renders `asset` as the storage's `url()` result, and `S3Storage.url()`
 /// returns the name unchanged (`plane/settings/storage.py:23-24`).
-pub(super) fn issue_attachment_serializer<'a>(
+pub(crate) fn issue_attachment_serializer<'a>(
     asset: &'a FileAsset,
     asset_url: Option<&'a str>,
 ) -> IssueAttachmentSerializer<'a> {
@@ -418,7 +418,7 @@ pub(super) async fn accessible_assets(
 
 /// `issue_hidden_from_guest(request, slug, project_id, issue_id)`
 /// (`plane/app/permissions/base.py:106-141`).
-pub(super) async fn issue_hidden_from_guest(
+pub(crate) async fn issue_hidden_from_guest(
     client: &Client,
     slug: &str,
     project_id: Uuid,
