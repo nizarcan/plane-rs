@@ -36,11 +36,15 @@
 //! framing through the pipeline.
 //!
 //! A response field the serializers declare but the queryset always annotates
-//! (`is_favorite`, `label_ids`, `project_ids`) is `FieldValue::value(…)`: the
-//! attribute exists on every row, so DRF never takes the `SkipField` path
-//! (`rest_framework/serializers.py:541-546`). `view_props`/`logo_props` are
-//! non-null `jsonb` columns, so they are rendered from Postgres' text
-//! (`PgJson`), keeping jsonb's key order.
+//! (`is_favorite`, `label_ids`, `project_ids`) is `FieldValue::value(…)` on the
+//! read path: the attribute exists on every row, so DRF never takes the
+//! `SkipField` path (`rest_framework/serializers.py:541-546`).
+//! [`PageDetailBody`] keeps the same three fields — plus the view-appended
+//! `issue_ids` — as `FieldValue`s so the write routes can omit them, which is
+//! what a plain `Page.objects.get()` instance (PATCH) or a partially annotated
+//! re-fetch (duplicate) makes DRF do. `view_props`/`logo_props` are non-null
+//! `jsonb` columns, so they are rendered from Postgres' text (`PgJson`),
+//! keeping jsonb's key order.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use deadpool_postgres::Client;
@@ -52,8 +56,8 @@ use plane_jobs::celery::args::TaskArg;
 use plane_query::sql::{Sql, Value};
 use plane_serializers::generated::app_page::PageSerializer;
 use plane_serializers::{
-    DrfDateTime, DrfError, DrfSerialize, DrfUuid, DrfUuidList, DrfWriter, FieldValue, PgJson,
-    PyDate, RenderCtx,
+    DrfDateTime, DrfError, DrfScalar, DrfSerialize, DrfUuid, DrfWriter, FieldValue, PgJson, PyDate,
+    RenderCtx,
 };
 use tokio_postgres::Row;
 use uuid::Uuid;
@@ -172,19 +176,112 @@ impl PageRow {
     }
 }
 
-/// `PageDetailSerializer(page).data` followed by the view's
-/// `data["issue_ids"] = issue_ids` (`page/base.py:229-230`).
+/// The `issue_ids` list `PageViewSet.retrieve` appends to the serializer data
+/// (`page/base.py:226-230`).
+///
+/// It is not a serializer field: the view assigns it after
+/// `PageDetailSerializer(page).data`, so the key renders last and is absent
+/// from every write response. DRF evaluates the `ValuesListQuerySet` while the
+/// encoder walks the response (`rest_framework/utils/encoders.py`), which
+/// renders it as an array of UUID strings (or `null`s), not a string.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct IssueIds<'a>(pub(crate) &'a [Option<Uuid>]);
+
+impl DrfScalar for IssueIds<'_> {
+    fn write_scalar(&self, w: &mut DrfWriter, _: &RenderCtx<'_>) -> Result<(), DrfError> {
+        let ids: Vec<Option<DrfUuid>> = self.0.iter().map(|id| id.map(DrfUuid)).collect();
+        w.write_value(&ids)
+    }
+}
+
+/// `PageDetailSerializer(page).data`, parameterised over the fields DRF may
+/// skip.
 ///
 /// `PageDetailSerializer` is `PageSerializer` plus `description_html`
-/// (`plane/app/serializers/page.py:129-133`), so the key order is the generated
-/// serializer's 19 fields in order and then the appended `issue_ids`. DRF
-/// evaluates the appended `ValuesListQuerySet` only when it renders the
-/// response (`rest_framework/utils/encoders.py`), which is why the ids come last
-/// and are an array, not a string (a `QuerySet` encodes as a tuple).
+/// (`plane/app/serializers/page.py:129-133`). `PageSerializer` declares
+/// `is_favorite`, `label_ids` and `project_ids` as `required=False`
+/// (`serializers/page.py:26-29`), so when the instance lacks the attribute —
+/// the annotations come from the view's queryset, not from the model — DRF's
+/// `get_attribute` raises `SkipField` and
+/// `rest_framework/serializers.py:530-546` omits the key. Which keys exist
+/// therefore depends on the statement that produced the instance:
+///
+/// | caller | annotations present | `issue_ids` | keys |
+/// | --- | --- | --- | --- |
+/// | `retrieve` — `get_queryset()` | all three | appended | 20 |
+/// | `create` — re-fetch through `get_queryset()` | all three | — | 19 |
+/// | `partial_update` — plain `Page.objects.get()` | none | — | 16 |
+/// | duplicate — re-fetch, `project_ids` annotated | `project_ids` | — | 17 |
+///
+/// Key order is always `PageDetailSerializer.Meta.fields` order
+/// (`serializers/page.py:38-58,133`) with the write-only `labels` dropped, and
+/// `issue_ids` last because the view appends it to the rendered dict.
 #[derive(Debug)]
 pub(crate) struct PageDetailBody<'a> {
-    pub(crate) page: &'a PageRow,
-    pub(crate) issue_ids: &'a [Option<Uuid>],
+    page: &'a PageRow,
+    is_favorite: FieldValue<bool>,
+    label_ids: FieldValue<&'a [Uuid]>,
+    project_ids: FieldValue<&'a [Uuid]>,
+    issue_ids: FieldValue<IssueIds<'a>>,
+}
+
+// The read route uses `retrieve`; the three write shapes are consumed by the
+// P0 follow-up sets (A: create/PATCH, D: duplicate), which land after this one.
+#[allow(
+    dead_code,
+    reason = "constructors for the page write sets that follow P0"
+)]
+impl<'a> PageDetailBody<'a> {
+    /// `PageViewSet.retrieve` (`page/base.py:227-230`): a `get_queryset()` row
+    /// (all three annotations) plus the appended `issue_ids`.
+    pub(crate) fn retrieve(page: &'a PageRow, issue_ids: &'a [Option<Uuid>]) -> Self {
+        Self {
+            page,
+            is_favorite: FieldValue::value(page.is_favorite),
+            label_ids: FieldValue::value(page.label_ids.as_slice()),
+            project_ids: FieldValue::value(page.project_ids.as_slice()),
+            issue_ids: FieldValue::value(IssueIds(issue_ids)),
+        }
+    }
+
+    /// `PageViewSet.create` (`page/base.py:158-166`): the response is a
+    /// re-fetch through `get_queryset()`, so all three annotations are present
+    /// and the view does not append `issue_ids`. 19 keys.
+    pub(crate) fn created(page: &'a PageRow) -> Self {
+        Self {
+            page,
+            is_favorite: FieldValue::value(page.is_favorite),
+            label_ids: FieldValue::value(page.label_ids.as_slice()),
+            project_ids: FieldValue::value(page.project_ids.as_slice()),
+            issue_ids: FieldValue::absent(),
+        }
+    }
+
+    /// `PageViewSet.partial_update` (`page/base.py:201-212`): the serializer
+    /// wraps a plain `Page.objects.get()` instance, so all three annotation
+    /// fields raise `SkipField`. 16 keys.
+    pub(crate) fn updated(page: &'a PageRow) -> Self {
+        Self {
+            page,
+            is_favorite: FieldValue::absent(),
+            label_ids: FieldValue::absent(),
+            project_ids: FieldValue::absent(),
+            issue_ids: FieldValue::absent(),
+        }
+    }
+
+    /// `PageDuplicateEndpoint.post` (`page/base.py:625-634`): the re-fetch
+    /// annotates `project_ids` only, so `is_favorite` and `label_ids` skip.
+    /// 17 keys.
+    pub(crate) fn duplicated(page: &'a PageRow) -> Self {
+        Self {
+            page,
+            is_favorite: FieldValue::absent(),
+            label_ids: FieldValue::absent(),
+            project_ids: FieldValue::value(page.project_ids.as_slice()),
+            issue_ids: FieldValue::absent(),
+        }
+    }
 }
 
 impl DrfSerialize for PageDetailBody<'_> {
@@ -197,7 +294,7 @@ impl DrfSerialize for PageDetailBody<'_> {
         obj.field("access", &i64::from(page.access))?;
         obj.field("color", &page.color)?;
         obj.field_dyn("parent", ctx, &page.parent_id.map(DrfUuid))?;
-        obj.field_optional("is_favorite", ctx, &FieldValue::value(page.is_favorite))?;
+        obj.field_optional("is_favorite", ctx, &self.is_favorite)?;
         obj.field("is_locked", &page.is_locked)?;
         obj.field("archived_at", &page.archived_at.map(PyDate))?;
         obj.field_dyn("workspace", ctx, &DrfUuid(page.workspace_id))?;
@@ -215,11 +312,10 @@ impl DrfSerialize for PageDetailBody<'_> {
         obj.field_dyn("updated_by", ctx, &page.updated_by_id.map(DrfUuid))?;
         obj.field_json("view_props", Some(PgJson::from(&page.view_props)))?;
         obj.field_json("logo_props", Some(PgJson::from(&page.logo_props)))?;
-        obj.field("label_ids", &DrfUuidList(&page.label_ids))?;
-        obj.field("project_ids", &DrfUuidList(&page.project_ids))?;
+        obj.field_optional("label_ids", ctx, &self.label_ids)?;
+        obj.field_optional("project_ids", ctx, &self.project_ids)?;
         obj.field("description_html", &page.description_html)?;
-        let ids: Vec<Option<DrfUuid>> = self.issue_ids.iter().map(|id| id.map(DrfUuid)).collect();
-        obj.field("issue_ids", &ids)?;
+        obj.field_optional("issue_ids", ctx, &self.issue_ids)?;
         obj.end();
         Ok(())
     }
@@ -477,10 +573,7 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
         }
 
         let issue_ids = issue_ids(client, page_id).await?;
-        let body = PageDetailBody {
-            page: &page,
-            issue_ids: &issue_ids,
-        };
+        let body = PageDetailBody::retrieve(&page, &issue_ids);
         let bytes = plane_serializers::render(&body, &RenderCtx::full(&timezone))?;
         Ok(ViewResponse::raw(200, APPLICATION_JSON, bytes))
     })
@@ -657,5 +750,216 @@ mod tests {
             );
         }
         assert_eq!(order_clause("-created_at"), queries::PAGES_DEFAULT_ORDER);
+    }
+
+    /// The response shapes of `PageDetailSerializer` (`page/base.py:158-166`,
+    /// `:201-212`, `:227-230`, `:625-634`): which of the four optional keys
+    /// DRF emits, in `Meta.fields` order.
+    fn page_row() -> PageRow {
+        let timestamp = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .expect("date")
+            .with_timezone(&chrono::Utc);
+        PageRow {
+            id: Uuid::from_u128(1),
+            name: "Plan".to_owned(),
+            owned_by_id: Uuid::from_u128(2),
+            access: 0,
+            color: String::new(),
+            parent_id: None,
+            is_favorite: true,
+            is_locked: false,
+            archived_at: None,
+            workspace_id: Uuid::from_u128(3),
+            created_at: timestamp,
+            updated_at: timestamp,
+            created_by_id: None,
+            updated_by_id: None,
+            view_props: JsonText::new("{}"),
+            logo_props: JsonText::new("{}"),
+            label_ids: vec![Uuid::from_u128(4)],
+            project_ids: vec![Uuid::from_u128(5), Uuid::from_u128(6)],
+            description_html: "<p>x</p>".to_owned(),
+        }
+    }
+
+    fn render(body: &PageDetailBody<'_>) -> String {
+        let bytes =
+            plane_serializers::render(body, &RenderCtx::full(&chrono_tz::UTC)).expect("render");
+        String::from_utf8(bytes).expect("utf-8")
+    }
+
+    /// The top-level keys of a rendered JSON object, in output order.
+    ///
+    /// `serde_json`'s default map sorts keys, so the bytes are scanned: the
+    /// assertions below are about DRF's `Meta.fields` order and about which
+    /// keys `SkipField` removes, neither of which survives a `Value` round-trip.
+    fn top_level_keys(json: &str) -> Vec<&str> {
+        fn skip_string(bytes: &[u8], mut at: usize) -> usize {
+            at += 1;
+            while bytes[at] != b'"' {
+                if bytes[at] == b'\\' {
+                    at += 1;
+                }
+                at += 1;
+            }
+            at + 1
+        }
+        fn skip_value(bytes: &[u8], mut at: usize) -> usize {
+            while bytes[at] == b' ' {
+                at += 1;
+            }
+            match bytes[at] {
+                b'"' => skip_string(bytes, at),
+                open @ (b'{' | b'[') => {
+                    let close = if open == b'{' { b'}' } else { b']' };
+                    let mut depth = 0usize;
+                    loop {
+                        match bytes[at] {
+                            b'"' => {
+                                at = skip_string(bytes, at);
+                                continue;
+                            }
+                            byte if byte == open => depth += 1,
+                            byte if byte == close => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    return at + 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                        at += 1;
+                    }
+                }
+                _ => {
+                    while !matches!(bytes[at], b',' | b'}' | b']') {
+                        at += 1;
+                    }
+                    at
+                }
+            }
+        }
+
+        let bytes = json.as_bytes();
+        assert_eq!(bytes[0], b'{');
+        let mut keys = Vec::new();
+        let mut at = 1;
+        loop {
+            while bytes[at] == b' ' {
+                at += 1;
+            }
+            if bytes[at] == b'}' {
+                break;
+            }
+            assert_eq!(bytes[at], b'"', "expected a key at byte {at}");
+            let start = at + 1;
+            at = skip_string(bytes, at);
+            keys.push(&json[start..at - 1]);
+            while bytes[at] != b':' {
+                at += 1;
+            }
+            at = skip_value(bytes, at + 1);
+            while bytes[at] == b' ' {
+                at += 1;
+            }
+            if bytes[at] == b',' {
+                at += 1;
+            } else {
+                break;
+            }
+        }
+        keys
+    }
+
+    /// `PageDetailSerializer.Meta.fields` minus the write-only `labels`
+    /// (`serializers/page.py:38-58,133`); `description_html` is appended by the
+    /// subclass.
+    const SERIALIZER_KEYS: &[&str] = &[
+        "id",
+        "name",
+        "owned_by",
+        "access",
+        "color",
+        "parent",
+        "is_favorite",
+        "is_locked",
+        "archived_at",
+        "workspace",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "updated_by",
+        "view_props",
+        "logo_props",
+        "label_ids",
+        "project_ids",
+        "description_html",
+    ];
+
+    /// `retrieve` (`page/base.py:227-230`): all 19 serializer keys plus the
+    /// appended `issue_ids`, which must stay last.
+    #[test]
+    fn the_retrieve_shape_has_all_keys_and_issue_ids_last() {
+        let page = page_row();
+        let issue_ids = [Some(Uuid::from_u128(7)), None];
+        let json = render(&PageDetailBody::retrieve(&page, &issue_ids));
+        let mut expected = SERIALIZER_KEYS.to_vec();
+        expected.push("issue_ids");
+        assert_eq!(top_level_keys(&json), expected);
+        assert!(json.ends_with(r#""issue_ids":["00000000-0000-0000-0000-000000000007",null]}"#));
+    }
+
+    /// `create` (`page/base.py:158-166`): a `get_queryset()` re-fetch, so all
+    /// three annotations are present and `issue_ids` is not appended.
+    #[test]
+    fn the_create_shape_has_the_annotations_but_no_issue_ids() {
+        let page = page_row();
+        let json = render(&PageDetailBody::created(&page));
+        assert_eq!(top_level_keys(&json), SERIALIZER_KEYS);
+        assert!(json.contains(r#""is_favorite":true"#));
+        assert!(json.contains(r#""label_ids":["00000000-0000-0000-0000-000000000004"]"#));
+        assert!(json.contains(
+            r#""project_ids":["00000000-0000-0000-0000-000000000005","00000000-0000-0000-0000-000000000006"]"#
+        ));
+        assert!(!json.contains(r#""issue_ids""#));
+    }
+
+    /// `partial_update` (`page/base.py:201-212`): a plain `Page.objects.get()`
+    /// instance has none of the three annotations, so they `SkipField`; 16
+    /// keys remain.
+    #[test]
+    fn the_patch_shape_skips_all_three_annotations() {
+        let page = page_row();
+        let json = render(&PageDetailBody::updated(&page));
+        let expected: Vec<&str> = SERIALIZER_KEYS
+            .iter()
+            .copied()
+            .filter(|key| !matches!(*key, "is_favorite" | "label_ids" | "project_ids"))
+            .collect();
+        assert_eq!(expected.len(), 16);
+        assert_eq!(top_level_keys(&json), expected);
+        assert!(!json.contains(r#""is_favorite""#));
+        assert!(!json.contains(r#""label_ids""#));
+        assert!(!json.contains(r#""project_ids""#));
+        assert!(!json.contains(r#""issue_ids""#));
+    }
+
+    /// Duplicate (`page/base.py:625-634`): the re-fetch annotates
+    /// `project_ids` only, so 17 keys remain.
+    #[test]
+    fn the_duplicate_shape_keeps_only_project_ids() {
+        let page = page_row();
+        let json = render(&PageDetailBody::duplicated(&page));
+        let expected: Vec<&str> = SERIALIZER_KEYS
+            .iter()
+            .copied()
+            .filter(|key| !matches!(*key, "is_favorite" | "label_ids"))
+            .collect();
+        assert_eq!(expected.len(), 17);
+        assert_eq!(top_level_keys(&json), expected);
+        assert!(!json.contains(r#""is_favorite""#));
+        assert!(!json.contains(r#""label_ids""#));
+        assert!(json.contains(r#""project_ids":["#));
+        assert!(!json.contains(r#""issue_ids""#));
     }
 }
