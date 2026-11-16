@@ -1,0 +1,2076 @@
+#!/usr/bin/env python3
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+"""Generate the serializer inventory from DRF's own introspection.
+
+Django is the specification for the Rust rewrite (see RUST_REWRITE.md). This
+script imports every serializer module in ``apps/api/plane``, instantiates every
+serializer class the way a view does (no instance, no context), and writes:
+
+* ``apps/server/serializers.json`` -- the machine-readable inventory, including
+  every field in DRF's output order with its class, ``source``, null/read-only
+  flags, nested serializer, method name, format, choices, pk type, JSON details
+  and the Django model field it reads.
+* ``apps/server/SERIALIZERS.md`` -- the readable tables: one per serializer,
+  plus the view -> serializer index.
+* ``apps/server/crates/plane-serializers/src/generated/*.rs`` -- for every
+  serializer with a field-by-field ``to_representation``, a Rust struct in
+  output order with the wrapper type that renders each field exactly, and a
+  ``DrfSerialize`` impl honouring ``fields=``/``expand=``.
+
+Nothing here opens a database or Redis connection: field construction reads
+model metadata only. One trap: ``RelatedField.choices`` *does* run
+``queryset.exists()``/iteration, so this script never reads ``choices`` from a
+related field -- only from ``ChoiceField``.
+
+It expects to run under the already-synced ``apps/api/.venv``::
+
+    cd apps/api
+    .venv/bin/python ../server/tools/inventory/serializers.py
+
+The defaults below make the shorter form work too::
+
+    apps/api/.venv/bin/python apps/server/tools/inventory/serializers.py
+
+``--check`` compares the generated files with what is on disk and exits 1 on a
+difference (CI freshness). ``--rust`` writes the Rust modules; it is the
+default, and exists so the documented invocation
+(``tools/inventory/serializers.py --rust``) is explicit. ``--rust-dir DIR``
+moves the output, ``--skip-rust`` skips it.
+
+## Classification
+
+``codegen`` is one of:
+
+``simple``
+    ``to_representation`` is DRF's ``Serializer.to_representation``: one key per
+    readable field, in declaration order (``rest_framework/serializers.py:530``).
+    Generated verbatim.
+
+``dynamic``
+    ``to_representation`` is
+    ``plane.app.serializers.base.DynamicBaseSerializer``'s: ``fields=`` filters
+    output, ``expand=`` injects fields and replaces values
+    (``plane/app/serializers/base.py:91-190``). Generated, with
+    ``FilterMode::OutputOnly`` and the expansion pass.
+
+``v1``
+    ``to_representation`` is
+    ``plane.api.serializers.base.BaseSerializer``'s: ``fields=`` removes fields,
+    ``expand=`` only replaces values (``plane/api/serializers/base.py:26-141``).
+    Generated, with ``FilterMode::RemoveFields``.
+
+``manual``
+    Anything else -- a hand-written ``to_representation``, a ``get_fields`` or
+    ``__init__`` override outside the two generic bases, or a field whose output
+    type cannot be derived from model metadata. These are listed in
+    ``SERIALIZERS.md`` with the reason, and get hand-written Rust modules in a
+    later session.
+
+## Why the field order is taken from ``_readable_fields``
+
+``Serializer.to_representation`` walks ``_readable_fields``, which is
+``self.fields.values()`` minus ``write_only`` fields
+(``rest_framework/serializers.py:397-400``). ``self.fields`` is a
+``BindingDict`` built from ``get_fields()``, and dicts keep insertion order, so
+the order is ``Meta.fields`` (or, for ``fields = "__all__"``,
+``[pk] + declared + model fields + forward relations``) after DRF's
+``deepcopy`` and any ``__init__`` mutation. Iterating ``_readable_fields`` is
+the only way to see post-``__init__`` order (``DynamicBaseSerializer`` appends
+injected expansion fields there when instantiated with ``expand=``; this script
+records the unexpanded order and documents injection separately).
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import hashlib
+import importlib
+import inspect
+import json
+import os
+import pkgutil
+import re
+import subprocess
+import sys
+from collections import OrderedDict
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+SCRIPT_PATH = Path(__file__).resolve()
+SERVER_DIR = SCRIPT_PATH.parents[2]
+REPO_ROOT = SCRIPT_PATH.parents[4]
+API_DIR = REPO_ROOT / "apps" / "api"
+
+GENERATED_DIR = SERVER_DIR / "crates" / "plane-serializers" / "src" / "generated"
+
+# Every package that defines serializers. Walked recursively.
+SERIALIZER_PACKAGES = (
+    "plane.app.serializers",
+    "plane.api.serializers",
+    "plane.space.serializer",
+    "plane.license.api.serializers",
+)
+
+# `to_representation` owners that the Rust runtime reproduces generically.
+DRF_DEFAULT_TO_REPRESENTATION = "rest_framework.serializers.Serializer"
+DYNAMIC_TO_REPRESENTATION = "plane.app.serializers.base.DynamicBaseSerializer"
+V1_TO_REPRESENTATION = "plane.api.serializers.base.BaseSerializer"
+
+# `__init__`/`get_fields` owners that are generic (their behaviour is modelled
+# by `plane-serializers`); any other owner makes the serializer manual.
+GENERIC_INIT_OWNERS = frozenset(
+    {
+        "rest_framework.serializers.BaseSerializer",
+        "rest_framework.serializers.Serializer",
+        "rest_framework.serializers.ModelSerializer",
+        "plane.app.serializers.base.BaseSerializer",
+        "plane.app.serializers.base.DynamicBaseSerializer",
+        "plane.api.serializers.base.BaseSerializer",
+        "plane.space.serializer.base.BaseSerializer",
+        "plane.license.api.serializers.base.BaseSerializer",
+    }
+)
+GENERIC_GET_FIELDS_OWNERS = frozenset(
+    {
+        "rest_framework.serializers.Serializer",
+        "rest_framework.serializers.ModelSerializer",
+    }
+)
+
+# Rust keywords (2015/2018/2021/2024 reserved words). A field named one of these
+# is written with the `r#` prefix.
+RUST_KEYWORDS = frozenset(
+    """
+    as break const continue crate else enum extern false fn for if impl in let
+    loop match mod move mut pub ref return self Self static struct super trait
+    true type unsafe use where while async await dyn abstract become box do
+    final macro override priv typeof unsized virtual yield try union gen
+    """.split()
+)
+
+# A `ChoiceField` with more entries than this is stored once in
+# `serializers.json`'s `choice_sets` instead of in every serializer that uses
+# it. The timezone list alone is ~600 zones and appears in a dozen serializers.
+CHOICES_INLINE_LIMIT = 32
+
+# DRF model-field -> Python type. The wrapper types in `plane-serializers`
+# follow from this.
+MODEL_FIELD_TYPES: dict[str, str] = {
+    "AutoField": "int",
+    "BigAutoField": "int",
+    "SmallAutoField": "int",
+    "IntegerField": "int",
+    "BigIntegerField": "int",
+    "SmallIntegerField": "int",
+    "PositiveIntegerField": "int",
+    "PositiveSmallIntegerField": "int",
+    "PositiveBigIntegerField": "int",
+    "FloatField": "float",
+    "BooleanField": "bool",
+    "CharField": "str",
+    "TextField": "str",
+    "SlugField": "str",
+    "EmailField": "str",
+    "URLField": "str",
+    "GenericIPAddressField": "str",
+    "FilePathField": "str",
+    "FileField": "str",
+    "DateTimeField": "datetime",
+    "DateField": "date",
+    "TimeField": "time",
+    "DurationField": "duration",
+    "DecimalField": "decimal",
+    "BinaryField": "bytes",
+    "JSONField": "json",
+    "UUIDField": "uuid",
+}
+
+
+# ---------------------------------------------------------------------------
+# Django bootstrap
+# ---------------------------------------------------------------------------
+
+
+def setup_django() -> Any:
+    """Import Django with production settings, without touching a service."""
+    if str(API_DIR) not in sys.path:
+        sys.path.insert(0, str(API_DIR))
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
+    os.environ.setdefault("SECRET_KEY", "inventory")
+    os.environ.setdefault("DATABASE_URL", "postgresql://x:x@127.0.0.1:1/x")
+    os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:1/0")
+    os.environ.setdefault("ENABLE_DRF_SPECTACULAR", "0")
+
+    import django
+
+    django.setup()
+    return django
+
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+
+
+def dotted(value: Any) -> str:
+    module = getattr(value, "__module__", None) or "?"
+    qualname = getattr(value, "__qualname__", None) or getattr(value, "__name__", None) or repr(value)
+    return f"{module}.{qualname}"
+
+
+def find_owner(cls: type, attribute: str) -> type | None:
+    for klass in cls.__mro__:
+        if attribute in vars(klass):
+            return klass
+    return None
+
+
+def owner_name(cls: type, attribute: str) -> str | None:
+    owner = find_owner(cls, attribute)
+    return dotted(owner) if owner is not None else None
+
+
+def jsonable(value: Any) -> Any:
+    """A deterministic JSON-safe view of a Python value."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Enum):
+        return jsonable(value.value)
+    if isinstance(value, (list, tuple)):
+        return [jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return OrderedDict((str(jsonable(key)), jsonable(item)) for key, item in value.items())
+    return str(value)
+
+
+def model_label(model: Any) -> str | None:
+    if model is None:
+        return None
+    return f"{model._meta.app_label}.{model.__name__}"
+
+
+def relative_source(path: str | Path | None) -> str | None:
+    if not path:
+        return None
+    path = Path(path).resolve()
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def source_line(fn: Any) -> dict[str, Any] | None:
+    try:
+        path = inspect.getsourcefile(fn)
+        _, lineno = inspect.getsourcelines(fn)
+    except (TypeError, OSError):
+        return None
+    return {"file": relative_source(path), "line": lineno}
+
+
+def git_commit() -> str:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Serializer discovery
+# ---------------------------------------------------------------------------
+
+
+def serializer_modules() -> list[str]:
+    """Every importable module under the serializer packages, sorted."""
+    modules: list[str] = []
+    for package_name in SERIALIZER_PACKAGES:
+        package = importlib.import_module(package_name)
+        modules.append(package.__name__)
+        for info in pkgutil.walk_packages(package.__path__, prefix=package.__name__ + "."):
+            if info.ispkg or info.name.endswith("__pycache__"):
+                continue
+            modules.append(info.name)
+    return sorted(set(modules))
+
+
+def discover_serializers(serializers_module: Any) -> dict[str, type]:
+    """Every distinct ``BaseSerializer`` subclass defined by Plane."""
+    classes: dict[str, type] = {}
+    for module_name in serializer_modules():
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:  # pragma: no cover - import errors are fatal
+            raise RuntimeError(f"cannot import {module_name}: {exc}") from exc
+        for _, value in vars(module).items():
+            if not inspect.isclass(value):
+                continue
+            if not issubclass(value, serializers_module.BaseSerializer):
+                continue
+            if not value.__module__.startswith("plane."):
+                continue
+            canonical = dotted(value)
+            classes.setdefault(canonical, value)
+    return dict(sorted(classes.items()))
+
+
+# ---------------------------------------------------------------------------
+# Model field resolution
+# ---------------------------------------------------------------------------
+
+
+def resolve_attribute(model: Any, source_attrs: list[str]) -> tuple[Any, str, list[Any]]:
+    """Walk ``source`` like DRF's ``get_attribute`` and describe the endpoint.
+
+    Returns ``(model_field_or_None, kind, path)`` where ``kind`` is one of
+    ``model_field``, ``property``, ``annotation``, ``no_model``.
+    ``path`` is the list of resolved model fields along the way (relations
+    included), useful for pk-type inference.
+    """
+    if model is None:
+        return None, "no_model", []
+
+    current = model
+    path: list[Any] = []
+    for index, attr in enumerate(source_attrs):
+        try:
+            field = current._meta.get_field(attr)
+        except Exception:
+            field = None
+        if field is None and attr.endswith("_id"):
+            try:
+                field = current._meta.get_field(attr[:-3])
+            except Exception:
+                field = None
+        if field is None:
+            kind = "property" if hasattr(current, attr) else "annotation"
+            # A property/annotation can only be the last attribute.
+            return None, kind, path
+        path.append(field)
+        if field.is_relation and field.related_model is not None and index != len(source_attrs) - 1:
+            current = field.related_model
+            continue
+        return field, "model_field", path
+
+    return None, "annotation", path
+
+
+def pk_python_type(model: Any) -> str | None:
+    if model is None:
+        return None
+    pk = model._meta.pk
+    return MODEL_FIELD_TYPES.get(type(pk).__name__)
+
+
+def model_field_record(field: Any) -> OrderedDict[str, Any]:
+    record: OrderedDict[str, Any] = OrderedDict()
+    record["model"] = model_label(field.model)
+    record["name"] = field.name
+    record["class"] = type(field).__name__
+    record["null"] = bool(getattr(field, "null", False))
+    record["blank"] = bool(getattr(field, "blank", False))
+    record["editable"] = bool(getattr(field, "editable", True))
+    record["primary_key"] = bool(getattr(field, "primary_key", False))
+    record["concrete"] = bool(getattr(field, "concrete", False))
+    if getattr(field, "is_relation", False):
+        record["related_model"] = model_label(field.related_model)
+        record["many"] = bool(field.many_to_many)
+        record["through"] = getattr(getattr(field, "remote_field", None), "through", None) is not None
+    max_length = getattr(field, "max_length", None)
+    if max_length is not None:
+        record["max_length"] = max_length
+    if type(field).__name__ == "DecimalField":
+        record["max_digits"] = field.max_digits
+        record["decimal_places"] = field.decimal_places
+    if type(field).__name__ == "ArrayField":
+        record["base_field"] = type(field.base_field).__name__
+    if type(field).__name__ == "JSONField":
+        record["encoder"] = dotted(field.encoder) if field.encoder else None
+        record["decoder"] = dotted(field.decoder) if field.decoder else None
+    return record
+
+
+def python_type_for_model_field(field: Any) -> str | None:
+    name = type(field).__name__
+    if name == "ArrayField":
+        base = python_type_for_model_field(field.base_field)
+        return f"list<{base}>" if base else None
+    if getattr(field, "is_relation", False) and field.related_model is not None:
+        target = pk_python_type(field.related_model)
+        return f"list<{target}>" if field.many_to_many and target else target
+    return MODEL_FIELD_TYPES.get(name)
+
+
+# ---------------------------------------------------------------------------
+# Field records
+# ---------------------------------------------------------------------------
+
+
+def field_record(
+    field: Any,
+    serializer_cls: type,
+    *,
+    name: str | None = None,
+    depth: int = 0,
+    related_model_hint: Any = None,
+    base_field_hint: Any = None,
+) -> OrderedDict[str, Any]:
+    """Describe one DRF field.
+
+    ``depth`` is only used for `child` records, which do not resolve against
+    the model (their attribute is a list element). ``related_model_hint`` and
+    ``base_field_hint`` carry the parent's resolved model relationship down to
+    a `ManyRelatedField`/`ListField` child, which has no `source` of its own.
+    """
+    from rest_framework import serializers as drf
+    from rest_framework import fields as drf_fields
+
+    record: OrderedDict[str, Any] = OrderedDict()
+    field_name = name or getattr(field, "field_name", None) or "?"
+    record["name"] = field_name
+    record["class"] = type(field).__name__
+    record["dotted_class"] = dotted(type(field))
+    record["source"] = field.source
+    record["source_attrs"] = list(field.source_attrs)
+    record["read_only"] = bool(field.read_only)
+    record["write_only"] = bool(field.write_only)
+    record["required"] = bool(field.required)
+    record["allow_null"] = bool(field.allow_null)
+    record["many"] = False
+
+    if field.default is not drf_fields.empty:
+        record["has_default"] = True
+        record["default"] = jsonable(field.default)
+    allow_blank = getattr(field, "allow_blank", None)
+    if allow_blank is not None:
+        record["allow_blank"] = bool(allow_blank)
+    max_length = getattr(field, "max_length", None)
+    if max_length is not None:
+        record["max_length"] = max_length
+
+    # Resolve the model field first: the child of a ManyRelatedField/ListField
+    # inherits its element type from it.
+    model = None
+    model_field = None
+    kind = None
+    path: list[Any] = []
+    if depth == 0:
+        model = getattr(getattr(serializer_cls, "Meta", None), "model", None)
+        model_field, kind, path = resolve_attribute(model, list(field.source_attrs))
+        if model_field is not None:
+            record["model_field"] = model_field_record(model_field)
+        record["attribute"] = kind
+    else:
+        record["attribute"] = None
+
+    # --- nested serializer -------------------------------------------------
+    if isinstance(field, drf.ListSerializer):
+        record["many"] = True
+        record["nested"] = dotted(type(field.child))
+        record["nested_many"] = True
+    elif isinstance(field, drf.BaseSerializer):
+        record["nested"] = dotted(type(field))
+        record["nested_many"] = False
+    elif isinstance(field, drf.ManyRelatedField):
+        record["many"] = True
+        record["nested"] = None
+        record["nested_many"] = False
+        child_related = None
+        if related_model_hint is not None:
+            child_related = related_model_hint
+        elif model_field is not None and getattr(model_field, "is_relation", False):
+            child_related = model_field.related_model
+        elif path and getattr(path[-1], "related_model", None) is not None:
+            child_related = path[-1].related_model
+        record["child"] = field_record(
+            field.child_relation,
+            serializer_cls,
+            name="child",
+            depth=depth + 1,
+            related_model_hint=child_related,
+        )
+        related_model = getattr(getattr(field.child_relation, "queryset", None), "model", None)
+        if related_model is None:
+            related_model = child_related
+        record["pk"] = OrderedDict(
+            [
+                ("related_model", model_label(related_model)),
+                ("python_type", pk_python_type(related_model)),
+            ]
+        )
+    elif isinstance(field, drf.ListField):
+        record["many"] = True
+        base_hint = base_field_hint
+        if base_hint is None and model_field is not None and type(model_field).__name__ == "ArrayField":
+            base_hint = model_field.base_field
+        record["child"] = field_record(
+            field.child,
+            serializer_cls,
+            name="child",
+            depth=depth + 1,
+            base_field_hint=base_hint,
+        )
+
+    # --- SerializerMethodField ---------------------------------------------
+    if isinstance(field, drf.SerializerMethodField):
+        method_name = getattr(field, "method_name", None) or f"get_{field_name}"
+        record["method_name"] = method_name
+        record["method_defined"] = callable(getattr(serializer_cls, method_name, None))
+
+    # --- DateTimeField / DateField / TimeField ------------------------------
+    if isinstance(field, drf.DateTimeField):
+        record["format"] = getattr(field, "format", None) or "iso-8601"
+        record["format_explicit"] = "format" in vars(field)
+        if hasattr(field, "timezone"):
+            timezone = field.timezone
+            record["timezone"] = str(timezone) if timezone is not None else None
+    if isinstance(field, (drf.DateField, drf.TimeField)) and not isinstance(field, drf.DateTimeField):
+        record["format"] = getattr(field, "format", None) or "iso-8601"
+        record["format_explicit"] = "format" in vars(field)
+
+    # --- DecimalField --------------------------------------------------------
+    if isinstance(field, drf.DecimalField):
+        from rest_framework.settings import api_settings
+
+        record["decimal"] = OrderedDict(
+            [
+                ("max_digits", field.max_digits),
+                ("decimal_places", field.decimal_places),
+                (
+                    "coerce_to_string",
+                    getattr(field, "coerce_to_string", api_settings.COERCE_DECIMAL_TO_STRING),
+                ),
+                ("rounding", str(field.rounding) if field.rounding is not None else None),
+                ("normalize_output", bool(field.normalize_output)),
+            ]
+        )
+
+    # --- ChoiceField ---------------------------------------------------------
+    if isinstance(field, drf.ChoiceField) and not isinstance(field, drf.MultipleChoiceField):
+        # Never touch `.choices` on a related field: RelatedField.choices runs
+        # a queryset, which needs a database.
+        record["choices"] = [
+            OrderedDict([("value", jsonable(value)), ("display", jsonable(display))])
+            for value, display in field.choices.items()
+        ]
+
+    # --- JSONField -----------------------------------------------------------
+    if isinstance(field, drf.JSONField):
+        record["json"] = OrderedDict(
+            [
+                ("encoder", dotted(field.encoder) if field.encoder else None),
+                ("decoder", dotted(field.decoder) if field.decoder else None),
+                ("binary", bool(field.binary)),
+            ]
+        )
+
+    # --- PrimaryKeyRelatedField ---------------------------------------------
+    related_model = None
+    if isinstance(field, (drf.PrimaryKeyRelatedField, drf.ManyRelatedField)):
+        pk_field = getattr(field, "pk_field", None)
+        queryset = getattr(field, "queryset", None)
+        related_model = getattr(queryset, "model", None)
+        record["pk_field"] = dotted(type(pk_field)) if pk_field is not None else None
+
+    # --- output type ---------------------------------------------------------
+    if kind == "model_field" and model_field is not None:
+        python_type = python_type_for_model_field(model_field)
+    else:
+        python_type = None
+    if python_type is None and kind == "property" and depth == 0:
+        python_type = property_python_type(model, field.source_attrs[0])
+    if python_type is None:
+        python_type = python_type_for_field_class(field)
+    if python_type is None and related_model_hint is not None:
+        python_type = pk_python_type(related_model_hint)
+    if python_type is None and base_field_hint is not None:
+        python_type = python_type_for_model_field(base_field_hint)
+
+    if isinstance(field, drf.SerializerMethodField):
+        # The method's return shape is Python code, not model metadata. The
+        # generated field is a `DrfValue`, which renders any JSON shape.
+        python_type = "method"
+    elif record.get("nested"):
+        # The nested serializer decides the shape, not the model relation: the
+        # `Type` column says what the JSON value is, not what it was read from.
+        python_type = (
+            "list<serializer>" if record.get("nested_many") else "serializer"
+        )
+    elif python_type is None and record.get("nested"):
+        python_type = "serializer"
+    elif python_type is None and isinstance(field, drf.PrimaryKeyRelatedField):
+        # A read-only declared field with no queryset over a view annotation
+        # (for example `IssueSerializer.cycle_id`, annotated by a Subquery).
+        # The pk can be a UUID, an integer or a string; `DrfPk` holds any.
+        python_type = "pk"
+    elif python_type is None and isinstance(field, drf.ReadOnlyField):
+        # `ReadOnlyField` returns the raw attribute. Over an annotation the type
+        # is unknowable from metadata; `DrfValue` renders whatever the handler
+        # supplies.
+        python_type = "value"
+    record["python_type"] = python_type
+
+    if related_model is None and isinstance(field, drf.PrimaryKeyRelatedField):
+        if model_field is not None and getattr(model_field, "is_relation", False):
+            related_model = model_field.related_model
+        elif path and getattr(path[-1], "related_model", None) is not None:
+            related_model = path[-1].related_model
+    if isinstance(field, drf.PrimaryKeyRelatedField):
+        record["pk"] = OrderedDict(
+            [
+                ("related_model", model_label(related_model)),
+                ("python_type", pk_python_type(related_model)),
+            ]
+        )
+
+    record["skippable"] = bool(
+        not isinstance(field, drf.SerializerMethodField)
+        and not record.get("nested")
+        and not record.get("many")
+        and not field.required
+        and not field.allow_null
+        and record.get("attribute") == "annotation"
+    )
+
+    return record
+
+
+def property_python_type(model: Any, name: str) -> str | None:
+    """Python type of the model properties Plane serialises.
+
+    A property has no annotation, so these are read from the source. Only the
+    handful Plane uses as `ReadOnlyField` are listed; anything else makes the
+    serializer `manual` (the generator refuses to guess).
+    """
+    if model is None:
+        return None
+    known = {
+        "avatar_url": "str",
+        "cover_image_url": "str",
+        "logo_url": "str",
+        "asset_url": "str",
+        "status": "str",
+        "full_name": "str",
+    }
+    if name in known:
+        return known[name]
+    return None
+
+
+def python_type_for_field_class(field: Any) -> str | None:
+    from rest_framework import serializers as drf
+
+    if isinstance(field, drf.UUIDField):
+        return "uuid"
+    if isinstance(field, drf.IntegerField):
+        return "int"
+    if isinstance(field, drf.FloatField):
+        return "float"
+    if isinstance(field, drf.BooleanField):
+        return "bool"
+    if isinstance(field, drf.DateTimeField):
+        return "datetime"
+    if isinstance(field, drf.DateField):
+        return "date"
+    if isinstance(field, drf.TimeField):
+        return "time"
+    if isinstance(field, drf.DecimalField):
+        return "decimal"
+    if isinstance(field, drf.JSONField):
+        return "json"
+    if isinstance(field, drf.PrimaryKeyRelatedField):
+        related = getattr(getattr(field, "queryset", None), "model", None)
+        return pk_python_type(related)
+    if isinstance(field, drf.ListField):
+        child = python_type_for_field_class(field.child)
+        return f"list<{child}>" if child else None
+    if isinstance(
+        field,
+        (
+            drf.CharField,
+            drf.EmailField,
+            drf.SlugField,
+            drf.URLField,
+            drf.FileField,
+            drf.ReadOnlyField,
+        ),
+    ):
+        return "str"
+    if isinstance(field, drf.ChoiceField):
+        values = list(field.choices.values())
+        if values and all(isinstance(value, bool) for value in values):
+            return "bool"
+        if values and all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+            return "int"
+        return "str"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Serializer records
+# ---------------------------------------------------------------------------
+
+
+def codegen_kind(cls: type, fields: list[OrderedDict[str, Any]]) -> tuple[str, str | None]:
+    """``(kind, manual_reason)`` for a serializer class."""
+    to_representation = owner_name(cls, "to_representation")
+    if to_representation == DRF_DEFAULT_TO_REPRESENTATION:
+        kind = "simple"
+    elif to_representation == DYNAMIC_TO_REPRESENTATION:
+        kind = "dynamic"
+    elif to_representation == V1_TO_REPRESENTATION:
+        kind = "v1"
+    else:
+        return "manual", f"to_representation defined in {to_representation}"
+
+    init_owner = owner_name(cls, "__init__")
+    if init_owner is not None and init_owner not in GENERIC_INIT_OWNERS:
+        return "manual", f"__init__ defined in {init_owner}"
+    get_fields_owner = owner_name(cls, "get_fields")
+    if get_fields_owner is not None and get_fields_owner not in GENERIC_GET_FIELDS_OWNERS:
+        return "manual", f"get_fields defined in {get_fields_owner}"
+
+    for field in fields:
+        if field.get("python_type") is None and not field.get("nested"):
+            return "manual", f"field {field['name']!r} has no derivable output type"
+        child = field.get("child")
+        if (
+            child is not None
+            and child.get("python_type") is None
+            and not child.get("nested")
+        ):
+            return "manual", f"field {field['name']!r} child has no derivable output type"
+    return kind, None
+def serializer_record(cls: type, canonical: str) -> OrderedDict[str, Any]:
+    record: OrderedDict[str, Any] = OrderedDict()
+    record["name"] = canonical
+    record["module"] = cls.__module__
+    record["class"] = cls.__name__
+    base = next((parent for parent in cls.__mro__[1:] if parent is not object), None)
+    record["base"] = dotted(base) if base is not None else None
+    model = getattr(getattr(cls, "Meta", None), "model", None)
+    record["model"] = model_label(model)
+
+    abstract = False
+    error: str | None = None
+    fields: list[OrderedDict[str, Any]] = []
+    write_only: list[OrderedDict[str, Any]] = []
+    try:
+        instance = cls()
+        readable = list(instance._readable_fields)
+        all_fields = list(instance.fields.values())
+    except Exception as exc:
+        abstract = True
+        message = str(exc)
+        if 'missing "Meta' in message:
+            error = "abstract base class: no `Meta.model`, not instantiable"
+        elif isinstance(exc, AttributeError) and "'list' object has no attribute 'values'" in message:
+            error = (
+                "`__init__` replaces `self.fields` with a list; "
+                "`to_representation` is hand-written"
+            )
+        else:
+            error = f"{type(exc).__name__}: {message}"
+        readable = []
+        all_fields = []
+
+    if abstract:
+        record["abstract"] = True
+        record["abstract_reason"] = error
+    else:
+        record["abstract"] = False
+        for field in readable:
+            fields.append(field_record(field, cls))
+        for field in all_fields:
+            if field.write_only:
+                write_only.append(field_record(field, cls))
+        if not fields and isinstance(vars(instance).get("fields"), list):
+            abstract = True
+            record["abstract"] = True
+            record["abstract_reason"] = "self.fields is replaced with a list in __init__"
+
+    record["overrides"] = OrderedDict(
+        [
+            ("to_representation", owner_name(cls, "to_representation")),
+            ("get_fields", owner_name(cls, "get_fields")),
+            ("__init__", owner_name(cls, "__init__")),
+            ("create", owner_name(cls, "create")),
+            ("update", owner_name(cls, "update")),
+            (
+                "validate",
+                sorted(
+                    name
+                    for name in dir(cls)
+                    if (name == "validate" or name.startswith("validate_"))
+                    and callable(getattr(cls, name, None))
+                    and (owner := find_owner(cls, name)) is not None
+                    and owner.__module__.startswith("plane.")
+                ),
+            ),
+        ]
+    )
+
+    if abstract:
+        kind, reason = "manual", record["abstract_reason"]
+    else:
+        kind, reason = codegen_kind(cls, fields)
+    record["codegen"] = kind
+    if reason is not None:
+        record["manual_reason"] = reason
+    record["fields"] = fields
+    record["write_only_fields"] = write_only
+
+    readable_names = [field["name"] for field in fields]
+    # Expansion behaviour, from `get_expansion_mapper()` and the many set.
+    from plane.app.serializers.base import MANY_EXPANSION_FIELDS, get_expansion_mapper
+
+    mapper = get_expansion_mapper()
+    record["expansion"] = OrderedDict(
+        [
+            ("mode", {"dynamic": "inject", "v1": "replace-only", "simple": "none"}.get(kind, "none")),
+            (
+                "existing_fields",
+                [name for name in mapper if name in readable_names],
+            ),
+            (
+                "injectable_fields",
+                [name for name in mapper if name not in readable_names],
+            ),
+            ("many_fields", sorted(MANY_EXPANSION_FIELDS)),
+            ("issue_attachments", kind in ("dynamic",)),
+        ]
+    )
+    record["field_count"] = len(fields)
+    return record
+
+
+def dedupe_choice_sets(serializers: list[dict[str, Any]]) -> OrderedDict[str, Any]:
+    """Move large `ChoiceField` lists into one shared table.
+
+    Every `choices` record stays in the JSON -- either inline (small lists) or
+    as `{"ref": ..., "count": ...}` pointing at [`choice_sets`]. The reference
+    is `choices:<sha1 prefix>` of the list itself, so identical lists (the
+    timezone choices on `timezone` and `user_timezone`) share one entry.
+    """
+    sets: dict[str, list[OrderedDict[str, Any]]] = {}
+
+    def visit(field: OrderedDict[str, Any]) -> None:
+        choices = field.get("choices")
+        if choices is not None and len(choices) > CHOICES_INLINE_LIMIT:
+            canonical = json.dumps(choices, sort_keys=True, ensure_ascii=False)
+            digest = hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:12]
+            key = f"choices:{digest}"
+            sets.setdefault(key, choices)
+            field.pop("choices")
+            field["choices_ref"] = key
+            field["choices_count"] = len(choices)
+        child = field.get("child")
+        if child is not None:
+            visit(child)
+
+    for record in serializers:
+        for field in record["fields"] + record["write_only_fields"]:
+            visit(field)
+    return OrderedDict((key, sets[key]) for key in sorted(sets))
+
+
+def expansion_mapper_record() -> OrderedDict[str, Any]:
+    from plane.app.serializers.base import MANY_EXPANSION_FIELDS, get_expansion_mapper
+
+    mapper = get_expansion_mapper()
+    return OrderedDict(
+        [
+            (
+                "mapping",
+                OrderedDict((name, dotted(serializer)) for name, serializer in mapper.items()),
+            ),
+            ("many", sorted(MANY_EXPANSION_FIELDS)),
+            (
+                "issue_attachments",
+                OrderedDict(
+                    [
+                        ("in_mapper", False),
+                        ("appended", "last, when expand= asks for it (DynamicBaseSerializer only)"),
+                        ("source", "FileAsset.objects.filter(issue_id=..., entity_type=ISSUE_ATTACHMENT)"),
+                    ]
+                ),
+            ),
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Views -> serializers
+# ---------------------------------------------------------------------------
+
+
+def callable_serializer_name(node: ast.AST) -> str | None:
+    """The serializer name in a call, if the callee is named ``*Serializer``."""
+    name: str | None = None
+    if isinstance(node, ast.Name):
+        name = node.id
+    elif isinstance(node, ast.Attribute):
+        name = node.attr
+    if name and name.endswith("Serializer"):
+        return name
+    return None
+
+
+def call_record(node: ast.Call, view_class: type, method: str) -> OrderedDict[str, Any]:
+    name = callable_serializer_name(node.func)
+    record: OrderedDict[str, Any] = OrderedDict()
+    record["serializer"] = name
+    record["method"] = method
+    record["file"] = relative_source(inspect.getsourcefile(view_class))
+    record["line"] = node.lineno
+    kwargs: OrderedDict[str, Any] = OrderedDict()
+    for keyword in node.keywords:
+        if keyword.arg in ("fields", "expand", "many"):
+            try:
+                value = ast.unparse(keyword.value)
+            except Exception:  # pragma: no cover - ast.unparse is reliable
+                value = "<expression>"
+            kwargs[keyword.arg] = value
+    record["kwargs"] = kwargs
+    record["fields_arg"] = "fields" in kwargs
+    record["expand_arg"] = "expand" in kwargs
+    return record
+
+
+def class_ast_node(tree: ast.Module, cls: type) -> ast.ClassDef | None:
+    qualname = cls.__qualname__.split(".")
+    nodes: list[ast.AST] = list(tree.body)
+    found: ast.ClassDef | None = None
+    for part in qualname:
+        found = None
+        for node in nodes:
+            if isinstance(node, ast.ClassDef) and node.name == part:
+                found = node
+                break
+        if found is None:
+            return None
+        nodes = list(found.body)
+    return found
+
+
+def module_ast(module_name: str) -> ast.Module | None:
+    try:
+        source_file = inspect.getsourcefile(importlib.import_module(module_name))
+        if not source_file:
+            return None
+        return ast.parse(Path(source_file).read_text(encoding="utf-8"), filename=source_file)
+    except (OSError, SyntaxError):
+        return None
+
+
+def module_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def calls_in(node: ast.AST, view_class: type, method: str) -> list[OrderedDict[str, Any]]:
+    records = []
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call) and callable_serializer_name(child.func):
+            records.append(call_record(child, view_class, method))
+    return records
+
+
+def view_record(view_path: str, route_paths: list[str]) -> OrderedDict[str, Any]:
+    record: OrderedDict[str, Any] = OrderedDict()
+    record["view"] = view_path
+    record["paths"] = sorted(set(route_paths))
+    try:
+        module_name, _, class_name = view_path.rpartition(".")
+        view_class = getattr(importlib.import_module(module_name), class_name)
+    except Exception as exc:
+        record["error"] = f"{type(exc).__name__}: {exc}"
+        return record
+
+    record["file"] = relative_source(inspect.getsourcefile(view_class))
+    if not inspect.isclass(view_class):
+        # A plain Django function view: no DRF serializer attributes, but it may
+        # still build one by hand.
+        record["kind"] = "function"
+        record["serializer_class"] = None
+        record["get_serializer_class"] = None
+        tree = module_ast(view_class.__module__)
+        calls: list[OrderedDict[str, Any]] = []
+        if tree is not None:
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == class_name:
+                    calls.extend(calls_in(node, view_class, class_name))
+        calls.sort(key=lambda item: (item["line"], item["serializer"], item["method"]))
+        record["calls"] = calls
+        return record
+    record["kind"] = "class"
+    serializer_class = getattr(view_class, "serializer_class", None)
+    if serializer_class is not None:
+        record["serializer_class"] = dotted(serializer_class)
+        record["serializer_class_defined_in"] = owner_name(view_class, "serializer_class")
+    else:
+        record["serializer_class"] = None
+
+    get_serializer_class = getattr(view_class, "get_serializer_class", None)
+    defined_in = owner_name(view_class, "get_serializer_class")
+    if get_serializer_class is not None and defined_in and not defined_in.startswith(
+        "rest_framework.generics"
+    ):
+        entry: OrderedDict[str, Any] = OrderedDict()
+        entry["defined_in"] = defined_in
+        location = source_line(get_serializer_class)
+        if location:
+            entry["file"] = location["file"]
+            entry["line"] = location["line"]
+        # The method may live on a Plane base class; scan the class that
+        # defines it, not the concrete view.
+        owner = find_owner(view_class, "get_serializer_class") or view_class
+        tree = module_ast(owner.__module__)
+        returns: list[str] = []
+        if tree is not None:
+            node = class_ast_node(tree, owner)
+            if node is not None:
+                for child in ast.walk(node):
+                    if isinstance(child, ast.FunctionDef) and child.name == "get_serializer_class":
+                        for sub in ast.walk(child):
+                            if isinstance(sub, ast.Return):
+                                for leaf in ast.walk(sub):
+                                    if isinstance(leaf, ast.Name) and leaf.id.endswith("Serializer"):
+                                        returns.append(leaf.id)
+                                    if isinstance(leaf, ast.Attribute) and leaf.attr == "serializer_class":
+                                        returns.append("self.serializer_class")
+        entry["returns"] = sorted(set(returns))
+        record["get_serializer_class"] = entry
+    else:
+        record["get_serializer_class"] = None
+
+    tree = module_ast(view_class.__module__)
+    calls: list[OrderedDict[str, Any]] = []
+    if tree is not None:
+        node = class_ast_node(tree, view_class)
+        if node is not None:
+            helpers = module_functions(tree)
+            visited_helpers: set[str] = set()
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    method_calls = calls_in(child, view_class, child.name)
+                    calls.extend(method_calls)
+                    # One level of local helper functions: `get_issue_serializer`
+                    # style wrappers live in the same module.
+                    for nested in ast.walk(child):
+                        if isinstance(nested, ast.Call) and isinstance(nested.func, ast.Name):
+                            helper = helpers.get(nested.func.id)
+                            if helper is not None and helper.name not in visited_helpers:
+                                visited_helpers.add(helper.name)
+                                calls.extend(
+                                    calls_in(helper, view_class, f"helper:{helper.name}")
+                                )
+    calls.sort(key=lambda item: (item["line"], item["serializer"], item["method"]))
+    record["calls"] = calls
+    return record
+
+
+def views_index(routes: list[dict[str, Any]]) -> list[OrderedDict[str, Any]]:
+    by_view: dict[str, list[str]] = {}
+    for route in routes:
+        by_view.setdefault(route["view"], []).append(route["path"])
+    return [view_record(view, paths) for view, paths in sorted(by_view.items())]
+
+
+# ---------------------------------------------------------------------------
+# Rust codegen
+# ---------------------------------------------------------------------------
+
+
+def rust_module_name(python_module: str) -> str:
+    parts = python_module.split(".")
+    if parts and parts[0] == "plane":
+        parts = parts[1:]
+    parts = [part for part in parts if part not in ("serializers", "serializer")]
+    return "_".join(parts)
+
+
+def rust_field_ident(name: str) -> str:
+    """A Rust field identifier for a DRF field name.
+
+    DRF field names are not Rust identifiers (`project__identifier` is the
+    legal Python name `project__identifier`; `type` is a keyword). The key
+    written to JSON is always the original name; only the struct field is
+    renamed. `self`/`Self`/`super`/`crate` cannot be raw identifiers.
+    """
+    if name in ("self", "Self", "super", "crate"):
+        return f"{name}_"
+    collapsed = re.sub(r"_{2,}", "_", name)
+    if collapsed in RUST_KEYWORDS:
+        return f"r#{collapsed}"
+    return collapsed
+
+
+def rust_struct_name(record: dict[str, Any]) -> str:
+    return record["class"]
+
+
+def nested_record(record: dict[str, Any], name: str) -> tuple[dict[str, Any], bool] | None:
+    for field in record["fields"]:
+        if field["name"] == name:
+            return field, True
+    for field in record["write_only_fields"]:
+        if field["name"] == name:
+            return field, False
+    return None
+
+
+class RustGenerator:
+    def __init__(self, serializers: list[dict[str, Any]]) -> None:
+        self.serializers = {record["name"]: record for record in serializers}
+        self.idents: dict[int, dict[str, str]] = {}
+        # Nested fields that name a manual serializer are handled through
+        # `&dyn DrfSerialize`, so the parent still compiles -- except a
+        # to-many manual child, whose slice of trait objects has no renderer.
+        for record in serializers:
+            for field in record["fields"]:
+                if field.get("nested") is None or field.get("nested") in self.serializers:
+                    continue
+                record["manual_reason"] = record.get("manual_reason") or (
+                    f"nested serializer {field['nested']} is not generated"
+                )
+                if field.get("nested_many"):
+                    record["codegen"] = "manual"
+
+    def struct_lifetime(self, record: dict[str, Any]) -> bool:
+        """Whether the generated struct borrows (and therefore has `<'a>`)."""
+        for field in record["fields"]:
+            kind = field["python_type"]
+            if field.get("nested") or field.get("many"):
+                return True
+            if kind in ("str", "json", "bytes"):
+                return True
+            if field["class"] == "SerializerMethodField":
+                return True
+        return False
+
+    def rust_type_path(self, canonical: str) -> tuple[str, bool]:
+        record = self.serializers[canonical]
+        module = rust_module_name(record["module"])
+        name = record["class"]
+        has_lifetime = self.struct_lifetime(record)
+        path = f"crate::generated::{module}::{name}"
+        if has_lifetime:
+            path += "<'a>"
+        return path, has_lifetime
+
+    def element_kind(self, field: dict[str, Any]) -> tuple[str | None, bool]:
+        """``(element type, is a list)`` for a field."""
+        kind = field["python_type"]
+        if kind.startswith("list<") and kind.endswith(">"):
+            return kind[5:-1], True
+        return kind, bool(field.get("many"))
+
+    def field_type(self, field: dict[str, Any]) -> tuple[str, bool]:
+        """``(Rust type, borrows)`` for one field."""
+        name = field["class"]
+
+        if field.get("nested"):
+            nested = field["nested"]
+            if nested in self.serializers:
+                path, _ = self.rust_type_path(nested)
+                if field.get("nested_many"):
+                    return f"&'a [{path}]", True
+                return f"Option<&'a {path}>", True
+            if field.get("nested_many"):
+                return "&'a [&'a (dyn crate::ser::DrfSerialize + 'a)]", True
+            return "Option<&'a (dyn crate::ser::DrfSerialize + 'a)>", True
+
+        kind, many = self.element_kind(field)
+        many_optional = many and bool(field.get("allow_null"))
+        if kind in ("method", "value"):
+            return "crate::value::DrfValue<'a>", True
+        if kind == "pk":
+            if self.skippable(field):
+                return "Option<crate::fields::DrfPk<'a>>", True
+            return "crate::fields::DrfPk<'a>", True
+
+        optional = self.optional(field)
+        skippable = self.skippable(field)
+        nullable = optional or skippable
+        if kind == "json":
+            return "Option<crate::fields::PgJson<'a>>", True
+        if kind == "bytes":
+            return "Option<&'a [u8]>", True
+        if kind == "uuid":
+            if many:
+                return (
+                    "Option<&'a [uuid::Uuid]>"
+                    if skippable or many_optional
+                    else "&'a [uuid::Uuid]"
+                ), True
+            return ("Option<uuid::Uuid>" if nullable else "uuid::Uuid"), nullable
+        if kind == "str":
+            if many:
+                return (
+                    "Option<&'a [&'a str]>"
+                    if skippable or many_optional
+                    else "&'a [&'a str]"
+                ), True
+            return ("Option<&'a str>" if nullable else "&'a str"), True
+        if kind == "int":
+            if many:
+                return (
+                    "Option<&'a [i64]>" if skippable or many_optional else "&'a [i64]"
+                ), True
+            return ("Option<i64>" if nullable else "i64"), nullable
+        if kind == "float":
+            if many:
+                return (
+                    "Option<&'a [f64]>" if skippable or many_optional else "&'a [f64]"
+                ), True
+            return ("Option<f64>" if nullable else "f64"), nullable
+        if kind == "bool":
+            if many:
+                return (
+                    "Option<&'a [bool]>" if skippable or many_optional else "&'a [bool]"
+                ), True
+            return ("Option<bool>" if nullable else "bool"), nullable
+        if kind == "datetime":
+            return (
+                "Option<chrono::DateTime<chrono::Utc>>"
+                if nullable
+                else "chrono::DateTime<chrono::Utc>"
+            ), nullable
+        if kind == "date":
+            return ("Option<chrono::NaiveDate>" if nullable else "chrono::NaiveDate"), nullable
+        if kind == "time":
+            return ("Option<chrono::NaiveTime>" if nullable else "chrono::NaiveTime"), nullable
+        if kind == "decimal":
+            return (
+                "Option<crate::fields::PyDecimal>"
+                if nullable
+                else "crate::fields::PyDecimal"
+            ), nullable
+        raise SystemExit(f"unhandled python type {kind!r} for {name}")
+
+    def optional(self, field: dict[str, Any]) -> bool:
+        """Whether the value can be `None` on the model."""
+        model_field = field.get("model_field")
+        if model_field is None:
+            # A property returns None in Plane for missing images.
+            return field.get("attribute") == "property"
+        return bool(model_field.get("null", False))
+
+    def skippable(self, field: dict[str, Any]) -> bool:
+        """Whether DRF can omit the key entirely.
+
+        A declared field with `required=False` whose attribute is a view
+        annotation (so it may not exist on the instance) goes through
+        `Field.get_attribute` -> `AttributeError` -> `SkipField`
+        (`rest_framework/fields.py:421-446`), and `to_representation` does not
+        write the key (`serializers.py:533-551`). `StateSerializer.order` is the
+        visible case: `state/list` adds it to the rendered dict afterwards, so
+        the retrieve response has no `"order"` key at all
+        (`plane/app/views/state/base.py:102-104`).
+
+        `None` in the generated struct means "omit"; a nullable field's `None`
+        means `null`, and the two are never mixed because `allow_null` fields
+        are not skippable.
+        """
+        if field.get("nested"):
+            return False
+        if field["class"] == "SerializerMethodField":
+            return False
+        if field.get("required", True) or field.get("allow_null"):
+            return False
+        return field.get("attribute") == "annotation"
+
+    def ident(self, record: dict[str, Any], field: dict[str, Any]) -> str:
+        """The struct field name for a field, unique within the struct."""
+        idents = self.idents.setdefault(id(record), {})
+        if field["name"] in idents:
+            return idents[field["name"]]
+        base = rust_field_ident(field["name"])
+        candidate = base
+        suffix = 2
+        existing = set(idents.values())
+        while candidate in existing:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        idents[field["name"]] = candidate
+        return candidate
+
+    def nested_ref(self, record: dict[str, Any], field: dict[str, Any]) -> str:
+        """The expression passed to `field_nested_dyn`."""
+        name = self.ident(record, field)
+        if field.get("nested") in self.serializers:
+            return (
+                f"self.{name}"
+                ".map(|value| value as &(dyn crate::ser::DrfSerialize + '_))"
+            )
+        return f"self.{name}"
+
+    def scalar_expr(
+        self,
+        field: dict[str, Any],
+        kind: str,
+        many: bool,
+        *,
+        source: str,
+        is_ref: bool,
+    ) -> str:
+        """The `default` expression for `field_dyn`."""
+        deref = f"*{source}" if is_ref else source
+        optional = self.optional(field)
+        if many and field.get("allow_null") and not self.skippable(field):
+            wrapper = {
+                "uuid": "DrfUuidList",
+                "str": "DrfStrList",
+                "int": "DrfIntList",
+                "float": "DrfFloatList",
+            }[kind]
+            return f"&{source}.map(crate::fields::{wrapper})"
+        if kind == "uuid" and many:
+            return f"&crate::fields::DrfUuidList({source})"
+        if kind == "str" and many:
+            return f"&crate::fields::DrfStrList({source})"
+        if kind == "int" and many:
+            return f"&crate::fields::DrfIntList({source})"
+        if kind == "float" and many:
+            return f"&crate::fields::DrfFloatList({source})"
+        if kind == "uuid":
+            if optional:
+                return f"&{source}.map(crate::fields::DrfUuid)"
+            if is_ref:
+                return f"&crate::fields::DrfUuid(*{source})"
+            return f"&crate::fields::DrfUuid({source})"
+        if kind == "datetime":
+            if optional:
+                return f"&crate::fields::drf_datetime_opt({source}, ctx.tz())"
+            return f"&crate::fields::drf_datetime({deref}, ctx.tz())"
+        if kind == "date":
+            if optional:
+                return f"&{source}.map(crate::fields::PyDate)"
+            return f"&crate::fields::PyDate({deref})"
+        if kind == "time":
+            if optional:
+                return f"&{source}.map(crate::fields::PyTime)"
+            return f"&crate::fields::PyTime({deref})"
+        if kind == "decimal":
+            decimal = field["decimal"]
+            max_digits = decimal["max_digits"]
+            decimal_places = decimal["decimal_places"]
+            value = f"(*{source}).clone()" if is_ref else f"{source}.clone()"
+            if decimal["coerce_to_string"]:
+                if optional:
+                    return (
+                        f"&{source}.clone().map(|value| "
+                        f"crate::fields::DrfDecimal::new(value, {max_digits}, {decimal_places}))"
+                    )
+                return (
+                    f"&crate::fields::DrfDecimal::new({value}, "
+                    f"{max_digits}, {decimal_places})"
+                )
+            return f"&crate::fields::EncoderDecimal::Drf({value})"
+        return f"&{source}"
+
+    def field_write(self, record: dict[str, Any], field: dict[str, Any]) -> str:
+        name = self.ident(record, field)
+        key = field["name"]
+        kind, many = self.element_kind(field)
+
+        if field.get("nested"):
+            if field.get("nested_many"):
+                return f'obj.field_nested_list_dyn("{key}", ctx, self.{name})?;'
+            return f'obj.field_nested_dyn("{key}", ctx, {self.nested_ref(record, field)})?;'
+
+        if kind in ("method", "value"):
+            return f'obj.field_value_dyn("{key}", ctx, &self.{name})?;'
+        if kind == "pk":
+            return f'obj.field_dyn("{key}", ctx, &self.{name})?;'
+        if kind == "json":
+            return f'obj.field_json_dyn("{key}", ctx, self.{name})?;'
+        if kind == "bytes":
+            return (
+                f'obj.field_dyn("{key}", ctx, '
+                f"&self.{name}.map(crate::fields::PyBase64))?;"
+            )
+
+        expression = self.scalar_expr(
+            field, kind, many, source=f"self.{name}", is_ref=False
+        )
+        return f'obj.field_dyn("{key}", ctx, {expression})?;'
+
+    def skipped_field_write(self, record: dict[str, Any], field: dict[str, Any]) -> str:
+        """The body for a `SkipField`-prone field (see [`skippable`])."""
+        key = field["name"]
+        kind, many = self.element_kind(field)
+        if kind == "pk":
+            expression = "value"
+        else:
+            expression = self.scalar_expr(field, kind, many, source="value", is_ref=True)
+        return f'obj.field_dyn("{key}", ctx, {expression})?;'
+
+    def render_module(self, module: str, records: list[dict[str, Any]]) -> str:
+        lines: list[str] = []
+        lines.append("// Copyright (c) 2023-present Plane Software, Inc. and contributors")
+        lines.append("// SPDX-License-Identifier: AGPL-3.0-only")
+        lines.append("// See the LICENSE file for details.")
+        lines.append("")
+        lines.append(f"//! Generated from `{module}` by `tools/inventory/serializers.py --rust`.")
+        lines.append("//!")
+        lines.append("//! Do not edit. Re-run the generator after changing `apps/api`.")
+        lines.append("")
+        lines.append("")
+        for record in records:
+            lines.extend(self.render_struct(record))
+            lines.append("")
+        return "\n".join(lines).rstrip() + "\n"
+
+    def render_struct(self, record: dict[str, Any]) -> list[str]:
+        name = rust_struct_name(record)
+        lifetime = "<'a>" if self.struct_lifetime(record) else ""
+        lines: list[str] = []
+        model = record.get("model") or "no model"
+        lines.append(f"/// `{record['name']}` (model: `{model}`).")
+        lines.append("///")
+        lines.append("/// Fields are in DRF `_readable_fields` order, which is the")
+        lines.append("/// `to_representation` key order.")
+        lines.append("#[derive(Clone, Debug)]")
+        lines.append(f"pub struct {name}{lifetime} {{")
+        for field in record["fields"]:
+            rust_type, _ = self.field_type(field)
+            source = field["source"]
+            lines.append(
+                f"    /// `{field['name']}`: {field['class']} (source `{source}`)."
+            )
+            lines.append(f"    pub {self.ident(record, field)}: {rust_type},")
+        lines.append("}")
+        lines.append("")
+        mode = {
+            "dynamic": "OutputOnly",
+            "v1": "RemoveFields",
+            "simple": "None",
+        }[record["codegen"]]
+        lines.append(f"impl{lifetime} {name}{lifetime} {{")
+        lines.append("    /// `_readable_fields` order.")
+        fields = ", ".join(
+            json.dumps(field["name"]) for field in record["fields"]
+        )
+        lines.append(f"    pub const FIELDS: &'static [&'static str] = &[{fields}];")
+        lines.append(
+            "    /// `fields=` semantics of the base class this serializer inherits."
+        )
+        lines.append(
+            f"    pub const MODE: crate::ser::FilterMode = crate::ser::FilterMode::{mode};"
+        )
+        lines.append("}")
+        lines.append("")
+        lines.append(
+            f"impl{lifetime} crate::ser::DrfSerialize for {name}{lifetime} {{"
+        )
+        lines.append("    fn drf_write(")
+        lines.append("        &self,")
+        lines.append("        w: &mut crate::writer::DrfWriter,")
+        lines.append("        ctx: &crate::ser::RenderCtx<'_>,")
+        lines.append("    ) -> Result<(), crate::DrfError> {")
+        lines.append("        let mut obj = w.begin_object();")
+        for field in record["fields"]:
+            key = json.dumps(field["name"])
+            if self.skippable(field):
+                name = self.ident(record, field)
+                lines.append(
+                    f"        if ctx.emits({key}, Self::MODE) "
+                    f"&& let Some(value) = &self.{name} {{"
+                )
+                lines.append(
+                    f"            {self.skipped_field_write(record, field)}"
+                )
+                lines.append("        }")
+            else:
+                lines.append(f"        if ctx.emits({key}, Self::MODE) {{")
+                lines.append(f"            {self.field_write(record, field)}")
+                lines.append("        }")
+        lines.append("        ctx.expansions()")
+        lines.append(
+            "            .write_injected(&mut obj, ctx, Self::FIELDS, Self::MODE)?;"
+        )
+        lines.append("        obj.end();")
+        lines.append("        Ok(())")
+        lines.append("    }")
+        lines.append("}")
+        return lines
+
+
+# ---------------------------------------------------------------------------
+# Markdown
+# ---------------------------------------------------------------------------
+
+
+def render_markdown(payload: OrderedDict[str, Any]) -> str:
+    serializers = payload["serializers"]
+    views = payload["views"]
+    counts: dict[str, int] = {}
+    for record in serializers:
+        counts[record["codegen"]] = counts.get(record["codegen"], 0) + 1
+    total = len(serializers)
+    fields = sum(record["field_count"] for record in serializers)
+
+    lines: list[str] = []
+    lines.append("# Serializer inventory")
+    lines.append("")
+    lines.append(
+        "Generated from DRF's own introspection by "
+        "`apps/server/tools/inventory/serializers.py`. Do not edit by hand: "
+        "re-run the generator. The machine-readable form is `serializers.json`; "
+        "this file is the reviewable view of it."
+    )
+    lines.append("")
+    lines.append("## How this was produced")
+    lines.append("")
+    lines.append(
+        "Every serializer module in `plane.app.serializers`, "
+        "`plane.api.serializers`, `plane.space.serializer` and "
+        "`plane.license.api.serializers` is imported, and every distinct "
+        "`BaseSerializer` subclass is instantiated with no instance and no "
+        "context (the way `XSerializer(qs, many=True)` does). Fields are read "
+        "from `_readable_fields`, which is the order `to_representation` "
+        "writes keys in, and each field's properties are recorded together "
+        "with the Django model field its `source` resolves to."
+    )
+    lines.append("")
+    lines.append(
+        "`fields=` and `expand=` are recorded per serializer under "
+        "`expansion`. `simple` / `dynamic` / `v1` serializers are code-generated "
+        "into `crates/plane-serializers/src/generated/`; `manual` serializers "
+        "have a hand-written `to_representation` (or a `get_fields`/`__init__` "
+        "override, or an underivable field type) and need a hand-written Rust "
+        "module, which is the next session's work. Nothing here is stubbed: a "
+        "manual serializer has no generated Rust type at all."
+    )
+    lines.append("")
+    lines.append("## Counts")
+    lines.append("")
+    lines.append("| Kind | Serializers |")
+    lines.append("| --- | ---: |")
+    for kind in ("simple", "dynamic", "v1", "manual"):
+        lines.append(f"| {kind} | {counts.get(kind, 0)} |")
+    lines.append(f"| **total** | **{total}** |")
+    lines.append("")
+    lines.append(
+        f"{fields} readable fields, "
+        f"{sum(len(record['write_only_fields']) for record in serializers)} "
+        f"write-only fields recorded for Phase 5, "
+        f"{len(views)} views mapped."
+    )
+    lines.append("")
+
+    lines.append("## Rust runtime")
+    lines.append("")
+    lines.append(
+        "`crates/plane-serializers` renders a serializer object with the same "
+        "shape and bytes as `JSONRenderer().render(serializer.data)`. A "
+        "generated struct is plain data (`Clone, Debug`) in output order; "
+        "`drf_write` checks the field mask, consults the resolved expansions "
+        "and writes each field through the wrapper for its DRF class:"
+    )
+    lines.append("")
+    lines.append("| DRF field class | Rust wrapper | Python |")
+    lines.append("| --- | --- | --- |")
+    lines.append("| `UUIDField`, UUID `PrimaryKeyRelatedField` | `DrfUuid` | `str(uuid)` |")
+    lines.append(
+        "| integer `PrimaryKeyRelatedField` | `i64` | JSON number |"
+    )
+    lines.append(
+        "| `PrimaryKeyRelatedField` with no resolvable model (annotation) | "
+        "`DrfPk` | `str(uuid)` / number / string / `null` |"
+    )
+    lines.append(
+        "| `DateTimeField` | `DrfDateTime` in the request's active timezone | "
+        "`isoformat()`, `+00:00` → `Z` |"
+    )
+    lines.append("| `DateField` / `TimeField` | `PyDate` / `PyTime` | `isoformat()` |")
+    lines.append(
+        "| `DecimalField` | `DrfDecimal` (`coerce_to_string=True`) or "
+        "`EncoderDecimal::Drf` | quantised string / `float(value)` |"
+    )
+    lines.append(
+        "| `JSONField` | `PgJson` from `plane_db::JsonText` | "
+        "`transcode_json` keeps Postgres key order |"
+    )
+    lines.append(
+        "| `ModelField(BinaryField)` | `PyBase64` | "
+        "`b64encode(value).decode(\"ascii\")` |"
+    )
+    lines.append("| `ListField` of UUID/str/int/float | `DrfUuidList` / `DrfStrList` / `DrfIntList` / `DrfFloatList` | a JSON array |")
+    lines.append(
+        "| `SerializerMethodField`, `ReadOnlyField` over an annotation | "
+        "`DrfValue` | whatever the handler supplies |"
+    )
+    lines.append("| nested serializer | `&Nested`, `Option<&Nested>`, `&[Nested]` | an object / `null` / array |")
+    lines.append("")
+    lines.append(
+        "`fields=` is `FieldEntry` (`Name` or the dict-item `Nested`; only the "
+        "top-level key matters, as in `_filter_fields`). `expand=` is "
+        "`Expansions`: the handler resolves every requested name to a "
+        "`DrfValue` and `write_injected` appends the injectable ones after the "
+        "base fields. A requested mapper name with no value is an error rather "
+        "than a silently unexpanded field, matching Django's `AttributeError`."
+    )
+    lines.append("")
+    lines.append(
+        "`SkipField` is modelled as `Option<T>` on annotation-backed fields "
+        "with `required=False`: `None` omits the key. A nullable column uses "
+        "`Option` for `null` instead; the two are never mixed because "
+        "`allow_null` fields are not skippable. `None` for a *value* is written "
+        "as `null` by `DrfWriter::write_value`, which compensates for "
+        "`JSONRenderer.render(None) == b\"\"` only applying at the top level."
+    )
+    lines.append("")
+    lines.append("## Golden corpus")
+    lines.append("")
+    lines.append(
+        "`crates/plane-serializers/tests/golden/serializers.jsonl` holds 102 "
+        "renders recorded by `tools/golden/serializers_record.py` from a real "
+        "Django process (`tools/golden/serializers_fixture.py` builds the rows "
+        "in a `t_*` clone). `crates/plane-serializers/tests/golden.rs` builds "
+        "the same values and asserts byte equality. Covered: no arguments in "
+        "`UTC`, `Asia/Kolkata` and `America/New_York` (2026-11-01, the US DST "
+        "fall-back), `fields=` lists and the dict form, every `expand=` shape, "
+        "`fields=` and `expand=` together, `many=True`, and a probe serializer "
+        "for decimal/time/binary/JSON formatting Plane's models do not exercise."
+    )
+    lines.append("")
+    lines.append("## Manual serializers")
+    lines.append("")
+    lines.append(
+        "These need a hand-written Rust module (Phase 5 for most of them):"
+    )
+    lines.append("")
+    for record in serializers:
+        if record["codegen"] == "manual":
+            lines.append(
+                f"* `{record['name']}` — {record.get('manual_reason', '')}"
+            )
+    lines.append("")
+    lines.append("## Expansion mapper")
+    lines.append("")
+    lines.append("`get_expansion_mapper()` returns:")
+    lines.append("")
+    lines.append("| `expand` name | Serializer | Many |")
+    lines.append("| --- | --- | --- |")
+    many = payload["expansion_mapper"]["many"]
+    for name, serializer in payload["expansion_mapper"]["mapping"].items():
+        lines.append(
+            f"| `{name}` | `{serializer.rsplit('.', 1)[-1]}` | "
+            f"{'yes' if name in many else 'no'} |"
+        )
+    lines.append("")
+    lines.append(
+        "`issue_attachments` is not in the mapper and is always appended last "
+        "when requested (`plane/app/serializers/base.py:171-188`)."
+    )
+    lines.append("")
+
+    if payload["choice_sets"]:
+        lines.append("## Choice sets")
+        lines.append("")
+        lines.append(
+            "`ChoiceField.choices` lists longer than "
+            f"{CHOICES_INLINE_LIMIT} entries are stored once here and referenced "
+            "from the field as `choices_ref`, instead of being repeated in every "
+            "serializer that uses them. The field table still names the set and "
+            "its size."
+        )
+        lines.append("")
+        lines.append("| Set | Entries |")
+        lines.append("| --- | ---: |")
+        for key, choices in payload["choice_sets"].items():
+            lines.append(f"| `{key}` | {len(choices)} |")
+        lines.append("")
+
+    lines.append("## Serializer index")
+    lines.append("")
+    lines.append("| Serializer | Model | Kind | Fields | Overrides |")
+    lines.append("| --- | --- | --- | ---: | --- |")
+    for record in serializers:
+        overrides = []
+        for key in ("to_representation", "get_fields", "__init__", "create", "update"):
+            owner = record["overrides"].get(key)
+            if owner and owner.rsplit(".", 1)[-1] not in (
+                "Serializer",
+                "ModelSerializer",
+                "BaseSerializer",
+                "DynamicBaseSerializer",
+            ):
+                overrides.append(f"{key}@{owner.rsplit('.', 1)[-1]}")
+        if record["overrides"].get("validate"):
+            overrides.append("validate: " + ", ".join(record["overrides"]["validate"]))
+        short = record["name"].split("plane.", 1)[-1]
+        lines.append(
+            f"| `{record['class']}` ({short}) | `{record['model'] or ''}` | "
+            f"{record['codegen']} | {record['field_count']} | "
+            f"{'; '.join(overrides) or ''} |"
+        )
+    lines.append("")
+
+    lines.append("## Serializers")
+    lines.append("")
+    for record in serializers:
+        lines.append(f"### `{record['name']}`")
+        lines.append("")
+        lines.append(
+            f"Model: `{record['model']}` · base: `{record['base']}` · "
+            f"codegen: **{record['codegen']}**"
+        )
+        if record.get("manual_reason"):
+            lines.append("")
+            lines.append(f"Manual because: {record['manual_reason']}.")
+        if record["abstract"]:
+            lines.append("")
+            lines.append("Abstract base class: no `Meta.model`, not instantiable.")
+        lines.append("")
+        if record["fields"]:
+            lines.append("| # | Field | DRF class | Source | RO | WO | Null | Type | Model field | Notes |")
+            lines.append("| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+            for index, field in enumerate(record["fields"], start=1):
+                notes = []
+                if field.get("nested"):
+                    notes.append(
+                        ("many " if field.get("nested_many") else "")
+                        + "nested " + field["nested"].rsplit(".", 1)[-1]
+                    )
+                if field.get("method_name"):
+                    notes.append(f"method {field['method_name']}")
+                if field.get("format"):
+                    notes.append(
+                        "format " + str(field["format"])
+                        if field["format"] != "iso-8601"
+                        else "ISO 8601"
+                    )
+                if field.get("choices"):
+                    notes.append(f"{len(field['choices'])} choices")
+                if field.get("choices_ref"):
+                    notes.append(
+                        f"{field['choices_count']} choices "
+                        f"(see choice set `{field['choices_ref']}`)"
+                    )
+                if field.get("pk"):
+                    notes.append(f"pk {field['pk'].get('python_type')}")
+                if field.get("json"):
+                    notes.append("jsonb/text")
+                if field.get("child"):
+                    notes.append(f"child {field['child']['class']}")
+                if field.get("decimal"):
+                    notes.append(
+                        f"decimal {field['decimal']['max_digits']},"
+                        f"{field['decimal']['decimal_places']}"
+                    )
+                model_field = field.get("model_field")
+                model_text = ""
+                if model_field:
+                    model_text = f"{model_field['class']}"
+                    if field.get("attribute") == "property":
+                        model_text += " (property)"
+                elif field.get("attribute") in ("property", "annotation"):
+                    model_text = field["attribute"]
+                lines.append(
+                    "| {index} | `{name}` | {cls} | `{source}` | {ro} | {wo} | "
+                    "{null} | {pytype} | {model_field} | {notes} |".format(
+                        index=index,
+                        name=field["name"],
+                        cls=field["class"],
+                        source=field["source"],
+                        ro="yes" if field["read_only"] else "",
+                        wo="yes" if field["write_only"] else "",
+                        null="yes" if field["allow_null"] else "",
+                        pytype=field.get("python_type") or "",
+                        model_field=model_text,
+                        notes="; ".join(notes),
+                    )
+                )
+            lines.append("")
+        if record["write_only_fields"]:
+            lines.append("Write-only fields (not in the response; Phase 5):")
+            lines.append("")
+            lines.append("| Field | DRF class | Source | Child |")
+            lines.append("| --- | --- | --- | --- |")
+            for field in record["write_only_fields"]:
+                child = field.get("child")
+                lines.append(
+                    f"| `{field['name']}` | {field['class']} | `{field['source']}` | "
+                    f"{child['class'] if child else ''} |"
+                )
+            lines.append("")
+
+    lines.append("## View → serializer index")
+    lines.append("")
+    lines.append(
+        "Every unique view in `routes.json`. `serializer_class` is the class "
+        "attribute; `get_serializer_class` shows the method's file:line and the "
+        "serializer names it can return; `calls` lists explicit `XSerializer(` "
+        "calls in the view's own methods (and one level of local helper "
+        "functions), with `fields=`/`expand=`/`many=` arguments."
+    )
+    lines.append("")
+    lines.append("| View | Routes | `serializer_class` | `get_serializer_class` | Explicit calls |")
+    lines.append("| --- | ---: | --- | --- | --- |")
+    for view in views:
+        serializer_class = view.get("serializer_class") or ""
+        if serializer_class:
+            serializer_class = f"`{serializer_class.rsplit('.', 1)[-1]}`"
+        getter = view.get("get_serializer_class")
+        getter_text = ""
+        if getter:
+            returns = ", ".join(f"`{name}`" for name in getter.get("returns", []))
+            getter_text = f"{getter.get('file', '')}:{getter.get('line', '')} → {returns}"
+        calls = view.get("calls", [])
+        call_text = "<br>".join(
+            "`{name}` ({file}:{line}, {method}{kwargs})".format(
+                name=call["serializer"],
+                file=(call.get("file") or "").rsplit("/", 1)[-1],
+                line=call["line"],
+                method=call["method"],
+                kwargs=(
+                    ""
+                    if not call["kwargs"]
+                    else " " + ", ".join(f"{key}={value}" for key, value in call["kwargs"].items())
+                ),
+            )
+            for call in calls
+        )
+        lines.append(
+            f"| `{view['view']}` | {len(view.get('paths', []))} | "
+            f"{serializer_class} | {getter_text} | {call_text} |"
+        )
+    lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Assembly
+# ---------------------------------------------------------------------------
+
+
+def build_payload(commit: str) -> OrderedDict[str, Any]:
+    from rest_framework import serializers as drf
+
+    import rest_framework
+
+    classes = discover_serializers(drf)
+    serializers = [serializer_record(cls, name) for name, cls in classes.items()]
+
+    choice_sets = dedupe_choice_sets(serializers)
+    routes_payload = json.loads((SERVER_DIR / "routes.json").read_text(encoding="utf-8"))
+    views = views_index(routes_payload["routes"])
+
+    import django
+
+    payload: OrderedDict[str, Any] = OrderedDict()
+    payload["generated_from"] = OrderedDict(
+        [
+            ("commit", commit),
+            ("django_version", django.get_version()),
+            ("drf_version", rest_framework.VERSION),
+            ("settings_module", os.environ.get("DJANGO_SETTINGS_MODULE", "")),
+            ("modules", list(SERIALIZER_PACKAGES)),
+        ]
+    )
+    payload["expansion_mapper"] = expansion_mapper_record()
+    payload["choice_sets"] = choice_sets
+    payload["serializers"] = serializers
+    payload["views"] = views
+    payload["counts"] = OrderedDict(
+        [
+            ("serializers", len(serializers)),
+            (
+                "codegen",
+                OrderedDict(
+                    (kind, sum(1 for record in serializers if record["codegen"] == kind))
+                    for kind in ("simple", "dynamic", "v1", "manual")
+                ),
+            ),
+            ("fields", sum(record["field_count"] for record in serializers)),
+            ("views", len(views)),
+            (
+                "views_with_explicit_calls",
+                sum(1 for view in views if view.get("calls")),
+            ),
+        ]
+    )
+    return payload
+
+
+def format_rust(source: str) -> str:
+    """Run the toolchain's `rustfmt` over generated code.
+
+    The CI check is `cargo fmt --all --check`, so codegen output has to be
+    rustfmt-clean on disk. Formatting here (rather than requiring a separate
+    `cargo fmt` after every regeneration) keeps `--check` meaningful.
+    """
+    try:
+        result = subprocess.run(
+            ["rustfmt", "--edition", "2024"],
+            input=source,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        print("warning: rustfmt not found; generated Rust is unformatted", file=sys.stderr)
+        return source
+    if result.returncode != 0:
+        print(
+            f"warning: rustfmt failed ({result.stderr.strip()}); leaving output unformatted",
+            file=sys.stderr,
+        )
+        return source
+    return result.stdout
+
+
+def rust_output(payload: OrderedDict[str, Any]) -> dict[Path, str]:
+    serializers = payload["serializers"]
+    generator = RustGenerator(serializers)
+    by_module: dict[str, list[dict[str, Any]]] = {}
+    for record in serializers:
+        if record["codegen"] == "manual":
+            continue
+        by_module.setdefault(record["module"], []).append(record)
+
+    files: dict[Path, str] = {}
+    mod_lines = [
+        "// Copyright (c) 2023-present Plane Software, Inc. and contributors",
+        "// SPDX-License-Identifier: AGPL-3.0-only",
+        "// See the LICENSE file for details.",
+        "",
+        "//! Code generated from Django's serializer introspection.",
+        "//!",
+        "//! `apps/server/tools/inventory/serializers.py --rust` writes one module",
+        "//! per Python serializer module. Re-run it after changing `apps/api`; the",
+        "//! files are committed so the build does not need Python.",
+        "//!",
+        "//! Serializers whose `to_representation` is hand-written are **not** here;",
+        "//! they are listed as `manual` in `apps/server/SERIALIZERS.md` and get",
+        "//! hand-written modules in a later session. A generated struct references",
+        "//! a manual nested serializer through `&dyn DrfSerialize`, so a parent",
+        "//! compiles before the child's module exists.",
+        "",
+    ]
+    for module in sorted(by_module):
+        rust_module = rust_module_name(module)
+        mod_lines.append(f"pub mod {rust_module};")
+        records = sorted(by_module[module], key=lambda record: record["class"])
+        files[GENERATED_DIR / f"{rust_module}.rs"] = format_rust(
+            generator.render_module(module, records)
+        )
+    mod_lines.append("")
+    files[GENERATED_DIR / "mod.rs"] = format_rust("\n".join(mod_lines))
+
+    # `serializers.json` (generated) mentions every module name; keep a marker
+    # the generator's own self-check can find.
+    return files
+
+
+def write_if_changed(path: Path, content: str, check: bool, changed: list[Path]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text(encoding="utf-8") if path.exists() else None
+    if existing == content:
+        return
+    changed.append(path)
+    if not check:
+        path.write_text(content, encoding="utf-8", newline="\n")
+
+
+def json_without_commit(text: str) -> str:
+    """The inventory with `generated_from.commit` blanked, for freshness checks.
+
+    The commit changes on every commit, so comparing it would report a stale
+    inventory even when nothing about the serializers changed.
+    """
+    payload = json.loads(text)
+    payload.setdefault("generated_from", {})["commit"] = ""
+    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=SERVER_DIR,
+        help="directory for serializers.json and SERIALIZERS.md (default: apps/server)",
+    )
+    parser.add_argument(
+        "--rust-dir",
+        type=Path,
+        default=GENERATED_DIR,
+        help="directory for generated Rust modules",
+    )
+    parser.add_argument("--check", action="store_true", help="verify, do not write")
+    parser.add_argument(
+        "--rust",
+        action="store_true",
+        help="write the generated Rust modules (the default)",
+    )
+    parser.add_argument("--skip-rust", action="store_true", help="do not write Rust")
+    parser.add_argument(
+        "--commit",
+        default=None,
+        help="record this commit in generated_from instead of `git rev-parse HEAD`",
+    )
+    args = parser.parse_args(argv)
+
+    setup_django()
+    payload = build_payload(args.commit or git_commit())
+
+    changed: list[Path] = []
+    json_path = args.out_dir.resolve() / "serializers.json"
+    markdown_path = args.out_dir.resolve() / "SERIALIZERS.md"
+    json_text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    markdown_text = render_markdown(payload)
+    if args.check and json_path.exists():
+        if json_without_commit(json_path.read_text(encoding="utf-8")) != json_without_commit(
+            json_text
+        ):
+            changed.append(json_path)
+    else:
+        write_if_changed(json_path, json_text, args.check, changed)
+    write_if_changed(markdown_path, markdown_text, args.check, changed)
+
+    if not args.skip_rust:
+        files = rust_output(payload)
+        for path, content in files.items():
+            target = args.rust_dir.resolve() / path.name
+            write_if_changed(target, content, args.check, changed)
+
+    counts = payload["counts"]
+    print(
+        f"{counts['serializers']} serializers "
+        f"({counts['codegen']['simple']} simple, {counts['codegen']['dynamic']} dynamic, "
+        f"{counts['codegen']['v1']} v1, {counts['codegen']['manual']} manual), "
+        f"{counts['fields']} fields, {counts['views']} views "
+        f"({counts['views_with_explicit_calls']} with explicit serializer calls)"
+    )
+    if args.check:
+        if changed:
+            for path in changed:
+                print(f"stale: {relative_source(path)}", file=sys.stderr)
+            return 1
+        print("inventory is up to date")
+        return 0
+    for path in changed:
+        print(f"wrote {relative_source(path)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
