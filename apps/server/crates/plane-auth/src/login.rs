@@ -27,9 +27,9 @@
 //! {"user_agent", "ip_address", "domain"}` and calls `session.save()`
 //! explicitly, so a row always exists even when the middleware would not save.
 
+use deadpool_postgres::Client;
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
-use tokio_postgres::Client;
 use uuid::Uuid;
 
 use crate::csrf::CsrfState;

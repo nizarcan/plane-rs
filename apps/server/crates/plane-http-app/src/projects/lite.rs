@@ -104,7 +104,8 @@ pub async fn load_asset_urls(client: &Client, ids: &HashSet<Uuid>) -> Result<Ass
         return Ok(HashMap::new());
     }
     let ids: Vec<Uuid> = ids.iter().copied().collect();
-    let rows = client.query(queries::ASSETS_BY_IDS.sql, &[&ids]).await?;
+    let statement = queries::ASSETS_BY_IDS.prepare(client).await?;
+    let rows = client.query(&statement, &[&ids]).await?;
     let mut out = HashMap::with_capacity(rows.len());
     for row in &rows {
         let id: Uuid = row.get(0);
@@ -243,7 +244,8 @@ pub async fn load_users(
         return Ok(HashMap::new());
     }
     let wanted: Vec<Uuid> = ids.iter().copied().collect();
-    let rows = client.query(queries::USERS_BY_IDS.sql, &[&wanted]).await?;
+    let statement = queries::USERS_BY_IDS.prepare(client).await?;
+    let rows = client.query(&statement, &[&wanted]).await?;
     let mut users = HashMap::with_capacity(rows.len());
     for row in &rows {
         let id: Uuid = row.get(0);
@@ -275,9 +277,8 @@ pub async fn load_workspaces(
         return Ok(HashMap::new());
     }
     let wanted: Vec<Uuid> = ids.iter().copied().collect();
-    let rows = client
-        .query(queries::WORKSPACES_BY_IDS.sql, &[&wanted])
-        .await?;
+    let statement = queries::WORKSPACES_BY_IDS.prepare(client).await?;
+    let rows = client.query(&statement, &[&wanted]).await?;
     let mut workspaces = HashMap::with_capacity(rows.len());
     for row in &rows {
         let id: Uuid = row.get(2);
@@ -305,9 +306,8 @@ pub async fn load_projects(
         return Ok(HashMap::new());
     }
     let wanted: Vec<Uuid> = ids.iter().copied().collect();
-    let rows = client
-        .query(queries::PROJECTS_BY_IDS.sql, &[&wanted])
-        .await?;
+    let statement = queries::PROJECTS_BY_IDS.prepare(client).await?;
+    let rows = client.query(&statement, &[&wanted]).await?;
     let mut projects = HashMap::with_capacity(rows.len());
     for row in &rows {
         let id: Uuid = row.get(0);

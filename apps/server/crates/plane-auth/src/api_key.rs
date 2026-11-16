@@ -34,7 +34,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use tokio_postgres::Client;
+use deadpool_postgres::Client;
 use uuid::Uuid;
 
 use crate::error::AuthError;
@@ -101,8 +101,9 @@ pub async fn authenticate(
     let Some(token) = header.filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
+    let load = client.prepare_cached(queries::LOAD_API_TOKEN.sql).await?;
     let row = client
-        .query_opt(queries::LOAD_API_TOKEN.sql, &[&token])
+        .query_opt(&load, &[&token])
         .await?
         .ok_or(ApiKeyError::Invalid)?;
     let token_id: Uuid = row.get(0);
@@ -111,9 +112,8 @@ pub async fn authenticate(
     let user = AuthUser::from_row(&row, 2);
 
     // `api_token.last_used = timezone.now(); save(update_fields=["last_used"])`.
-    client
-        .execute(queries::TOUCH_API_TOKEN.sql, &[&token_id, &Utc::now()])
-        .await?;
+    let touch = client.prepare_cached(queries::TOUCH_API_TOKEN.sql).await?;
+    client.execute(&touch, &[&token_id, &Utc::now()]).await?;
 
     Ok(Some(ApiToken {
         id: token_id,

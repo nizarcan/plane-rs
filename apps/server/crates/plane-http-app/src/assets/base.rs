@@ -65,9 +65,8 @@ fn file_asset_get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse
         let key = format!("{workspace_id}/{asset_key}");
 
         let client = client(ctx)?;
-        let rows = client
-            .query(queries::FILE_ASSETS_BY_ASSET.sql, &[&key])
-            .await?;
+        let statement = queries::FILE_ASSETS_BY_ASSET.prepare(client).await?;
+        let rows = client.query(&statement, &[&key]).await?;
         let assets = decode(&rows)?;
         let user_id = super::support::user_id(ctx)?;
         let accessible = support::accessible_assets(client, user_id, &assets).await?;

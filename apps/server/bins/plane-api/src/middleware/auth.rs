@@ -56,7 +56,7 @@ pub struct RequestDb {
 
 impl RequestDb {
     /// The connection, opening it on first use.
-    pub async fn client(&mut self, state: &AppState) -> Result<&tokio_postgres::Client, AuthError> {
+    pub async fn client(&mut self, state: &AppState) -> Result<&Client, AuthError> {
         if self.client.is_none() {
             let client = state
                 .db
