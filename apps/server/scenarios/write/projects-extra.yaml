@@ -35,6 +35,9 @@ vars:
   project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
   project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
   project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  intake_alpha: "826885ac-00cd-47cd-b54a-77a52004021c"
+  intake_beta: "d32f147b-0b3c-4086-a617-2fe4ec3f4b27"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
   admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
   member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
   session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
@@ -295,3 +298,93 @@ steps:
     jar: nonmember
     headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
     expect_status: 403
+
+  # --- 151/152 on Beta's fixture board ------------------------------------
+  # `get_or_create`'s **create** branch: Zeta has no fixture board, so the first
+  # POST below INSERTs and the second takes the update branch now that the row
+  # exists. A created board's `anchor` is `uuid4().hex`
+  # (`plane/db/models/deploy_board.py:14-15`), which `scenarios/normalize.yaml`'s
+  # scoped `anchor` rule placeholders (DECISIONS.md D16 — a fixture anchor stays
+  # literal, a generated one becomes `<anchor:N>` in the body, the DB diff and
+  # every later step).
+  - name: px-37-deploy-board-create-new-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      is_comments_enabled: true
+      views: { list: true, kanban: false }
+    capture:
+      - name: zeta_board_id
+        source: json
+        pointer: /id
+    expect_status: 200
+  - name: px-38-deploy-board-new-project-follow-up-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+  # The board now exists: the same POST takes `get_or_create`'s update branch and
+  # must keep the anchor it wrote.
+  - name: px-39-deploy-board-second-post-updates
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      is_votes_enabled: true
+      views: { list: false }
+    expect_status: 200
+  - name: px-40-deploy-board-new-project-get-after-update
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+
+  # Everything below runs on Beta's fixture board, whose anchor is fixed.
+  #
+  # A project *member* publishes (the second contract failure's shape: the
+  # caller is an active project member, not a workspace admin).
+  - name: px-32-deploy-board-member-publishes
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    json:
+      is_reactions_enabled: true
+      views: { list: true, kanban: false }
+    expect_status: 200
+  # A board can publish an intake from its own project (`intake_beta`).
+  - name: px-33-deploy-board-create-with-own-intake
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      intake: "{{intake_beta}}"
+      views: { list: true }
+    expect_status: 200
+  # …and never one from another project (`intake_alpha`).
+  - name: px-34-deploy-board-create-foreign-intake
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      intake: "{{intake_alpha}}"
+    expect_status: 400
+  # A workspace member with no project membership is refused before the body.
+  - name: px-35-deploy-board-without-project-membership
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: onboarded
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_onboarded}}" }
+    json: {}
+    expect_status: 403
+  # The follow-up GET shows the intake and the flags the two POSTs wrote.
+  - name: px-36-deploy-board-beta-follow-up-get
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-deploy-boards/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }

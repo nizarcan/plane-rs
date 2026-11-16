@@ -75,6 +75,12 @@ shapes:
   auth_user_hash:
     pattern: '^[0-9a-f]{64}$'
     why: "_auth_user_hash is a SHA-256 HMAC hexdigest of the salted password hash"
+  # plane/db/models/deploy_board.py:14-15: anchor = models.CharField(default=get_anchor)
+  # with get_anchor = lambda: uuid4().hex. A board created during a run gets a
+  # value neither side can predict; a fixture board's anchor is identical.
+  anchor_hex:
+    pattern: '^[0-9a-f]{32}$'
+    why: "deploy board anchor: uuid4().hex (plane/db/models/deploy_board.py:14-15)"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -291,6 +297,16 @@ volatile_json_keys:
     placeholder: colour
     shape: hex_colour
     why: "random default '#rrggbb' colour, mixed case (plane/utils/color.py:9), used by workspaces and profiles"
+  # DECISIONS.md D16: the same principle as generated ids. A board created
+  # during a run gets `uuid4().hex`; the value is random per side, so it is a
+  # placeholder that stays consistent across the body, the DB diff and every
+  # later step. A board the fixture seeded has an identical anchor on both
+  # sides, so `placeholder_if_new` leaves it literal and it is still compared.
+  - name: anchor
+    mode: placeholder_if_new
+    placeholder: anchor
+    shape: anchor_hex
+    why: "DeployBoard.anchor = uuid4().hex on create (plane/db/models/deploy_board.py:14-15); DECISIONS.md D16"
   - name: epoch
     mode: unix_time
     why: "int(timezone.now().timestamp()) at enqueue time (plane/app/views/issue/base.py:429); two runs can land in different seconds"
@@ -340,6 +356,15 @@ volatile_db_columns:
     placeholder: colour
     shape: hex_colour
     why: "random default colour, mixed case (plane/db/models/workspace.py:139, plane/utils/color.py:9)"
+  # The DB half of the `anchor` rule above: the same raw value gets the same
+  # placeholder from the per-target map, so a generated anchor is `<anchor:1>`
+  # in the response body and in `deploy_boards.anchor` of the insert diff.
+  - table: deploy_boards
+    column: anchor
+    mode: placeholder_if_new
+    placeholder: anchor
+    shape: anchor_hex
+    why: "DeployBoard.anchor = uuid4().hex on create (plane/db/models/deploy_board.py:14-15); DECISIONS.md D16"
 
 # Celery transport headers: not part of the task's observable behaviour, so
 # they are dropped rather than placeholdered (their values are per-process).

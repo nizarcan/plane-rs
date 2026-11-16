@@ -153,6 +153,7 @@ fn rules() -> Arc<NormalizeRules> {
         shape(session::SESSION_DATA_PATTERN),
     );
     shapes.insert("auth_user_hash".to_string(), shape(r"^[0-9a-f]{64}$"));
+    shapes.insert("anchor_hex".to_string(), shape(r"^[0-9a-f]{32}$"));
 
     Arc::new(NormalizeRules {
         ignore_headers: vec![
@@ -187,6 +188,15 @@ fn rules() -> Arc<NormalizeRules> {
                 request: None,
             },
             placeholder("background_color", "colour", "hex_colour"),
+            NamedRule {
+                name: "anchor".to_string(),
+                why: "deploy board anchor: uuid4().hex on create".to_string(),
+                mode: RuleMode::PlaceholderIfNew,
+                placeholder: Some("anchor".to_string()),
+                shape: Some("anchor_hex".to_string()),
+                check: None,
+                request: None,
+            },
             named("epoch", "whole-second wall clock", RuleMode::UnixTime),
         ],
         volatile_headers: vec![
@@ -226,6 +236,15 @@ fn rules() -> Arc<NormalizeRules> {
                 mode: RuleMode::RelativeTime,
                 placeholder: None,
                 shape: None,
+                check: None,
+            },
+            DbRule {
+                table: "deploy_boards".to_string(),
+                column: "anchor".to_string(),
+                why: "deploy board anchor: uuid4().hex on create".to_string(),
+                mode: RuleMode::PlaceholderIfNew,
+                placeholder: Some("anchor".to_string()),
+                shape: Some("anchor_hex".to_string()),
                 check: None,
             },
             db_placeholder("users", "username", "username", "uuid_hex"),
@@ -420,6 +439,77 @@ pub fn run() -> Result<()> {
         normalizer.start_step(start, start);
         normalizer.normalize_text(&known) == known
     })?;
+    // DECISIONS.md D16 + the `anchor` rule in `scenarios/normalize.yaml`: a
+    // deploy board created during a run gets `uuid4().hex`, which differs per
+    // side, so both must normalise to the same `<anchor:1>`; a fixture anchor
+    // is in the baseline set, stays literal, and a change is still a diff.
+    let fixture_anchor = "0123456789abcdef0123456789abcdef".to_string();
+    let anchor_rules = rules();
+    checks.ok("a generated deploy-board anchor is one placeholder", {
+        let mut a = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::clone(&anchor_rules),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::from([fixture_anchor.clone()])),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        let mut b = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::clone(&anchor_rules),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::from([fixture_anchor.clone()])),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        a.start_step(start, start);
+        b.start_step(start, start);
+        let body_a = a.normalize_body(
+            br#"{"anchor":"4f3c2b1a09988776655443322110ffee","views":{}}"#,
+            true,
+        );
+        let body_b = b.normalize_body(
+            br#"{"anchor":"00ffeeddccbbaa998877665544332211","views":{}}"#,
+            true,
+        );
+        compare_bodies(&body_a, &body_b).is_empty()
+            && body_a.pretty().contains("<anchor:1>")
+            && body_b.pretty().contains("<anchor:1>")
+            && a.applied().iter().any(|rule| rule.rule.contains("anchor"))
+    })?;
+    checks.ok("a fixture anchor stays literal and a change is a diff", {
+        let mut a = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::clone(&anchor_rules),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::from([fixture_anchor.clone()])),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        let mut b = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::clone(&anchor_rules),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::from([fixture_anchor.clone()])),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        a.start_step(start, start);
+        b.start_step(start, start);
+        let body_a = a.normalize_body(
+            format!(r#"{{"anchor":"{fixture_anchor}"}}"#).as_bytes(),
+            true,
+        );
+        let body_b = b.normalize_body(br#"{"anchor":"ffffffffffffffffffffffffffffffff"}"#, true);
+        // A keeps the literal; B, seeing a value the fixture never had, makes
+        // it a placeholder — so the two bodies differ and the step fails.
+        // The fixture's own anchors are human-readable ("fixture-anchor-alpha"),
+        // so a baseline literal must not be shape-checked either.
+        body_a.pretty().contains(&fixture_anchor)
+            && !body_a.pretty().contains("<anchor:1>")
+            && !compare_bodies(&body_a, &body_b).is_empty()
+    })?;
+
     // The kombu envelope is the same UUID in Celery's JSON encoding. It has to
     // follow the text rule, or a fixture id becomes `<id:1>` on one side only
     // (the side that spells the argument as a JSON string).

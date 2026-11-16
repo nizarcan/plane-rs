@@ -146,34 +146,36 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             None => {
                 // `get_or_create`'s create branch: `workspace` comes from the
                 // project (`WorkspaceBaseModel.save`), `anchor` from the model
-                // default (`uuid4().hex`), the rest from the field defaults.
+                // default (`uuid4().hex`), the rest from the **field** defaults
+                // — the view's body values are assigned afterwards, by the
+                // `save()` below, exactly like the Python's two statements.
                 let workspace_id: Uuid = client
                     .query_one(queries::PROJECT_WORKSPACE_BY_ID.sql, &[&project_id, &slug])
                     .await?
                     .try_get(0)?;
                 let now = write::now();
-                let id = Uuid::new_v4();
-                let anchor = Uuid::new_v4().simple().to_string();
-                DeployBoardRow {
+                let created = DeployBoardRow {
                     created_at: now,
                     updated_at: now,
                     created_by_id: Some(user),
                     updated_by_id: None,
                     deleted_at: None,
-                    id,
+                    id: Uuid::new_v4(),
                     workspace_id,
                     project_id: Some(project_id),
                     entity_identifier: Some(project_id),
                     entity_name: Some("project".to_owned()),
-                    anchor,
-                    is_comments_enabled: comments,
-                    is_reactions_enabled: reactions,
-                    intake_id: intake,
-                    is_votes_enabled: votes,
-                    view_props: views.clone(),
+                    anchor: Uuid::new_v4().simple().to_string(),
+                    is_comments_enabled: false,
+                    is_reactions_enabled: false,
+                    intake_id: None,
+                    is_votes_enabled: false,
+                    view_props: JsonText::new("{}"),
                     is_activity_enabled: true,
                     is_disabled: false,
-                }
+                };
+                insert_board(client, &created).await?;
+                created
             }
         };
 
@@ -313,6 +315,36 @@ fn body_bool(data: &plane_drf::parsers::Data, key: &str) -> Option<bool> {
         // route's contract covers.
         Some(_) => None,
     }
+}
+
+/// `DeployBoard.objects.create` — the `get_or_create` insert branch.
+async fn insert_board(
+    client: &deadpool_postgres::Client,
+    board: &DeployBoardRow,
+) -> Result<(), ViewError> {
+    client
+        .execute(
+            queries::DEPLOY_BOARD_INSERT.sql,
+            &[
+                &board.created_at,
+                &board.updated_at,
+                &board.created_by_id,
+                &board.id,
+                &board.workspace_id,
+                &board.project_id,
+                &board.entity_identifier,
+                &board.entity_name,
+                &board.anchor,
+                &board.is_comments_enabled,
+                &board.is_reactions_enabled,
+                &board.intake_id,
+                &board.is_votes_enabled,
+                &board.view_props,
+            ],
+        )
+        .await
+        .map_err(write_support::integrity)?;
+    Ok(())
 }
 
 /// `project_deploy_board.save()`.

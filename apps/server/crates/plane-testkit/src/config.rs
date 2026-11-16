@@ -636,6 +636,12 @@ pub enum RuleMode {
     Placeholder,
     /// Like `placeholder`, but an empty value or `null` is left alone.
     PlaceholderIfNonEmpty,
+    /// Like `placeholder`, but a value that already exists in the baseline
+    /// snapshot stays literal. DECISIONS.md D16: a value the fixture seeded is
+    /// identical on both sides and must be compared, not hidden; only a value
+    /// generated during the run (a fresh `uuid4().hex`, say) needs a
+    /// placeholder so the two targets can agree on it.
+    PlaceholderIfNew,
     /// A timestamp relative to the step clock: replace with `<offset+Ns>`
     /// (rounded to 10 s) so `now + a fixed age` is compared by its age.
     RelativeTime,
@@ -958,7 +964,7 @@ fn validate_spec(
         bail!("normalize: {what} rule {name:?} has an empty `request` glob");
     }
     match spec.mode {
-        RuleMode::Placeholder | RuleMode::PlaceholderIfNonEmpty => {
+        RuleMode::Placeholder | RuleMode::PlaceholderIfNonEmpty | RuleMode::PlaceholderIfNew => {
             let Some(placeholder) = &spec.placeholder else {
                 bail!("normalize: {what} rule {name:?} needs `placeholder`");
             };
