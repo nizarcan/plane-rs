@@ -831,6 +831,19 @@ and only `verified` rows are Rust-owned.
   users' favourites parented under it (`models/favorite.py:25-31`; `parent` is writable
   through the workspace favourites POST); a page favourite with `project_id NULL` can't
   be destroyed through 126.
+- Favourite parent cascade (merged `f0e1790c62`): shared
+  `write::favorite::hard_delete` (Django's collector: per-depth `parent_id` probes, then one
+  `DELETE … WHERE id = ANY(…)`), now used by pages 126, modules 111 and views 184.
+  `write/module-issues.yaml` 68/68, `view-favorites.yaml` 51/51 and
+  `page-favorites.yaml` 30/30 DvR on `plane_fix_tpl`. The same bug remains in projects
+  150 (`projects/favorite_write.rs:152-155`) and cycles 37 (`cycles/write.rs:1197-1199`).
+- Incident: the orchestrator's worktree setup ran `ln -sf` in the main checkout after a
+  failed `cd`, which turned `apps/server/dev/.env.local` into a self-symlink. Agents
+  regenerated keys that don't match `plane_fix_tpl`'s sessions, so every difftest step
+  401s. The original key was identified by verifying a fixture session signature and
+  restored from a worktree copy; every checkout now shares it. Worktree setup commands
+  are now chained with `&&`. Upstream note: `settings/production.py:27-28` creates
+  `LOG_DIR` racily (`FileExistsError` when two instances start together).
 - Running: set A, page core (124, 125, 127); set B, description, lock and access
   (128, 129, 130); set D, duplicate (133).
 
