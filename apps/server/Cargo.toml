@@ -76,3 +76,12 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# Debug builds: line tables only (backtraces keep file:line) and no debug info for
+# dependencies. Full debug info made each target/ directory 5-20 GB and filled the disk
+# while several agents built in parallel worktrees.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
