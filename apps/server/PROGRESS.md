@@ -158,6 +158,30 @@ invariants (each domain registers only its group's actions; every `rust` row in
 `ROUTES.md` must be registered), the central schema check over every catalog
 (150 statements), full user row at authentication, `per_page=` → 400 like `int()`.
 
+### Phase 5: write pipeline and stickies writes (merged `d804326e34`, 2026-11-16)
+
+- `plane-http-app::write`:
+  - DRF-exact validation: field order, messages and codes, `partial`, read-only fields,
+    non-mapping bodies;
+  - `now()`, soft delete and the soft-delete cascade publish.
+- `plane-db::hooks`: the `MODEL_HOOKS.md` registry. Audit (H01), soft delete (H03) and
+  sticky (H23) are ported; the rest are listed with their contracts.
+- Writes run in autocommit (`ATOMIC_REQUESTS` is unset) on the request's own connection,
+  as Django does. Session CSRF is the dispatcher's Origin check
+  (`plane/authentication/session.py`); no Plane view uses DRF's token CSRF.
+  `HANDLERS.md` has a "Writes" guide.
+- Stickies: `POST /stickies/` and `PATCH`/`DELETE /stickies/{pk}/`.
+  `scenarios/write/stickies.yaml` (31 steps) has 0 diffs Django vs Django and Django vs
+  Rust on the merge commit, with DB diffs and Celery messages included. HTML sanitising
+  uses `ammonia` 4.0.0, as bundled by `nh3` 0.2.18. Round trips: create 3 (Django 3),
+  PATCH and DELETE 2 each (Django 4).
+- D18: `Content-Length` on 204/304 isn't part of the contract, because Caddy strips it.
+- Verified on the merge commit: gates, 822 tests, schema_check 4/4, and the full read
+  sweep 0 diffs.
+- **Flipped:** order 223 is `rust(GET,POST)` and order 224 is `rust(GET,PATCH,DELETE)`.
+  `HEAD` and `OPTIONS` stay on Django until a scenario covers them. `gen_caddy --check`,
+  the proxy pytest (41), Caddy validate and the registry test pass.
+
 ### Phase 5: write-scenario harness (merged `2d4f858d9a`, 2026-11-16)
 
 - Per-side captures from the response or the DB diff (`source: db`), placeholdered
@@ -329,6 +353,13 @@ and only `verified` rows are Rust-owned.
   932 at 32). Suspect the per-request `recent_visited_task` publish; check its publisher
   path, connection and channel reuse.
 
+- `gen_caddy.py` cosmetic: when a group has clusters with different method sets, the
+  `||` joining them is followed by a stray indent (`|| \t\t\t(`). It is valid CEL and
+  Caddy validates it; fix the join when next touching the generator.
+- Writes: field tables in `write::Serializer` are hand-written per domain. Emit them from
+  `tools/inventory/serializers.py` (a `--rust` mode) before the larger domains.
+- `HEAD`/`OPTIONS` on Rust-owned write rows stay on Django. Add scenario steps for DRF's
+  `OPTIONS` metadata body before moving any row to a bare `rust` owner.
 - Fixture manifest bug (pre-existing): the `notification_preference_*` and
   `project_user_property_*` vars in `fix_tpl.json` are recorded before
   `Fixture.renumber()` rewrites those ids, so they never match the template, and the
@@ -509,17 +540,11 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. Phase 5 infrastructure, before any domain: write-request parsing (JSON, multipart,
-   form) with Django/DRF's exact error bodies; writable serializer validation that
-   reproduces DRF's error format and field order; CSRF on unsafe methods
-   (Phase 2 primitives); a transaction per request like Django's autocommit;
-   `created_by`/`updated_by` like `django-crum`; a `model_hooks` module from
-   `MODEL_HOOKS.md`; and harness support for write scenarios. DB diffs already exist;
-   add per-step fixture reset or isolation, and ids normalised across the two DBs.
-2. Then the domains in the brief's order, one agent per domain, each porting its tasks
-   with it: projects and members → states/labels → work items and sub-resources
-   (including `issue_activities_task` and `notification_task`) → cycles → modules →
-   views → pages → intake → notifications → favourites → stickies → webhooks → assets
-   → exports → analytics → search.
+1. Phase 5 domains in the brief's order, starting with **projects and members** (project
+   create/update/archive/delete, members, invites, joins, and their tasks and model
+   hooks). Each domain ports its tasks with it, writes `scenarios/write/<group>.yaml`,
+   and runs the contract tests with `--assume-rust` before its flip.
+2. A serializer field-table generator for `write::Serializer`, before the work-items
+   domain.
 3. Re-measure the Phase 3 benchmark row and add container numbers for `plane-worker` and
    `plane-beat`, on a quiet stack, within the time budget.

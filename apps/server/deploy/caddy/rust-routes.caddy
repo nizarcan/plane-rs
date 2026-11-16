@@ -377,7 +377,8 @@ handle @plane_rs_search {
 	expression <<CEL
 		({env.PLANE_RS_GROUP_STICKIES} == "" ? "rust" : {env.PLANE_RS_GROUP_STICKIES}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/stickies/$") || path_regexp(r"^/api/workspaces/[^/]+/stickies/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			(method("GET", "POST") && (path_regexp(r"^/api/workspaces/[^/]+/stickies/$")))
+			|| 			(method("GET", "PATCH", "DELETE") && (path_regexp(r"^/api/workspaces/[^/]+/stickies/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
 		)
 	CEL
 }
