@@ -38,7 +38,17 @@ The defaults below make the shorter form work too::
 difference (CI freshness). ``--rust`` writes the Rust modules; it is the
 default, and exists so the documented invocation
 (``tools/inventory/serializers.py --rust``) is explicit. ``--rust-dir DIR``
-moves the output, ``--skip-rust`` skips it.
+moves the representation output, ``--skip-rust`` skips all Rust.
+
+The same run also emits the write-path tables `plane-http-app` uses: one
+module per serializer under ``crates/plane-http-app/src/write/generated/``,
+with the writable fields in DRF validation order, the read-only fields,
+``Meta.extra_kwargs`` and a generated ``validate``. ``--write-serializers A,B``
+selects the classes (default: the work-items set plus Sticky and Project);
+``--write-dir DIR`` moves the output. ``--write-equivalence`` compares the
+generated Sticky/Project tables with the hand-written handlers in
+``stickies/write.rs`` and ``projects/write.rs``; it is diagnostic, because the
+hand-written side may be the one that is wrong.
 
 ## Classification
 
@@ -259,10 +269,17 @@ def relative_source(path: str | Path | None) -> str | None:
     if not path:
         return None
     path = Path(path).resolve()
+    # A worktree's `apps/api/.venv` is a symlink into the main checkout, so the
+    # resolved path is outside `REPO_ROOT`. The committed inventory uses the
+    # logical path; keep it stable across checkouts.
+    text = str(path)
+    venv = "/apps/api/.venv/"
+    if venv in text:
+        return "apps/api/.venv/" + text.split(venv, 1)[1]
     try:
         return str(path.relative_to(REPO_ROOT))
     except ValueError:
-        return str(path)
+        return text
 
 
 def source_line(fn: Any) -> dict[str, Any] | None:
@@ -434,6 +451,8 @@ def field_record(
     """
     from rest_framework import serializers as drf
     from rest_framework import fields as drf_fields
+    from rest_framework import relations as drf_relations
+    from rest_framework import serializers as drf_serializers
 
     record: OrderedDict[str, Any] = OrderedDict()
     field_name = name or getattr(field, "field_name", None) or "?"
@@ -675,6 +694,8 @@ def python_type_for_field_class(field: Any) -> str | None:
         return "int"
     if isinstance(field, drf.FloatField):
         return "float"
+    if isinstance(field, drf.DecimalField):
+        return "decimal"
     if isinstance(field, drf.BooleanField):
         return "bool"
     if isinstance(field, drf.DateTimeField):
@@ -1888,6 +1909,732 @@ def render_markdown(payload: OrderedDict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Write field tables (plane-http-app/src/write/generated)
+# ---------------------------------------------------------------------------
+#
+# A write handler validates a request by calling `Serializer`'s field helpers
+# in DRF's order. The order and the per-field options are Python metadata, not
+# something a human should retype per serializer, so this section emits them:
+#
+# * `FIELDS` -- writable fields in `self.fields` order (DRF's validation order)
+#   with the kind and the effective options (after `extra_kwargs`);
+# * `READ_ONLY_FIELDS` -- declared read-only fields, `Meta.read_only_fields`,
+#   and `editable=False` model fields (including ones DRF drops entirely);
+# * `EXTRA_KWARGS` -- the `Meta.extra_kwargs` overrides, verbatim;
+# * `validate` -- the helper calls a handler would make today, with
+#   `// TODO(kind)` for a field class `plane-http-app/src/write` has no helper
+#   for. It deliberately does not invent helpers.
+#
+# The output is one module per serializer plus a `mod.rs` that defines the
+# table types. It lands in `crates/plane-http-app/src/write/generated/`; the
+# representation modules in `plane-serializers` are separate and unchanged.
+
+WRITE_GENERATED_DIR = (
+    SERVER_DIR / "crates" / "plane-http-app" / "src" / "write" / "generated"
+)
+
+# The work-items domain (routes in `apps/api/plane/app/views/issue/` and the
+# draft viewset), plus the two pilots already hand-ported. The exact set is
+# reviewed when a domain starts; `--write-serializers` overrides it.
+WRITE_SERIALIZERS = (
+    "plane.app.serializers.issue.IssueCreateSerializer",
+    "plane.app.serializers.issue.IssueSerializer",
+    "plane.app.serializers.issue.IssueCommentSerializer",
+    "plane.app.serializers.issue.CommentReactionSerializer",
+    "plane.app.serializers.issue.IssueLinkSerializer",
+    "plane.app.serializers.issue.IssueAttachmentSerializer",
+    "plane.app.serializers.issue.IssueReactionSerializer",
+    "plane.app.serializers.issue.IssueRelationSerializer",
+    "plane.app.serializers.issue.IssueSubscriberSerializer",
+    "plane.app.serializers.draft.DraftIssueCreateSerializer",
+    "plane.app.serializers.draft.DraftIssueSerializer",
+    "plane.app.serializers.draft.DraftIssueDetailSerializer",
+    "plane.app.serializers.workspace.StickySerializer",
+    "plane.app.serializers.project.ProjectSerializer",
+)
+
+# Hand-written tables the generated output must agree with. Each value is
+# `(Rust file, function containing the field calls)`. This is only used by
+# `--write-equivalence`; the generated modules themselves never depend on it.
+WRITE_EQUIVALENCE = {
+    "plane.app.serializers.workspace.StickySerializer": (
+        SERVER_DIR / "crates/plane-http-app/src/stickies/write.rs",
+        "fn apply_body",
+    ),
+    "plane.app.serializers.project.ProjectSerializer": (
+        SERVER_DIR / "crates/plane-http-app/src/projects/write.rs",
+        "fn read_body",
+    ),
+}
+
+FIELD_KIND_VARIANTS = {
+    "char": "Char",
+    "integer": "Integer",
+    "float": "Float",
+    "boolean": "Boolean",
+    "choice": "Choice",
+    "multiple_choice": "Choice",
+    "datetime": "DateTime",
+    "date": "Date",
+    "time": "Time",
+    "uuid": "Uuid",
+    "primary_key": "PrimaryKey",
+    "json": "Json",
+    "list": "List",
+    "many_related": "ManyRelated",
+    "nested": "Nested",
+    "nested_many": "List",
+    "serializer_method": "SerializerMethod",
+    "model_field": "ModelField",
+    "file": "Other",
+    "decimal": "Other",
+    "other": "Other",
+}
+
+
+def write_kind(field: Any) -> str:
+    """The field class behind a DRF field instance, for the table and validate."""
+    from rest_framework import serializers as drf
+
+    if isinstance(field, drf.SerializerMethodField):
+        return "serializer_method"
+    if isinstance(field, drf.ListSerializer):
+        return "nested_many"
+    if isinstance(field, drf.BaseSerializer):
+        return "nested"
+    if isinstance(field, drf.ManyRelatedField):
+        return "many_related"
+    if isinstance(field, drf.ListField):
+        return "list"
+    if isinstance(field, drf.PrimaryKeyRelatedField):
+        return "primary_key"
+    if isinstance(field, drf.MultipleChoiceField):
+        return "multiple_choice"
+    if isinstance(field, drf.ChoiceField):
+        return "choice"
+    if isinstance(field, drf.BooleanField):
+        return "boolean"
+    if isinstance(field, drf.UUIDField):
+        return "uuid"
+    if isinstance(field, drf.IntegerField):
+        return "integer"
+    if isinstance(field, drf.FloatField):
+        return "float"
+    if isinstance(field, drf.DecimalField):
+        return "decimal"
+    if isinstance(field, drf.DateTimeField):
+        return "datetime"
+    if isinstance(field, drf.DateField):
+        return "date"
+    if isinstance(field, drf.TimeField):
+        return "time"
+    if isinstance(field, drf.JSONField):
+        return "json"
+    from rest_framework import fields as drf_fields
+
+    if isinstance(field, drf_fields.FileField):
+        return "file"
+    if isinstance(field, drf.CharField):
+        return "char"
+    if isinstance(field, drf.ModelField):
+        return "model_field"
+    return "other"
+
+
+def python_repr(value: Any) -> str:
+    """A deterministic Python-ish repr for a table value (never evaluated)."""
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return repr(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(python_repr(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{python_repr(key)}: {python_repr(item)}" for key, item in value.items()) + "}"
+    return repr(value)
+
+
+def rust_string(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
+def bool_literal(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def write_field_record(field: Any, cls: type) -> OrderedDict[str, Any]:
+    """One entry of a serializer's write table."""
+    from rest_framework import fields as drf_fields
+    from rest_framework import relations as drf_relations
+    from rest_framework import serializers as drf_serializers
+
+    record: OrderedDict[str, Any] = OrderedDict()
+    # A `ListField`'s child is unbound: it has no name of its own.
+    record["name"] = field.field_name or "element"
+    record["python_class"] = type(field).__name__
+    record["kind"] = write_kind(field)
+    record["source"] = field.source or record["name"]
+    record["required"] = bool(field.required)
+    record["read_only"] = bool(field.read_only)
+    record["write_only"] = bool(field.write_only)
+    record["allow_null"] = bool(field.allow_null)
+    allow_blank = getattr(field, "allow_blank", None)
+    record["allow_blank"] = bool(allow_blank) if allow_blank is not None else False
+    record["trim_whitespace"] = bool(getattr(field, "trim_whitespace", True))
+    if field.default is not drf_fields.empty:
+        record["default"] = python_repr(field.default)
+
+    for key, attribute, cast in (
+        ("max_length", "max_length", int),
+        ("min_length", "min_length", int),
+        ("min_value", "min_value", int),
+        ("max_value", "max_value", int),
+    ):
+        value = getattr(field, attribute, None)
+        if value is not None:
+            try:
+                record[key] = cast(value)
+            except (TypeError, ValueError):
+                record[key] = str(value)
+
+    if isinstance(field, drf_fields.ChoiceField):
+        # Only `ChoiceField` is safe to iterate: `RelatedField.choices` runs a
+        # queryset (see the module docstring).
+        record["choices"] = [(python_repr(value), str(display)) for value, display in field.choices.items()]
+        record["choice_values"] = [value for value, _ in field.choices.items()]
+
+    if isinstance(field, (drf_fields.DateTimeField, drf_fields.DateField, drf_fields.TimeField)):
+        from rest_framework.settings import api_settings
+
+        # `input_formats` is only an instance attribute when the declaration
+        # passed it; otherwise DRF reads the setting at parse time.
+        if isinstance(field, drf_fields.DateTimeField):
+            default_formats = api_settings.DATETIME_INPUT_FORMATS
+        elif isinstance(field, drf_fields.DateField):
+            default_formats = api_settings.DATE_INPUT_FORMATS
+        else:
+            default_formats = api_settings.TIME_INPUT_FORMATS
+        formats = getattr(field, "input_formats", None) or default_formats
+        record["input_formats"] = [str(item) for item in formats]
+
+    if isinstance(field, (drf_relations.PrimaryKeyRelatedField, drf_relations.ManyRelatedField)):
+        queryset = getattr(field, "queryset", None)
+        model = getattr(queryset, "model", None)
+        if model is None and isinstance(field, drf_relations.ManyRelatedField):
+            model = getattr(getattr(field.child_relation, "queryset", None), "model", None)
+        record["related_model"] = model_label(model)
+
+    if isinstance(field, drf_fields.ListField):
+        record["child"] = write_field_record(field.child, cls)
+    elif isinstance(field, drf_relations.ManyRelatedField):
+        record["child"] = write_field_record(field.child_relation, cls)
+    elif isinstance(field, drf_serializers.ListSerializer):
+        record["child"] = write_field_record(field.child, cls)
+    return record
+
+
+def write_module_name(class_name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", class_name).lower()
+
+
+def write_serializer_record(cls: type) -> OrderedDict[str, Any]:
+    """Everything the module for one serializer needs."""
+    serializer = cls()
+    model = getattr(getattr(cls, "Meta", None), "model", None)
+    meta = getattr(cls, "Meta", None)
+    meta_read_only = list(getattr(meta, "read_only_fields", None) or [])
+    fields = list(serializer.fields.values())
+    writable = [write_field_record(field, cls) for field in fields if not field.read_only]
+    read_only: list[OrderedDict[str, Any]] = []
+    present = {field.field_name for field in fields}
+    model_fields = {model_field.name: model_field for model_field in model._meta.get_fields() if getattr(model_field, "concrete", False)} if model is not None else {}
+
+    for field in fields:
+        if not field.read_only:
+            continue
+        if field.field_name in meta_read_only:
+            reason = "Meta.read_only_fields"
+        elif field.field_name in model_fields and not model_fields[field.field_name].editable:
+            reason = "editable=False model field"
+        elif isinstance(field, __import__("rest_framework.serializers", fromlist=["SerializerMethodField"]).SerializerMethodField):
+            reason = "SerializerMethodField"
+        else:
+            reason = "read_only"
+        read_only.append(
+            OrderedDict(
+                [
+                    ("name", field.field_name),
+                    ("python_class", type(field).__name__),
+                    ("kind", write_kind(field)),
+                    ("source", field.source),
+                    ("reason", reason),
+                ]
+            )
+        )
+
+    # `fields=` can omit an `editable=False` model field entirely; DRF drops it
+    # from both input and output, but a port still needs to know it is not part
+    # of the body contract.
+    for name, model_field in sorted(model_fields.items()):
+        if name in present or model_field.editable:
+            continue
+        read_only.append(
+            OrderedDict(
+                [
+                    ("name", name),
+                    ("python_class", type(model_field).__name__),
+                    ("kind", "model_field"),
+                    ("source", name),
+                    ("reason", "editable=False model field (dropped by DRF)"),
+                ]
+            )
+        )
+
+    extra_kwargs: list[tuple[str, str, str]] = []
+    for name, options in sorted((getattr(meta, "extra_kwargs", None) or {}).items()):
+        for option, value in sorted((options or {}).items()):
+            extra_kwargs.append((name, option, python_repr(value)))
+
+    source = source_line(cls) or {}
+    return OrderedDict(
+        [
+            ("python_name", dotted(cls)),
+            ("class", cls.__name__),
+            ("module", write_module_name(cls.__name__)),
+            ("source_file", source.get("file")),
+            ("source_line", source.get("line")),
+            ("model", model_label(model)),
+            ("fields", writable),
+            ("read_only", read_only),
+            ("extra_kwargs", extra_kwargs),
+        ]
+    )
+
+
+def field_spec_literal(field: dict[str, Any]) -> str:
+    """A Rust `FieldSpec` expression for one field record."""
+    parts = [
+        f"name: {rust_string(field['name'])}",
+        f"source: {rust_string(field['source'])}",
+        f"python_class: {rust_string(field['python_class'])}",
+        f"kind: FieldKind::{FIELD_KIND_VARIANTS.get(field['kind'], 'Other')}",
+        f"required: {bool_literal(field['required'])}",
+        f"write_only: {bool_literal(field['write_only'])}",
+        f"allow_null: {bool_literal(field['allow_null'])}",
+        f"allow_blank: {bool_literal(field['allow_blank'])}",
+        f"default: {('Some(' + rust_string(field['default']) + ')') if 'default' in field else 'None'}",
+        f"max_length: {('Some(' + str(field['max_length']) + ')') if 'max_length' in field else 'None'}",
+        f"min_length: {('Some(' + str(field['min_length']) + ')') if 'min_length' in field else 'None'}",
+        f"min_value: {('Some(' + str(field['min_value']) + ')') if 'min_value' in field else 'None'}",
+        f"max_value: {('Some(' + str(field['max_value']) + ')') if 'max_value' in field else 'None'}",
+    ]
+    choices = field.get("choices") or []
+    rendered_choices = ", ".join(
+        f"({rust_string(value)}, {rust_string(display)})" for value, display in choices
+    )
+    parts.append(f"choices: &[{rendered_choices}]")
+    formats = field.get("input_formats") or []
+    rendered_formats = ", ".join(rust_string(item) for item in formats)
+    parts.append(f"input_formats: &[{rendered_formats}]")
+    parts.append(
+        f"related_model: {('Some(' + rust_string(field['related_model']) + ')') if field.get('related_model') else 'None'}"
+    )
+    if "child" in field:
+        parts.append(f"child: Some(&{field_spec_literal(field['child'])})")
+    else:
+        parts.append("child: None")
+    return "FieldSpec { " + ", ".join(parts) + " }"
+
+
+def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[str, str, str]]]:
+    """`validate` body plus the `(kind, serializer, field)` TODO entries."""
+    lines = ["pub fn validate(s: &mut Serializer<'_>) {"]
+    todos: list[tuple[str, str, str]] = []
+    has_statement = False
+    for field in fields:
+        name = rust_string(field["name"])
+        kind = field["kind"]
+        if kind == "char":
+            has_statement = True
+            lines.append(
+                "    let _ = s.char_field("
+                f"{name}, CharOptions {{ allow_null: {bool_literal(field['allow_null'])}, "
+                f"allow_blank: {bool_literal(field['allow_blank'])}, "
+                f"trim_whitespace: {bool_literal(field['trim_whitespace'])}, "
+                f"max_length: {('Some(' + str(field['max_length']) + ')') if 'max_length' in field else 'None'} }});"
+            )
+        elif kind == "boolean" and not field["allow_null"]:
+            has_statement = True
+            lines.append(f"    let _ = s.bool_field({name});")
+        elif kind == "float":
+            has_statement = True
+            lines.append(f"    let _ = s.float_field({name}, {bool_literal(field['allow_null'])});")
+        elif kind == "datetime":
+            formats = field.get("input_formats") or []
+            if formats == ["iso-8601"]:
+                has_statement = True
+                lines.append(
+                    f"    let _ = s.datetime_field({name}, {bool_literal(field['allow_null'])});"
+                )
+            else:
+                lines.append(f"    // TODO(datetime-format): {field['name']} accepts {formats!r}")
+                todos.append(("datetime-format", field["serializer"], field["name"]))
+        elif kind == "json":
+            has_statement = True
+            lines.append(f"    let _ = s.json_field({name}, {bool_literal(field['allow_null'])});")
+        elif kind == "choice" and integer_choices(field):
+            has_statement = True
+            values = ", ".join(str(value) for value in field["choice_values"])
+            lines.append(f"    let _ = s.integer_choice_field({name}, &[{values}]);")
+        else:
+            todo = todo_kind(field)
+            lines.append(f"    // TODO({todo}): {field['name']}")
+            todos.append((todo, field["serializer"], field["name"]))
+        if field["required"]:
+            has_statement = True
+            lines.append(f"    if s.missing_required({name}) {{")
+            lines.append(f"        s.push_error({name}, Detail::required());")
+            lines.append("    }")
+    if not has_statement:
+        lines.append("    let _ = s; // every writable field is a TODO(kind)")
+    lines.append("}")
+    return lines, todos
+
+
+def integer_choices(field: dict[str, Any]) -> bool:
+    values = field.get("choice_values") or []
+    return bool(values) and all(
+        isinstance(value, int) and not isinstance(value, bool) and -32768 <= value <= 32767
+        for value in values
+    )
+
+
+def todo_kind(field: dict[str, Any]) -> str:
+    kind = field["kind"]
+    if kind == "boolean":
+        return "boolean-allow-null"
+    if kind == "choice":
+        return "choice"
+    if kind == "nested_many":
+        return "nested"
+    return kind
+
+
+def write_validate_imports(fields: list[dict[str, Any]]) -> list[str]:
+    """Import only what this module's `validate` uses, so `-D warnings` holds."""
+    names = ["Serializer"]
+    if any(field["kind"] == "char" for field in fields):
+        names.append("CharOptions")
+    if any(field["required"] for field in fields):
+        names.append("Detail")
+    if len(names) == 1:
+        return ["use crate::write::Serializer;"]
+    return ["use crate::write::{" + ", ".join(sorted(names)) + "};"]
+
+
+def render_write_module(record: OrderedDict[str, Any]) -> str:
+    lines = [
+        "// Copyright (c) 2023-present Plane Software, Inc. and contributors",
+        "// SPDX-License-Identifier: AGPL-3.0-only",
+        "// See the LICENSE file for details.",
+        "",
+        f"//! Generated from `{record['source_file']}:{record['source_line']}`",
+        f"//! (`{record['python_name']}`). Generated by",
+        "//! `tools/inventory/serializers.py --rust`; do not edit.",
+        "",
+        "use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};",
+        *write_validate_imports(record["fields"]),
+        "",
+        f"pub const PYTHON_SERIALIZER: &str = {rust_string(record['python_name'])};",
+        "",
+        "pub const FIELDS: &[FieldSpec] = &[",
+    ]
+    for field in record["fields"]:
+        lines.append(f"    {field_spec_literal(field)},")
+    lines.append("];")
+    lines.append("")
+    lines.append("pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[")
+    for field in record["read_only"]:
+        lines.append(
+            "    ReadOnlySpec { "
+            f"name: {rust_string(field['name'])}, "
+            f"source: {rust_string(field['source'])}, "
+            f"python_class: {rust_string(field['python_class'])}, "
+            f"kind: FieldKind::{FIELD_KIND_VARIANTS.get(field['kind'], 'Other')}, "
+            f"reason: {rust_string(field['reason'])} }},"
+        )
+    lines.append("];")
+    lines.append("")
+    lines.append("pub const EXTRA_KWARGS: &[ExtraKwarg] = &[")
+    for name, option, value in record["extra_kwargs"]:
+        lines.append(
+            "    ExtraKwarg { "
+            f"name: {rust_string(name)}, option: {rust_string(option)}, value: {rust_string(value)} }},"
+        )
+    lines.append("];")
+    lines.append("")
+    for field in record["fields"]:
+        field["serializer"] = record["class"]
+    validate, _ = validate_lines(record["fields"])
+    lines.extend(validate)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_generated_mod(records: list[OrderedDict[str, Any]]) -> str:
+    lines = [
+        "// Copyright (c) 2023-present Plane Software, Inc. and contributors",
+        "// SPDX-License-Identifier: AGPL-3.0-only",
+        "// See the LICENSE file for details.",
+        "",
+        "//! Generated serializer write tables.",
+        "//!",
+        "//! Generated by `apps/server/tools/inventory/serializers.py --rust`; do",
+        "//! not edit. Each module describes one DRF serializer's writable fields",
+        "//! in validation order, its read-only fields and the `validate` calls a",
+        "//! handler would make today. `validate` emits `// TODO(kind)` where the",
+        "//! write pipeline has no helper yet; the generator's summary lists them.",
+        "",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        "pub enum FieldKind {",
+        "    Char,",
+        "    Integer,",
+        "    Float,",
+        "    Boolean,",
+        "    Choice,",
+        "    DateTime,",
+        "    Date,",
+        "    Time,",
+        "    Uuid,",
+        "    PrimaryKey,",
+        "    Json,",
+        "    List,",
+        "    ManyRelated,",
+        "    Nested,",
+        "    SerializerMethod,",
+        "    ModelField,",
+        "    Other,",
+        "}",
+        "",
+        "#[derive(Debug, Clone, Copy)]",
+        "pub struct FieldSpec {",
+        "    pub name: &'static str,",
+        "    pub source: &'static str,",
+        "    pub python_class: &'static str,",
+        "    pub kind: FieldKind,",
+        "    pub required: bool,",
+        "    pub write_only: bool,",
+        "    pub allow_null: bool,",
+        "    pub allow_blank: bool,",
+        "    pub default: Option<&'static str>,",
+        "    pub max_length: Option<usize>,",
+        "    pub min_length: Option<usize>,",
+        "    pub min_value: Option<i64>,",
+        "    pub max_value: Option<i64>,",
+        "    pub choices: &'static [(&'static str, &'static str)],",
+        "    pub input_formats: &'static [&'static str],",
+        "    pub related_model: Option<&'static str>,",
+        "    pub child: Option<&'static FieldSpec>,",
+        "}",
+        "",
+        "#[derive(Debug, Clone, Copy)]",
+        "pub struct ReadOnlySpec {",
+        "    pub name: &'static str,",
+        "    pub source: &'static str,",
+        "    pub python_class: &'static str,",
+        "    pub kind: FieldKind,",
+        "    pub reason: &'static str,",
+        "}",
+        "",
+        "#[derive(Debug, Clone, Copy)]",
+        "pub struct ExtraKwarg {",
+        "    pub name: &'static str,",
+        "    pub option: &'static str,",
+        "    pub value: &'static str,",
+        "}",
+        "",
+    ]
+    for record in sorted(records, key=lambda item: item["module"]):
+        lines.append(f"pub mod {record['module']};")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_output(
+    classes: dict[str, type], requested: list[str]
+) -> tuple[dict[Path, str], list[OrderedDict[str, Any]], list[tuple[str, str, str]]]:
+    """The generated write modules, the records, and every TODO entry."""
+    records = [write_serializer_record(classes[name]) for name in requested]
+    files: dict[Path, str] = {}
+    todos: list[tuple[str, str, str]] = []
+    for record in records:
+        for field in record["fields"]:
+            field["serializer"] = record["class"]
+        _, record_todos = validate_lines(record["fields"])
+        todos.extend(record_todos)
+        files[WRITE_GENERATED_DIR / f"{record['module']}.rs"] = format_rust(
+            render_write_module(record)
+        )
+    files[WRITE_GENERATED_DIR / "mod.rs"] = format_rust(write_generated_mod(records))
+    return files, records, todos
+
+
+def select_write_serializers(classes: dict[str, type], spec: str | None) -> list[str]:
+    """Resolve `--write-serializers` (class or dotted names) to canonical names."""
+    if not spec:
+        wanted = list(WRITE_SERIALIZERS)
+    else:
+        wanted = [item.strip() for item in spec.split(",") if item.strip()]
+    resolved: list[str] = []
+    for item in wanted:
+        if item in classes:
+            resolved.append(item)
+            continue
+        matches = [name for name in classes if name.endswith(f".{item}")]
+        if len(matches) == 1:
+            resolved.append(matches[0])
+            continue
+        if not matches:
+            raise SystemExit(f"error: no serializer named {item!r}")
+        raise SystemExit(
+            f"error: serializer {item!r} is ambiguous: {', '.join(sorted(matches))}"
+        )
+    return resolved
+
+
+# ---------------------------------------------------------------------------
+# Equivalence against hand-written handlers
+# ---------------------------------------------------------------------------
+
+HANDLER_CALL_RE = re.compile(
+    r"(?:serializer\.(?P<helper>char_field|float_field|bool_field_value|bool_field|"
+    r"integer_choice_field|field|datetime_field|json_field)\(|"
+    r"related_field\(\s*serializer,\s*client,)"
+    r'\s*"(?P<name>[a-z_]+)"'
+)
+
+
+def _enclosing_function(source: str, marker: str) -> str:
+    start = source.index(marker)
+    body = source[start:]
+    following = re.search(r"\n(?:pub )?(?:async )?fn ", body[1:])
+    if following:
+        body = body[: following.start() + 1]
+    return body
+
+
+def handler_field_records(path: Path, marker: str) -> list[dict[str, Any]]:
+    """The field calls a hand-written handler makes, in source order."""
+    body = _enclosing_function(path.read_text(encoding="utf-8"), marker)
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in HANDLER_CALL_RE.finditer(body):
+        name = match.group("name")
+        if name in seen:
+            continue
+        seen.add(name)
+        helper = match.group("helper") or "related_field"
+        record: dict[str, Any] = {"name": name, "helper": helper}
+        # The call's own text: up to its closing `);` (a `char_field` options
+        # struct can span lines; the first `);` after the name is the end).
+        end = body.find(");", match.end())
+        window = body[match.end() : end + 2] if end != -1 else ""
+        if helper == "char_field":
+            record["allow_null"] = "allow_null: true" in window or "nullable()" in window
+            record["allow_blank"] = "allow_blank: true" in window or "nullable()" in window
+            max_length = re.search(r"with_max_length\((\d+)\)", window) or re.search(
+                r"max_length:\s*Some\((\d+)\)", window
+            )
+            record["max_length"] = int(max_length.group(1)) if max_length else None
+        elif helper in ("float_field", "datetime_field", "json_field", "field"):
+            value = re.match(r",\s*(true|false)", window)
+            if value:
+                record["allow_null"] = value.group(1) == "true"
+        elif helper == "integer_choice_field":
+            values = re.search(r"&\[([0-9,\s]+)\]", window)
+            if values:
+                record["choices"] = [
+                    int(item) for item in values.group(1).replace(" ", "").split(",") if item
+                ]
+        records.append(record)
+    return records
+
+
+def compare_write_with_handler(
+    record: OrderedDict[str, Any], handler: list[dict[str, Any]]
+) -> list[str]:
+    """Differences between a generated table and a hand-written handler."""
+    generated = [field for field in record["fields"] if not field["read_only"]]
+    generated_names = [field["name"] for field in generated]
+    handler_names = [field["name"] for field in handler]
+    problems: list[str] = []
+    if generated_names != handler_names:
+        missing = [name for name in generated_names if name not in handler_names]
+        extra = [name for name in handler_names if name not in generated_names]
+        if missing:
+            problems.append(f"missing from handler: {', '.join(missing)}")
+        if extra:
+            problems.append(f"not in DRF's writable fields: {', '.join(extra)}")
+        if not missing and not extra:
+            problems.append("field order differs")
+
+    by_name = {field["name"]: field for field in handler}
+    for field in generated:
+        handled = by_name.get(field["name"])
+        if handled is None:
+            continue
+        kind = field["kind"]
+        helper = handled["helper"]
+        compatible = {
+            "char": ("char_field",),
+            "float": ("float_field",),
+            "datetime": ("datetime_field",),
+            "json": ("json_field",),
+            # `bool_field_value` is the same helper over a view-injected value.
+            "boolean": ("bool_field", "bool_field_value"),
+            "choice": ("integer_choice_field", "field"),
+            # A custom `field(name, allow_null, parser)` is how the handlers
+            # validate integers and string choices today.
+            "integer": ("field",),
+            "primary_key": ("related_field",),
+        }.get(kind)
+        if compatible is None or helper not in compatible:
+            problems.append(f"{field['name']}: generated {kind}, handler {helper}")
+            continue
+        if kind == "char":
+            for option in ("allow_null", "allow_blank", "max_length"):
+                if field.get(option) != handled.get(option):
+                    problems.append(
+                        f"{field['name']}.{option}: generated {field.get(option)!r}, "
+                        f"handler {handled.get(option)!r}"
+                    )
+        elif kind in ("float", "datetime", "json"):
+            if "allow_null" in handled and field["allow_null"] != handled["allow_null"]:
+                problems.append(
+                    f"{field['name']}.allow_null: generated {field['allow_null']!r}, "
+                    f"handler {handled['allow_null']!r}"
+                )
+        elif kind == "choice" and helper == "integer_choice_field" and "choices" in handled:
+            if field.get("choice_values") != handled["choices"]:
+                problems.append(
+                    f"{field['name']}.choices: generated {field.get('choice_values')!r}, "
+                    f"handler {handled['choices']!r}"
+                )
+    return problems
+
+
+# ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
 
@@ -2044,7 +2791,26 @@ def main(argv: list[str] | None = None) -> int:
         "--rust-dir",
         type=Path,
         default=GENERATED_DIR,
-        help="directory for generated Rust modules",
+        help="directory for generated representation modules",
+    )
+    parser.add_argument(
+        "--write-dir",
+        type=Path,
+        default=WRITE_GENERATED_DIR,
+        help="directory for generated write tables",
+    )
+    parser.add_argument(
+        "--write-serializers",
+        default=None,
+        help=(
+            "comma-separated serializer class names to generate write tables for "
+            "(default: the work-items set, Sticky and Project)"
+        ),
+    )
+    parser.add_argument(
+        "--write-equivalence",
+        action="store_true",
+        help="compare generated Sticky/Project tables with the hand-written handlers",
     )
     parser.add_argument("--check", action="store_true", help="verify, do not write")
     parser.add_argument(
@@ -2077,10 +2843,21 @@ def main(argv: list[str] | None = None) -> int:
         write_if_changed(json_path, json_text, args.check, changed)
     write_if_changed(markdown_path, markdown_text, args.check, changed)
 
+    write_records: list[OrderedDict[str, Any]] = []
+    write_todos: list[tuple[str, str, str]] = []
     if not args.skip_rust:
         files = rust_output(payload)
         for path, content in files.items():
             target = args.rust_dir.resolve() / path.name
+            write_if_changed(target, content, args.check, changed)
+
+        from rest_framework import serializers as drf
+
+        classes = discover_serializers(drf)
+        requested = select_write_serializers(classes, args.write_serializers)
+        files, write_records, write_todos = write_output(classes, requested)
+        for path, content in files.items():
+            target = args.write_dir.resolve() / path.name
             write_if_changed(target, content, args.check, changed)
 
     counts = payload["counts"]
@@ -2091,16 +2868,55 @@ def main(argv: list[str] | None = None) -> int:
         f"{counts['fields']} fields, {counts['views']} views "
         f"({counts['views_with_explicit_calls']} with explicit serializer calls)"
     )
+    if write_records:
+        writable = sum(len(record["fields"]) for record in write_records)
+        read_only = sum(len(record["read_only"]) for record in write_records)
+        print(
+            f"write tables: {len(write_records)} serializers, {writable} writable "
+            f"fields, {read_only} read-only fields"
+        )
+        if write_todos:
+            grouped: dict[str, list[str]] = {}
+            for kind, serializer, field in write_todos:
+                grouped.setdefault(kind, []).append(f"{serializer}.{field}")
+            print("write TODO kinds:")
+            for kind, items in sorted(grouped.items()):
+                items = sorted(items)
+                shown = ", ".join(items[:6])
+                more = f" (+{len(items) - 6} more)" if len(items) > 6 else ""
+                print(f"  {kind}: {len(items)} field(s) — {shown}{more}")
+        else:
+            print("write TODO kinds: none")
+
+    equivalence_failed = False
+    if args.write_equivalence:
+        by_name = {record["python_name"]: record for record in write_records}
+        for python_name, (path, marker) in WRITE_EQUIVALENCE.items():
+            record = by_name.get(python_name)
+            if record is None:
+                print(f"write equivalence {python_name}: not generated, skipped")
+                continue
+            problems = compare_write_with_handler(record, handler_field_records(path, marker))
+            if problems:
+                equivalence_failed = True
+                print(f"write equivalence {record['class']}: {len(problems)} mismatch(es)")
+                for problem in problems:
+                    print(f"  {problem}")
+            else:
+                print(f"write equivalence {record['class']}: matches the handler")
+
     if args.check:
         if changed:
             for path in changed:
                 print(f"stale: {relative_source(path)}", file=sys.stderr)
             return 1
+        if equivalence_failed:
+            return 1
         print("inventory is up to date")
         return 0
     for path in changed:
         print(f"wrote {relative_source(path)}")
-    return 0
+    return 1 if equivalence_failed else 0
 
 
 if __name__ == "__main__":
