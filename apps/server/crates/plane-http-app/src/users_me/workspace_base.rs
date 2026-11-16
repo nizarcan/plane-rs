@@ -282,8 +282,8 @@ fn dashboard<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
         let client = crate::common::client(ctx)?;
 
         // `date.today()` for the activity window, `timezone.now().date()` for
-        // the issue date comparisons. The two differ only around midnight in a
-        // non-UTC process timezone, as they do in Python.
+        // the issue date comparisons. Both are the UTC date: Django points the
+        // process timezone at `TIME_ZONE` ("UTC").
         let activity_since = support::months_ago(3);
         let utc_today: NaiveDate = plane_core::clock::now().date_naive();
         let due_week = i64::from(plane_core::clock::now().date_naive().iso_week().week());

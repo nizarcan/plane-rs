@@ -14,7 +14,7 @@
 //! implementation (`HANDLERS.md` §7); the domains that still carry their own
 //! copy are listed in the refactor report rather than switched silently.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use plane_core::ApiError;
 use plane_drf::error::ViewError;
 use plane_drf::view::ViewCtx;
@@ -51,9 +51,22 @@ pub fn page_query(
     )
 }
 
-/// `date.today()` — the process's local date, not UTC.
+/// `date.today()`, evaluated in Django's process timezone.
+///
+/// Django sets the process `TZ` to `settings.TIME_ZONE` and calls
+/// `time.tzset()` as soon as the settings load (`django/conf/__init__.py:195-205`,
+/// in the pinned 5.2), and Plane's `TIME_ZONE` is `"UTC"`
+/// (`plane/settings/common.py:319`). `date.today()` is therefore the current
+/// UTC date, not the host's local one — at UTC+3 the two differ between 00:00
+/// and 03:00 local.
 pub fn today() -> NaiveDate {
-    chrono::Local::now().date_naive()
+    today_at(plane_core::clock::now())
+}
+
+/// [`today`] at a given instant, so tests can pin one where the host's date
+/// and the UTC date differ.
+pub fn today_at(now: DateTime<Utc>) -> NaiveDate {
+    now.date_naive()
 }
 
 /// `date.today() + relativedelta(months=-months)`.
@@ -101,6 +114,26 @@ mod tests {
         assert_eq!(python_int("1__0"), None);
         assert_eq!(python_int("abc"), None);
         assert_eq!(python_int("0x10"), None);
+    }
+
+    #[test]
+    fn today_is_the_utc_date_not_the_host_date() {
+        // 2026-11-16T23:30Z is already 2026-11-17 at UTC+3: a `Local::now`
+        // would answer the 17th there. Django's process timezone is UTC, so
+        // `date.today()` answers the 16th.
+        let instant = DateTime::parse_from_rfc3339("2026-11-16T23:30:00Z")
+            .expect("instant")
+            .with_timezone(&Utc);
+        assert_eq!(
+            today_at(instant),
+            NaiveDate::from_ymd_opt(2026, 11, 16).expect("date")
+        );
+        assert_ne!(
+            today_at(instant),
+            instant
+                .with_timezone(&chrono::FixedOffset::east_opt(3 * 3600).expect("offset"))
+                .date_naive()
+        );
     }
 
     #[test]
