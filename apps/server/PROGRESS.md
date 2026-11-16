@@ -371,7 +371,10 @@ and only `verified` rows are Rust-owned.
 
 - **Environment change to revert at the end:** the Colima VM was resized from 2 CPUs / 2 GiB
   to 6 CPUs / 10 GiB (owner-approved, for benchmarks and parallel agents). Original
-  profile saved at `apps/server/target/orch/colima.yaml.orig` (cpu 2, memory 2, disk 100).
+  profile (cpu 2, memory 2, disk 100) saved at `apps/server/dev/run/orch/colima.yaml.orig`.
+  This is a reconstruction from the live profile with cpu/memory reset; the first copy
+  lived under `target/` and was lost to a disk cleanup on 2026-11-17. Never keep state
+  under `target/`.
   Revert with `colima stop && colima start --cpu 2 --memory 2`, then `docker start vmif`
   (its restart policy is `no`); the owner's `cc-cost` containers restart on their own.
   The dev Postgres limit (2 GiB in `dev/compose.yml`) must go back to 640M at the same time.
