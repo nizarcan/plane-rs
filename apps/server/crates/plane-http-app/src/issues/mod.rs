@@ -45,5 +45,14 @@ mod sub_resources;
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     sub_resources::register_sub_resources(registry)?;
     lists::register_lists(registry)?;
+    // `…/projects/{project_id}/user-properties/` matches this group's
+    // `projects/*/user-properties/` selector, so the route is registered here
+    // even though the handler lives with the other project settings writes.
+    registry
+        .api_view("plane.app.views.issue.base.ProjectUserDisplayPropertyEndpoint")?
+        .method(
+            http::Method::PATCH,
+            crate::projects::settings_write::user_properties,
+        )?;
     Ok(())
 }
