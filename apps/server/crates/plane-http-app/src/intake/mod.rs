@@ -13,22 +13,38 @@
 //! * `/api/workspaces/*/projects/*/intake-work-items/**`
 //! * `/api/workspaces/*/projects/*/intake-state/`
 //!
-//! Nothing is registered yet: every route of this group still answers Django,
-//! so `register` is empty. It stops being empty one route at a time, each one
-//! only after its `scenarios/read/` (and, for a write, its write) scenario is
-//! clean against Django — `apps/server/HANDLERS.md` is the procedure. Once a
-//! group is fully ported, the orchestrator flips its `Owner` column in
-//! `ROUTES.md`; a domain agent never edits that file.
+//! | Route | Registered | Python |
+//! | --- | --- | --- |
+//! | `GET …/intakes/` | `IntakeViewSet.list` | `plane/app/views/intake/base.py:74` |
+//! | `GET …/intakes/{pk}/` | `IntakeViewSet.retrieve` (guard's 405) | `:79`/`base.py:103-198` |
+//! | `GET …/inboxes/` | the same `IntakeViewSet.list` | `:74` |
+//! | `GET …/inboxes/{pk}/` | the same guard-only `retrieve` | — |
+//! | `GET …/intake-issues/` | `IntakeIssueViewSet.list` | `:178` |
+//! | `GET …/intake-issues/{pk}/` | `IntakeIssueViewSet.retrieve` | `:507` |
+//! | `GET …/inbox-issues/` | the same `list` | `:178` |
+//! | `GET …/inbox-issues/{pk}/` | the same `retrieve` | `:507` |
+//! | `GET …/intake-work-items/{work_item_id}/description-versions/` | `IntakeWorkItemDescriptionVersionEndpoint.get` | `:583` |
+//! | `GET …/description-versions/{pk}/` | the same `get` | `:583` |
+//! | `GET …/intake-state/` | `IntakeStateEndpoint.get` | `state/base.py:151` |
+//!
+//! Every write verb of these views stays on Django: they are part of the same
+//! route rows and are ported in Phase 5.
 
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod asset;
+pub mod base;
+pub mod issue;
 pub mod queries;
+pub mod render;
+pub mod state;
+pub mod versions;
 
-/// Register this group's handlers, in the order they were ported.
-///
-/// `apps/server/HANDLERS.md` has the step list. Return the first
-/// [`RegistryError`]: a route that cannot be registered must fail startup
-/// rather than fall back to a 501 nobody notices.
-pub fn register(_registry: &mut Registry) -> Result<(), RegistryError> {
+/// Register this group's handlers, in route order.
+pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    base::register(registry)?;
+    issue::register(registry)?;
+    versions::register(registry)?;
+    state::register(registry)?;
     Ok(())
 }
