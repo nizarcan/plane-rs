@@ -677,18 +677,34 @@ fn reconcile_repr_headers(a_value: &mut Value, b_value: &mut Value) {
             let (Some(a_text), Some(b_text)) = (a.as_str(), b.as_str()) else {
                 continue;
             };
-            let a_prefix = repr_before_truncation(a_text);
-            let b_prefix = repr_before_truncation(b_text);
+            // `epoch=int(timezone.now().timestamp())` is wall-clock; the body
+            // normaliser already replaces it (`scenarios/normalize.yaml`), and
+            // the repr must agree or two runs a second apart differ here only.
+            let a_text = normalize_repr_epoch(a_text);
+            let b_text = normalize_repr_epoch(b_text);
+            let a_prefix = repr_before_truncation(&a_text);
+            let b_prefix = repr_before_truncation(&b_text);
             if a_prefix.is_none() && b_prefix.is_none() {
                 continue;
             }
-            let a_prefix = canonical_placeholders(a_prefix.unwrap_or(a_text));
-            let b_prefix = canonical_placeholders(b_prefix.unwrap_or(b_text));
+            let a_prefix = canonical_placeholders(a_prefix.unwrap_or(&a_text));
+            let b_prefix = canonical_placeholders(b_prefix.unwrap_or(&b_text));
             let length = a_prefix.chars().count().min(b_prefix.chars().count());
             *a = Value::String(a_prefix.chars().take(length).collect());
             *b = Value::String(b_prefix.chars().take(length).collect());
         }
     }
+}
+
+/// Rewrite `'epoch': <unix seconds>` inside a `saferepr` header to the
+/// `<epoch>` placeholder the body normaliser uses, so two runs that land in
+/// different seconds still compare equal on the repr.
+fn normalize_repr_epoch(value: &str) -> String {
+    static EPOCH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let regex = EPOCH.get_or_init(|| {
+        regex::Regex::new(r"'epoch': ([0-9]+)([,}])").expect("epoch regex")
+    });
+    regex.replace_all(value, "'epoch': <epoch>$2").into_owned()
 }
 
 fn queue_groups(messages: &[CeleryMessage]) -> BTreeMap<String, Vec<&CeleryMessage>> {
@@ -1173,6 +1189,20 @@ mod tests {
         assert!(compare_redis(&removed_a, &removed_b).is_empty());
         assert_eq!(compare_redis(&removed_a, &a).len(), 1);
     }
+
+    #[test]
+    fn repr_epoch_is_normalised() {
+        assert_eq!(
+            super::normalize_repr_epoch("{'type': 'x', 'epoch': 1794848274, 'notification': True}"),
+            "{'type': 'x', 'epoch': <epoch>, 'notification': True}"
+        );
+        // A float or a shorter key is left alone.
+        assert_eq!(
+            super::normalize_repr_epoch("{'epochs': 1, 'epoch': 1.5}"),
+            "{'epochs': 1, 'epoch': 1.5}"
+        );
+    }
+
     #[test]
     fn repr_truncation_marker_is_celery_tail_only() {
         assert_eq!(repr_before_truncation("('a', ...}"), Some("('a'"));
