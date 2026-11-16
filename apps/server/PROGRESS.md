@@ -762,12 +762,18 @@ and only `verified` rows are Rust-owned.
 - Open, being settled: set A found that `write::request_data_arg` raises on form bodies,
   while Python's encoders accept a `QueryDict` (last value per key). It is used by live
   project and cycle routes, and a second copy serves issue links and relations.
-- Modules set B (66/66): renaming its query catalog, which collided with set A's, and
-  catching up before the merge.
+- Modules set B (merged `4684f963d7`): 105 `rust(POST)`, 106/108/110 `rust(GET,POST)`,
+  107 `rust(GET,DELETE)` (PUT/PATCH are Django's 405s with no step), 109
+  `rust(GET,PUT,PATCH,DELETE)` (module-link PUT is a real update and covered), 111
+  `rust(DELETE)`. `write/module-issues.yaml` 66/66; the orchestrator's contract run is
+  136/136 Rust-touching (2 requests reach module routes). Django's `URLValidator` moved
+  to `write::url`, shared with issue links (`issue-relations` 83/83). 105 registers from
+  `issues/mod.rs`, because the issues route group selects its path. **The modules domain
+  is fully on Rust.**
 
 ## Next three steps
 
-1. Merge modules set B; merge the `request_data_arg` fix with form-body steps on every
+1. Merge the `request_data_arg` fix with form-body steps on every
    live call site.
 2. Then views → pages → intake → notifications → favourites → webhooks → exports →
    analytics → search, each planned read-only first by a fresh agent.
