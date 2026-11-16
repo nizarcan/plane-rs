@@ -769,10 +769,14 @@ and only `verified` rows are Rust-owned.
   create/PATCH, cycles and modules create/PATCH, link PATCH, relation remove. Verified:
   879 tests, all 16 write scenarios both ways (new form/multipart steps), the full read
   sweep.
-- Found by the views planner: cycle and module destroy hard-delete `user_recent_visits`
-  without the `SoftDeletionManager`'s `deleted_at IS NULL` (Django:
-  `UserRecentVisit.objects.filter(...).delete(soft=False)`); issue delete has it. Being
-  fixed with an audit of every hard-delete statement.
+- Delete-manager audit (merged `1a4d106a42`): 25 delete statements checked against the
+  Django call and its manager. Fixed: cycle and module destroy hard-deleted
+  already-soft-deleted recent visits (`UserRecentVisit.objects` keeps `deleted_at IS
+  NULL`; found by the views planner); the H03 instance delete and project delete carried
+  an extra `deleted_at IS NULL` where an instance save updates by pk only. Also ported:
+  PK fields render list/dict/float input through Django's UUID message, and a multipart
+  file part replaces a same-named field in `{**request.data}`. Verified: 879 tests,
+  every write scenario both ways, the full read sweep.
 - Modules set B (merged `4684f963d7`): 105 `rust(POST)`, 106/108/110 `rust(GET,POST)`,
   107 `rust(GET,DELETE)` (PUT/PATCH are Django's 405s with no step), 109
   `rust(GET,PUT,PATCH,DELETE)` (module-link PUT is a real update and covered), 111
