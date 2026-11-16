@@ -71,7 +71,7 @@
 # | health | `PLANE_RS_GROUP_HEALTH` | 1 | 8 | no |
 # | meta | `PLANE_RS_GROUP_META` | 2 | 6 | yes |
 # | users-me | `PLANE_RS_GROUP_USERS_ME` | 22 | 75 | yes |
-# | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | no |
+# | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | yes |
 # | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | yes |
 # | analytics | `PLANE_RS_GROUP_ANALYTICS` | 13 | 41 | no |
 # | projects | `PLANE_RS_GROUP_PROJECTS` | 17 | 65 | yes |
@@ -105,7 +105,7 @@
 	expression <<CEL
 		({env.PLANE_RS_GROUP_META} == "" ? "rust" : {env.PLANE_RS_GROUP_META}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/api/timezones/$")))
+			(method("GET") && (path_regexp(r"^/api/unsplash/$") || path_regexp(r"^/api/timezones/$")))
 		)
 	CEL
 }
@@ -126,6 +126,22 @@ handle @plane_rs_meta {
 	CEL
 }
 handle @plane_rs_users_me {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# assets: Direct file uploads and downloads, v1-style and v2-style.
+# 20 route(s), 83 endpoint x method pair(s); PLANE_RS_GROUP_ASSETS=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_assets {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_ASSETS} == "" ? "rust" : {env.PLANE_RS_GROUP_ASSETS}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/file-assets/$") || path_regexp(r"^/api/workspaces/file-assets/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[^/]+/$") || path_regexp(r"^/api/users/file-assets/$") || path_regexp(r"^/api/users/file-assets/[^/]+/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/assets/v2/static/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/check/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/download/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/download/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/attachments/$") || path_regexp(r"^/api/assets/v2/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/attachments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+		)
+	CEL
+}
+handle @plane_rs_assets {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
 
