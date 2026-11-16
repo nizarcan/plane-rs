@@ -50,7 +50,7 @@
 //!
 //! The brief (D1) says to prefer `prepare_cached`. For this read path the
 //! measurement says the opposite, and the crate does not use it for dynamic
-//! SQL ([`Sql::prepare`] calls `Client::prepare`, an unnamed statement):
+//! SQL ([`Sql::query`] sends one unnamed `Parse`/`Bind`/`Execute` exchange):
 //!
 //! * `deadpool_postgres`'s statement cache is **unbounded per connection** and
 //!   evicting an entry never sends `DEALLOCATE`. Every filter combination is a
@@ -90,9 +90,44 @@ pub enum Value {
     /// A 64-bit parameter: `LIMIT $1`/`OFFSET $1` and any column Django maps to
     /// `BigIntegerField`. Without it callers had to write `LIMIT $1::int4`.
     Int8(i64),
+    /// A `double precision` parameter (`FloatField`/`DecimalField` columns).
+    Float8(f64),
     Bool(bool),
     Date(NaiveDate),
     Timestamp(DateTime<Utc>),
+    /// A typed SQL `NULL`.
+    ///
+    /// An unnamed `Parse` has to name every parameter's type, and `NULL` has
+    /// no value from which to infer one, so the type travels with it. Prefer
+    /// `IS NULL` predicates; this exists for the few statements that bind a
+    /// nullable operand positionally.
+    Null(Type),
+}
+
+impl Value {
+    /// The Postgres type this parameter is sent as.
+    ///
+    /// [`Sql::query`] parses the statement as an **unnamed** one, and an
+    /// unnamed `Parse` carries explicit parameter OIDs, so each value has to
+    /// name its type. They are the types Django's own bindings resolve to for
+    /// the same column comparisons.
+    #[must_use]
+    pub fn postgres_type(&self) -> Type {
+        match self {
+            Self::Uuid(_) => Type::UUID,
+            Self::UuidArray(_) => Type::UUID_ARRAY,
+            Self::Text(_) => Type::VARCHAR,
+            Self::TextArray(_) => Type::TEXT_ARRAY,
+            Self::Int(_) => Type::INT4,
+            Self::IntArray(_) => Type::INT4_ARRAY,
+            Self::Int8(_) => Type::INT8,
+            Self::Float8(_) => Type::FLOAT8,
+            Self::Bool(_) => Type::BOOL,
+            Self::Date(_) => Type::DATE,
+            Self::Timestamp(_) => Type::TIMESTAMPTZ,
+            Self::Null(ty) => ty.clone(),
+        }
+    }
 }
 
 impl ToSql for Value {
@@ -109,9 +144,11 @@ impl ToSql for Value {
             Self::Int(value) => value.to_sql(ty, out),
             Self::IntArray(value) => value.to_sql(ty, out),
             Self::Int8(value) => value.to_sql(ty, out),
+            Self::Float8(value) => value.to_sql(ty, out),
             Self::Bool(value) => value.to_sql(ty, out),
             Self::Date(value) => value.to_sql(ty, out),
             Self::Timestamp(value) => value.to_sql(ty, out),
+            Self::Null(_) => Ok(types::IsNull::Yes),
         }
     }
 
@@ -123,6 +160,7 @@ impl ToSql for Value {
             || i32::accepts(ty)
             || Vec::<i32>::accepts(ty)
             || i64::accepts(ty)
+            || f64::accepts(ty)
             || bool::accepts(ty)
             || NaiveDate::accepts(ty)
             || DateTime::<Utc>::accepts(ty)
@@ -141,9 +179,11 @@ impl ToSql for Value {
             Self::Int(value) => value.to_sql_checked(ty, out),
             Self::IntArray(value) => value.to_sql_checked(ty, out),
             Self::Int8(value) => value.to_sql_checked(ty, out),
+            Self::Float8(value) => value.to_sql_checked(ty, out),
             Self::Bool(value) => value.to_sql_checked(ty, out),
             Self::Date(value) => value.to_sql_checked(ty, out),
             Self::Timestamp(value) => value.to_sql_checked(ty, out),
+            Self::Null(_) => Ok(types::IsNull::Yes),
         }
     }
 }
@@ -417,7 +457,12 @@ pub struct Sql {
 }
 
 impl Sql {
-    /// Prepare an unnamed statement.
+    /// Prepare the statement as a **named** server-side statement.
+    ///
+    /// Prefer [`Sql::query`] for a one-shot dynamic statement. This is for a
+    /// caller that reuses the same text with many parameter sets: the `Parse`
+    /// is paid once, at the cost of a name (`s0`, `s1`, …) that the connection
+    /// never deallocates.
     ///
     /// See the module docs: `prepare_cached` is unbounded per connection here
     /// and leaks backend memory for high-cardinality SQL.
@@ -430,6 +475,53 @@ impl Sql {
         // high-cardinality workload (every filter combination is a new text)
         // grows the backend until the dev Postgres container OOMs.
         client.prepare(&self.text).await
+    }
+
+    /// Run the statement as a genuinely unnamed query.
+    ///
+    /// `Client::prepare` always allocates a **named** server-side statement
+    /// (`s0`, `s1`, …) and is a separate protocol exchange, so it costs a
+    /// round trip and a transaction before the execution's own. psycopg2's
+    /// `PQexecParams`, which Django uses for every parameterised statement,
+    /// parses and executes in one exchange. `Client::query_typed_raw` does the
+    /// same (`Parse ""` + `Bind ""` + `Describe` + `Execute` + `Sync` in one
+    /// buffer), and [`Value::postgres_type`] supplies the parameter OIDs that
+    /// an unnamed parse needs.
+    ///
+    /// Same rows, same errors, one fewer round trip per statement, and no
+    /// server-side statement is retained.
+    pub async fn query(
+        &self,
+        client: &deadpool_postgres::Client,
+    ) -> Result<Vec<tokio_postgres::Row>, tokio_postgres::Error> {
+        use futures_util::TryStreamExt;
+        let params: Vec<(&(dyn ToSql + Sync), Type)> = self
+            .params
+            .iter()
+            .map(|value| (value as &(dyn ToSql + Sync), value.postgres_type()))
+            .collect();
+        client
+            .query_typed_raw(&self.text, params)
+            .await?
+            .try_collect()
+            .await
+    }
+
+    /// Run a statement that returns no rows (`INSERT`/`UPDATE`/`DELETE`).
+    ///
+    /// The same one-exchange shape as [`Sql::query`] (`execute_typed` sends
+    /// the unnamed `Parse` and the `Execute` in one buffer); returns the
+    /// affected row count.
+    pub async fn execute(
+        &self,
+        client: &deadpool_postgres::Client,
+    ) -> Result<u64, tokio_postgres::Error> {
+        let params: Vec<(&(dyn ToSql + Sync), Type)> = self
+            .params
+            .iter()
+            .map(|value| (value as &(dyn ToSql + Sync), value.postgres_type()))
+            .collect();
+        client.execute_typed(&self.text, &params).await
     }
 }
 
@@ -757,5 +849,45 @@ mod tests {
         select.offset = Some(20);
         let sql = select.into_sql();
         assert_eq!(sql.text, "SELECT issues.id FROM issues LIMIT 10 OFFSET 20");
+    }
+
+    #[test]
+    fn postgres_type_covers_every_variant() {
+        // The OIDs an unnamed `Parse` has to carry. Arrays keep their element
+        // type; `Int8` is `LIMIT`/`OFFSET` and bigint columns; a typed `NULL`
+        // carries the column's type (or `UNKNOWN` to let the server infer).
+        let cases = [
+            (Value::Uuid(Uuid::nil()), Type::UUID),
+            (Value::UuidArray(vec![Uuid::nil()]), Type::UUID_ARRAY),
+            (Value::Text("x".to_owned()), Type::VARCHAR),
+            (Value::TextArray(vec!["x".to_owned()]), Type::TEXT_ARRAY),
+            (Value::Int(1), Type::INT4),
+            (Value::IntArray(vec![1, 2]), Type::INT4_ARRAY),
+            (Value::Int8(1), Type::INT8),
+            (Value::Float8(1.5), Type::FLOAT8),
+            (Value::Bool(true), Type::BOOL),
+            (
+                Value::Date(NaiveDate::from_ymd_opt(2026, 11, 16).unwrap()),
+                Type::DATE,
+            ),
+            (
+                Value::Timestamp(DateTime::<Utc>::from_timestamp(0, 0).unwrap()),
+                Type::TIMESTAMPTZ,
+            ),
+            (Value::Null(Type::UUID), Type::UUID),
+            (Value::Null(Type::UNKNOWN), Type::UNKNOWN),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(value.postgres_type(), expected, "{value:?}");
+        }
+    }
+
+    #[test]
+    fn null_binds_as_sql_null() {
+        let mut buf = types::private::BytesMut::new();
+        let null = Value::Null(Type::UUID).to_sql_checked(&Type::UUID, &mut buf);
+        assert!(matches!(null, Ok(types::IsNull::Yes)));
+        let value = Value::Uuid(Uuid::nil()).to_sql_checked(&Type::UUID, &mut buf);
+        assert!(matches!(value, Ok(types::IsNull::No)));
     }
 }

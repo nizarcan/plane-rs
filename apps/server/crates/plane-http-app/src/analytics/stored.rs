@@ -20,7 +20,7 @@ use chrono::NaiveDate;
 use chrono_tz::Tz;
 use plane_drf::error::ViewError;
 use plane_query::issue::model::Relation;
-use plane_query::sql::{Frag, JoinKind, Value};
+use plane_query::sql::{Frag, JoinKind, Value, prep_for_like_query};
 use uuid::Uuid;
 
 use crate::analytics::sql::QueryBase;
@@ -297,7 +297,10 @@ fn date_contains(
     frag.push_raw(" ");
     frag.push_raw(&crate::analytics::sql::timezone_literal(timezone));
     frag.push_raw(")::date::text LIKE ");
-    frag.push(Frag::bind(Value::Text(format!("%{}%", text(value)?))));
+    frag.push(Frag::bind(Value::Text(format!(
+        "%{}%",
+        prep_for_like_query(&text(value)?)
+    ))));
     base.and(frag);
     Ok(())
 }

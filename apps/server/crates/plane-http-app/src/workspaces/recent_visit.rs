@@ -225,7 +225,7 @@ async fn project_entity(
 ) -> Result<Option<EntityData>, ViewError> {
     // `Project.objects.get(pk=...)` through the default manager.
     let statement = client
-        .prepare(
+        .prepare_cached(
             "SELECT id, name, logo_props, identifier FROM projects \
              WHERE id = $1 AND deleted_at IS NULL LIMIT 2",
         )
@@ -246,7 +246,7 @@ async fn project_entity(
     // is_active=True).values_list("member", flat=True)` — default ordering
     // `-created_at`.
     let statement = client
-        .prepare(
+        .prepare_cached(
             "SELECT pm.member_id FROM project_members pm \
              INNER JOIN users u ON u.id = pm.member_id \
              WHERE pm.project_id = $1 AND pm.deleted_at IS NULL AND NOT u.is_bot \
@@ -274,7 +274,7 @@ async fn issue_entity(
     identifier: Uuid,
 ) -> Result<Option<EntityData>, ViewError> {
     let statement = client
-        .prepare(
+        .prepare_cached(
             "SELECT id, name, state_id, priority, type_id, sequence_id, project_id \
              FROM issues WHERE id = $1 AND deleted_at IS NULL LIMIT 2",
         )
@@ -298,7 +298,7 @@ async fn issue_entity(
     // `obj.assignees.filter(issue_assignee__deleted_at__isnull=True)
     //  .values_list("id", flat=True)`; the users' default ordering applies.
     let statement = client
-        .prepare(
+        .prepare_cached(
             "SELECT u.id FROM users u \
              INNER JOIN issue_assignees ia ON ia.assignee_id = u.id \
              WHERE ia.issue_id = $1 AND ia.deleted_at IS NULL \
@@ -314,7 +314,7 @@ async fn issue_entity(
     // `obj.project.identifier`: the forward FK descriptor on a non-null column,
     // so a missing project is a `DoesNotExist`, i.e. the family 404.
     let statement = client
-        .prepare("SELECT identifier FROM projects WHERE id = $1")
+        .prepare_cached("SELECT identifier FROM projects WHERE id = $1")
         .await?;
     let Some(row) = client.query_opt(&statement, &[&project_id]).await? else {
         return Err(ViewError::ObjectDoesNotExist);
@@ -343,7 +343,7 @@ async fn page_entity(
     identifier: Uuid,
 ) -> Result<Option<EntityData>, ViewError> {
     let statement = client
-        .prepare(
+        .prepare_cached(
             "SELECT id, name, logo_props, owned_by_id FROM pages \
              WHERE id = $1 AND deleted_at IS NULL LIMIT 2",
         )
@@ -361,7 +361,7 @@ async fn page_entity(
     let owned_by: Uuid = row.try_get(3)?;
 
     let statement = client
-        .prepare(
+        .prepare_cached(
             "SELECT p.id, p.identifier FROM projects p \
              INNER JOIN project_pages pp ON pp.project_id = p.id \
              WHERE pp.page_id = $1 AND p.deleted_at IS NULL \

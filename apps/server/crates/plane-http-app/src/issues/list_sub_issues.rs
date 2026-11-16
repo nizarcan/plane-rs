@@ -476,16 +476,7 @@ fn shift(value: Json, timezone: Tz) -> Json {
 
 async fn fetch(client: &Client, select: &Select) -> Result<Vec<tokio_postgres::Row>, ViewError> {
     let sql = select.clone().into_sql();
-    let statement = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    client
-        .query(&statement, &params)
-        .await
-        .map_err(ViewError::from)
+    sql.query(client).await.map_err(ViewError::from)
 }
 
 #[cfg(test)]

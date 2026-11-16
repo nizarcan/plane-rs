@@ -57,6 +57,7 @@ use plane_db::models::project::Project;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::args::TaskArg;
+use plane_query::sql::{Sql, Value};
 use plane_serializers::{
     DrfValue, DrfWriter, FieldEntry, PgJson, RenderCtx, drf_datetime, drf_datetime_opt,
 };
@@ -114,7 +115,8 @@ pub fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
             Role::Member => queries::PROJECT_LIST_MEMBER.sql,
             Role::Other => queries::PROJECT_LIST_ADMIN.sql,
         };
-        let rows = client.query(sql, &[&slug, &member_id]).await?;
+        let statement = client.prepare_cached(sql).await?;
+        let rows = client.query(&statement, &[&slug, &member_id]).await?;
 
         // The projection, in `.values(...)` order (`project/base.py:176-198`),
         // encoded by DRF's `JSONEncoder`.
@@ -188,9 +190,13 @@ pub fn list_detail<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespons
             ctx.query().get("per_page").is_some() && ctx.query().get("cursor").is_some();
 
         if !paginated {
-            let sql = queries::detail_sql(join, filter, DETAIL_DEFAULT_ORDER)
-                .ok_or_else(|| ViewError::Unknown("detail statement has no WHERE".to_string()))?;
-            let rows = client.query(&sql, &[&slug, &member_id]).await?;
+            let sql = Sql {
+                text: queries::detail_sql(join, filter, DETAIL_DEFAULT_ORDER).ok_or_else(|| {
+                    ViewError::Unknown("detail statement has no WHERE".to_string())
+                })?,
+                params: vec![Value::Text(slug.to_owned()), Value::Uuid(member_id)],
+            };
+            let rows = sql.query(client).await?;
             let mut projects = Vec::with_capacity(rows.len());
             for row in &rows {
                 projects.push(row_project(row)?);
@@ -220,22 +226,45 @@ pub fn list_detail<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespons
         let offset = page.cursor.offset * limit;
 
         // `queryset.count()` then `page_results.count()`, in that order.
-        let total_sql = count_sql(join, filter, "")?;
-        let hits: i64 = client
-            .query_one(&total_sql, &[&slug, &member_id])
+        let total_sql = Sql {
+            text: count_sql(join, filter, "")?,
+            params: vec![Value::Text(slug.to_owned()), Value::Uuid(member_id)],
+        };
+        let hits: i64 = total_sql
+            .query(client)
             .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| ViewError::Unknown("count returned no row".to_owned()))?
             .get(0);
-        let page_count_sql = count_sql(join, filter, &format!("{order} LIMIT $3 OFFSET $4"))?;
-        let page_count: i64 = client
-            .query_one(&page_count_sql, &[&slug, &member_id, &(limit + 1), &offset])
+        let page_count_sql = Sql {
+            text: count_sql(join, filter, &format!("{order} LIMIT $3 OFFSET $4"))?,
+            params: vec![
+                Value::Text(slug.to_owned()),
+                Value::Uuid(member_id),
+                Value::Int8(limit + 1),
+                Value::Int8(offset),
+            ],
+        };
+        let page_count: i64 = page_count_sql
+            .query(client)
             .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| ViewError::Unknown("count returned no row".to_owned()))?
             .get(0);
 
-        let sql = queries::detail_sql(join, filter, &format!("{order} LIMIT $3 OFFSET $4"))
-            .ok_or_else(|| ViewError::Unknown("detail statement has no WHERE".to_string()))?;
-        let page_rows = client
-            .query(&sql, &[&slug, &member_id, &limit, &offset])
-            .await?;
+        let sql = Sql {
+            text: queries::detail_sql(join, filter, &format!("{order} LIMIT $3 OFFSET $4"))
+                .ok_or_else(|| ViewError::Unknown("detail statement has no WHERE".to_string()))?,
+            params: vec![
+                Value::Text(slug.to_owned()),
+                Value::Uuid(member_id),
+                Value::Int8(limit),
+                Value::Int8(offset),
+            ],
+        };
+        let page_rows = sql.query(client).await?;
         let mut projects = Vec::with_capacity(page_rows.len());
         for row in &page_rows {
             projects.push(row_project(row)?);

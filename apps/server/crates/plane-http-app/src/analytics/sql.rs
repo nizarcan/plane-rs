@@ -242,17 +242,7 @@ pub(crate) async fn fetch(
     client: &deadpool_postgres::Client,
     sql: &Sql,
 ) -> Result<Vec<tokio_postgres::Row>, plane_drf::error::ViewError> {
-    let statement = sql
-        .prepare(client)
-        .await
-        .map_err(plane_drf::error::ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    client
-        .query(&statement, &params)
+    sql.query(client)
         .await
         .map_err(plane_drf::error::ViewError::from)
 }

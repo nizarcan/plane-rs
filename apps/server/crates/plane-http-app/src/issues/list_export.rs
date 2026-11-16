@@ -286,29 +286,17 @@ fn sanitize_order_by(value: &str) -> String {
 
 async fn fetch(client: &Client, select: &Select) -> Result<Vec<tokio_postgres::Row>, ViewError> {
     let sql = select.clone().into_sql();
-    let statement = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    client
-        .query(&statement, &params)
-        .await
-        .map_err(ViewError::from)
+    sql.query(client).await.map_err(ViewError::from)
 }
 
 async fn count(client: &Client, select: &Select) -> Result<i64, ViewError> {
     let sql = select.clone().into_sql();
-    let statement = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    let row = client
-        .query_one(&statement, &params)
+    let row = sql
+        .query(client)
         .await
-        .map_err(ViewError::from)?;
+        .map_err(ViewError::from)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| ViewError::Unknown("count returned no row".to_owned()))?;
     row.try_get(0).map_err(ViewError::from)
 }

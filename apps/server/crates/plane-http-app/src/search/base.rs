@@ -47,7 +47,7 @@ use deadpool_postgres::Client;
 use plane_core::error::APPLICATION_JSON;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
-use plane_query::sql::{Frag, Sql, Value};
+use plane_query::sql::{Frag, Value};
 use plane_serializers::RenderCtx;
 use uuid::Uuid;
 
@@ -107,16 +107,7 @@ pub(crate) fn icontains(column: &str, needle: &str) -> Frag {
 
 /// Run one composed statement. Always an unnamed statement (dynamic SQL).
 async fn run(client: &Client, frag: Frag) -> Result<Vec<tokio_postgres::Row>, ViewError> {
-    let Sql { text, params } = frag.into_sql();
-    let statement = client.prepare(&text).await.map_err(ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    client
-        .query(&statement, &params)
-        .await
-        .map_err(ViewError::from)
+    frag.into_sql().query(client).await.map_err(ViewError::from)
 }
 
 /// `Q(sequence_id=…)` terms for the numeric runs in `query`

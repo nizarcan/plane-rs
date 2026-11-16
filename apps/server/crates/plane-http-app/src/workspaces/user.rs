@@ -48,7 +48,7 @@ use plane_query::issue::order::Ordering;
 use plane_query::issue::query::{GroupPlan, IssueQuery, IssueScope};
 use plane_query::issue::{group_values, rich};
 use plane_query::paginator::{Cursor, PageQuery, issue_list_page};
-use plane_query::sql::{Frag, Join, Select, Value};
+use plane_query::sql::{Frag, Join, Select, Value, prep_for_like_query};
 use plane_serializers::fields::{DrfUuid, PgJson};
 use plane_serializers::generated::app_issue::IssueActivitySerializer;
 use plane_serializers::generated::app_project::ProjectLiteSerializer;
@@ -151,13 +151,7 @@ async fn run(
     select: Select,
 ) -> Result<Vec<tokio_postgres::Row>, ViewError> {
     let sql = select.into_sql();
-    let statement = sql.prepare(client).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    Ok(client.query(&statement, &params).await?)
+    Ok(sql.query(client).await?)
 }
 
 /// Prepare and run a composed statement that returns one row.
@@ -166,13 +160,13 @@ async fn run_one(
     select: Select,
 ) -> Result<tokio_postgres::Row, ViewError> {
     let sql = select.into_sql();
-    let statement = sql.prepare(client).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    Ok(client.query_one(&statement, &params).await?)
+    let row = sql
+        .query(client)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| ViewError::Unknown("query returned no row".to_owned()))?;
+    Ok(row)
 }
 
 // ---------------------------------------------------------------------------
@@ -963,7 +957,10 @@ fn subscriber_dates(filters: &LegacyFilters, timezone: Tz) -> Frag {
                 DateOperand::Contains(text) => {
                     let mut frag = cast.clone();
                     frag.push_raw("::text LIKE ");
-                    frag.push(Frag::bind(Value::Text(format!("%{text}%"))));
+                    frag.push(Frag::bind(Value::Text(format!(
+                        "%{}%",
+                        prep_for_like_query(text)
+                    ))));
                     predicate = predicate.and(frag);
                 }
             }
@@ -1744,13 +1741,7 @@ async fn fetch_group_values(
     match plan {
         group_values::GroupValues::Static(values) => Ok(values),
         group_values::GroupValues::Query { sql, append_none } => {
-            let statement = sql.prepare(client).await?;
-            let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-                .params
-                .iter()
-                .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-                .collect();
-            let rows = client.query(&statement, &params).await?;
+            let rows = sql.query(client).await?;
             let mut values = Vec::with_capacity(rows.len() + 1);
             for row in &rows {
                 values.push(

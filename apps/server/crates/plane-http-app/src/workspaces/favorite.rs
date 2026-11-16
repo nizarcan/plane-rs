@@ -328,13 +328,7 @@ async fn run_select(
     select: Select,
 ) -> Result<Vec<tokio_postgres::Row>, ViewError> {
     let sql = select.into_sql();
-    let statement = sql.prepare(client).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    Ok(client.query(&statement, &params).await?)
+    Ok(sql.query(client).await?)
 }
 
 /// `get_entity_data` (`plane/app/serializers/favorite.py:110-127`) for one row.
@@ -453,13 +447,7 @@ async fn entity_data(
 
     select = select.where_(predicate);
     let sql = select.into_sql();
-    let statement = sql.prepare(client).await?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    let rows = client.query(&statement, &params).await?;
+    let rows = sql.query(client).await?;
     match rows.len() {
         0 => Ok(None),
         1 => {

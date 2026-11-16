@@ -502,7 +502,7 @@ async fn add_expand_relations(
        LEFT OUTER JOIN issues related ON issue_relations.related_issue_id = related.id \
        WHERE issue_relations.deleted_at IS NULL AND issue_relations.issue_id = ANY($1) \
        ORDER BY issue_relations.created_at DESC";
-    let statement = client.prepare(sql).await.map_err(ViewError::from)?;
+    let statement = client.prepare_cached(sql).await.map_err(ViewError::from)?;
     let relation_rows = client
         .query(&statement, &[&ids])
         .await
@@ -577,31 +577,19 @@ async fn count(client: &Client, select: &Select) -> Result<i64, ViewError> {
         None
     };
     let sql = select.count_sql(distinct, None);
-    let statement = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    let row = client
-        .query_one(&statement, &params)
+    let row = sql
+        .query(client)
         .await
-        .map_err(ViewError::from)?;
+        .map_err(ViewError::from)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| ViewError::Unknown("count returned no row".to_owned()))?;
     row.try_get(0).map_err(ViewError::from)
 }
 
 async fn fetch(client: &Client, select: &Select) -> Result<Vec<tokio_postgres::Row>, ViewError> {
     let sql = select.clone().into_sql();
-    let statement = client.prepare(&sql.text).await.map_err(ViewError::from)?;
-    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = sql
-        .params
-        .iter()
-        .map(|value| value as &(dyn tokio_postgres::types::ToSql + Sync))
-        .collect();
-    client
-        .query(&statement, &params)
-        .await
-        .map_err(ViewError::from)
+    sql.query(client).await.map_err(ViewError::from)
 }
 
 /// `Ordering::resolve` needs the same `order_by` default; kept for symmetry with

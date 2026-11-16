@@ -89,14 +89,18 @@ async fn columns_types_and_nullability_match_the_database() {
         return;
     };
 
-    let rows = database
+    let statement = database
         .client
-        .query(
+        .prepare(
             "SELECT table_name, column_name, udt_name, is_nullable \
              FROM information_schema.columns \
              WHERE table_schema = current_schema()",
-            &[],
         )
+        .await
+        .expect("prepare information_schema.columns");
+    let rows = database
+        .client
+        .query(&statement, &[])
         .await
         .expect("read information_schema.columns");
 
@@ -166,9 +170,14 @@ async fn one_real_row_per_populated_table_decodes() {
     for model in MODELS {
         let select = plane_db::models::with_alias(model.columns_sql, "t");
         let sql = format!("SELECT {select} FROM {} AS t LIMIT 1", quote(model.table));
+        let statement = database
+            .client
+            .prepare(&sql)
+            .await
+            .unwrap_or_else(|error| panic!("{}: {error}", model.table));
         match database
             .client
-            .query_opt(&sql, &[])
+            .query_opt(&statement, &[])
             .await
             .unwrap_or_else(|error| panic!("{}: {error}", model.table))
         {
@@ -200,12 +209,14 @@ async fn manager_predicates_match_django() {
         return;
     };
 
+    let statement = database
+        .client
+        .prepare("SELECT 1 FROM workspaces WHERE slug = $1 AND deleted_at IS NULL")
+        .await
+        .expect("prepare the manager fixture marker");
     let marker = database
         .client
-        .query_opt(
-            "SELECT 1 FROM workspaces WHERE slug = $1 AND deleted_at IS NULL",
-            &[&"models-manager-fixture"],
-        )
+        .query_opt(&statement, &[&"models-manager-fixture"])
         .await
         .expect("look for the manager fixture marker");
     if marker.is_none() {
@@ -248,9 +259,14 @@ async fn manager_predicates_match_django() {
             pk = quote(pk_column),
             table = quote(table),
         );
+        let statement = database
+            .client
+            .prepare(&sql)
+            .await
+            .unwrap_or_else(|error| panic!("{label}.{manager_name}: {error}\n{sql}"));
         let rows = database
             .client
-            .query(&sql, &[])
+            .query(&statement, &[])
             .await
             .unwrap_or_else(|error| panic!("{label}.{manager_name}: {error}\n{sql}"));
         let mut actual: Vec<String> = rows.iter().map(|row| row.get(0)).collect();

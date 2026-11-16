@@ -42,6 +42,7 @@ use plane_db::models::user::{Account, Profile, User};
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_query::sql::{Sql, Value};
 use plane_serializers::generated::app_issue::{IssueActivitySerializer, IssueFlatSerializer};
 use plane_serializers::generated::app_project::ProjectLiteSerializer;
 use plane_serializers::generated::app_user::{
@@ -773,15 +774,18 @@ fn activities<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         }
 
         let client = crate::common::client(ctx)?;
-        let sql = format!(
-            "{ACTIVITY_SELECT} ORDER BY {} LIMIT $2 OFFSET $3",
-            activity_order_sql(key, desc)
-        );
-        let fetch = limit.saturating_add(1);
-        let statement = client.prepare(&sql).await?;
-        let rows = client
-            .query(&statement, &[&user_id, &fetch, &offset])
-            .await?;
+        let sql = Sql {
+            text: format!(
+                "{ACTIVITY_SELECT} ORDER BY {} LIMIT $2 OFFSET $3",
+                activity_order_sql(key, desc)
+            ),
+            params: vec![
+                Value::Uuid(user_id),
+                Value::Int8(limit.saturating_add(1)),
+                Value::Int8(offset),
+            ],
+        };
+        let rows = sql.query(client).await?;
         let mut activities = Vec::with_capacity(rows.len());
         for row in &rows {
             activities.push(ActivityRow::from_row(row)?);

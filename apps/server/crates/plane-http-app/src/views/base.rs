@@ -62,6 +62,7 @@ use plane_db::JsonText;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::args::TaskArg;
+use plane_query::sql::{Sql, Value};
 use plane_serializers::generated::app_view::IssueViewSerializer;
 use plane_serializers::{FieldValue, PgJson, RenderCtx};
 use uuid::Uuid;
@@ -337,11 +338,11 @@ pub fn workspace_list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
             restricted,
             false,
         );
-        let statement = client.prepare(&sql).await.map_err(ViewError::from)?;
-        let rows = client
-            .query(&statement, &[&slug, &user])
-            .await
-            .map_err(ViewError::from)?;
+        let sql = Sql {
+            text: sql,
+            params: vec![Value::Text(slug.to_owned()), Value::Uuid(user)],
+        };
+        let rows = sql.query(client).await.map_err(ViewError::from)?;
 
         let mut views = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -370,11 +371,20 @@ pub fn workspace_retrieve<'a>(
 
         // `self.get_queryset().filter(pk=pk).first()` (`:118`).
         let sql = workspace_views_sql(Order::resolve(ctx.query().get("order_by")), false, true);
-        let statement = client.prepare(&sql).await.map_err(ViewError::from)?;
-        let Some(row) = client
-            .query_opt(&statement, &[&slug, &user, &pk])
+        let sql = Sql {
+            text: sql,
+            params: vec![
+                Value::Text(slug.to_owned()),
+                Value::Uuid(user),
+                Value::Uuid(pk),
+            ],
+        };
+        let Some(row) = sql
+            .query(client)
             .await
             .map_err(ViewError::from)?
+            .into_iter()
+            .next()
         else {
             // `:122-126`.
             return Ok(error_body(404, "The required object does not exist."));

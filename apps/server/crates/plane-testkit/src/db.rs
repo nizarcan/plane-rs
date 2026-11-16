@@ -137,8 +137,12 @@ impl DbAdmin {
     pub async fn database_exists(&self, name: &str) -> Result<bool> {
         validate_identifier(name)?;
         let client = self.connect(&self.maintenance_db()).await?;
+        let statement = client
+            .prepare("SELECT 1 FROM pg_database WHERE datname = $1")
+            .await
+            .context("preparing pg_database lookup")?;
         let row = client
-            .query_opt("SELECT 1 FROM pg_database WHERE datname = $1", &[&name])
+            .query_opt(&statement, &[&name])
             .await
             .context("querying pg_database")?;
         Ok(row.is_some())
@@ -206,20 +210,23 @@ impl DbAdmin {
     ) -> Result<Catalog> {
         let client = self.connect(dbname).await?;
         let schemas_vec = schemas.to_vec();
-        let rows = client
-            .query(
+        let tables = client
+            .prepare(
                 "SELECT table_schema, table_name
                    FROM information_schema.tables
                   WHERE table_type = 'BASE TABLE'
                     AND table_schema = ANY($1::text[])
                   ORDER BY table_schema, table_name",
-                &[&schemas_vec],
             )
+            .await
+            .context("preparing the table list")?;
+        let rows = client
+            .query(&tables, &[&schemas_vec])
             .await
             .context("listing tables")?;
 
-        let pk_rows = client
-            .query(
+        let primary_keys = client
+            .prepare(
                 "SELECT tc.table_schema, tc.table_name, kcu.column_name
                    FROM information_schema.table_constraints tc
                    JOIN information_schema.key_column_usage kcu
@@ -229,8 +236,11 @@ impl DbAdmin {
                   WHERE tc.constraint_type = 'PRIMARY KEY'
                     AND tc.table_schema = ANY($1::text[])
                   ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position",
-                &[&schemas_vec],
             )
+            .await
+            .context("preparing the primary key list")?;
+        let pk_rows = client
+            .query(&primary_keys, &[&schemas_vec])
             .await
             .context("listing primary keys")?;
 
