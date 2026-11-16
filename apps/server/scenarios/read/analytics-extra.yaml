@@ -1,0 +1,2679 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra `analytics` steps beyond the generated read scenario.
+#
+# What the generated cases cannot reach, and why each is here:
+#
+# * every `VALID_ANALYTICS_FIELDS` value in both roles — as the x axis and as
+#   the segment — crossed with both `VALID_YAXIS` values, because the
+#   aggregate's `SELECT` list and its `GROUP BY` differ per combination
+#   (`plane/utils/analytics_plot.py:73-120`);
+# * every accepted `date_filter`, including the `custom` value that filters
+#   nothing because `get_analytics_date_range` never receives the custom
+#   window's start/end (`plane/utils/date_utils.py:75-87`);
+# * the caller's timezone, which moves both the naive-datetime windows
+#   (`advance-analytics`) and the `AT TIME ZONE` date buckets
+#   (`analytics`/`default-analytics`/chart `TruncMonth`): Berlin, Kolkata
+#   (+05:30), New York and Tokyo. The shared fixture has no zone east of
+#   Tokyo, so +13/+14 could not be exercised without rebuilding it;
+# * `project`/`project_ids`, `cycle_id`/`module_id` (including both together,
+#   an empty value and an invalid UUID), and the `custom-work-items` chart's
+#   thirteen axis names with and without `group_by`;
+# * every `requested_fields` shape of `project-stats`: the response's JSON key
+#   order is CPython's `set` iteration order, so several subsets are pinned;
+# * guests and admins on each route (guests are 403 on `analytics`,
+#   `advance-analytics`, `advance-analytics-stats` and the project
+#   `advance-analytics` pair, and 200 on the project chart).
+#
+# Run against the rich fixture template `plane_fix_tpl`:
+#   ./target/debug/difftest run --scenario scenarios/read/analytics-extra.yaml \
+#     --a django --b rust --targets /tmp/targets-rs-w2-analytics.yaml
+
+name: read-analytics-extra
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  # `project-stats` writes its row keys in a Python `set`'s iteration order, so
+  # JSON key order follows the process's string-hash seed. Pinning the seed
+  # makes the two targets agree without normalising the body.
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  cycle_alpha_past: "e6f4b40f-2492-4a1e-97f1-d84204ff65c1"
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  analytic_view_default: "2f962af1-706e-4dcd-98a5-58590863044f"
+  analytic_view_custom: "b69a00d5-8027-48ea-847a-42bb675024de"
+  missing_uuid: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: analytics-extra-0001-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0002-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state__group"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0003-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "labels__id"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0004-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "assignees__id"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0005-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "estimate_point__value"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0006-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "issue_cycle__cycle_id"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0007-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "issue_module__module_id"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0008-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0009-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "start_date"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0010-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "target_date"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0011-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "created_at"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0012-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "completed_at"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0013-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0014-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state__group"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0015-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "labels__id"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0016-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "assignees__id"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0017-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "estimate_point__value"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0018-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "issue_cycle__cycle_id"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0019-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "issue_module__module_id"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0020-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0021-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "start_date"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0022-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "target_date"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0023-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "created_at"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0024-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "completed_at"
+      y_axis: "estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0025-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "state__group"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0026-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "labels__id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0027-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "assignees__id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0028-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "estimate_point__value"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0029-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "issue_cycle__cycle_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0030-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "issue_module__module_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0031-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0032-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "start_date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0033-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "target_date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0034-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "created_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0035-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "completed_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0036-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "state_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0037-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "state__group"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0038-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "labels__id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0039-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "assignees__id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0040-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "estimate_point__value"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0041-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "issue_cycle__cycle_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0042-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "issue_module__module_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0043-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "start_date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0044-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "target_date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0045-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "created_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0046-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "estimate"
+      segment: "completed_at"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0047-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "bogus"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0048-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0049-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "state_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0050-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0051-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0052-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0053-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: ""
+      y_axis: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0054-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      segment: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0055-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      priority: "urgent,high"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0056-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      project: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0057-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "labels__id"
+      y_axis: "issue_count"
+      labels: "{{label_alpha_bug}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0058-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "assignees__id"
+      y_axis: "issue_count"
+      assignees: "{{user_member_id}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0059-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "issue_cycle__cycle_id"
+      y_axis: "issue_count"
+      cycle: "{{cycle_alpha_current}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0060-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "issue_module__module_id"
+      y_axis: "issue_count"
+      module: "{{module_alpha_in_progress}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0061-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state__group"
+      y_axis: "issue_count"
+      state_group: "started,backlog"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0062-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      state: "{{state_alpha_todo}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0063-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      type: "active"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0064-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+      name: "webhook"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0065-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "created_at"
+      y_axis: "issue_count"
+      created_at: "2026-08-01;after"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0066-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "created_at"
+      y_axis: "issue_count"
+      created_at: "2026-09-01;before"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0067-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "created_at"
+      y_axis: "issue_count"
+      created_at: "2026-08"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0068-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "created_at"
+      y_axis: "issue_count"
+      created_at: "60_days;after;fromnow"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0069-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "created_at"
+      y_axis: "issue_count"
+      created_at: "not-a-date;after"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0070-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "target_date"
+      y_axis: "issue_count"
+      start_target_date: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0071-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "completed_at"
+      y_axis: "estimate"
+      sub_issue: "false"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0072-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "issue_count"
+      fields: "id,name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0073-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytics/"
+    query:
+      x_axis: "priority"
+      y_axis: "issue_count"
+      order_by: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0074-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0075-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0076-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: analytics-extra-0077-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    query:
+      fields: "id,name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0078-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/{{analytic_view_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0079-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/{{analytic_view_default}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0080-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0081-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/{{analytic_view_default}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0082-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0083-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_default}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0084-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_default}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0085-tz_tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_default}}/"
+    jar: tz_tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: analytics-extra-0086-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_custom}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0087-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_custom}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0088-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_custom}}/"
+    query:
+      segment: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0089-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_default}}/"
+    query:
+      segment: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0090-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{analytic_view_default}}/"
+    query:
+      segment: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0091-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/saved-analytic-view/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0092-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0093-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0094-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0095-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: analytics-extra-0096-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: analytics-extra-0097-tz_berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: tz_berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: analytics-extra-0098-tz_kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: tz_kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: analytics-extra-0099-tz_newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: tz_newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  - name: analytics-extra-0100-tz_tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    jar: tz_tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: analytics-extra-0101-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    query:
+      project_ids: "{{project_alpha}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0102-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    query:
+      project_ids: "{{project_alpha}},{{project_beta}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0103-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    query:
+      priority: "urgent"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0104-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    query:
+      project: "{{project_beta}}"
+      created_at: "2026-08-01;after"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0105-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/default-analytics/"
+    query:
+      fields: "total_issues"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0106-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0107-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0108-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0109-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: analytics-extra-0110-nonmember
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: analytics-extra-0111-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_issues"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0112-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "completed_issues"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0113-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_members"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0114-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_cycles"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0115-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_modules"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0116-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_issues,completed_issues"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0117-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "completed_issues,total_members"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0118-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_issues,total_members,total_cycles"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0119-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_cycles,total_issues,total_modules"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0120-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_issues,completed_issues,total_members,total_modules"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0121-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_issues,total_members,total_cycles,total_modules"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0122-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0123-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0124-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_issues,bogus,total_cycles"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0125-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_members,completed_issues"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0126-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      fields: "total_members,completed_issues"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0127-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      project_ids: "{{project_alpha}},{{project_beta}},{{project_epsilon}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0128-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      project_ids: "{{project_alpha}},{{project_gamma}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0129-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-stats/"
+    query:
+      project_ids: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0130-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0131-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "yesterday"
+      tab: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0132-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0133-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_7_days"
+      tab: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0134-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0135-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_30_days"
+      tab: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0136-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0137-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+      tab: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0138-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "custom"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0139-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "custom"
+      tab: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0140-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0141-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "bogus"
+      tab: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0142-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0143-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0144-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: analytics-extra-0145-tz_berlin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: tz_berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+  - name: analytics-extra-0146-tz_kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: tz_kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: analytics-extra-0147-tz_newyork
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: tz_newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+  - name: analytics-extra-0148-tz_tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      date_filter: "last_3_months"
+    jar: tz_tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: analytics-extra-0149-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      tab: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0150-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      project_ids: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0151-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      project_ids: "{{project_alpha}},{{project_beta}}"
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0152-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      project_ids: "{{project_alpha}},{{project_epsilon}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0153-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics/"
+    query:
+      project_ids: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0154-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0155-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0156-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0157-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0158-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "custom"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0159-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      type: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0160-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_3_months"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0161-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_3_months"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0162-tz_kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_3_months"
+    jar: tz_kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: analytics-extra-0163-tz_tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_3_months"
+    jar: tz_tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: analytics-extra-0164-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-stats/"
+    query:
+      project_ids: "{{project_alpha}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0165-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0166-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0167-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0168-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0169-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0170-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0171-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0172-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0173-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0174-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      date_filter: "custom"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0175-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "custom"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0176-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0177-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATE_GROUPS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0178-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "LABELS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0179-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "ASSIGNEES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0180-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "ESTIMATE_POINTS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0181-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "CYCLES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0182-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "MODULES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0183-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0184-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "START_DATE"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0185-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "TARGET_DATE"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0186-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "CREATED_AT"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0187-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "COMPLETED_AT"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0188-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "CREATED_BY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0189-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "STATE_GROUPS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0190-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATE_GROUPS"
+      group_by: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0191-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "LABELS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0192-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "LABELS"
+      group_by: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0193-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "ASSIGNEES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0194-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "ASSIGNEES"
+      group_by: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0195-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "PRIORITY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0196-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+      group_by: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0197-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "CREATED_BY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0198-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "CREATED_BY"
+      group_by: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0199-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "START_DATE"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0200-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "START_DATE"
+      group_by: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0201-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "NOPE"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0202-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "NOPE"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0203-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0204-tz_kolkata
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+    jar: tz_kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+  - name: analytics-extra-0205-tz_tokyo
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "COMPLETED_AT"
+    jar: tz_tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+  - name: analytics-extra-0206-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "last_3_months"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0207-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0208-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0209-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0210-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0211-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: analytics-extra-0212-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: "{{cycle_alpha_current}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0213-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      module_id: "{{module_alpha_in_progress}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0214-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: "{{cycle_alpha_current}}"
+      module_id: "{{module_alpha_in_progress}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0215-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0216-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0217-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: "{{cycle_alpha_current}}"
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0218-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0219-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: "{{cycle_alpha_current}}"
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0220-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0221-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: "{{cycle_alpha_current}}"
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0222-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0223-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics/"
+    query:
+      cycle_id: "{{cycle_alpha_current}}"
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0224-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0225-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0226-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0227-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: analytics-extra-0228-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      cycle_id: "{{cycle_alpha_current}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0229-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      module_id: "{{module_alpha_in_progress}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0230-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      type: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0231-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      cycle_id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0232-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-stats/"
+    query:
+      module_id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0233-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0234-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0235-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0236-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0237-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0238-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0239-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: analytics-extra-0240-onboarded
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: analytics-extra-0241-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0242-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "bogus"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0243-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0244-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATE_GROUPS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0245-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "LABELS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0246-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "ASSIGNEES"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0247-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "ESTIMATE_POINTS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0248-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0249-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "CREATED_BY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0250-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "STATE_GROUPS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0251-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "LABELS"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0252-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "CREATED_BY"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0253-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "STATES"
+      group_by: "state__group"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0254-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0255-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "yesterday"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0256-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0257-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "last_7_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0258-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0259-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "last_30_days"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0260-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0261-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      date_filter: "last_3_months"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0262-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      cycle_id: "{{cycle_alpha_current}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0263-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      module_id: "{{module_alpha_in_progress}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0264-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      cycle_id: "{{cycle_alpha_current}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0265-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      module_id: "{{module_alpha_in_progress}}"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: analytics-extra-0266-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      cycle_id: "{{cycle_alpha_current}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0267-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      module_id: "{{module_alpha_in_progress}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: analytics-extra-0268-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+      cycle_id: "{{cycle_alpha_current}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0269-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "custom-work-items"
+      x_axis: "PRIORITY"
+      module_id: "{{module_alpha_in_progress}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0270-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+      cycle_id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0271-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/advance-analytics/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0272-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/advance-analytics-stats/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0273-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/advance-analytics-charts/"
+    query:
+      type: "work-items"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0274-admin
+    method: GET
+    path: "/api/workspaces/{{ws2}}/analytics/"
+    query:
+      x_axis: "state_id"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: analytics-extra-0275-tz_tokyo
+    method: GET
+    path: "/api/workspaces/{{ws2}}/advance-analytics/"
+    jar: tz_tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
