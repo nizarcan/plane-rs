@@ -47,9 +47,12 @@ pub mod deploy_board_write;
 pub mod favorite_write;
 pub mod identifier;
 pub mod invite;
+pub mod invite_write;
 pub mod joined;
 pub mod lite;
 pub mod member;
+pub mod member_queries;
+pub mod member_write;
 pub mod not_found;
 pub mod queries;
 pub mod serializer;
@@ -72,16 +75,23 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.project.invite.ProjectInvitationsViewset")?
         .action("list", invite::list)?
-        .action("retrieve", invite::retrieve)?;
+        .action("retrieve", invite::retrieve)?
+        .action("create", invite_write::create)?
+        .action("destroy", invite_write::destroy)?;
 
     registry
         .api_view("plane.app.views.project.invite.ProjectJoinEndpoint")?
-        .method(http::Method::GET, invite::join)?;
+        .method(http::Method::GET, invite::join)?
+        .method(http::Method::POST, invite_write::join)?;
 
     registry
         .viewset("plane.app.views.project.member.ProjectMemberViewSet")?
         .action("list", member::list)?
-        .action("retrieve", member::retrieve)?;
+        .action("retrieve", member::retrieve)?
+        .action("create", member_write::create)?
+        .action("partial_update", member_write::partial_update)?
+        .action("destroy", member_write::destroy)?
+        .action("leave", member_write::leave)?;
 
     registry
         .api_view("plane.app.views.project.member.ProjectMemberUserEndpoint")?
