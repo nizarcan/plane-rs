@@ -113,7 +113,7 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         // no `archived_at` filter, deliberately.
         let project = project_for_create(client, project_id).await?;
 
-        let prepared = prepare_create(ctx, client, project_id).await?;
+        let prepared = prepare_create(ctx, client, project_id, false).await?;
         let Created { mut issue, extra } = match prepared {
             PreparedCreate::Valid(created) => *created,
             PreparedCreate::Invalid(response) => return Ok(response),
@@ -201,6 +201,11 @@ pub(crate) struct Created {
 /// The serializer sequence of `IssueCreateSerializer(data=…, context=…)` +
 /// `is_valid()` + `IssueCreateSerializer.create`'s `Issue(...)` construction.
 ///
+/// `allow_triage` is the serializer context's `allow_triage_state`
+/// (`plane/app/serializers/issue.py:134-136`): the intake create binds it to
+/// `True` (`plane/app/views/intake/base.py:267`), every other caller leaves it
+/// `False`, which keeps `State.objects` as the state manager.
+///
 /// # Errors
 ///
 /// A database failure from the generated validators or `validate()`'s
@@ -209,6 +214,7 @@ pub(crate) async fn prepare_create(
     ctx: &ViewCtx<'_>,
     client: &Client,
     project_id: Uuid,
+    allow_triage: bool,
 ) -> Result<PreparedCreate, ViewError> {
     let mut serializer = Serializer::new(ctx, false)?;
     write::generated::issue_create_serializer::validate(&mut serializer, client).await?;
@@ -221,7 +227,7 @@ pub(crate) async fn prepare_create(
         }
     };
 
-    let extra = match validate_issue(client, project_id, &validated).await {
+    let extra = match validate_issue(client, project_id, &validated, allow_triage).await {
         Ok(extra) => extra,
         Err(errors) => return Ok(PreparedCreate::Invalid(errors.into_response())),
     };
@@ -332,7 +338,7 @@ pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
             }
         };
 
-        let extra = match validate_issue(client, project_id, &validated).await {
+        let extra = match validate_issue(client, project_id, &validated, false).await {
             Ok(extra) => extra,
             Err(errors) => return Ok(errors.into_response()),
         };
@@ -1011,10 +1017,18 @@ pub(crate) struct Extra {
 /// date range, HTML content, binary content (unreachable: `description_binary`
 /// is read-only), assignee filtering, label filtering, then the state, parent
 /// and estimate-point project checks.
-async fn validate_issue(
+///
+/// `allow_triage` swaps the state manager (`plane/app/serializers/issue.py:
+/// 134-136`): `State.triage_objects` (`group = 'triage'` only) instead of
+/// `State.objects` (every group *except* triage). The intake-issue create
+/// needs the triage state it just injected, so it binds `True`
+/// (`plane/app/views/intake/base.py:267`); every other serializer leaves the
+/// context key absent, i.e. `False`.
+pub(crate) async fn validate_issue(
     client: &Client,
     project_id: Uuid,
     validated: &Validated,
+    allow_triage: bool,
 ) -> Result<Extra, ValidationErrors> {
     // `start_date > target_date`.
     if let (Some(start), Some(target)) =
@@ -1071,20 +1085,20 @@ async fn validate_issue(
         );
     }
 
-    // State: `State.objects` (non-triage, non-deleted) and this project.
-    if let Some(Some(state_id)) = fk_value(validated, "state", "state_id")
-        && !exists(
-            client,
-            &queries::VALID_STATE_IN_PROJECT,
-            state_id,
-            project_id,
-        )
-        .await?
-    {
-        return Err(ValidationErrors::new(
-            "non_field_errors",
-            Detail::new("State is not valid please pass a valid state_id", "invalid"),
-        ));
+    // State: `State.objects` (non-triage) or `State.triage_objects` (triage
+    // only) when `allow_triage`, both soft-deletion managers, and this project.
+    if let Some(Some(state_id)) = fk_value(validated, "state", "state_id") {
+        let query = if allow_triage {
+            &queries::VALID_TRIAGE_STATE_IN_PROJECT
+        } else {
+            &queries::VALID_STATE_IN_PROJECT
+        };
+        if !exists(client, query, state_id, project_id).await? {
+            return Err(ValidationErrors::new(
+                "non_field_errors",
+                Detail::new("State is not valid please pass a valid state_id", "invalid"),
+            ));
+        }
     }
 
     // Parent: `Issue.objects` (soft delete only) and this project.
@@ -1207,7 +1221,7 @@ async fn filter_labels(
 /// `State.all_state_objects`, which is the plain manager and includes
 /// soft-deleted and triage rows (the project check in `validate()` is what
 /// rejects triage).
-async fn recheck_manager_fields(
+pub(crate) async fn recheck_manager_fields(
     client: &Client,
     serializer: &mut Serializer<'_>,
 ) -> Result<(), ViewError> {
@@ -1270,7 +1284,7 @@ async fn recheck_manager_fields(
 
 /// The generated serializer's `self.fields` order (the key order
 /// `serializer.errors` renders).
-fn field_order() -> Vec<&'static str> {
+pub(crate) fn field_order() -> Vec<&'static str> {
     issue_create_serializer::FIELDS
         .iter()
         .map(|field| field.name)
@@ -1285,7 +1299,7 @@ fn field_order() -> Vec<&'static str> {
 /// when a body sends both spellings (`state` over `state_id`, `parent` over
 /// `parent_id`), because DRF visits `self.fields` in that order and the
 /// `source` key is assigned twice.
-fn fk_value(validated: &Validated, late: &str, early: &str) -> Option<Option<Uuid>> {
+pub(crate) fn fk_value(validated: &Validated, late: &str, early: &str) -> Option<Option<Uuid>> {
     if validated.contains(late) {
         return Some(validated.uuid(late));
     }
@@ -1295,7 +1309,7 @@ fn fk_value(validated: &Validated, late: &str, early: &str) -> Option<Option<Uui
     None
 }
 
-fn build_issue(validated: &Validated, project_id: Uuid, extra: &Extra) -> Issue {
+pub(crate) fn build_issue(validated: &Validated, project_id: Uuid, extra: &Extra) -> Issue {
     let description_html = extra
         .description_html
         .clone()
@@ -1346,7 +1360,7 @@ fn build_issue(validated: &Validated, project_id: Uuid, extra: &Extra) -> Issue 
     }
 }
 
-fn apply_patch(issue: &mut Issue, validated: &Validated, extra: &Extra) {
+pub(crate) fn apply_patch(issue: &mut Issue, validated: &Validated, extra: &Extra) {
     if validated.contains("state") || validated.contains("state_id") {
         issue.state_id = fk_value(validated, "state", "state_id").flatten();
     }
@@ -1397,7 +1411,10 @@ fn apply_patch(issue: &mut Issue, validated: &Validated, extra: &Extra) {
 
 /// `Issue.save()`'s H10a on the update-shaped paths, returning whether the
 /// state changed (the H10b input).
-async fn ensure_state_for_save(client: &Client, issue: &mut Issue) -> Result<bool, ViewError> {
+pub(crate) async fn ensure_state_for_save(
+    client: &Client,
+    issue: &mut Issue,
+) -> Result<bool, ViewError> {
     let old = issue.state_id;
     if issue.state_id.is_none() {
         issue.state_id = hooks::issue::ensure_default_state(client, issue.project_id).await?;
@@ -1406,7 +1423,7 @@ async fn ensure_state_for_save(client: &Client, issue: &mut Issue) -> Result<boo
 }
 
 /// `strip_tags(description_html)` with the `"" -> None` rule from H12.
-fn strip_html(html: &str) -> Option<String> {
+pub(crate) fn strip_html(html: &str) -> Option<String> {
     if html.is_empty() {
         None
     } else {

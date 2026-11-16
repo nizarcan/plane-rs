@@ -404,7 +404,38 @@ impl<'a> Serializer<'a> {
     /// A parser failure: DRF's `ParseError` (400) or `UnsupportedMediaType`
     /// (415), both as `ViewError::Api`.
     pub fn new(ctx: &'a ViewCtx<'a>, partial: bool) -> Result<Self, ViewError> {
-        let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
+        let mut serializer = Self::empty(ctx, partial);
+        match ctx.data()? {
+            Data::Json(value) => serializer.json_value(value),
+            Data::Form(query) => {
+                serializer.body = Some(Body::Form(query));
+                serializer.form = true;
+            }
+        }
+        Ok(serializer)
+    }
+
+    /// Start validating one value the request *contains* rather than the body
+    /// itself: `IssueCreateSerializer(data=request.data.get("issue"), …)`
+    /// (`plane/app/views/intake/base.py:261-269`, `:414-418`).
+    ///
+    /// The shape rules are [`Self::new`]'s: a JSON object is the body, `null`
+    /// (the `.get` default for a missing key) is DRF's "No data provided", and
+    /// every other value is the expected-a-dictionary error
+    /// (`rest_framework/serializers.py:589-596`). A form body never reaches
+    /// here — the nested value of a `QueryDict` is a string, and the views'
+    /// ordering makes that a 500 before the serializer.
+    pub fn from_value(ctx: &ViewCtx<'_>, value: &'a Json, partial: bool) -> Self {
+        Self::from_value_in(
+            ctx.timezone.copied().unwrap_or(chrono_tz::UTC),
+            value,
+            partial,
+        )
+    }
+
+    /// [`Self::from_value`] with the active timezone supplied directly, so the
+    /// body-shape rules are testable without a request.
+    fn from_value_in(timezone: chrono_tz::Tz, value: &'a Json, partial: bool) -> Self {
         let mut serializer = Self {
             body: None,
             partial,
@@ -415,37 +446,50 @@ impl<'a> Serializer<'a> {
             fatal: false,
             timezone,
         };
-        match ctx.data()? {
-            Data::Json(Json::Dict(object)) => {
-                serializer.body = Some(Body::Json(object));
+        serializer.json_value(value);
+        serializer
+    }
+
+    /// The serializer state both constructors start from.
+    fn empty(ctx: &ViewCtx<'_>, partial: bool) -> Self {
+        Self {
+            body: None,
+            partial,
+            form: false,
+            errors: ValidationErrors::default(),
+            values: Vec::new(),
+            skipped: Vec::new(),
+            fatal: false,
+            timezone: ctx.timezone.copied().unwrap_or(chrono_tz::UTC),
+        }
+    }
+
+    /// The shape branch a parsed JSON value takes: an object is the body,
+    /// `None` is "No data provided", anything else is DRF's non-mapping error.
+    fn json_value(&mut self, value: &'a Json) {
+        match value {
+            Json::Dict(object) => {
+                self.body = Some(Body::Json(object));
             }
-            Data::Form(query) => {
-                serializer.body = Some(Body::Form(query));
-                serializer.form = true;
-            }
-            // `Serializer(data=None).errors` → `{"non_field_errors":
-            // ["No data provided"]}` (`serializers.py:589-596`).
-            Data::Json(Json::Null) => {
-                serializer.fatal = true;
-                serializer
-                    .errors
+            Json::Null => {
+                self.fatal = true;
+                self.errors
                     .push("non_field_errors", Detail::new("No data provided", "null"));
             }
-            Data::Json(value) => {
-                serializer.fatal = true;
-                serializer.errors.push(
+            other => {
+                self.fatal = true;
+                self.errors.push(
                     "non_field_errors",
                     Detail::new(
                         format!(
                             "Invalid data. Expected a dictionary, but got {}.",
-                            python_type_name(value)
+                            python_type_name(other)
                         ),
                         "invalid",
                     ),
                 );
             }
         }
-        Ok(serializer)
     }
 
     /// The `partial=True` flag (PATCH).
@@ -470,17 +514,7 @@ impl<'a> Serializer<'a> {
     /// A parser failure (400/415), or the `TypeError` `{**request.data}`
     /// raises when `request.data` is not a mapping (family 500).
     pub fn new_expanded(ctx: &'a ViewCtx<'a>, partial: bool) -> Result<Self, ViewError> {
-        let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
-        let mut serializer = Self {
-            body: None,
-            partial,
-            form: false,
-            errors: ValidationErrors::default(),
-            values: Vec::new(),
-            skipped: Vec::new(),
-            fatal: false,
-            timezone,
-        };
+        let mut serializer = Self::empty(ctx, partial);
         match ctx.data()? {
             Data::Json(Json::Dict(object)) => {
                 serializer.body = Some(Body::Json(object));
@@ -1428,5 +1462,87 @@ mod tests {
         // A form without the key skips the field.
         let query = plane_drf::QueryDict::parse("other=1", None).expect("query");
         assert_eq!(validate_uuid_list(Body::Form(&query), true), Ok(Vec::new()));
+    }
+
+    /// Validate `{"name": …}` through [`Serializer::from_value_in`] and return
+    /// the trimmed value or the rendered `serializer.errors`.
+    fn validate_nested_name(value: &Json) -> Result<Option<String>, serde_json::Value> {
+        let mut serializer = Serializer::from_value_in(chrono_tz::UTC, value, false);
+        let name = serializer.char_field(
+            "name",
+            CharOptions {
+                allow_null: false,
+                allow_blank: false,
+                trim_whitespace: true,
+                max_length: Some(255),
+            },
+        );
+        match serializer.finish() {
+            Ok(_) => Ok(name),
+            Err(errors) => Err(body(errors.into_response())),
+        }
+    }
+
+    /// `IssueCreateSerializer(data=request.data.get("issue"), …)`
+    /// (`plane/app/views/intake/base.py:261-269`): the nested value goes
+    /// through the same shape branches as a whole body. The messages are
+    /// DRF 3.18.3's, recorded from `Serializer(data=…).errors` in
+    /// `apps/api/.venv` (`serializers.py:589-596`).
+    #[test]
+    fn from_value_validates_a_nested_object_or_reports_the_body_shape() {
+        let dict = json_body(r#"{"name": "  nested  "}"#);
+        assert_eq!(
+            validate_nested_name(&Json::Dict(dict)),
+            Ok(Some("nested".to_owned()))
+        );
+
+        for (value, expected) in [
+            (
+                Json::Str(PyStr::from_string("x".to_owned())),
+                serde_json::json!({
+                    "non_field_errors": ["Invalid data. Expected a dictionary, but got str."]
+                }),
+            ),
+            (
+                Json::List(vec![Json::Str(PyStr::from_string("a".to_owned()))]),
+                serde_json::json!({
+                    "non_field_errors": ["Invalid data. Expected a dictionary, but got list."]
+                }),
+            ),
+            (Json::List(Vec::new()), {
+                serde_json::json!({
+                    "non_field_errors": ["Invalid data. Expected a dictionary, but got list."]
+                })
+            }),
+            // `request.data.get("issue")` on a body without the key is `None`.
+            (
+                Json::Null,
+                serde_json::json!({"non_field_errors": ["No data provided"]}),
+            ),
+            (
+                Json::Int(plane_serde::pyjson::PyInt::Small(5)),
+                serde_json::json!({
+                    "non_field_errors": ["Invalid data. Expected a dictionary, but got int."]
+                }),
+            ),
+            (
+                Json::Float(1.5),
+                serde_json::json!({
+                    "non_field_errors": ["Invalid data. Expected a dictionary, but got float."]
+                }),
+            ),
+            (
+                Json::Bool(true),
+                serde_json::json!({
+                    "non_field_errors": ["Invalid data. Expected a dictionary, but got bool."]
+                }),
+            ),
+        ] {
+            assert_eq!(
+                validate_nested_name(&value),
+                Err(expected),
+                "value {value:?}"
+            );
+        }
     }
 }

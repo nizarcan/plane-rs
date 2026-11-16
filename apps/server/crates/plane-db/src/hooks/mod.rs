@@ -25,6 +25,7 @@
 //! | H23 | `Sticky.save` (`plane/db/models/sticky.py:38-54`) | [`sticky::before_save`] |
 //! | H24 | `IssueView.save` (`plane/db/models/view.py:79-95`) | [`issue_view::query_from_filters`] / [`issue_view::before_insert`] |
 //! | H08/H09 | `Project.save` (`plane/db/models/project.py:193-227`) | [`project::before_insert`] / [`project::before_update`] / [`project::retime_intake_snoozes`] |
+//! | H16 | `IntakeIssue.save` (`plane/db/models/intake.py:100-109`) | [`intake_issue::before_save`] / [`intake_issue::project_day_start`] |
 //! | H20 | `Label.save` (`plane/db/models/label.py:46-54`) | [`label::before_insert`] |
 //! | H25 | `UserFavorite.save` (`plane/db/models/favorite.py:52-72`) | [`favorite::before_insert`] |
 //! | H26 | `Page.save` (`plane/db/models/page.py:70-77`) | [`page::before_save`] |
@@ -57,6 +58,7 @@ pub mod html;
 /// Generated data tables for [`html`] (CPython's `html.entities.html5` and its
 /// invalid-reference tables). Private: only `html::strip_tags` needs them.
 mod html_entities;
+pub mod intake_issue;
 pub mod issue;
 pub mod issue_comment;
 pub mod issue_m2m;
