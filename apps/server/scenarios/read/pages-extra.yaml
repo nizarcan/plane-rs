@@ -581,3 +581,19 @@ steps:
     headers:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
+  # Description endpoint denials: the permission class answers before the view,
+  # so these are the same 403 shapes as the page detail route.
+  - name: pe-61-description-private-child-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_child}}/description/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: pe-62-description-page-of-other-project
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/pages/{{page_public}}/description/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

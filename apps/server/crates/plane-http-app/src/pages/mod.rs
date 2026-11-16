@@ -17,33 +17,18 @@
 //!
 //! | Rust | Python | `GET` routes |
 //! | --- | --- | --- |
-//! | [`base`] | `page/base.py` — `PageViewSet` | `pages-summary/`, `pages/`, `pages/{page_id}/` |
+//! | [`base`] | `page/base.py` — `PageViewSet`, `PagesDescriptionViewSet` | `pages-summary/`, `pages/`, `pages/{page_id}/`, `pages/{page_id}/description/` |
 //! | [`version`] | `page/version.py` — `PageVersionEndpoint` | `pages/{page_id}/versions/`, `pages/{page_id}/versions/{pk}/` |
 //! | [`live`] | `page/live.py` — `PageLiveAccessEndpoint` | `pages/{page_id}/live-access/` |
 //!
-//! **Not registered:** `PagesDescriptionViewSet.retrieve`
-//! (`GET …/pages/{page_id}/description/`, `page/base.py:498-516`). It returns a
-//! `StreamingHttpResponse` with `Content-Type: application/octet-stream` and
-//! `Content-Disposition: attachment; filename="page_description.bin"`, and
-//! Django frames a streaming response with `Transfer-Encoding: chunked` and no
-//! `Content-Length` (`django/http/response.py`, `HttpResponseBase`), and
-//! `GZipMiddleware` compresses a *streaming* response whatever its length
-//! (`django/middleware/gzip.py:52-56`: the `len(content) < 200` shortcut is
-//! guarded by `not response.streaming`). `plane-http-app` has no way to say
-//! "this response is streaming": `CommonMiddleware`'s phase calls
-//! `Resp::set_content_length` unconditionally (`bins/plane-api/src/middleware/
-//! common.rs:51`, `bins/plane-api/src/response.rs:139-144`), so the body always
-//! carries a `Content-Length` and never `Transfer-Encoding: chunked`, and the
-//! gzip phase skips bodies under 200 bytes (`bins/plane-api/src/middleware/
-//! gzip.rs:37`) where Django compresses them. The route therefore stays on
-//! Django (501) until the pipeline grows a `streaming` flag on
-//! `ViewResponse::Raw`/`DrfResponse` that (a) suppresses `Content-Length` so
-//! `Resp::into_response` uses its existing chunked body, and (b) makes the gzip
-//! phase compress regardless of length. `flate2`, which the handler would need
-//! to compress the bytes itself, is not a dependency of this crate either.
-//! Everything the route *reads* is one statement
-//! (`PagesDescriptionViewSet.retrieve`, `page/base.py:499-505`); only the
-//! response framing blocks it.
+//! The description route is the one response in `/api/` that is a
+//! `StreamingHttpResponse`. `ViewResponse::streaming_raw` carries
+//! `HttpResponseBase.streaming` through `plane-drf`; `bins/plane-api` then skips
+//! `Content-Length` and frames the body with `Transfer-Encoding: chunked`, and
+//! `GZipMiddleware` compresses it regardless of length, exactly as Django does
+//! (`django/middleware/gzip.py:27-30,52-67`). `crates/plane-testkit` decodes the
+//! gzip body before comparing, so the random `FNAME` bytes Django writes
+//! (`django/utils/text.py:347-363`) are not part of the contract.
 
 use http::Method;
 use plane_drf::registry::{Registry, RegistryError};
@@ -64,6 +49,9 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .action("list", base::list)?
         .action("retrieve", base::retrieve)?
         .action("summary", base::summary)?;
+    registry
+        .viewset("plane.app.views.page.base.PagesDescriptionViewSet")?
+        .action("retrieve", base::description)?;
     registry
         .api_view("plane.app.views.page.version.PageVersionEndpoint")?
         .method(Method::GET, version::get)?;

@@ -25,6 +25,11 @@ pub struct Resp {
     /// DRF body (`rest_framework/response.py:82-84`); nothing emits that today.
     pub content_type: Option<&'static str>,
     pub body: Vec<u8>,
+    /// `HttpResponseBase.streaming` (`django/http/response.py:453`): no
+    /// `Content-Length` is set (`set_content_length`) and the body is framed as
+    /// `Transfer-Encoding: chunked` (`into_response`), which is what uvicorn
+    /// does for a `StreamingHttpResponse`.
+    pub streaming: bool,
 }
 
 impl Resp {
@@ -34,6 +39,7 @@ impl Resp {
             headers: HeaderMap::new(),
             content_type: Some(content_type),
             body,
+            streaming: false,
         }
     }
 
@@ -71,6 +77,7 @@ impl Resp {
         let mut resp = Self::empty(response.status, APPLICATION_JSON);
         resp.content_type = response.content_type;
         resp.body = response.body;
+        resp.streaming = response.streaming;
         for (name, value) in response.headers {
             let Ok(name) = axum::http::HeaderName::from_bytes(name.as_bytes()) else {
                 continue;
@@ -136,8 +143,13 @@ impl Resp {
 
     /// `CommonMiddleware.process_response`: set `Content-Length` for a
     /// non-streaming response that does not have one.
+    ///
+    /// A streaming response never gets one: Django's `StreamingHttpResponse`
+    /// has no `content` setter, so nothing assigns `Content-Length`
+    /// (`django/http/response.py:468-473`), and the ASGI handler frames it as
+    /// `Transfer-Encoding: chunked`.
     pub fn set_content_length(&mut self) {
-        if self.headers.contains_key(CONTENT_LENGTH) {
+        if self.streaming || self.headers.contains_key(CONTENT_LENGTH) {
             return;
         }
         self.set_header("Content-Length", self.body.len().to_string());
@@ -156,6 +168,14 @@ impl Resp {
         }
     }
 
+    /// `del response.headers[name]`. Django's `ResponseHeaders.__delitem__`
+    /// tolerates a missing header (`django/http/response.py:87-88`), and
+    /// `GZipMiddleware` relies on that when it drops `Content-Length` from a
+    /// streaming response.
+    pub fn remove_header(&mut self, name: &str) {
+        let _ = self.headers.remove(name);
+    }
+
     /// Turn the response into an axum response.
     ///
     /// Two details matter for byte-compatibility with uvicorn:
@@ -163,10 +183,11 @@ impl Resp {
     /// * `HEAD` keeps the `Content-Length` of the body it would have sent but
     ///   sends no body, which is what the ASGI server does;
     /// * a response **without** a `Content-Length` must not get one from hyper
-    ///   either. Django's `APPEND_SLASH` 301 and its `ALLOWED_HOSTS` 400 have no
-    ///   `Content-Length`; uvicorn frames them with `Transfer-Encoding: chunked`.
-    ///   A sized empty body would make hyper add `Content-Length: 0`, so those
-    ///   responses use an unknown-size body instead.
+    ///   either. A `StreamingHttpResponse`, Django's `APPEND_SLASH` 301 and its
+    ///   `ALLOWED_HOSTS` 400 have none; uvicorn frames them with
+    ///   `Transfer-Encoding: chunked`. A sized empty body would make hyper add
+    ///   `Content-Length: 0`, so those responses use an unknown-size body
+    ///   instead.
     pub fn into_response(self, method: &Method) -> Response {
         let has_content_length = self.headers.contains_key(CONTENT_LENGTH);
         let mut builder = Response::builder().status(self.status);
@@ -186,10 +207,10 @@ impl Resp {
                 // transport framing only (see the report/PROGRESS).
                 chunked_body(Vec::new())
             }
-        } else if has_content_length {
-            Body::from(self.body)
-        } else {
+        } else if self.streaming || !has_content_length {
             chunked_body(self.body)
+        } else {
+            Body::from(self.body)
         };
         builder.body(body).unwrap_or_else(|error| {
             tracing::error!(target: "plane.api", %error, "failed to build an HTTP response");
@@ -252,5 +273,51 @@ mod tests {
         resp.set_header("Content-Length", "99");
         resp.set_content_length();
         assert_eq!(resp.header("content-length"), Some("99"));
+    }
+
+    /// A `StreamingHttpResponse` has no `content` setter, so Django never
+    /// assigns a `Content-Length`; the ASGI server frames it as
+    /// `Transfer-Encoding: chunked`. hyper makes the same choice for a body it
+    /// cannot size, which is what `chunked_body` produces.
+    #[tokio::test]
+    async fn a_streaming_response_gets_no_content_length() {
+        let mut resp = Resp::new(200, "application/octet-stream", b"hello".to_vec());
+        resp.streaming = true;
+        resp.set_content_length();
+        assert!(resp.header("content-length").is_none());
+
+        let response = resp.into_response(&Method::GET);
+        assert!(response.headers().get(CONTENT_LENGTH).is_none());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        assert_eq!(body.as_ref(), b"hello");
+    }
+
+    #[test]
+    fn a_non_streaming_response_keeps_its_content_length() {
+        let mut resp = Resp::new(200, "application/json", b"hello".to_vec());
+        resp.set_content_length();
+        let response = resp.into_response(&Method::GET);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok()),
+            Some("5")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_streaming_head_has_no_content_length_either() {
+        let mut resp = Resp::new(200, "application/octet-stream", b"hello".to_vec());
+        resp.streaming = true;
+        resp.set_content_length();
+        let response = resp.into_response(&Method::HEAD);
+        assert!(response.headers().get(CONTENT_LENGTH).is_none());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        assert!(body.is_empty());
     }
 }

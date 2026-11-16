@@ -396,6 +396,27 @@ plane_query! {
 }
 
 plane_query! {
+    /// `PagesDescriptionViewSet.retrieve`'s `Page.objects.get(...)`
+    /// (`page/base.py:499-505`), projected to the one column the view streams.
+    ///
+    /// `.get()` adds `LIMIT 21`; the handler checks the row count so a second
+    /// active link to the same project would 404 (`MultipleObjectsReturned` is
+    /// an `ObjectDoesNotExist`) instead of silently picking one.
+    ///
+    /// `$1` user id, `$2` page id, `$3` project id, `$4` workspace slug.
+    PAGES_DESCRIPTION_BINARY = "pages_description_binary",
+    "SELECT p.description_binary AS description_binary FROM pages p \
+     INNER JOIN project_pages pp ON p.id = pp.page_id \
+     INNER JOIN workspaces w ON p.workspace_id = w.id \
+     WHERE p.deleted_at IS NULL \
+     AND (p.owned_by_id = $1 OR p.access = 0) \
+     AND p.id = $2 AND pp.deleted_at IS NULL AND pp.project_id = $3 \
+     AND w.slug = $4 \
+     LIMIT 21",
+    [("description_binary", Bytea)]
+}
+
+plane_query! {
     /// `PageLiveAccessEndpoint.get`'s `ProjectPage.objects.filter(…).values_list(
     /// "project_id", "project__project_projectmember__role", "page__owned_by_id",
     /// "page__access")` (`page/live.py:35-44`).
@@ -447,6 +468,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &PAGES_ISSUE_IDS,
     &PAGES_VERSIONS,
     &PAGES_VERSION_DETAIL,
+    &PAGES_DESCRIPTION_BINARY,
     &PAGES_LIVE_ACCESS_LINKS,
     &PAGES_PROJECT_GUEST_FEATURE,
 ];
