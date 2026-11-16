@@ -56,6 +56,7 @@
 //! ```
 
 pub mod description;
+pub mod django_serialize;
 pub mod fields;
 pub mod generated;
 pub mod html;

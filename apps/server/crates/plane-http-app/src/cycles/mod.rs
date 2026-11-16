@@ -33,6 +33,11 @@ pub mod issue_list;
 pub mod queries;
 pub mod workspace;
 
+// Set B: cycle issues and the transfer snapshot (routes 33, 34, 38).
+mod write_issue;
+pub mod write_issue_queries;
+mod write_transfer;
+
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
@@ -64,5 +69,9 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.workspace.cycle.WorkspaceCyclesEndpoint")?
         .method(http::Method::GET, workspace::get)?;
+    // Set B: `POST cycle-issues/` (33), `DELETE cycle-issues/{issue_id}/` (34)
+    // and `POST transfer-issues/` (38).
+    write_issue::register(registry)?;
+    write_transfer::register(registry)?;
     Ok(())
 }

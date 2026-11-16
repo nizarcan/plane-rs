@@ -291,3 +291,111 @@ async fn insert_rows(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The generic through-row insert (cycle issues, module issues, …)
+// ---------------------------------------------------------------------------
+
+/// One `ProjectBaseModel` through row: the nine columns every membership table
+/// shares, with the second endpoint's column named by the caller.
+#[derive(Clone, Copy, Debug)]
+pub struct MembershipRow {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub workspace_id: Uuid,
+    pub created_by_id: Option<Uuid>,
+    pub updated_by_id: Option<Uuid>,
+    pub issue_id: Uuid,
+    /// `assignee_id`, `label_id`, `cycle_id`, `module_id`: the column the
+    /// caller names.
+    pub other_id: Uuid,
+}
+
+/// `bulk_create([...], batch_size=10)` for a through table, **without**
+/// `ignore_conflicts` and **without** a catch: one outermost
+/// `BEGIN`/`COMMIT`, every batch inside it, and a unique violation rolls the
+/// whole call back and propagates.
+///
+/// `CycleIssueViewSet.create` (`plane/app/views/cycle/issue.py:272-284`) is
+/// the first caller; `module/issue.py` and `draft.py` have the same shape.
+///
+/// # Errors
+///
+/// A database failure, including the unique violation `bulk_create` raises
+/// when the caller did not pass `ignore_conflicts`.
+pub async fn insert_membership(
+    client: &Client,
+    table: &str,
+    other_column: &str,
+    rows: &[MembershipRow],
+    now: DateTime<Utc>,
+) -> Result<(), DbError> {
+    // `bulk_create([])` returns before the atomic (`query.py`, `if not objs`).
+    if rows.is_empty() {
+        return Ok(());
+    }
+    client.batch_execute("BEGIN").await?;
+    let outcome: Result<(), tokio_postgres::Error> = async {
+        for (batch_index, batch) in rows.chunks(BATCH_SIZE).enumerate() {
+            let mut sql = format!(
+                "INSERT INTO {table} (created_at, updated_at, created_by_id, updated_by_id, \
+                 id, project_id, workspace_id, issue_id, {other_column}) VALUES "
+            );
+            let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+                Vec::with_capacity(batch.len() * 9);
+            for (index, row) in batch.iter().enumerate() {
+                // Django's `pre_save` calls `timezone.now()` per object, so
+                // `created_at` — and the `-created_at` ordering the handlers
+                // read back — is strictly increasing in insertion order. One
+                // shared timestamp would make every row a tie and let
+                // Postgres choose.
+                if index != 0 {
+                    sql.push_str(", ");
+                }
+                let base = index * 9;
+                sql.push_str(&format!(
+                    "(${}, ${}, ${}, ${}, ${}, ${}, ${}, ${}, ${})",
+                    base + 1,
+                    base + 2,
+                    base + 3,
+                    base + 4,
+                    base + 5,
+                    base + 6,
+                    base + 7,
+                    base + 8,
+                    base + 9
+                ));
+                let created_at =
+                    now + chrono::Duration::microseconds((batch_index * BATCH_SIZE + index) as i64);
+                params.push(Box::new(created_at));
+                params.push(Box::new(created_at));
+                params.push(Box::new(row.created_by_id));
+                params.push(Box::new(row.updated_by_id));
+                params.push(Box::new(row.id));
+                params.push(Box::new(row.project_id));
+                params.push(Box::new(row.workspace_id));
+                params.push(Box::new(row.issue_id));
+                params.push(Box::new(row.other_id));
+            }
+            let statement = client.prepare(&sql).await?;
+            let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+                .iter()
+                .map(|value| value.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync))
+                .collect();
+            client.execute(&statement, &refs).await?;
+        }
+        Ok(())
+    }
+    .await;
+
+    match outcome {
+        Ok(()) => {
+            client.batch_execute("COMMIT").await?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = client.batch_execute("ROLLBACK").await;
+            Err(error.into())
+        }
+    }
+}
