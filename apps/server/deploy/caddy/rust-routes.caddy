@@ -74,10 +74,10 @@
 # | assets | `PLANE_RS_GROUP_ASSETS` | 20 | 83 | no |
 # | workspaces | `PLANE_RS_GROUP_WORKSPACES` | 28 | 108 | yes |
 # | analytics | `PLANE_RS_GROUP_ANALYTICS` | 13 | 41 | no |
-# | projects | `PLANE_RS_GROUP_PROJECTS` | 17 | 65 | no |
-# | states | `PLANE_RS_GROUP_STATES` | 4 | 14 | no |
-# | labels | `PLANE_RS_GROUP_LABELS` | 4 | 15 | no |
-# | estimates | `PLANE_RS_GROUP_ESTIMATES` | 6 | 20 | no |
+# | projects | `PLANE_RS_GROUP_PROJECTS` | 17 | 65 | yes |
+# | states | `PLANE_RS_GROUP_STATES` | 4 | 14 | yes |
+# | labels | `PLANE_RS_GROUP_LABELS` | 4 | 15 | yes |
+# | estimates | `PLANE_RS_GROUP_ESTIMATES` | 6 | 20 | yes |
 # | issues | `PLANE_RS_GROUP_ISSUES` | 41 | 144 | yes |
 # | cycles | `PLANE_RS_GROUP_CYCLES` | 15 | 58 | no |
 # | modules | `PLANE_RS_GROUP_MODULES` | 13 | 58 | no |
@@ -142,6 +142,70 @@ handle @plane_rs_users_me {
 	CEL
 }
 handle @plane_rs_workspaces {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# projects: Projects, project members, invitations, favourites and settings.
+# 17 route(s), 65 endpoint x method pair(s); PLANE_RS_GROUP_PROJECTS=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_projects {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_PROJECTS} == "" ? "rust" : {env.PLANE_RS_GROUP_PROJECTS}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/details/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/project-identifiers/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/invitations/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/invitations/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/join/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/members/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/members/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/project-members/me/$") || path_regexp(r"^/api/workspaces/[^/]+/user-favorite-projects/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/project-deploy-boards/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/project-deploy-boards/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/preferences/member/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+		)
+	CEL
+}
+handle @plane_rs_projects {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# states: Project states and the default-state action.
+# 4 route(s), 14 endpoint x method pair(s); PLANE_RS_GROUP_STATES=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_states {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_STATES} == "" ? "rust" : {env.PLANE_RS_GROUP_STATES}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/states/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/states/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/states/$")))
+		)
+	CEL
+}
+handle @plane_rs_states {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# labels: Workspace and project labels, issue labels.
+# 4 route(s), 15 endpoint x method pair(s); PLANE_RS_GROUP_LABELS=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_labels {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_LABELS} == "" ? "rust" : {env.PLANE_RS_GROUP_LABELS}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issue-labels/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/issue-labels/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/labels/$")))
+		)
+	CEL
+}
+handle @plane_rs_labels {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# estimates: Estimates and estimate points.
+# 6 route(s), 20 endpoint x method pair(s); PLANE_RS_GROUP_ESTIMATES=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_estimates {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_ESTIMATES} == "" ? "rust" : {env.PLANE_RS_GROUP_ESTIMATES}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/project-estimates/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/estimates/$") || path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/estimates/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/estimates/$")))
+		)
+	CEL
+}
+handle @plane_rs_estimates {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
 
