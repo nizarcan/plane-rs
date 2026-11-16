@@ -894,9 +894,15 @@ containing JSON*, escaped again by the outer serialisation.
 | # | site | enqueued from | route / entry point | arguments (exact) | runtime types |
 | - | --- | --- | --- | --- | --- |
 | 1 | `plane/api/views/issue.py:1284` | `IssueLinkListCreateAPIEndpoint.post` | POST /api/v1/workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/<br>POST /api/v1/workspaces/<str:slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/ | `serializer.instance.id`, `serializer.instance.url` | `(UUID, str)` |
-| 2 | `plane/api/views/issue.py:1407` | `IssueLinkDetailAPIEndpoint.patch` | PATCH /api/v1/workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/<uuid:pk>/<br>PATCH /api/v1/workspaces/<str:slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/<uuid:pk>/ | `serializer.data.get('id')`, `updated_url` | `(str, str)` |
-| 3 | `plane/app/views/issue/link.py:61` | `IssueLinkViewSet.create` | POST /api/workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-links/ | `serializer.data.get('id')`, `serializer.data.get('url')` | `(str, str)` |
-| 4 | `plane/app/views/issue/link.py:92` | `IssueLinkViewSet.partial_update` | PATCH /api/workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-links/<uuid:pk>/ | `serializer.data.get('id')`, `updated_url` | `(str, str)` |
+| 2 | `plane/api/views/issue.py:1407` | `IssueLinkDetailAPIEndpoint.patch` | PATCH /api/v1/workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/links/<uuid:pk>/<br>PATCH /api/v1/workspaces/<str:slug>/projects/<uuid:project_id>/work-items/<uuid:issue_id>/links/<uuid:pk>/ | `serializer.data.get('id')`, `updated_url` | `(UUID, str)` |
+| 3 | `plane/app/views/issue/link.py:61` | `IssueLinkViewSet.create` | POST /api/workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-links/ | `serializer.data.get('id')`, `serializer.data.get('url')` | `(UUID, str)` |
+| 4 | `plane/app/views/issue/link.py:92` | `IssueLinkViewSet.partial_update` | PATCH /api/workspaces/<str:slug>/projects/<uuid:project_id>/issues/<uuid:issue_id>/issue-links/<uuid:pk>/ | `serializer.data.get('id')`, `updated_url` | `(UUID, str)` |
+
+`serializer.data.get('id')` is a `uuid.UUID` at sites 2–4 as well: both
+`IssueLinkSerializer`s are `fields = "__all__"` with an `editable=False` pk, so
+DRF builds `id` as a read-only `PrimaryKeyRelatedField` and
+`to_representation` returns the pk object (only the JSON renderer stringifies
+it). The task's `id` argument is always kombu's `uuid` envelope.
 
 #### `plane.bgtasks.workspace_invitation_task.workspace_invitation` — 1 call site
 
@@ -1134,7 +1140,7 @@ differ, and a differential harness comparing drained messages will see the diffe
 | `copy_s3_objects_of_description_and_assets` | `entity_identifier`, `project_id`, `user_id` | `slug` only | `page.id`, `project_id` (URL), `request.user.id` |
 | `page_transaction` | `page_id` | `serializer.data["id"]` at `plane/app/views/page/base.py:160` | `page_id` (URL) at `:204` and `:558`; `page.id` at `:610` |
 | `page_version_task` | `page_id`, `user_id` | — | both UUID (URL kwarg and `request.user.id`) |
-| `crawl_work_item_link_title` | `id` | `serializer.data.get("id")` in `plane/app/views/issue/link.py:61,92` and `plane/api/views/issue.py:1407` | `serializer.instance.id` in `plane/api/views/issue.py:1284` |
+| `crawl_work_item_link_title` | `id` | — | **every** site: `serializer.data.get("id")` in `plane/app/views/issue/link.py:61,92` and `plane/api/views/issue.py:1407` is the pk object of a read-only `PrimaryKeyRelatedField`, and `serializer.instance.id` in `plane/api/views/issue.py:1284` |
 | `recent_visited_task` | `entity_identifier` | `str(issue.id)` at `plane/app/views/issue/base.py:1359` | URL `pk` at the nine other sites |
 | `recent_visited_task` | `project_id` | — | UUID, or `None` at `plane/app/views/view/base.py:140` |
 | `schedule_issue_version` / `schedule_issue_description_version` | `batch_size` | **`str`** — the only caller is the management command, whose `input()` returns a string and whose `.delay()` does not cast it | — |
