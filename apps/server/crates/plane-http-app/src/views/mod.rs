@@ -17,20 +17,43 @@
 //! | Rust | Python |
 //! | --- | --- |
 //! | [`base`] | `view/base.py` — `WorkspaceViewViewSet`, `IssueViewViewSet`, `IssueViewFavoriteViewSet`, `WorkspaceViewIssuesViewSet` |
+//! | [`write_view`] | the same two viewsets' `create`/`partial_update`/`destroy`; [`write_view_queries`] is their SQL |
 //!
 //! The four `GET`s of the two viewset families are ported, plus the
-//! favourite-views `GET` the runtime's guard refuses (405).
-//! `WorkspaceViewIssuesViewSet.list` (`GET /api/workspaces/{slug}/issues/`)
-//! belongs to the `issues` group, not this one (`deploy/route-groups.yaml`).
+//! favourite-views `GET` the runtime's guard refuses (405) and, in
+//! [`write_view`], the set-A writes: create (178/180), PATCH and DELETE
+//! (179/181) and their `PUT` guard. `WorkspaceViewIssuesViewSet.list`
+//! (`GET /api/workspaces/{slug}/issues/`) belongs to the `issues` group, not
+//! this one (`deploy/route-groups.yaml`).
 
 use plane_drf::registry::{Registry, RegistryError};
 
 pub mod base;
 pub mod queries;
+pub mod write_view;
+pub mod write_view_queries;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     base::register(registry)?;
+    // The saved-view writes (set A): create, PATCH, DELETE and the `PUT` guard
+    // that lets both `{pk}` routes flip whole. `write_view` owns the derived
+    // `query` column (H24) and the destroy side effects.
+    registry
+        .viewset("plane.app.views.view.base.WorkspaceViewViewSet")?
+        .action("create", write_view::workspace_create)?
+        .action("partial_update", write_view::workspace_partial_update)?
+        .action("destroy", write_view::workspace_destroy)?
+        // `PUT …/views/{pk}/` maps to `UpdateModelMixin.update`, which the
+        // `BaseViewSet` guard always refuses (405); `ROUTES.md:631`.
+        .action("update", crate::cycles::base::guard_only)?;
+    registry
+        .viewset("plane.app.views.view.base.IssueViewViewSet")?
+        .action("create", write_view::issue_create)?
+        .action("partial_update", write_view::issue_partial_update)?
+        .action("destroy", write_view::issue_destroy)?
+        // `ROUTES.md:630`.
+        .action("update", crate::cycles::base::guard_only)?;
     // `…/projects/{project_id}/project-views/` matches this group's
     // `projects/*/project-views/**` selector, so the route is registered here
     // even though the handler lives with the other project settings writes.

@@ -90,38 +90,42 @@ pub fn register(
 }
 
 /// One `issue_views` row with the columns `IssueViewSerializer` reads.
+///
+/// Shared with [`super::write_view`], which builds the same row from the values
+/// a create/PATCH wrote so the response renders the in-memory instance rather
+/// than a re-read.
 #[derive(Debug)]
-struct Row {
-    id: Uuid,
+pub(super) struct Row {
+    pub(super) id: Uuid,
     /// `Some` for the project-view routes (the `Exists` annotation), `None`
     /// for the workspace-view routes (the attribute is missing).
-    is_favorite: Option<bool>,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
-    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-    name: String,
-    description: String,
-    query: JsonText,
-    filters: JsonText,
-    display_filters: JsonText,
-    display_properties: JsonText,
-    rich_filters: JsonText,
-    access: i16,
-    sort_order: f64,
-    logo_props: JsonText,
-    is_locked: bool,
-    archived_at: Option<chrono::DateTime<chrono::Utc>>,
-    created_by: Option<Uuid>,
-    updated_by: Option<Uuid>,
-    workspace: Uuid,
-    project: Option<Uuid>,
-    owned_by: Uuid,
+    pub(super) is_favorite: Option<bool>,
+    pub(super) created_at: chrono::DateTime<chrono::Utc>,
+    pub(super) updated_at: chrono::DateTime<chrono::Utc>,
+    pub(super) deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(super) name: String,
+    pub(super) description: String,
+    pub(super) query: JsonText,
+    pub(super) filters: JsonText,
+    pub(super) display_filters: JsonText,
+    pub(super) display_properties: JsonText,
+    pub(super) rich_filters: JsonText,
+    pub(super) access: i16,
+    pub(super) sort_order: f64,
+    pub(super) logo_props: JsonText,
+    pub(super) is_locked: bool,
+    pub(super) archived_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub(super) created_by: Option<Uuid>,
+    pub(super) updated_by: Option<Uuid>,
+    pub(super) workspace: Uuid,
+    pub(super) project: Option<Uuid>,
+    pub(super) owned_by: Uuid,
 }
 
 impl Row {
     /// `has_favorite` says whether the statement selected the `is_favorite`
     /// column at index 1 (all following columns shift by one).
-    fn decode(row: &tokio_postgres::Row, has_favorite: bool) -> Result<Self, ViewError> {
+    pub(super) fn decode(row: &tokio_postgres::Row, has_favorite: bool) -> Result<Self, ViewError> {
         let base = usize::from(has_favorite);
         Ok(Self {
             id: row.try_get(0).map_err(ViewError::from)?,
@@ -153,7 +157,7 @@ impl Row {
         })
     }
 
-    fn value(&self) -> IssueViewSerializer<'_> {
+    pub(super) fn value(&self) -> IssueViewSerializer<'_> {
         IssueViewSerializer {
             id: self.id,
             is_favorite: match self.is_favorite {
