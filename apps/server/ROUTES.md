@@ -270,8 +270,8 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 180 | `/api/workspaces/{slug}/views/` | GET:list, POST:create | `plane.app.views.view.base.WorkspaceViewViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 181 | `/api/workspaces/{slug}/views/{pk}/` | GET:retrieve, PUT:update [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.view.base.WorkspaceViewViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE); PATCH allow(-;WORKSPACE;creator=IssueView); DELETE allow(ADMIN;WORKSPACE;creator=IssueView) | rust(GET) | verified |
 | 182 | `/api/workspaces/{slug}/issues/` | GET:list | `plane.app.views.view.base.WorkspaceViewIssuesViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
-| 183 | `/api/workspaces/{slug}/projects/{project_id}/user-favorite-views/` | GET:list [405], POST:create | `plane.app.views.view.base.IssueViewFavoriteViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER;PROJECT) | rust(GET) | verified |
-| 184 | `/api/workspaces/{slug}/projects/{project_id}/user-favorite-views/{view_id}/` | DELETE:destroy | `plane.app.views.view.base.IssueViewFavoriteViewSet` | IsAuthenticated; DELETE allow(ADMIN,MEMBER;PROJECT) | django | not-started |
+| 183 | `/api/workspaces/{slug}/projects/{project_id}/user-favorite-views/` | GET:list [405], POST:create | `plane.app.views.view.base.IssueViewFavoriteViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER;PROJECT) | rust(GET,POST) | verified |
+| 184 | `/api/workspaces/{slug}/projects/{project_id}/user-favorite-views/{view_id}/` | DELETE:destroy | `plane.app.views.view.base.IssueViewFavoriteViewSet` | IsAuthenticated; DELETE allow(ADMIN,MEMBER;PROJECT) | rust(DELETE) | verified |
 | 185 | `/api/workspace-slug-check/` | GET | `plane.app.views.workspace.base.WorkSpaceAvailabilityCheckEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 186 | `/api/workspaces/` | GET:list, POST:create | `plane.app.views.workspace.base.WorkSpaceViewSet` | WorkSpaceBasePermission; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 187 | `/api/workspaces/{slug}/` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.app.views.workspace.base.WorkSpaceViewSet` | WorkSpaceBasePermission; PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET) | verified |
@@ -285,7 +285,7 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 195 | `/api/workspaces/{slug}/members/leave/` | POST:leave | `plane.app.views.workspace.member.WorkSpaceMemberViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
 | 196 | `/api/users/last-visited-workspace/` | GET | `plane.app.views.workspace.user.UserLastProjectWithWorkspaceEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 197 | `/api/workspaces/{slug}/workspace-members/me/` | GET | `plane.app.views.workspace.member.WorkspaceMemberUserEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 198 | `/api/workspaces/{slug}/workspace-views/` | POST | `plane.app.views.workspace.member.WorkspaceMemberUserViewsEndpoint` | IsAuthenticated | django | not-started |
+| 198 | `/api/workspaces/{slug}/workspace-views/` | POST | `plane.app.views.workspace.member.WorkspaceMemberUserViewsEndpoint` | IsAuthenticated | rust(POST) | verified |
 | 199 | `/api/workspaces/{slug}/workspace-themes/` | GET:list, POST:create | `plane.app.views.workspace.base.WorkspaceThemeViewSet` | WorkSpaceAdminPermission | rust(GET) | verified |
 | 200 | `/api/workspaces/{slug}/workspace-themes/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.workspace.base.WorkspaceThemeViewSet` | WorkSpaceAdminPermission | rust(GET) | verified |
 | 201 | `/api/workspaces/{slug}/user-stats/{user_id}/` | GET | `plane.app.views.workspace.user.WorkspaceUserProfileStatsEndpoint` | WorkspaceViewerPermission | rust(GET) | verified |
