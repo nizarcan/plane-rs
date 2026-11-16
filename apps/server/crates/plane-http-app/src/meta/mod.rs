@@ -14,21 +14,23 @@
 //! no database, no serializer and one cache decorator, ported end to end —
 //! including Django's page cache (`plane_cache::page`, DECISIONS.md D5a).
 //!
-//! `unsplash` is **not** ported and stays on Django. It reads the
-//! `UNSPLASH_ACCESS_KEY` instance configuration and, when a key is set, calls
-//! `https://api.unsplash.com` with `requests` and returns Unsplash's own JSON
-//! verbatim (`plane/app/views/external/base.py:215-243`). Porting it needs the
-//! outbound HTTP client and its SSRF guards (`DECISIONS.md` D9, Phase 5), and
-//! a port that returned `[]` without them would be a stub that only looks
-//! right on a deployment with no key configured.
+//! `unsplash` is the proxy of `plane/app/views/external/base.py:215-243`. With
+//! no `UNSPLASH_ACCESS_KEY` in the instance configuration it answers `[]`
+//! (`Response([], 200)`); with a key it forwards to
+//! `https://api.unsplash.com` through `plane_net`'s `UNSPLASH` preset
+//! (DECISIONS.md D9) and returns Unsplash's own JSON and status. The key is read
+//! the way `get_configuration_value` reads it, including the Fernet decryption
+//! of an encrypted instance-configuration row.
 
 use plane_drf::registry::{Registry, RegistryError};
 
 pub mod queries;
 pub mod timezones;
+pub mod unsplash;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     timezones::register(registry)?;
+    unsplash::register(registry)?;
     Ok(())
 }

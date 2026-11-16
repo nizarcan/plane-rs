@@ -1,0 +1,567 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Extra steps for the `assets` group, beyond the generated `assets.yaml`.
+# Every shape the generated scenario does not reach, with the fixture's own
+# rows: the project-accessibility rule for a restricted guest, a plain guest and
+# a workspace member without project membership; the error bodies of the
+# `v2` routes; the `AllowAny` static route's entity-type and miss branches;
+# every entity type the fixture has (`ISSUE_ATTACHMENT`, `ISSUE_DESCRIPTION`,
+# `COMMENT_DESCRIPTION`, `WORKSPACE_LOGO`, `PROJECT_COVER`, `USER_AVATAR`);
+# the collection-versus-detail mismatch of the attachment route; a timezone
+# other than the admin's; `fields=` on a serializer that ignores it; a
+# non-member and a soft-deleted member of the workspace.
+#
+# The fixture has no soft-deleted, never-uploaded or untitled asset, so those
+# branches cannot be reached from a read-only scenario; they are covered by the
+# `plane-db`/`plane-storage` unit tests instead.
+#
+# Deterministic against Django (`--a django --b django-b`, two processes) and
+# then run Django vs Rust. Not generated: `gen_read.py` only emits the default
+# shape per route.
+
+name: read-assets-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws_id: "a91c3d80-5ed0-40f3-92a8-a28c015f4388"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  # ISSUE_ATTACHMENT rows (plane fixture: tools/fixtures/build.py:1546-1580).
+  attachment_id: "80bc6632-0e4a-4d3e-9c8f-ec0b9bf351e9"
+  attachment_image_id: "0812350a-fa1a-44de-8368-3752e7fc48c7"
+  attachment_asset_key: "47efd89ab2544c60af8aeada576b220d-spec.pdf"
+  attachment_asset_key_image: "9160a0bc6e604ae5b3ed6364208fb80a-mockup.png"
+  # ISSUE_DESCRIPTION (diagram.png) and COMMENT_DESCRIPTION (note.txt).
+  description_asset_issue: "666a24d5-adf9-4b02-8c5c-ce1440ac11e9"
+  description_asset_comment: "f5dbcf9e-5373-4f44-a51c-a50b8a0395a5"
+  workspace_logo_asset: "e704fbad-88e7-4a04-ad34-ee44588b924e"
+  project_cover_asset: "0c070735-7995-4d44-84ff-3ef769a6c69b"
+  avatar_asset_admin: "f9d1f1c9-fb2b-4924-b517-5781c46d2ba4"
+  avatar_asset_key_admin: "user-9ad9c91ce0a8413598f195c6729d65ef-avatar.png"
+  avatar_asset_key_member: "user-483959eb97a54e128199fba498156fc4-avatar.png"
+  # Alpha issues: d432… carries spec.pdf and mockup.png, 0053… carries
+  # trace.log; 0643… is a Beta issue carrying crash.txt.
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_alpha_other: "0053b148-8115-4446-a6dd-811f2583eaf1"
+  issue_beta_with_attachment: "06438502-cbaf-4e9a-9f92-93dff8daac99"
+  missing_asset_id: "00000000-0000-4000-8000-000000000000"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- `/api/workspaces/file-assets/{workspace_id}/{asset_key}/` ----------
+  # A project-bound asset: the caller must be an active member of its project.
+  - name: ae-01-file-assets-owner-admin
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The request's timezone renders the two datetimes (admin is UTC, this one is
+  # Europe/Berlin, i.e. +01:00 in November).
+  - name: ae-02-file-assets-tz-berlin
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_berlin}}"
+  - name: ae-03-file-assets-project-member
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+  # A restricted guest: role GUEST on Alpha with guest_view_all_features off,
+  # and the issue was created by the admin, so the asset is filtered out and the
+  # view answers the 200 error body.
+  - name: ae-04-file-assets-restricted-guest
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ae-05-file-assets-restricted-guest2
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+  # A workspace member with no membership in the asset's project.
+  - name: ae-06-file-assets-without-project-membership
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  # `WorkspaceMemberPermission`: not a member, and a soft-deleted member.
+  - name: ae-07-file-assets-non-member
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: ae-08-file-assets-deleted-member
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+  - name: ae-09-file-assets-anonymous
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.30
+  # A key that no row carries, including the trailing slash of the route.
+  - name: ae-10-file-assets-unknown-key
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/00000000000000000000000000000000-missing.pdf/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The workspace id in the key is part of the string the view builds, so an
+  # asset stored under another workspace never matches.
+  - name: ae-11-file-assets-wrong-workspace-id
+    method: GET
+    path: "/api/workspaces/file-assets/00000000-0000-4000-8000-000000000000/{{attachment_asset_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A COMMENT_DESCRIPTION asset (note.txt, key stem ce37924b…): project-bound
+  # with an issue id, so the same accessibility rule applies. (The fixture's
+  # comment id is NULL on this row, so the comment lookup never runs.)
+  - name: ae-12-file-assets-comment-description
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/ce37924b218041dbbbac9bbf04dfe277-note.txt/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- `/api/users/file-assets/{asset_key}/` ------------------------------
+  # The member's own avatar row was created by the admin in this fixture, so
+  # `created_by=request.user` finds nothing. The 500 branch (a row the caller
+  # created) is the generated scenario's admin step: `FileAssetSerializer(qs)`
+  # without `many=True` (`base.py:90`).
+  - name: ae-13-user-assets-own-avatar
+    method: GET
+    path: "/api/users/file-assets/{{avatar_asset_key_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # Another user's avatar: `created_by=request.user` finds nothing.
+  - name: ae-14-user-assets-other-avatar
+    method: GET
+    path: "/api/users/file-assets/{{avatar_asset_key_admin}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  - name: ae-15-user-assets-own-avatar-onboarded
+    method: GET
+    path: "/api/users/file-assets/{{avatar_asset_key_admin}}/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: ae-16-user-assets-unknown-key
+    method: GET
+    path: "/api/users/file-assets/user-00000000000000000000000000000000-missing.png/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The collection route's handler is the same method with a missing argument.
+  - name: ae-17-user-assets-collection-guest
+    method: GET
+    path: "/api/users/file-assets/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+
+  # --- `/api/assets/v2/workspaces/{slug}/{asset_id}/` ---------------------
+  - name: ae-18-workspace-asset-project-cover
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/{{project_cover_asset}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-19-workspace-asset-description
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/{{description_asset_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # crash.txt is a Beta-project attachment; the admin administers both.
+  - name: ae-20-workspace-asset-beta-project-admin
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/5120cc51-21f9-44da-94cc-99ce17a0d4f8/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-21-workspace-asset-restricted-guest
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/{{attachment_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ae-22-workspace-asset-without-project-membership
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/{{attachment_id}}/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: ae-23-workspace-asset-non-member
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/{{attachment_id}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: ae-24-workspace-asset-missing
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/{{missing_asset_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Unknown workspace: `allow_permission` denies before the lookup runs.
+  - name: ae-25-workspace-asset-unknown-workspace
+    method: GET
+    path: "/api/assets/v2/workspaces/no-such-workspace/{{attachment_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-26-workspace-asset-anonymous
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/{{attachment_id}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.31
+
+  # --- `/api/assets/v2/static/{asset_id}/` (AllowAny) ---------------------
+  - name: ae-27-static-workspace-logo
+    method: GET
+    path: "/api/assets/v2/static/{{workspace_logo_asset}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.32
+  - name: ae-28-static-project-cover
+    method: GET
+    path: "/api/assets/v2/static/{{project_cover_asset}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.33
+  - name: ae-29-static-member-avatar
+    method: GET
+    path: "/api/assets/v2/static/{{avatar_asset_admin}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # An entity type outside the four the route serves: 400 with `status: false`.
+  - name: ae-30-static-issue-attachment
+    method: GET
+    path: "/api/assets/v2/static/{{attachment_id}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.34
+  - name: ae-31-static-issue-description
+    method: GET
+    path: "/api/assets/v2/static/{{description_asset_issue}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.35
+  - name: ae-32-static-missing
+    method: GET
+    path: "/api/assets/v2/static/{{missing_asset_id}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.36
+
+  # --- `/api/assets/v2/workspaces/{slug}/projects/{project_id}/{pk}/` -----
+  - name: ae-33-project-asset-wrong-project
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_beta}}/{{attachment_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-34-project-asset-restricted-guest
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{attachment_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ae-35-project-asset-beta-member
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_beta}}/5120cc51-21f9-44da-94cc-99ce17a0d4f8/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+  # `allow_permission(level="PROJECT")` denies a workspace member with no
+  # project membership.
+  - name: ae-36-project-asset-without-project-membership
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{attachment_id}}/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: ae-37-project-asset-missing
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{missing_asset_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The project collection route's handler is the same method without `pk`.
+  - name: ae-38-project-asset-collection-member
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+
+  # --- `/api/assets/v2/workspaces/{slug}/check/{asset_id}/` --------------
+  - name: ae-39-asset-check-restricted-guest
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/check/{{attachment_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ae-40-asset-check-without-project-membership
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/check/{{attachment_id}}/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: ae-41-asset-check-missing
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/check/{{missing_asset_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # No project, so `is_project_accessible_to` is True for everybody.
+  - name: ae-42-asset-check-workspace-logo-guest
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/check/{{workspace_logo_asset}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ae-43-asset-check-anonymous
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/check/{{attachment_id}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.37
+
+  # --- `/api/assets/v2/workspaces/{slug}/download/{asset_id}/` -----------
+  - name: ae-44-download-restricted-guest
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/download/{{attachment_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ae-45-download-missing
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/download/{{missing_asset_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A user asset has no workspace, so the `workspace__slug` join finds nothing
+  # and the view's own 404 body is answered (not the family 404).
+  - name: ae-46-download-user-asset
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/download/{{avatar_asset_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- `/api/assets/v2/workspaces/{slug}/projects/{pid}/download/{aid}/` -
+  - name: ae-47-project-download-wrong-project
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_beta}}/download/{{attachment_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-48-project-download-restricted-guest
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/download/{{attachment_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  - name: ae-49-project-download-member
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/download/{{attachment_image_id}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+
+  # --- attachment collections and details --------------------------------
+  - name: ae-50-attachments-second-issue-admin
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_other}}/attachments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-51-attachments-beta-issue-admin
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_with_attachment}}/attachments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The issue id is never validated against the project, so a Beta issue under
+  # the Alpha project is an empty list, not a 404.
+  - name: ae-52-attachments-cross-project-issue
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_beta_with_attachment}}/attachments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-53-attachments-without-project-membership
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/attachments/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+  - name: ae-54-attachments-non-member
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/attachments/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+  - name: ae-55-attachment-detail-image
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/attachments/{{attachment_image_id}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+  # The asset exists but not under this issue: 404 from `DoesNotExist`.
+  - name: ae-56-attachment-detail-wrong-issue
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_other}}/attachments/{{attachment_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-57-attachment-detail-wrong-project
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_beta}}/issues/{{issue_beta_with_attachment}}/attachments/{{attachment_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-58-attachment-detail-restricted-guest
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/attachments/{{attachment_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+  # The detail route does not check `entity_type`: an ISSUE_DESCRIPTION asset
+  # bound to the issue is served by the attachment route.
+  - name: ae-59-attachment-detail-description-asset
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/attachments/{{description_asset_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: ae-60-attachment-detail-missing
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/attachments/{{missing_asset_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- shapes the generated scenario cannot reach ------------------------
+  # `fields=` is ignored by `FileAssetSerializer` (a plain `BaseSerializer`):
+  # the body must be identical to `ae-01`.
+  - name: ae-61-file-assets-fields-ignored
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    query:
+      fields: "id,asset"
+      expand: "user"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A repeated query parameter: `QueryDict.get` returns the last value only, so
+  # `fields` is still a whole list and ignored.
+  - name: ae-62-file-assets-repeated-fields
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{attachment_asset_key}}/"
+    query:
+      fields: "id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The collection route of `FileAssetEndpoint`: `get()` is called without its
+  # two positional arguments and answers the family 500.
+  - name: ae-63-file-assets-collection-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
