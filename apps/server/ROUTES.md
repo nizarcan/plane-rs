@@ -220,7 +220,7 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 130 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/description/` | GET:retrieve, PATCH:partial_update | `plane.app.views.page.base.PagesDescriptionViewSet` | ProjectPagePermission | rust(GET) | verified |
 | 131 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/versions/` | GET | `plane.app.views.page.version.PageVersionEndpoint` | ProjectPagePermission | rust(GET) | verified |
 | 132 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/versions/{pk}/` | GET | `plane.app.views.page.version.PageVersionEndpoint` | ProjectPagePermission | rust(GET) | verified |
-| 133 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/duplicate/` | POST | `plane.app.views.page.base.PageDuplicateEndpoint` | ProjectPagePermission | django | not-started |
+| 133 | `/api/workspaces/{slug}/projects/{project_id}/pages/{page_id}/duplicate/` | POST | `plane.app.views.page.base.PageDuplicateEndpoint` | ProjectPagePermission | rust(POST) | verified |
 | 134 | `/api/workspaces/{slug}/pages/{page_id}/live-access/` | GET | `plane.app.views.page.live.PageLiveAccessEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 135 | `/api/workspaces/{slug}/projects/` | GET:list, POST:create | `plane.app.views.project.base.ProjectViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE); POST allow(ADMIN,MEMBER;WORKSPACE) | rust(GET,POST) | verified |
 | 136 | `/api/workspaces/{slug}/projects/details/` | GET:list_detail | `plane.app.views.project.base.ProjectViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |

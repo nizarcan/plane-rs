@@ -844,8 +844,14 @@ and only `verified` rows are Rust-owned.
   restored from a worktree copy; every checkout now shares it. Worktree setup commands
   are now chained with `&&`. Upstream note: `settings/production.py:27-28` creates
   `LOG_DIR` racily (`FileExistsError` when two instances start together).
+- Set D, duplicate (merged `95f9ce6df2`, flipped with this entry): 133 `rust(POST)`.
+  `write/page-duplicate.yaml` 25/25 in both directions with strict task `argsrepr`;
+  no contract test reaches 133. Kept: the view's own 404/403 are unreachable because
+  `ProjectPagePermission` answers 403 first; `copy_s3_objects` gets the loop variable
+  (the oldest live link), not the URL project; the body is never parsed, so malformed
+  JSON still duplicates.
 - Running: set A, page core (124, 125, 127); set B, description, lock and access
-  (128, 129, 130); set D, duplicate (133).
+  (128, 129, 130); the projects/cycles favourite cascade fix.
 
 ## Next three steps
 
