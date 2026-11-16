@@ -1,0 +1,190 @@
+{
+  "generated_by": "apps/server/tools/inventory/issue_activity_capture.py",
+  "celery_version": "5.5.3",
+  "kombu_version": "5.5.4",
+  "transport": "memory (kombu in-process)",
+  "pinned_now": "2026-11-15T17:24:04.144120+00:00",
+  "pinned_origin": "gen4242@celery-golden",
+  "pinned_reply_to": "0f0f0f0f-0000-4000-8000-000000000000",
+  "task_protocol": 2,
+  "task_serializer": "json",
+  "default_queue": "celery",
+  "messages": [
+    {
+      "case": "issue_activity_create",
+      "call_site": "plane/app/views/issue/base.py:422",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000001",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000001",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000001",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.created', 'requested_data': '{\"name\": \"Fix the login redirect loop\", \"priority\": \"high\", \"assignee_ids\": [\"0d1e2f30-4456-4789-9abc-def012345678\"], \"target_date\": \"2026-11-20\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': None, 'epoch': 1763217844, 'notification': True, 'origin': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkuY3JlYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJuYW1lXCI6IFwiRml4IHRoZSBsb2dpbiByZWRpcmVjdCBsb29wXCIsIFwicHJpb3JpdHlcIjogXCJoaWdoXCIsIFwiYXNzaWduZWVfaWRzXCI6IFtcIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OFwiXSwgXCJ0YXJnZXRfZGF0ZVwiOiBcIjIwMjYtMTEtMjBcIn0iLCAiYWN0b3JfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgImlzc3VlX2lkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJwcm9qZWN0X2lkIjogImFhYWFhYWFhLWJiYmItY2NjYy1kZGRkLWVlZWVlZWVlZWVlZSIsICJjdXJyZW50X2luc3RhbmNlIjogbnVsbCwgImVwb2NoIjogMTc2MzIxNzg0NCwgIm5vdGlmaWNhdGlvbiI6IHRydWUsICJvcmlnaW4iOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwIn0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 555
+    },
+    {
+      "case": "issue_activity_patch",
+      "call_site": "plane/app/views/issue/base.py:689",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000002",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000002",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000002",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000002",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.updated', 'requested_data': '{\"name\": \"Fix login redirect\", \"priority\": \"medium\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': '{\"id\": \"11111111-2222-3333-4444-555555555555\", \"name\": \"Fix login redirect loop\", \"priority\": \"high\", \"assignee_ids\": [], \"target_date\": null}', 'epoch': 1763217844, 'notification': True, 'origin': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkudXBkYXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJuYW1lXCI6IFwiRml4IGxvZ2luIHJlZGlyZWN0XCIsIFwicHJpb3JpdHlcIjogXCJtZWRpdW1cIn0iLCAiYWN0b3JfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4IiwgImlzc3VlX2lkIjogIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsICJwcm9qZWN0X2lkIjogImFhYWFhYWFhLWJiYmItY2NjYy1kZGRkLWVlZWVlZWVlZWVlZSIsICJjdXJyZW50X2luc3RhbmNlIjogIntcImlkXCI6IFwiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1XCIsIFwibmFtZVwiOiBcIkZpeCBsb2dpbiByZWRpcmVjdCBsb29wXCIsIFwicHJpb3JpdHlcIjogXCJoaWdoXCIsIFwiYXNzaWduZWVfaWRzXCI6IFtdLCBcInRhcmdldF9kYXRlXCI6IG51bGx9IiwgImVwb2NoIjogMTc2MzIxNzg0NCwgIm5vdGlmaWNhdGlvbiI6IHRydWUsICJvcmlnaW4iOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwIn0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 609
+    },
+    {
+      "case": "issue_activity_delete",
+      "call_site": "plane/app/views/issue/base.py:730",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000003",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000003",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000003",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000003",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'issue.activity.deleted', 'requested_data': '{\"issue_id\": \"11111111-2222-3333-4444-555555555555\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': {}, 'epoch': 1763217844, 'notification': True, 'origin': 'http://localhost:3000', 'subscriber': False}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiaXNzdWUuYWN0aXZpdHkuZGVsZXRlZCIsICJyZXF1ZXN0ZWRfZGF0YSI6ICJ7XCJpc3N1ZV9pZFwiOiBcIjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NVwifSIsICJhY3Rvcl9pZCI6ICIwZDFlMmYzMC00NDU2LTQ3ODktOWFiYy1kZWYwMTIzNDU2NzgiLCAiaXNzdWVfaWQiOiAiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwgInByb2plY3RfaWQiOiAiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIiwgImN1cnJlbnRfaW5zdGFuY2UiOiB7fSwgImVwb2NoIjogMTc2MzIxNzg0NCwgIm5vdGlmaWNhdGlvbiI6IHRydWUsICJvcmlnaW4iOiAiaHR0cDovL2xvY2FsaG9zdDozMDAwIiwgInN1YnNjcmliZXIiOiBmYWxzZX0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 468
+    },
+    {
+      "case": "comment_activity_create",
+      "call_site": "plane/app/views/issue/comment.py:123",
+      "task": "plane.bgtasks.issue_activities_task.issue_activity",
+      "task_id": "00000000-0000-4000-8000-000000000004",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000004",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.issue_activities_task.issue_activity",
+        "id": "00000000-0000-4000-8000-000000000004",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000004",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'type': 'comment.activity.created', 'requested_data': '{\"id\": \"55555555-6666-7777-8888-999999999999\", \"comment_html\": \"<p>Looks good</p>\", \"comment_json\": {}, \"access\": \"INTERNAL\", \"actor\": \"0d1e2f30-4456-4789-9abc-def012345678\", \"issue\": \"11111111-2222-3333-4444-555555555555\"}', 'actor_id': '0d1e2f30-4456-4789-9abc-def012345678', 'issue_id': '11111111-2222-3333-4444-555555555555', 'project_id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'current_instance': None, 'epoch': 1763217844, 'notification': True, 'origin': 'http://localhost:3000'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InR5cGUiOiAiY29tbWVudC5hY3Rpdml0eS5jcmVhdGVkIiwgInJlcXVlc3RlZF9kYXRhIjogIntcImlkXCI6IFwiNTU1NTU1NTUtNjY2Ni03Nzc3LTg4ODgtOTk5OTk5OTk5OTk5XCIsIFwiY29tbWVudF9odG1sXCI6IFwiPHA+TG9va3MgZ29vZDwvcD5cIiwgXCJjb21tZW50X2pzb25cIjoge30sIFwiYWNjZXNzXCI6IFwiSU5URVJOQUxcIiwgXCJhY3RvclwiOiBcIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OFwiLCBcImlzc3VlXCI6IFwiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1XCJ9IiwgImFjdG9yX2lkIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCIsICJpc3N1ZV9pZCI6ICIxMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTUiLCAicHJvamVjdF9pZCI6ICJhYWFhYWFhYS1iYmJiLWNjY2MtZGRkZC1lZWVlZWVlZWVlZWUiLCAiY3VycmVudF9pbnN0YW5jZSI6IG51bGwsICJlcG9jaCI6IDE3NjMyMTc4NDQsICJub3RpZmljYXRpb24iOiB0cnVlLCAib3JpZ2luIjogImh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 640
+    }
+  ]
+}
