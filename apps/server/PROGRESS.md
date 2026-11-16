@@ -642,15 +642,38 @@ and only `verified` rows are Rust-owned.
   `updated_by` are writable in DRF; DRF rejects `description_html: null`). Being settled
   against Django.
 
+### Phase 5: labels, field helpers, live-table audit, validators and renderers (2026-11-16)
+
+- Labels merged (`97071ba579`) and flipped (`f38df74355`): 68 `rust(GET,POST)`, 69
+  `rust(GET,PUT,PATCH,DELETE)`, 70 `rust(POST)`. `write/labels.yaml` 64/64 in both
+  directions. Bulk create's random colours are placeholdered only on that request:
+  DB-column rules can now take `request:`. A deliberately wrong colour on a normal
+  create is shown to be caught.
+- Field helpers and the live-table audit merged (`bc8747cce3`):
+  - helpers for PK lists (index-keyed child errors, one existence query per element),
+    dates, string choices and integer bounds;
+  - the audit found deploy-board PATCH and user-properties ignoring a writable
+    `created_by`, sticky PATCH not applying it, and deploy-board PATCH's foreign-intake
+    check unreachable. All are fixed; those handlers now use the generated tables, with
+    new steps in `write/stickies.yaml` (43) and `write/projects-extra.yaml` (47).
+  - Labels weren't audited yet.
+- Validators and renderers merged (`3f60c57050`):
+  - `strip_tags` is a structural port of CPython's HTMLParser, with the full entity
+    tables. The old one, used by live stickies, decoded only 10 named entities;
+  - nh3's `data-*` attribute default is restored in the sanitiser;
+  - the HTML and binary validators, with Python-generated corpora;
+  - `issues::row::render_issue_row`, and `IssueDetail::current_instance` (byte-pinned).
+- Verified on `3f60c57050`: gates, 865 tests, `--check --write-equivalence`,
+  schema_check, every write scenario in both directions, and the full read sweep: all
+  clean.
+
 ## Next three steps
 
-1. In progress: labels (68/69/70, `rs-p5-labels`), and the stickies serializer mismatches
-   plus the `primary_key` field helper (`rs-p5-sergen`).
-2. In progress: the work-items shared pieces from `plans/WORK_ITEMS.md` §2:
-   - §2a–c: the `issue_activity` publisher, `Issue.save` hooks with the advisory-lock
-     sequence, and the m2m writes (`rs-p5-wi-core`);
-   - §2d/§2f: the HTML/binary validators, `strip_tags`, and the issue row and detail
-     renderers (`rs-p5-wi-render`);
-   - §2e: the list, date and string-choice field helpers (next, in `rs-p5-sergen`).
-3. Then the four work-items route sets A–D in parallel, per the plan. After that,
-   re-measure the Phase 3 benchmark row on a quiet stack.
+1. In progress: the work-items route sets from `plans/WORK_ITEMS.md` §3, in parallel:
+   - A, issue core (`rs-p5-wi-a`);
+   - B, comments and reactions (`rs-p5-wi-b`);
+   - C, links, relations, subscribers and sub-issues (`rs-p5-wi-c`);
+   - D, attachments and drafts (`rs-p5-wi-d`; 217 after A), plus the labels serializer
+     audit.
+2. Then cycles, then modules.
+3. Re-measure the Phase 3 benchmark row on a quiet stack, once the four sets merge.

@@ -568,12 +568,56 @@ def _drain_and_replay(admin: RabbitAdmin, record: TestRecord) -> None:
                 file=sys.stderr,
             )
         if not isinstance(delay, unittest.mock.Mock):
-            # Not patched: Django would only have published the message too, and
-            # nothing in the test consumes it.
+            # A test may patch the task at the call site
+            # (`with mock.patch("module.view.issue_activity") as activity:`)
+            # instead of patching `.delay` on the shared task object. The view
+            # module's attribute is then a `Mock` named after the task; replay
+            # into its `.delay` so the test sees the Rust message. Without
+            # this, a mixed-backend run leaves `call_args` as `None`.
+            call_sites = _call_site_mocks(attribute)
+            if not call_sites:
+                # Not patched: Django would only have published the message
+                # too, and nothing in the test consumes it.
+                continue
+            for call_site in call_sites:
+                call_site.delay(*_decode_kombu(args), **_decode_kombu(kwargs))
+            STATE.replay_count += 1
+            record.replayed.append(task_name)
             continue
         delay(*_decode_kombu(args), **_decode_kombu(kwargs))
         STATE.replay_count += 1
         record.replayed.append(task_name)
+
+
+def _call_site_mocks(attribute: str) -> list[unittest.mock.Mock]:
+    """Every active `mock.patch("…<attribute>")` whose target is the task.
+
+    A view module may be patched both by an autouse fixture and by the test
+    that asserts on the call, so all matching attribute mocks receive the
+    replay; the assertion then sees the message whichever module it patched.
+    """
+    found: list[unittest.mock.Mock] = []
+    seen: set[int] = set()
+    for module in list(sys.modules.values()):
+        if module is None:
+            continue
+        try:
+            value = getattr(module, attribute, None)
+        except Exception:
+            continue
+        if (
+            isinstance(value, unittest.mock.Mock)
+            and getattr(value, "_mock_name", None) == attribute
+            and id(value) not in seen
+        ):
+            seen.add(id(value))
+            found.append(value)
+    if _debug() and found:
+        print(
+            f"[plane-contract] call-site mocks for {attribute!r}: {len(found)}",
+            file=sys.stderr,
+        )
+    return found
 
 
 # ---------------------------------------------------------------------------
