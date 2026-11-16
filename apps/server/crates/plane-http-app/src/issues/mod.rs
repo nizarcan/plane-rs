@@ -127,5 +127,14 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.issue.base.IssueBulkUpdateDateEndpoint")?
         .method(http::Method::POST, write_issue::issue_dates)?;
+    // Modules set B: `POST …/projects/{project_id}/issues/{issue_id}/modules/`
+    // (105) belongs to this group (`/projects/*/issues/**` is the most
+    // specific selector); the handler is `ModuleIssueViewSet`'s.
+    registry
+        .viewset("plane.app.views.module.issue.ModuleIssueViewSet")?
+        .action(
+            "create_issue_modules",
+            crate::modules::write_issue_module::create_issue_modules,
+        )?;
     Ok(())
 }

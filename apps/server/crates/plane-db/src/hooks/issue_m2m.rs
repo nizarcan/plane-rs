@@ -356,6 +356,36 @@ pub async fn insert_membership(
     rows: &[MembershipRow],
     now: DateTime<Utc>,
 ) -> Result<(), DbError> {
+    insert_membership_rows(client, table, other_column, rows, now, false).await
+}
+
+/// [`insert_membership`] with Django's `ignore_conflicts=True`
+/// (`module/issue.py:238`, `:275`): the same one-atomic-over-all-batches
+/// insert with `ON CONFLICT DO NOTHING`, so a duplicate live pair is skipped
+/// and never rolls the call back.
+///
+/// # Errors
+///
+/// A database failure other than a skipped duplicate (a conflict never
+/// raises with `DO NOTHING`).
+pub async fn insert_membership_ignoring_conflicts(
+    client: &Client,
+    table: &str,
+    other_column: &str,
+    rows: &[MembershipRow],
+    now: DateTime<Utc>,
+) -> Result<(), DbError> {
+    insert_membership_rows(client, table, other_column, rows, now, true).await
+}
+
+async fn insert_membership_rows(
+    client: &Client,
+    table: &str,
+    other_column: &str,
+    rows: &[MembershipRow],
+    now: DateTime<Utc>,
+    ignore_conflicts: bool,
+) -> Result<(), DbError> {
     // `bulk_create([])` returns before the atomic (`query.py`, `if not objs`).
     if rows.is_empty() {
         return Ok(());
@@ -402,6 +432,9 @@ pub async fn insert_membership(
                 params.push(Box::new(row.workspace_id));
                 params.push(Box::new(row.issue_id));
                 params.push(Box::new(row.other_id));
+            }
+            if ignore_conflicts {
+                sql.push_str(" ON CONFLICT DO NOTHING");
             }
             let statement = client.prepare(&sql).await?;
             let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params

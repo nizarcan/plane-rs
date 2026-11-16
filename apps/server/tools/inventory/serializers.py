@@ -1960,6 +1960,8 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.cycle.CycleUserPropertiesSerializer",
     "plane.app.serializers.module.ModuleWriteSerializer",
     "plane.app.serializers.module.ModuleUserPropertiesSerializer",
+    "plane.app.serializers.module.ModuleLinkSerializer",
+    "plane.app.serializers.module.ModuleIssueSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is

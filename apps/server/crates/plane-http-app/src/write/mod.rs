@@ -61,6 +61,7 @@ pub mod fields;
 pub mod generated;
 pub mod html;
 pub mod serializer;
+pub mod url;
 
 pub use fields::{CharOptions, Detail, IntegerOptions};
 /// The H01 audit columns (`plane/db/models/base.py:23-45`).

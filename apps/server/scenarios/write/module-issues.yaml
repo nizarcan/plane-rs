@@ -1,0 +1,814 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5, modules set B: module issues, module links and module favourites.
+#
+#   POST   …/modules/{module_id}/issues/                    (106)
+#   POST   …/issues/{issue_id}/modules/                     (105)
+#   DELETE …/modules/{module_id}/issues/{issue_id}/         (107)
+#   POST   …/modules/{module_id}/module-links/              (108)
+#   PUT    …/modules/{module_id}/module-links/{pk}/         (109)
+#   PATCH  …/modules/{module_id}/module-links/{pk}/         (109)
+#   DELETE …/modules/{module_id}/module-links/{pk}/         (109)
+#   POST   …/user-favorite-modules/                         (110)
+#   DELETE …/user-favorite-modules/{module_id}/             (111)
+#
+# Covers: eleven issues added in one request (two 10-row batches), the
+# `ignore_conflicts` re-add (201, no rows, activities again), the issue kinds
+# `issue_objects` silently drops (archived, triage, draft, other project),
+# both directions of the membership write, `removed_modules` (a real removal,
+# a repeat, two in one request, a bad entry), the batch errors (`issues`
+# missing/null/string/int, `modules` string/int, `removed_modules`
+# null/string/bad entry), link create (valid, prefixed, duplicate, invalid,
+# blank, too long, unknown module, other project's module), PUT/PATCH (a real
+# update, missing url on both, a duplicate url, a PATCH that soft-deletes
+# through `save()`), DELETE (H03 + cascade, repeat, unknown), favourites
+# (create, duplicate, unknown module, other project's module, missing, invalid
+# uuid, hard delete, repeat), the follow-up GETs, the permission matrix and
+# foreign origins.
+#
+# Fixture: ALP `b0063033…`; BET `ca8f652c…`; modules backlog `c36df15d…`,
+# planned `cac530e3…`, in-progress `5e5035ff…`, cancelled `a9cd2566…`,
+# paused `3dd8a2b9…`, archived `710da01c…`, BET planned `b174997a…`. The
+# module fixture files issues every 25th sequence: 001/051 in paused,
+# 002..024 are free except 005 (in-progress + triage), 004 (archived) and
+# 011/012 (triage).
+
+name: write-module-issues
+template_db: plane_fix_tpl
+redis_db: [10, 11]
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  module_backlog: "c36df15d-45cc-4e0d-84cf-a2aed3cb5b37"
+  module_planned: "cac530e3-b832-4ca9-aef9-f4427b1a8f86"
+  module_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  module_cancelled: "a9cd2566-6ca2-40a5-ad76-81abe779cb42"
+  module_paused: "3dd8a2b9-d24e-4946-b348-e17e2e9676ac"
+  module_archived: "710da01c-8e38-407d-bfce-f7674b644275"
+  module_beta_planned: "b174997a-3e29-4344-9320-2f83d687662a"
+  issue_002: "741f914e-f6ca-4be2-9acf-cd8422569c68"
+  issue_003: "b5ca265c-52ee-4ee7-bfbd-c7b546fa4065"
+  issue_004_archived: "e956b8e9-1f3f-408d-98b1-b33fc15ce144"
+  issue_005_triage: "85385456-c0a6-4848-bd3e-fdccafc4581c"
+  issue_006: "f58b14af-9510-4ff1-95f5-6f3cca4d793d"
+  issue_007: "ac2ff3cd-baee-4c8d-bc3c-3fb2768f75ec"
+  issue_008: "a358d045-849f-44bc-9383-ed6de6e03a3e"
+  issue_009: "688b9acd-89b2-4aea-804c-4d08d7ec1994"
+  issue_012: "d66a8985-46ce-446d-a4c1-fc0828d1b575"
+  issue_013: "b2387b6f-e186-4067-9e39-8bfa6b4112b5"
+  issue_014: "e93447dc-5684-47ca-8cfa-354c503f6065"
+  issue_016: "2dcd903d-4321-4295-91b0-5e2371f5451f"
+  issue_017: "0861bafd-e553-4436-8c86-00e5324a5448"
+  issue_201_draft: "e069169e-25e6-4db6-a049-8e1141ca95d2"
+  issue_epsilon: "643eae10-3112-4c2f-aab2-f6d4aaaf4dd3"
+  unknown_module: "55555555-5555-4555-8555-555555555555"
+  unknown_issue: "55555555-5555-4555-8555-555555555555"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- module issues: add (106) --------------------------------------------
+  # Eleven new issues: one `bulk_create` call, two batches (10 + 1).
+  - name: wmod-01-add-eleven
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    json:
+      issues: ["{{issue_002}}", "{{issue_003}}", "{{issue_006}}", "{{issue_007}}", "{{issue_008}}", "{{issue_009}}", "{{issue_012}}", "{{issue_013}}", "{{issue_014}}", "{{issue_016}}", "{{issue_017}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # Re-add: `ignore_conflicts` skips every row, the activities fire again.
+  - name: wmod-02-add-eleven-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    json:
+      issues: ["{{issue_002}}", "{{issue_003}}", "{{issue_006}}", "{{issue_007}}", "{{issue_008}}", "{{issue_009}}", "{{issue_012}}", "{{issue_013}}", "{{issue_014}}", "{{issue_016}}", "{{issue_017}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wmod-03-add-issues-required
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-04-add-issues-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    json:
+      issues: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-05-add-issues-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    json:
+      issues: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-06-add-issues-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    json:
+      issues: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wmod-07-add-unknown-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{unknown_module}}/issues/"
+    json:
+      issues: ["{{issue_002}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-07b-add-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    json:
+      issues: ["{{issue_002}}"]
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # `issue_objects` drops an archived issue, a triage issue, a draft and one
+  # from another project: no row, and no activity either.
+  - name: wmod-08-add-skipped-kinds
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_cancelled}}/issues/"
+    json:
+      issues: ["{{issue_004_archived}}", "{{issue_005_triage}}", "{{issue_201_draft}}", "{{issue_epsilon}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wmod-09-module-issues-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- module issues: both directions (105) --------------------------------
+  # Issue 005 is a triage issue: reachable through `Issue.objects`.
+  - name: wmod-10-set-modules
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      modules: ["{{module_paused}}", "{{module_cancelled}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # One duplicate add (skipped) and one real removal in the same request.
+  - name: wmod-11-set-modules-dup-and-remove
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      modules: ["{{module_paused}}"]
+      removed_modules: ["{{module_in_progress}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # Repeat removal: the activity fires, the H04 update matches nothing.
+  - name: wmod-12-remove-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      removed_modules: ["{{module_in_progress}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wmod-13-set-modules-empty
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wmod-14-modules-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      modules: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-15-modules-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      modules: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `modules: null` reaches `pk__in=None`: not iterable → 500.
+  - name: wmod-15b-modules-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      modules: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wmod-16-removed-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      removed_modules: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wmod-17-removed-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      removed_modules: ["not-a-uuid"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-18-remove-two
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_005_triage}}/modules/"
+    json:
+      removed_modules: ["{{module_paused}}", "{{module_cancelled}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: wmod-19-cancelled-module-issues
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_cancelled}}/issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wmod-20-set-modules-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_006}}/modules/"
+    json:
+      modules: ["{{module_backlog}}"]
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wmod-21-set-modules-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_006}}/modules/"
+    json:
+      modules: ["{{module_backlog}}"]
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: wmod-22-set-modules-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_006}}/modules/"
+    json:
+      modules: ["{{module_backlog}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # A member may write too.
+  - name: wmod-23-set-modules-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_006}}/modules/"
+    json:
+      modules: ["{{module_backlog}}"]
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 201
+
+  # --- module issues: remove (107) -----------------------------------------
+  - name: wmod-24-delete-module-issue
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_007}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wmod-25-delete-module-issue-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_007}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wmod-26-delete-module-issue-guest-denied
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_008}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wmod-27-delete-module-issue-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{unknown_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # --- module links: create (108) ------------------------------------------
+  - name: wmod-28-link-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "docs.example.test/harness"
+      title: "Harness doc"
+      metadata: {title: "Harness doc", favicon: "https://docs.example.test/favicon.ico"}
+      # `module` is read-only and must be ignored.
+      module: "{{module_cancelled}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: link_a
+        source: db
+        table: module_links
+        column: id
+    expect_status: 201
+
+  # The duplicate check is `(url, module_id)` on the *validated* url.
+  - name: wmod-29-link-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "docs.example.test/harness"
+      title: "Again"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-30-link-create-second
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "https://example.com/second"
+      deleted_at: null
+      nope: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: link_b
+        source: db
+        table: module_links
+        column: id
+    expect_status: 201
+
+  - name: wmod-31-link-create-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "not a url"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-32-link-create-blank
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-33-link-create-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "http://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-34-link-create-unknown-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{unknown_module}}/module-links/"
+    json:
+      url: "https://example.com/unknown"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-35-link-create-other-project-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_beta_planned}}/module-links/"
+    json:
+      url: "https://example.com/cross-project"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # --- module links: update (109) ------------------------------------------
+  - name: wmod-36-link-put
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_a}}/"
+    json:
+      url: "https://example.com/harness-updated"
+      title: "Put title"
+      metadata: {title: "Put title"}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `url` is required on a PUT (the field, before `update()` runs).
+  - name: wmod-37-link-put-no-url
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_a}}/"
+    json:
+      title: "No url"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `update()`'s duplicate check excludes the row itself but sees the other
+  # link in this module.
+  - name: wmod-38-link-put-duplicate
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_a}}/"
+    json:
+      url: "https://example.com/second"
+      title: "Duplicate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-39-link-patch
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_a}}/"
+    json:
+      url: "https://example.com/harness-patched"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Upstream bug, ported: `update()` validates `validated_data.get("url")`,
+  # which is `None` on a PATCH without a url → 400 even though nothing is
+  # wrong with the body.
+  - name: wmod-40-link-patch-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_a}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `deleted_at` is writable: a PATCH soft-deletes through `save()` — 200,
+  # no cascade task, and the row is gone from the read queryset afterwards.
+  - name: wmod-41-link-patch-deleted-at
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_b}}/"
+    json:
+      url: "https://example.com/second"
+      deleted_at: "2026-11-16T10:00:00Z"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wmod-42-link-delete-soft-deleted
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_b}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-43-link-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wmod-44-link-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-45-link-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{unknown_module}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-46-module-links-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wmod-47-link-create-guest-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "https://example.com/denied"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wmod-47b-link-create-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "https://example.com/denied"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: wmod-48-link-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json:
+      url: "https://example.com/denied"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- module favourites (110/111) -----------------------------------------
+  - name: wmod-49-favourite-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "{{module_planned}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # No uniqueness guard: the partial unique index turns this into the family
+  # 400.
+  - name: wmod-50-favourite-create-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "{{module_planned}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-51-favourite-unknown-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "{{unknown_module}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-52-favourite-other-project-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "{{module_beta_planned}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-53-favourite-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-54-favourite-invalid-uuid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wmod-55-modules-list-favorite
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wmod-56-favourite-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/{{module_planned}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wmod-57-favourite-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/{{module_planned}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wmod-58-favourite-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/{{unknown_module}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The guest *is* an active project member, and `ProjectLitePermission` only
+  # asks for membership: a favourite create is allowed.
+  - name: wmod-59-favourite-guest-allowed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "{{module_planned}}"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  - name: wmod-60-favourite-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "{{module_planned}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: wmod-58b-favourite-nonmember-denied
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/"
+    json:
+      module: "{{module_planned}}"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # The guest's own favourite, through the guest's session.
+  - name: wmod-61-favourite-guest-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/{{module_planned}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  - name: wmod-62-final-modules-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
