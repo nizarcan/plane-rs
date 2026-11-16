@@ -118,6 +118,52 @@ Known gaps, all recorded in the module docs and `ROUTES.md`:
 
 - Phase 3 preparation (see "Next three steps").
 
+### Phase 3: `plane-query` (done 2026-11-16, `crates/plane-query`)
+
+The SQL composer, `issue_filters`, `plane/utils/filters`, `order_queryset`,
+`grouper`, `paginator`, `global_paginator` and the filter converters are ported
+and proven against Django by a golden corpus generated from a deterministic
+fixture (`tools/query/`, 9.8 MB under `crates/plane-query/tests/golden/`).
+
+| category | golden |
+| --- | --- |
+| legacy filters (`issue_filters`, GET and POST) | 1,053 cases (13 are Django 500s) |
+| `order_issue_queryset` | 38 |
+| `issue_group_values` | 17 |
+| grouped/plain/sub-grouped paginators (full DRF bodies, cursors both ways) | 32 cases / 151 pages + 14 request-level 400s |
+| `IssueFilterSet` + `ComplexFilterBackend` | 66 |
+| `global_paginator` (incl. per-user timezone rendering) | 11 |
+
+Benchmark (`group_by=state_id`, 225 visible issues, `per_page=100`, p50 over 50
+runs on the dev stack): Rust 18.9 ms / 5 statements vs Python 37.5 ms / 6
+statements.
+
+Findings that matter beyond this crate:
+
+- **`prepare_cached` must not be used for dynamic SQL.** deadpool's cache is
+  unbounded per connection and never sends `DEALLOCATE`; replaying the filter
+  corpus drove the dev Postgres container from 57 MiB to its 384 MiB limit and
+  the backend was OOM-killed after ~800 distinct statements (~0.4 MiB of backend
+  memory each). `plane-query` uses unnamed statements (`Client::prepare`).
+  Recommendation: keep `prepare_cached` for the static `plane-db` catalog only,
+  and if a hot dynamic shape appears, parameterise its page bounds first.
+- The grouped paginator's `total_count` is not the number of issues: it is
+  `len()` of the *model* projection with the window in the `DISTINCT`, so rows of
+  one issue under different groups collapse when they share a row number (412
+  instead of 444 joined rows), and the envelope's `count` can be smaller than
+  the number of result rows (92 vs 104).
+- Three Python values are not reproducible and are normalised in both the
+  golden and the port (documented in `crates/plane-query/README.md`): the id
+  arrays and group-key order the multi-grouper builds from a `set`, and the cell
+  order of a sub-grouped response (no `ORDER BY`).
+- Ties: `order_by=created_at` has no tiebreak, and every other ordering's
+  tiebreak is `-created_at`; the port keeps exactly that, so ties remain
+  undefined as they are today.
+
+`plane-query` owns no routes yet: `plane-http-app`'s issue handlers should call
+`plane_query::issue::run` (see the crate README) and render its `Json` with
+`plane-serde`'s DRF dialect.
+
 ## Follow-ups (not blocking)
 
 - Performance: loading session + user costs ~1.27 ms p50 per authenticated request (two

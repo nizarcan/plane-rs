@@ -1494,6 +1494,7 @@ dependencies = [
  "deadpool-postgres",
  "http",
  "plane-core",
+ "plane-serde",
  "rustls",
  "rustls-pemfile",
  "serde_json",
@@ -1546,6 +1547,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "plane-query"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "deadpool-postgres",
+ "plane-db",
+ "plane-drf",
+ "plane-serde",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "plane-serde"
 version = "0.1.0"
 dependencies = [
@@ -1553,6 +1573,20 @@ dependencies = [
  "criterion",
  "itoa",
  "ryu",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "plane-serializers"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "plane-db",
+ "plane-serde",
  "serde",
  "serde_json",
  "thiserror",

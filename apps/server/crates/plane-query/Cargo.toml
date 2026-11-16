@@ -1,0 +1,37 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-query"
+description = "SQL composition, Plane's issue filters, ordering, grouping and paginators"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+deadpool-postgres.workspace = true
+plane-db = { path = "../plane-db" }
+plane-drf = { path = "../plane-drf" }
+plane-serde = { path = "../plane-serde" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio-postgres = { workspace = true, features = [
+  "with-chrono-0_4",
+  "with-serde_json-1",
+  "with-uuid-1",
+] }
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+deadpool-postgres.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
