@@ -33,8 +33,8 @@
 #     all disappear with the parent, because `user_favorites.parent` is
 #     `on_delete=CASCADE` and the cascade reads `_base_manager`
 #     (`plane/db/models/favorite.py:25-31`, `django/db/models/deletion.py:398-410`).
-#     The modules (110/111) and views (183/184) ports answer this with a
-#     single-row delete; if they are right, this step diffs.
+#     Modules (111) and views (184) share the same collector helper; their own
+#     scenarios cover the same tree.
 #   * a soft-deleted favourite of the caller is a 404 for destroy (the lookup's
 #     manager filters `deleted_at IS NULL`) and survives the whole run.
 #

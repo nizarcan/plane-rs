@@ -558,36 +558,6 @@ plane_query! {
     [("id", Uuid)]
 }
 
-plane_query! {
-    /// The deletion collector's cascade probe, one statement per depth level:
-    /// `related_model._base_manager.using(…).filter(parent__in=…)`
-    /// (`django/db/models/deletion.py:398-410`). `_base_manager` is a plain
-    /// manager, so **soft-deleted children count** too. The selected columns
-    /// are the pk only (`only()` keeps just the pk here).
-    ///
-    /// Bind order: `$1` parent ids.
-    PAGES_FAVORITE_CHILDREN = "pages_write_favorite_children",
-    "SELECT uf.id FROM user_favorites uf \
-     WHERE uf.parent_id = ANY($1::uuid[]) \
-     ORDER BY uf.created_at DESC",
-    [("id", Uuid)]
-}
-
-plane_query! {
-    /// `page_favorite.delete(soft=False)` — `SoftDeleteModel.delete`'s
-    /// `super().delete()` (`plane/db/mixins.py:72-82`), i.e. Django's deletion
-    /// collector. The collector deletes the favourite **and every row
-    /// reachable through `user_favorites.parent`** (`models/favorite.py:25-31`,
-    /// `on_delete=CASCADE`) in one `DELETE … WHERE id IN (…)`
-    /// (`django/db/models/deletion.py:497-510`). Collected by
-    /// `pages/write_favorite.rs::destroy` before this statement runs.
-    ///
-    /// Bind order: `$1` ids.
-    PAGES_FAVORITE_HARD_DELETE = "pages_write_favorite_hard_delete",
-    "DELETE FROM user_favorites WHERE id = ANY($1::uuid[])",
-    []
-}
-
 /// Every catalogued statement of this group, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &PAGES_LIST,
@@ -605,8 +575,6 @@ pub static ALL_QUERIES: &[&Query] = &[
     &PAGES_FAVORITE_PROJECT_WORKSPACE,
     &PAGES_FAVORITE_INSERT,
     &PAGES_FAVORITE_LOOKUP,
-    &PAGES_FAVORITE_CHILDREN,
-    &PAGES_FAVORITE_HARD_DELETE,
 ];
 
 #[cfg(test)]

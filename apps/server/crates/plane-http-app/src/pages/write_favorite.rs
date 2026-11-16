@@ -47,7 +47,7 @@
 //!
 //! `UserFavorite.objects.get(project=…, user=…, workspace__slug=…,
 //! entity_identifier=page_id, entity_type="page")` → a miss is 404; then
-//! `page_favorite.delete(soft=False)`. That is **not** the modules port's bare
+//! `page_favorite.delete(soft=False)`. That is **not** a bare
 //! `DELETE … WHERE id = $1`: `SoftDeleteModel.delete` calls
 //! `super().delete()` (`plane/db/mixins.py:72-82`), i.e. Django's deletion
 //! collector, and `UserFavorite.parent` is a self-referential
@@ -55,24 +55,8 @@
 //! therefore also deletes every row reachable through `parent_id` — at every
 //! depth, and including rows whose `deleted_at` is set, because the cascade
 //! relation is read through the related model's `_base_manager` (a plain
-//! manager, `django/db/models/deletion.py:398-410`). The SQL observed on the
-//! dev database, in order:
-//!
-//! ```sql
-//! SELECT "user_favorites"."id" FROM "user_favorites"
-//!  WHERE "user_favorites"."parent_id" IN ('…') ORDER BY "user_favorites"."created_at" DESC
-//! -- … one such SELECT per depth level, while a level is non-empty
-//! BEGIN
-//! DELETE FROM "user_favorites" WHERE "user_favorites"."id" IN ('…', '…')
-//! COMMIT
-//! ```
-//!
-//! A single `DELETE` of the collected ids is that sequence's only observable
-//! effect and is atomic on its own, so the port skips the explicit
-//! `BEGIN`/`COMMIT`. Without children the collector's DELETE is the same
-//! single-row `DELETE … WHERE id IN (…)` shape.
-
-use std::collections::HashSet;
+//! manager, `django/db/models/deletion.py:398-410`). [`write::favorite`] is the
+//! shared port of that collector; its module doc shows the emitted SQL.
 
 use plane_db::hooks;
 use plane_drf::error::ViewError;
@@ -157,31 +141,10 @@ pub fn destroy<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
             .ok_or(ViewError::ObjectDoesNotExist)?;
         let id: Uuid = row.get(0);
 
-        // `delete(soft=False)` → Django's deletion collector: the favourite
-        // plus every descendant through the self-referential `parent` CASCADE
-        // (`django/db/models/deletion.py:309-355,398-410`). The relation is
-        // read through `_base_manager`, so soft-deleted children are deleted
-        // too. One probe per depth level, exactly like the collector.
-        let probe = queries::PAGES_FAVORITE_CHILDREN.prepare(client).await?;
-        let mut collected = vec![id];
-        let mut frontier = vec![id];
-        let mut seen = HashSet::from([id]);
-        while !frontier.is_empty() {
-            let rows = client.query(&probe, &[&frontier]).await?;
-            let mut next = Vec::new();
-            for row in rows {
-                let child: Uuid = row.get(0);
-                if seen.insert(child) {
-                    collected.push(child);
-                    next.push(child);
-                }
-            }
-            frontier = next;
-        }
-
-        // The collector's single `DELETE … WHERE id IN (…)`.
-        let statement = queries::PAGES_FAVORITE_HARD_DELETE.prepare(client).await?;
-        client.execute(&statement, &[&collected]).await?;
+        // `delete(soft=False)` → Django's deletion collector over the
+        // self-referential `parent` CASCADE (`django/db/models/deletion.py`),
+        // shared with module favourites (111) and view favourites (184).
+        write::favorite::hard_delete(client, id).await?;
 
         Ok(ViewResponse::empty(204))
     })

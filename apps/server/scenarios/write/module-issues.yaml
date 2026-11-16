@@ -28,6 +28,13 @@
 # uuid, hard delete, repeat), the follow-up GETs, the permission matrix and
 # foreign origins.
 #
+# The hard delete is Django's deletion collector, not a bare `DELETE WHERE id`:
+# `delete(soft=False)` on the instance follows the self-referential
+# `user_favorites.parent` CASCADE, so a favourite's live child, soft-deleted
+# child and grandchildren must all disappear with it (`module-favorites-fixture
+# .sql`; `plane/app/views/module/base.py:833-844`, `plane/db/mixins.py:72-82`,
+# `django/db/models/deletion.py:398-410`).
+#
 # Fixture: ALP `b0063033…`; BET `ca8f652c…`; modules backlog `c36df15d…`,
 # planned `cac530e3…`, in-progress `5e5035ff…`, cancelled `a9cd2566…`,
 # paused `3dd8a2b9…`, archived `710da01c…`, BET planned `b174997a…`. The
@@ -39,6 +46,7 @@ name: write-module-issues
 template_db: plane_fix_tpl
 redis_db: [10, 11]
 vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/module-favorites-fixture.sql"
   ws: "fix-workspace"
   project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
   project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
@@ -752,6 +760,29 @@ steps:
   - name: wmod-58-favourite-delete-unknown
     method: DELETE
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/{{unknown_module}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The collector: this favourite of `Alpha Paused` has a live child (the
+  # member's), a soft-deleted child and a grandchild under each. Django's
+  # `delete(soft=False)` deletes all five rows (`user_favorites.parent` is
+  # CASCADE and read through `_base_manager`), so the SQL is one probe per
+  # depth level and then a single `DELETE … WHERE id = ANY(…)`.
+  - name: wmod-58c-favourite-delete-cascade
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/{{module_paused}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wmod-58d-favourite-delete-cascade-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/user-favorite-modules/{{module_paused}}/"
     jar: admin
     headers:
       Host: plane-fixture.test

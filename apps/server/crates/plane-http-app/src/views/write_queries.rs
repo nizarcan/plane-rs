@@ -10,7 +10,6 @@
 //! | [`PROJECT_WORKSPACE`] | `WorkspaceBaseModel.save`'s `self.project.workspace` (`db/models/workspace.py:192-195`) |
 //! | [`USER_FAVORITE_INSERT`] | `UserFavorite.objects.create` (`view/base.py:461-468`) |
 //! | [`USER_FAVORITE_LOOKUP`] | the favourite `destroy` lookup (`view/base.py:472-479`) |
-//! | [`USER_FAVORITE_HARD_DELETE`] | `delete(soft=False)` (`db/mixins.py:72-78`) |
 //! | [`WORKSPACE_MEMBER_FOR_VIEWS`] | `WorkspaceMember.objects.get(…)` (`workspace/member.py:225`) |
 //! | [`WORKSPACE_MEMBER_SAVE_VIEW_PROPS`] | `workspace_member.save()` (`workspace/member.py:227`, H01) |
 //!
@@ -100,17 +99,6 @@ plane_query! {
 }
 
 plane_query! {
-    /// `view_favorite.delete(soft=False)` (`view/base.py:479`,
-    /// `db/mixins.py:72-78`): `super().delete()` on one instance, i.e. one hard
-    /// `DELETE` and no cascade task.
-    ///
-    /// Bind order: `$1` favourite id.
-    USER_FAVORITE_HARD_DELETE = "views_write_favorite_hard_delete",
-    "DELETE FROM user_favorites WHERE id = $1",
-    []
-}
-
-plane_query! {
     /// `WorkspaceMember.objects.get(workspace__slug=slug,
     /// member=request.user, is_active=True)` (`workspace/member.py:225`).
     /// The manager's `deleted_at IS NULL` applies; a miss is
@@ -144,7 +132,6 @@ pub static ALL_QUERIES: &[&plane_db::Query] = &[
     &PROJECT_WORKSPACE,
     &USER_FAVORITE_INSERT,
     &USER_FAVORITE_LOOKUP,
-    &USER_FAVORITE_HARD_DELETE,
     &WORKSPACE_MEMBER_FOR_VIEWS,
     &WORKSPACE_MEMBER_SAVE_VIEW_PROPS,
 ];
