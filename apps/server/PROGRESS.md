@@ -597,10 +597,11 @@ and only `verified` rows are Rust-owned.
 
 ## Next three steps
 
-1. Phase 5, **states and labels** (next in the brief's order): split into the shared
-   pieces first, then parallel route sets. Every get-or-create in the scenarios must
-   cover both branches.
-2. A serializer field-table generator for `write::Serializer`, before the work-items
-   domain.
-3. Re-measure the Phase 3 benchmark row and add container numbers for `plane-worker` and
-   `plane-beat`, on a quiet stack, within the time budget.
+1. In progress: states (158/159/161, `rs-p5-states`) and labels (68/69/70,
+   `rs-p5-labels`), in parallel.
+2. In progress: the serializer field-table generator (`serializers.py --rust`, into
+   `write/generated/`), with an equivalence check against the hand-written sticky and
+   project tables (`rs-p5-sergen`).
+3. Then the work-items domain: shared pieces first (the generated tables,
+   `issue_activities_task`/`notification_task` publishing), then parallel route sets.
+   After that, re-measure the Phase 3 benchmark row on a quiet stack.
