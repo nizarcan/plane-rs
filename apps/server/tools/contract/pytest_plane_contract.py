@@ -77,9 +77,13 @@ replaces the attribute on the shared task object), calls that mock with the
 message's args and kwargs, with kombu's UUID envelopes restored to
 `uuid.UUID`. Messages for tasks that are not mocked are dropped: Django's own
 request would only have published them too, and nothing in the test consumes
-them. Redis/cache assertions need no special handling — Django and Rust share
+them. Cache *state* assertions need no special handling — Django and Rust share
 the same Redis database, and Rust performs the same cache writes a Django
-request would.
+request would. A test that patches a cache method itself
+(`patch.object(cache, "incr", side_effect=…)`) wants an in-process Python call
+Rust cannot make; `_local_mock_reason` detects that, like the patched storage
+wrappers, OAuth provider classes and throttle rates, and serves the request
+from Django.
 
 ## Modes and reporting
 
@@ -386,6 +390,50 @@ AUTH_MOCK_TARGETS: tuple[tuple[str, str], ...] = (
     ("zxcvbn.matching", "omnimatch"),
 )
 
+# The OAuth callback view modules import their provider class into the module
+# namespace (`views/app/github.py:13`, `views/space/gitea.py:14`, …) and
+# instantiate it there. `test_oauth_callback_state_app.py::TestOAuthCallbackState`
+# patches that attribute, either to assert `provider.assert_not_called()` or to
+# script the login with
+# `provider.return_value.authenticate.return_value = create_user`. A Rust
+# handler builds its own provider, so a Mock installed here is unreachable and
+# the scripted-login cases have no user; those requests are served by Django.
+# Every callback view of both apps is listed, not only the five the test uses
+# today, so a new parametrisation needs no runner change.
+AUTH_PROVIDER_MOCK_TARGETS: tuple[tuple[str, str], ...] = (
+    ("plane.authentication.views.app.github", "GitHubOAuthProvider"),
+    ("plane.authentication.views.app.gitlab", "GitLabOAuthProvider"),
+    ("plane.authentication.views.app.google", "GoogleOAuthProvider"),
+    ("plane.authentication.views.app.gitea", "GiteaOAuthProvider"),
+    ("plane.authentication.views.space.github", "GitHubOAuthProvider"),
+    ("plane.authentication.views.space.gitlab", "GitLabOAuthProvider"),
+    ("plane.authentication.views.space.google", "GoogleOAuthProvider"),
+    ("plane.authentication.views.space.gitea", "GiteaOAuthProvider"),
+)
+
+# `test_user_email_change_app.py::…::test_code_invalidated_after_attempt_is_counted_is_not_compared`
+# wraps `cache.incr` in a `side_effect` that deletes the code and its counter
+# between the view's attempt increment and its code read
+# (`plane/app/views/user/base.py:221-222`). The check is the cache API surface a
+# test can patch on the shared object: a `Mock` there means the test expects
+# its own Python call to run in-process.
+CACHE_MOCK_METHODS: tuple[str, ...] = (
+    "add",
+    "clear",
+    "decr",
+    "delete",
+    "delete_many",
+    "delete_pattern",
+    "get",
+    "get_many",
+    "get_or_set",
+    "has_key",
+    "incr",
+    "set",
+    "set_many",
+    "touch",
+)
+
 # `patch.object(AuthenticationThrottle, "rate", "2/minute")` assigns a plain
 # string, not a `Mock`, so it is detected by comparing the class attribute with
 # the value its module read from the runner's environment at import time.
@@ -445,6 +493,28 @@ def _local_mock_reason() -> str | None:
     attribute differs from the value the module read at import time) rather than
     `unittest.mock._patch._active_patches`: the context-manager form of `patch`
     does not register there.
+
+    Two more families are detected the same way, by the object the test patched:
+
+    * An OAuth provider class on a callback view module
+      (`[AUTH_PROVIDER_MOCK_TARGETS]`). The view instantiates the module
+      attribute, so the mock is only used in-process; the test then asserts on
+      it (`provider.assert_not_called()`) or scripts the login through it
+      (`test_oauth_callback_state_app.py::TestOAuthCallbackState`). None of
+      these tests can pass against Rust, and `assert_not_called` can pass
+      vacuously there, so they must not be sent.
+    * A method of the shared cache object (`[CACHE_MOCK_METHODS]`).
+      `test_user_email_change_app.py::TestUserEmailChangeVerification::
+      test_code_invalidated_after_attempt_is_counted_is_not_compared` replaces
+      `cache.incr` with a `side_effect` that deletes the code and its counter
+      between the attempt increment and the code read
+      (`plane/app/views/user/base.py:221-222`); the effect only exists in
+      Django's process. `django.core.cache.cache` is a
+      `ConnectionProxy`, so `patch.object(cache, …)` resolves the real method
+      through `getattr(cache, …)` but installs the mock on the backend instance
+      through `setattr`, where the proxy still exposes it for the block's
+      duration (the Django view imports the same proxy,
+      `plane/app/views/user/base.py:19`).
     """
     for module_name, attribute in STORAGE_MOCK_TARGETS + AUTH_MOCK_TARGETS:
         module = sys.modules.get(module_name)
@@ -456,6 +526,18 @@ def _local_mock_reason() -> str | None:
                 f"asserts on an in-process `{module_name}.{attribute}` mock; "
                 "served by Django"
             )
+    for module_name, class_name in AUTH_PROVIDER_MOCK_TARGETS:
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        if isinstance(getattr(module, class_name, None), unittest.mock.Mock):
+            return (
+                f"replaces the in-process OAuth provider `{module_name}.{class_name}` "
+                "with a mock (the test asserts on it or scripts its login); served by Django"
+            )
+    cache_reason = _cache_mock_reason()
+    if cache_reason is not None:
+        return cache_reason
     for module_name, class_name, attribute, env_name in AUTH_PATCHED_RATES:
         module = sys.modules.get(module_name)
         if module is None:
@@ -471,6 +553,39 @@ def _local_mock_reason() -> str | None:
                 f"the Rust process read {expected!r} at startup — served by Django"
             )
     return _in_process_exception_reason()
+
+
+def _cache_mock_reason() -> str | None:
+    """A `Mock` installed on the shared Django cache object by a test patch.
+
+    `django.core.cache.cache` is a `django.utils.connection.ConnectionProxy`, not
+    the backend itself. `patch.object(cache, "incr", side_effect=…)` asks the
+    proxy for `incr` (which delegates to the backend's real bound method for the
+    saved original) and assigns the mock back through the proxy's `__setattr__`,
+    which sets it on the backend instance. While the block is active,
+    `getattr(cache, "incr")` therefore returns the `Mock`; on exit `patch` puts
+    the original bound method back as an instance attribute, so the check sees a
+    real method again and an unrelated test does not match. The views import the
+    same proxy (`plane/app/views/user/base.py:19`), so this object is the whole
+    surface a test can patch.
+    """
+    module = sys.modules.get("django.core.cache")
+    if module is None:
+        return None
+    cache = getattr(module, "cache", None)
+    if cache is None:
+        return None
+    for attribute in CACHE_MOCK_METHODS:
+        try:
+            value = getattr(cache, attribute, None)
+        except Exception:  # a closed or misconfigured backend must not break routing
+            continue
+        if isinstance(value, unittest.mock.Mock):
+            return (
+                f"patches `django.core.cache.cache.{attribute}` in-process to observe "
+                "or steer a cache call the view makes itself; served by Django"
+            )
+    return None
 
 
 def _in_process_exception_reason() -> str | None:
