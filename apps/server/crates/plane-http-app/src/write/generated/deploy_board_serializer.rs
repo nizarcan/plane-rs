@@ -316,7 +316,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
         .primary_key_field(client, "updated_by", true, "users")
         .await?;
     let _ = s
-        .primary_key_field(client, "intake", true, "intakes")
+        .primary_key_field_live(client, "intake", true, "intakes")
         .await?;
     Ok(())
 }

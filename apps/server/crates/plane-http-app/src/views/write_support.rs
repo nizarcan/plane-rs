@@ -72,7 +72,15 @@ fn python_type_name(value: &Value) -> &'static str {
 /// * anything else (float, list, dict) → `AttributeError` inside `uuid.UUID`,
 ///   which `to_python` re-raises as a `ValidationError`.
 pub(super) fn view_id(data: &Data) -> Result<Option<Uuid>, ViewError> {
-    match body_get(data, "view")? {
+    django_uuid(data, "view")
+}
+
+/// [`view_id`] for any body key — `request.data.get(key)` through Django's
+/// `UUIDField.get_prep_value`/`to_python`. The favourites views feed raw
+/// `entity_identifier` and `project_id` values to the ORM this way
+/// (`plane/app/views/workspace/favorite.py:49,60,71`).
+pub(crate) fn django_uuid(data: &Data, key: &str) -> Result<Option<Uuid>, ViewError> {
+    match body_get(data, key)? {
         Body::Missing | Body::Json(Value::Null) => Ok(None),
         Body::Form(text) => uuid_from_hex(text).map(Some),
         Body::Json(Value::Str(text)) => text.as_str().map_or(Err(ViewError::Validation), |text| {
@@ -117,14 +125,22 @@ pub(super) fn json_or_empty_object(data: &Data, key: &str) -> Result<Option<Json
 /// violations (the duplicate-favourite index) and NOT NULL violations (a `null`
 /// `view_props`) alike.
 pub(crate) fn integrity(error: tokio_postgres::Error) -> ViewError {
-    if error
-        .code()
-        .is_some_and(|code| code.code().starts_with("23"))
-    {
+    if is_integrity(&error) {
         ViewError::Integrity
     } else {
         ViewError::from(error)
     }
+}
+
+/// Whether Postgres reported SQLSTATE class 23 — a Django `IntegrityError`.
+///
+/// A handler that answers such an error itself (POST's
+/// `{"error": "Favorite already exists"}`) needs the check without the mapping.
+#[must_use]
+pub(crate) fn is_integrity(error: &tokio_postgres::Error) -> bool {
+    error
+        .code()
+        .is_some_and(|code| code.code().starts_with("23"))
 }
 
 #[cfg(test)]

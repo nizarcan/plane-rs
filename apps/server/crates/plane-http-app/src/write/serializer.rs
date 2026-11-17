@@ -700,6 +700,41 @@ impl<'a> Serializer<'a> {
         Ok(Some(value))
     }
 
+    /// `CharField` for a **required** field over a form body.
+    ///
+    /// `Field.get_value`'s html branch keeps a form `''` when the field is
+    /// required (`rest_framework/fields.py:405-420`), so `CharField` reports
+    /// `blank` instead of the field being skipped:
+    ///
+    /// ```text
+    /// ret = dictionary[self.field_name]
+    /// if ret == '' and self.allow_null:      ...
+    /// elif ret == '' and not self.required:  ...
+    /// return ret
+    /// ```
+    ///
+    /// [`Self::field_value`] implements the two `not required` branches, which
+    /// is what every optional field needs; this is the third.
+    pub fn char_field_required(
+        &mut self,
+        name: &'static str,
+        options: CharOptions,
+    ) -> Option<String> {
+        if self.form
+            && !self.fatal
+            && !self.skipped.contains(&name)
+            && matches!(
+                self.body.as_ref().and_then(|body| body.raw(name)),
+                Some(Raw::Text(""))
+            )
+        {
+            self.errors
+                .push(name, Detail::new("This field may not be blank.", "blank"));
+            return None;
+        }
+        self.char_field(name, options)
+    }
+
     /// `FloatField` (finite numbers only).
     pub fn float_field(&mut self, name: &'static str, allow_null: bool) -> Option<f64> {
         // `FloatField` has no `allow_blank`, so an empty form value is skipped
@@ -770,6 +805,11 @@ impl<'a> Serializer<'a> {
     /// the pk, then one `SELECT 1 FROM <queryset model> WHERE id = $1`. Django
     /// runs exactly one `queryset.get(pk=…)` per field, so the round-trip count
     /// is the same.
+    ///
+    /// The queryset is a generated `ModelSerializer` field's
+    /// `related_model._default_manager.all()`, i.e. the **plain** manager; a
+    /// model that carries `deleted_at` needs
+    /// [`Self::primary_key_field_live`].
     pub async fn primary_key_field(
         &mut self,
         client: &Client,
@@ -777,7 +817,41 @@ impl<'a> Serializer<'a> {
         allow_null: bool,
         table: &'static str,
     ) -> Result<Option<uuid::Uuid>, ViewError> {
-        let Some(raw) = self.field_value(name, allow_null, Some(false)) else {
+        let predicate = "";
+        self.related_key_field(client, name, allow_null, table, predicate)
+            .await
+    }
+
+    /// [`Self::primary_key_field`] for a relation whose queryset is a
+    /// soft-deletion manager (`UserFavorite.objects` for `UserFavorite.parent`,
+    /// `plane/db/models/favorite.py:25-31`), so a soft-deleted row is
+    /// `Invalid pk "…" - object does not exist.` — not a hit.
+    ///
+    /// `favorite.parent` is the only such field today; the generator emits this
+    /// helper when the related model has a `deleted_at` column
+    /// (`tools/inventory/serializers.py`).
+    pub async fn primary_key_field_live(
+        &mut self,
+        client: &Client,
+        name: &'static str,
+        allow_null: bool,
+        table: &'static str,
+    ) -> Result<Option<uuid::Uuid>, ViewError> {
+        let predicate = " AND deleted_at IS NULL";
+        self.related_key_field(client, name, allow_null, table, predicate)
+            .await
+    }
+
+    /// The shared body of the two `PrimaryKeyRelatedField` helpers.
+    async fn related_key_field(
+        &mut self,
+        client: &Client,
+        name: &'static str,
+        allow_null: bool,
+        table: &'static str,
+        predicate: &'static str,
+    ) -> Result<Option<uuid::Uuid>, ViewError> {
+        let Some(raw) = self.related_field_value(name, allow_null) else {
             return Ok(None);
         };
         let value = match fields::primary_key(raw) {
@@ -787,8 +861,9 @@ impl<'a> Serializer<'a> {
                 return Ok(None);
             }
         };
-        // The table name is a generated const from model metadata, never input.
-        let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
+        // The table name is a generated const from model metadata, and the
+        // predicate a constant of this module, never input.
+        let sql = format!("SELECT 1 FROM {table} WHERE id = $1{predicate}");
         let exists = client
             .query_opt(sql.as_str(), &[&value])
             .await
@@ -809,6 +884,37 @@ impl<'a> Serializer<'a> {
             ),
         );
         Ok(None)
+    }
+
+    /// `RelatedField.run_validation`'s empty-string coercion
+    /// (`rest_framework/relations.py:151-155`):
+    ///
+    /// ```python
+    /// def run_validation(self, data=empty):
+    ///     # We force empty strings to None values for relational fields.
+    ///     if data == '':
+    ///         data = None
+    /// ```
+    ///
+    /// This runs **before** `validate_empty_values`, so a JSON `""` is `None`
+    /// (an explicit null when the field allows it). Without it,
+    /// `{"parent": ""}` would be Django's `“” is not a valid UUID.`.
+    fn related_field_value(&mut self, name: &'static str, allow_null: bool) -> Option<Raw<'_>> {
+        if self.fatal || self.skipped.contains(&name) {
+            return None;
+        }
+        if let Some(Raw::Json(Json::Str(value))) =
+            self.body.as_ref().and_then(|body| body.raw(name))
+            && value.as_str() == Some("")
+        {
+            if allow_null {
+                self.values.push((name, Value::Null));
+            } else {
+                self.errors.push(name, Detail::null());
+            }
+            return None;
+        }
+        self.field_value(name, allow_null, Some(false))
     }
 
     /// `IntegerField` (`rest_framework/fields.py:1080-1100`).
@@ -1835,6 +1941,86 @@ mod tests {
             Ok(None)
         );
         assert!(serializer.missing_required("url"));
+        assert!(!serializer.has_errors());
+    }
+
+    /// A serializer over one already-parsed body, for the field-level tests.
+    fn serializer_with(body: Body<'_>, partial: bool, form: bool) -> Serializer<'_> {
+        Serializer {
+            body: Some(body),
+            partial,
+            form,
+            errors: ValidationErrors::default(),
+            values: Vec::new(),
+            skipped: Vec::new(),
+            fatal: false,
+            timezone: chrono_tz::UTC,
+        }
+    }
+
+    /// `RelatedField.run_validation`'s `'' -> None` coercion
+    /// (`rest_framework/relations.py:151-155`): a JSON `""` is an explicit null
+    /// when the field allows it, and every other value still reaches Django's
+    /// pk parser.
+    #[test]
+    fn related_fields_coerce_an_empty_string_to_null() {
+        let object = json_body(r#"{"parent": ""}"#);
+        let mut serializer = serializer_with(Body::Json(&object), false, false);
+        assert!(serializer.related_field_value("parent", true).is_none());
+        assert_eq!(
+            serializer.value("parent"),
+            Some(&Value::Null),
+            "the explicit null is recorded"
+        );
+        assert!(!serializer.has_errors());
+
+        let mut serializer = serializer_with(Body::Json(&object), false, false);
+        assert!(serializer.related_field_value("parent", false).is_none());
+        assert_eq!(
+            body(serializer.finish().expect_err("null").into_response()),
+            serde_json::json!({"parent": ["This field may not be null."]})
+        );
+
+        // `"abc"` is not swallowed: `PrimaryKeyRelatedField` reports Django's
+        // `UUIDField` message as a field error.
+        let object = json_body(r#"{"parent": "abc"}"#);
+        let mut serializer = serializer_with(Body::Json(&object), false, false);
+        let raw = serializer
+            .related_field_value("parent", true)
+            .expect("a non-empty string is parsed");
+        assert_eq!(
+            fields::primary_key(raw),
+            Err(Detail::new("“abc” is not a valid UUID.", "invalid"))
+        );
+        assert!(serializer.values.is_empty());
+    }
+
+    /// `Field.get_value`'s html branch keeps a form `''` for a required field
+    /// (`rest_framework/fields.py:405-420`), so `CharField` fails `blank`
+    /// instead of the field being skipped.
+    #[test]
+    fn a_required_char_field_keeps_a_form_empty_string() {
+        let form = plane_drf::request::QueryDict::parse("entity_type=", None).expect("form query");
+        let options = CharOptions {
+            allow_null: false,
+            allow_blank: false,
+            trim_whitespace: true,
+            max_length: Some(100),
+        };
+        let mut serializer = serializer_with(Body::Form(&form), false, true);
+        assert!(
+            serializer
+                .char_field_required("entity_type", options)
+                .is_none()
+        );
+        assert_eq!(
+            body(serializer.finish().expect_err("blank").into_response()),
+            serde_json::json!({"entity_type": ["This field may not be blank."]})
+        );
+        // The same input on an optional field is skipped, which is what
+        // `char_field` does.
+        let mut serializer = serializer_with(Body::Form(&form), false, true);
+        assert!(serializer.char_field("entity_type", options).is_none());
         assert!(!serializer.has_errors());
     }
 }

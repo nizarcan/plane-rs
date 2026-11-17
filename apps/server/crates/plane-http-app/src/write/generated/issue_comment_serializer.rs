@@ -434,11 +434,11 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     );
     let _ = s.datetime_field("edited_at", true);
     let _ = s
-        .primary_key_field(client, "description", true, "descriptions")
+        .primary_key_field_live(client, "description", true, "descriptions")
         .await?;
     let _ = s.primary_key_field(client, "actor", true, "users").await?;
     let _ = s
-        .primary_key_field(client, "parent", true, "issue_comments")
+        .primary_key_field_live(client, "parent", true, "issue_comments")
         .await?;
     Ok(())
 }

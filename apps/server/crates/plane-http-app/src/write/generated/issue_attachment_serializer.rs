@@ -470,11 +470,13 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     let _ = s.json_field("storage_metadata", true);
     let _ = s.primary_key_field(client, "user", true, "users").await?;
     let _ = s
-        .primary_key_field(client, "draft_issue", true, "draft_issues")
+        .primary_key_field_live(client, "draft_issue", true, "draft_issues")
         .await?;
     let _ = s
-        .primary_key_field(client, "comment", true, "issue_comments")
+        .primary_key_field_live(client, "comment", true, "issue_comments")
         .await?;
-    let _ = s.primary_key_field(client, "page", true, "pages").await?;
+    let _ = s
+        .primary_key_field_live(client, "page", true, "pages")
+        .await?;
     Ok(())
 }

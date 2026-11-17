@@ -142,9 +142,9 @@ pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s
-        .primary_key_field(client, "parent", true, "labels")
+        .primary_key_field_live(client, "parent", true, "labels")
         .await?;
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "name",
         CharOptions {
             allow_null: false,

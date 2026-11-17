@@ -1155,7 +1155,7 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "name",
         CharOptions {
             allow_null: false,
@@ -1179,7 +1179,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     let _ = s.json_field("description_text", true);
     let _ = s.json_field("description_html", true);
     let _ = s.integer_choice_field("network", &[0, 2]);
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "identifier",
         CharOptions {
             allow_null: false,
@@ -1701,13 +1701,13 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
         .primary_key_field(client, "project_lead", true, "users")
         .await?;
     let _ = s
-        .primary_key_field(client, "cover_image_asset", true, "file_assets")
+        .primary_key_field_live(client, "cover_image_asset", true, "file_assets")
         .await?;
     let _ = s
-        .primary_key_field(client, "estimate", true, "estimates")
+        .primary_key_field_live(client, "estimate", true, "estimates")
         .await?;
     let _ = s
-        .primary_key_field(client, "default_state", true, "states")
+        .primary_key_field_live(client, "default_state", true, "states")
         .await?;
     Ok(())
 }

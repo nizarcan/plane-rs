@@ -107,7 +107,7 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         let workspace_id: Uuid = row.try_get(0)?;
 
         // H25: `MAX(sequence) + 10000`, or the model default 65535.
-        let sequence = hooks::favorite::before_insert(client, workspace_id).await?;
+        let sequence = hooks::favorite::before_insert(client, workspace_id, None).await?;
 
         let now = write::now();
         let id = Uuid::new_v4();
