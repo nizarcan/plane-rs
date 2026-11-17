@@ -219,6 +219,8 @@ fn rules() -> Arc<NormalizeRules> {
             named("origin", "hostname:pid", RuleMode::Drop),
         ],
         unordered_json_paths: Vec::new(),
+        volatile_json_paths: Vec::new(),
+        volatile_text_patterns: Vec::new(),
         volatile_db_columns: vec![
             db_placeholder("sessions", "session_key", "session", "session_key"),
             DbRule {

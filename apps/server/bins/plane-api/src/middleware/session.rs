@@ -56,9 +56,9 @@ pub async fn response(
     let cookie_sent = ctx.cookie(cookie_name).is_some();
 
     // `session.py:53-55`: snapshot before anything can load the session.
-    let accessed = auth_context.session.accessed;
-    let modified = auth_context.session.modified;
-    let empty = auth_context.session.is_empty();
+    let accessed = auth_context.session.accessed().await;
+    let modified = auth_context.session.modified().await;
+    let empty = auth_context.session.is_empty().await;
 
     let mut resp = resp;
     if cookie_sent && empty {
@@ -79,22 +79,24 @@ pub async fn response(
 
     let status = resp.status.as_u16();
     let client = db.client(state).await?;
-    let action = auth_context
-        .session
-        .response_action(
-            client,
-            settings,
-            settings.secret_key.value(),
-            cookie_sent,
-            auth_context.is_admin_path,
-            status,
-        )
-        .await
-        .map_err(save_error)?;
+    let action = {
+        let mut session = auth_context.session.lock().await;
+        session
+            .response_action(
+                client,
+                settings,
+                settings.secret_key.value(),
+                cookie_sent,
+                auth_context.is_admin_path,
+                status,
+            )
+            .await
+            .map_err(save_error)?
+    };
     match action {
         SessionCookieAction::Save { max_age, expires } => {
-            if let Some(key) = auth_context.session.session_key() {
-                let header = cookies::session_cookie(settings, cookie_name, key, max_age, expires);
+            if let Some(key) = auth_context.session.session_key().await {
+                let header = cookies::session_cookie(settings, cookie_name, &key, max_age, expires);
                 resp.append_header("Set-Cookie", header);
             }
         }
@@ -177,7 +179,7 @@ mod tests {
 
         let mut ctx = context("/", &[]);
         let mut auth = auth_context(&settings, &ctx);
-        auth.session.accessed = true;
+        auth.session.lock().await.accessed = true;
         let accessed_response = response(
             &state,
             &mut ctx,
@@ -194,7 +196,7 @@ mod tests {
         existing.patch_vary("origin");
         let mut ctx = context("/", &[]);
         let mut auth = auth_context(&settings, &ctx);
-        auth.session.accessed = true;
+        auth.session.lock().await.accessed = true;
         let appended = response(&state, &mut ctx, &mut auth, &mut db, existing)
             .await
             .expect("response");
@@ -210,7 +212,7 @@ mod tests {
         let mut db = RequestDb::default();
         let mut ctx = context("/", &[("cookie", "session-id=")]);
         let mut auth = auth_context(&settings, &ctx);
-        assert!(auth.session.is_empty());
+        assert!(auth.session.is_empty().await);
         let deleted = response(
             &state,
             &mut ctx,
@@ -240,7 +242,7 @@ mod tests {
         let key = "a".repeat(128);
         let mut ctx = context("/", &[("cookie", &format!("session-id={key}"))]);
         let mut auth = auth_context(&settings, &ctx);
-        assert!(!auth.session.is_empty());
+        assert!(!auth.session.is_empty().await);
         let untouched = response(
             &state,
             &mut ctx,
@@ -267,7 +269,10 @@ mod tests {
             &[("cookie", "admin-session-id=abcdefgh; session-id=12345678")],
         );
         let mut auth = auth_context(&settings, &ctx);
-        assert_eq!(auth.session.session_key(), Some("abcdefgh"));
+        assert_eq!(
+            auth.session.session_key().await.as_deref(),
+            Some("abcdefgh")
+        );
         assert!(auth.is_admin_path);
         response(
             &state,
@@ -284,7 +289,10 @@ mod tests {
             &[("cookie", "admin-session-id=abcdefgh; session-id=12345678")],
         );
         let mut auth = auth_context(&settings, &ctx);
-        assert_eq!(auth.session.session_key(), Some("12345678"));
+        assert_eq!(
+            auth.session.session_key().await.as_deref(),
+            Some("12345678")
+        );
         assert!(!auth.is_admin_path);
         response(
             &state,
@@ -310,7 +318,7 @@ mod tests {
             &[("cookie", &format!("session-id={key}"))],
         );
         let mut auth = auth_context(&settings, &ctx);
-        auth.session.modified = true;
+        auth.session.lock().await.modified = true;
         let result = response(
             &state,
             &mut ctx,

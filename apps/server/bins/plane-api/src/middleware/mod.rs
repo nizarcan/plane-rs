@@ -296,7 +296,7 @@ async fn dispatch_drf(
             order: route.order,
             kwargs,
             ctx,
-            session: &mut auth_context.session,
+            session: &auth_context.session,
             preloaded_user,
         },
     ))
@@ -310,12 +310,12 @@ async fn dispatch_drf(
         plane_drf::UserOutcome::Anonymous => {
             auth_context.user = plane_auth::RequestUser::Anonymous;
             auth_context.resolved = true;
-            auth_context.sync(ctx);
+            auth_context.sync(ctx).await;
         }
         plane_drf::UserOutcome::Resolved(user) => {
             auth_context.user = user;
             auth_context.resolved = true;
-            auth_context.sync(ctx);
+            auth_context.sync(ctx).await;
         }
     }
     Resp::from_drf(outcome.response)

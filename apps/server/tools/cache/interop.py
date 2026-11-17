@@ -14,7 +14,10 @@ compares the results:
   annotated tree (so the Rust side can compare structurally), plus the JSON
   `JSONRenderer` would produce for it;
 * `invalidate` — seed keys, then call `plane.utils.cache.invalidate_cache_directly`
-  and report how many keys were deleted and which survived.
+  and report how many keys were deleted and which survived;
+* `add_incr` — `cache.add`/`cache.incr` on a caller-seeded database, with the
+  post-call raw bytes and `PTTL` so the Rust side can prove the bytes and that
+  an increment does not reset the TTL.
 
 Everything runs against the database in `REDIS_URL` (only 13 and 14 are
 accepted: the tool calls `FLUSHDB`).
@@ -182,6 +185,40 @@ def write(job, cache):
     return {"written": written}
 
 
+def add_incr(job, cache):
+    """`cache.add`/`cache.incr`, with the raw bytes and remaining TTL.
+
+    Each case is one call against a database the caller seeded; the result
+    includes the post-call raw value (`hex`, `None` for a miss) and `pttl_ms`
+    so the Rust side can prove the TTL is written and **not** reset by an
+    increment.
+    """
+    from django_redis import get_redis_connection
+
+    connection = get_redis_connection("default")
+    results = []
+    for case in job["cases"]:
+        key = case["key"]
+        full = f":1:{key}"
+        entry = {"key": key, "op": case["op"]}
+        if case["op"] == "add":
+            entry["result"] = cache.add(
+                key, Builder().build(case["tree"]), case.get("timeout")
+            )
+        elif case["op"] == "incr":
+            try:
+                entry["value"] = cache.incr(key, case.get("delta", 1))
+            except ValueError as error:
+                entry["error"] = str(error)
+        else:  # pragma: no cover - the Rust side never sends one
+            raise ValueError(f"unknown op {case['op']!r}")
+        raw = connection.get(full)
+        entry["hex"] = None if raw is None else binascii.hexlify(raw).decode()
+        entry["pttl_ms"] = connection.pttl(full)
+        results.append(entry)
+    return {"results": results}
+
+
 def read(job, cache):
     from rest_framework.renderers import JSONRenderer
 
@@ -282,7 +319,12 @@ def main() -> int:
 
     from django.core.cache import cache
 
-    operations = {"write": write, "read": read, "invalidate": invalidate}
+    operations = {
+        "write": write,
+        "read": read,
+        "invalidate": invalidate,
+        "add_incr": add_incr,
+    }
     result = operations[job["op"]](job, cache)
     result["python"] = sys.version.split()[0]
     result["protocol"] = pickle.DEFAULT_PROTOCOL

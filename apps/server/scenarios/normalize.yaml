@@ -55,6 +55,14 @@ shapes:
   api_token:
     pattern: '^[0-9a-f]{64}$'
     why: "users.token is two uuid4 hex strings when token_updated_at is set (plane/db/models/user.py:174)"
+  # plane/db/models/api.py:13-14,19: generate_token = "plane_api_" + uuid4().hex.
+  plane_api_token:
+    pattern: '^plane_api_[0-9a-f]{32}$'
+    why: "APIToken.token default is 'plane_api_' + uuid4().hex (plane/db/models/api.py:13-14)"
+  # plane/db/models/api.py:9-10: generate_label_token = uuid4().hex.
+  api_token_label:
+    pattern: '^[0-9a-f]{32}$'
+    why: "APIToken.label defaults to uuid4().hex when the create body omits it (plane/db/models/api.py:9-10)"
   # plane/utils/color.py:9: "#" + "".join(random.choices(string.hexdigits, k=6)).
   # string.hexdigits includes A-F, so upper case is legitimate and observed.
   hex_colour:
@@ -455,6 +463,38 @@ volatile_json_keys:
     request: "POST /api/workspaces/*/projects/*/estimates/"
     why: "generate_random_name() when the create body has no `name` (plane/app/views/estimate/base.py:29-31, :66)"
 
+# JSON value rules scoped by **document path** rather than key name. The
+# name-keyed table above holds one rule per name, so `token` is already taken by
+# `users.token` (64 hex). `POST /api/users/api-tokens/` returns a different
+# token — `plane_api_` + uuid4().hex — under the same key, and the default
+# label is a 32-hex uuid4(). A path rule wins over a name-keyed rule at its
+# exact path; everywhere else the name rule still applies.
+#
+# Path grammar: `$` is the root, `.key` a component, `*` one component and
+# `**` any number. A rule without `request` would apply to every response, so
+# both are scoped.
+volatile_json_paths:
+  - path: "$.token"
+    request: "POST /api/users/api-tokens/"
+    placeholder: api-token
+    shape: plane_api_token
+    why: "APIToken.objects.create generates 'plane_api_' + uuid4().hex, and only the create response reveals it (plane/app/views/api.py:22-30, plane/db/models/api.py:13-14,19)"
+  - path: "$.label"
+    request: "POST /api/users/api-tokens/"
+    mode: placeholder_if_shape
+    placeholder: api-token-label
+    shape: api_token_label
+    why: "APIToken.label defaults to uuid4().hex when the create body omits it (plane/app/views/api.py:22, plane/db/models/api.py:9-10,15)"
+
+# Regexes over every string the normaliser rewrites (JSON values, Celery
+# reprs, Redis values and response text). A rule must name its request: an
+# unscoped six-digit pattern would rewrite unrelated numbers.
+volatile_text_patterns:
+  - pattern: '\b[0-9]{6}\b'
+    placeholder: email-code
+    request: "POST /api/users/me/email/generate-code/"
+    why: "the e-mail-change code is secrets.randbelow(900000) + 100000 (plane/app/views/user/base.py:170); it is random in the Celery task argument and in the pickled {\"token\": …} cache value, and no JSON key of its own is stable enough for a name rule"
+
 volatile_db_columns:
   - table: sessions
     column: session_key
@@ -490,6 +530,22 @@ volatile_db_columns:
     placeholder: token
     shape: api_token
     why: "random API token, written when token_updated_at is set (plane/db/models/user.py:174)"
+  # A created API token (POST /api/users/api-tokens/) is random on each side;
+  # a fixture row keeps its literal value and is still compared.
+  - table: api_tokens
+    column: token
+    mode: placeholder_if_new
+    placeholder: api-token
+    shape: plane_api_token
+    request: "POST /api/users/api-tokens/"
+    why: "APIToken.token = 'plane_api_' + uuid4().hex (plane/db/models/api.py:13-14,19)"
+  - table: api_tokens
+    column: label
+    mode: placeholder_if_shape
+    placeholder: api-token-label
+    shape: api_token_label
+    request: "POST /api/users/api-tokens/"
+    why: "APIToken.label defaults to uuid4().hex (plane/db/models/api.py:9-10,15)"
   - table: profiles
     column: background_color
     placeholder: colour

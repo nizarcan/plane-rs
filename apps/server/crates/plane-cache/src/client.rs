@@ -34,6 +34,15 @@
 //! **Reads.** `DefaultClient.get(key, default)` issues a plain `GET` and
 //! returns `default` when the key is missing.
 //!
+//! **`add` and `incr`.** `cache.add` is `DefaultClient.set(..., nx=True)`, so
+//! `SET <key> <value> NX [PX <ms>]`; with a non-positive timeout it only
+//! reports whether the key is absent and never deletes an existing value
+//! (`default.py:257-268`). `cache.incr` runs django-redis's Lua
+//! `EXISTS`+`INCRBY` atomically, which **leaves the TTL alone** — the window
+//! starts at the first `add` — and a missing key raises `ValueError`
+//! (`default.py:667-719`). Both are used by the e-mail-change rate caps
+//! (`plane/app/views/user/base.py:160-161,220-221`).
+//!
 //! **`keys()` issues `KEYS`, not `SCAN`.** `plane/utils/cache.py`'s
 //! `invalidate_cache(multiple=True)` calls `cache.keys("*<key>*")`, which is
 //! `DefaultClient.keys` → `client.keys(pattern)` (`default.py:851-874`). `KEYS`
@@ -98,6 +107,40 @@ pub fn reverse_key(full_key: &str) -> String {
         (_, _, Some(key)) => key.to_string(),
         _ => full_key.to_string(),
     }
+}
+
+/// Python's `repr()` for a string, which is what
+/// `ValueError(f"Key '{key!r}' not found")` embeds.
+///
+/// The quote rule is CPython's (`Objects/unicodeobject.c: unicode_repr`):
+/// single quotes unless the string contains a `'` and no `"`. Escape
+/// sequences are the ones a cache key can contain in practice.
+fn python_repr(text: &str) -> String {
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push(quote);
+    for character in text.chars() {
+        match character {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            character if character == quote => {
+                out.push('\\');
+                out.push(character);
+            }
+            character if (character as u32) < 0x20 || character as u32 == 0x7f => {
+                out.push_str(&format!("\\x{:02x}", character as u32));
+            }
+            character => out.push(character),
+        }
+    }
+    out.push(quote);
+    out
 }
 
 /// What `DefaultClient.decode` can return.
@@ -190,6 +233,93 @@ impl<'a> Client<'a> {
         }
         self.redis.set_bytes_px(&full, &bytes, milliseconds).await?;
         Ok(true)
+    }
+
+    /// `cache.add(key, value, timeout)` (`django_redis/client/default.py:327-340`):
+    /// `SET … NX [PX]`, i.e. write only when the key is absent.
+    ///
+    /// The non-positive-timeout branch is django-redis's: with `nx=True` a
+    /// timeout `<= 0` must **not** delete an existing value, it only reports
+    /// whether the key was absent (`default.py:257-268`).
+    pub async fn add(
+        &self,
+        key: &str,
+        value: &PyValue,
+        timeout: Option<i64>,
+    ) -> Result<bool, Error> {
+        let full = make_key(key);
+        let bytes = encode(value);
+        let Some(seconds) = timeout else {
+            return self.redis.set_bytes_nx(&full, &bytes).await;
+        };
+        let milliseconds = seconds.saturating_mul(1000);
+        if milliseconds <= 0 {
+            return Ok(!self.redis.exists(&full).await?);
+        }
+        self.redis
+            .set_bytes_nx_px(&full, &bytes, milliseconds)
+            .await
+    }
+
+    /// `cache.incr(key, delta)` (`django_redis/client/default.py:721-740`,
+    /// `:667-719`): `INCRBY` on the stored raw integer, **without** touching
+    /// the TTL; a missing key is a [`Error::MissingKey`].
+    ///
+    /// The Lua script makes the existence check and the increment atomic, as
+    /// django-redis's does. The fallback reproduces the `ResponseError`
+    /// branch: the value was not a Redis integer (or an encoded Python int),
+    /// so django-redis reads the decoded value, adds `delta` in Python and
+    /// writes it back with the key's remaining TTL.
+    pub async fn incr(&self, key: &str, delta: i64) -> Result<i64, Error> {
+        let full = make_key(key);
+        match self.redis.incr_by_present(&full, delta).await {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => Err(Error::MissingKey {
+                key: python_repr(&full),
+            }),
+            Err(Error::Redis(error))
+                if error.kind()
+                    == redis::ErrorKind::Server(redis::ServerErrorKind::ResponseError) =>
+            {
+                // `timeout = self.ttl(key)`; `-2` means the key is gone.
+                let ttl = self.redis.ttl_seconds(&full).await?;
+                if ttl == -2 {
+                    return Err(Error::MissingKey {
+                        key: python_repr(&full),
+                    });
+                }
+                let stored =
+                    self.redis
+                        .get_bytes(&full)
+                        .await?
+                        .ok_or_else(|| Error::MissingKey {
+                            key: python_repr(&full),
+                        })?;
+                let value = match decode(&stored)?.into_value() {
+                    PyValue::Int(value) => value
+                        .to_i64()
+                        .ok_or_else(|| Error::Shape("incr value out of range".to_string()))?,
+                    // `cache.get` returns `True`/`False` and Python's `+` treats
+                    // them as 1/0; a pickled int is possible if another client
+                    // wrote one with a non-default serializer.
+                    PyValue::Bool(value) => i64::from(value),
+                    other => {
+                        return Err(Error::Shape(format!(
+                            "cannot increment a cache value of {other:?}"
+                        )));
+                    }
+                };
+                let updated = value.saturating_add(delta);
+                let timeout = match ttl {
+                    // django-redis's `ttl()` returns `None` for -1.
+                    -1 => None,
+                    seconds => Some(seconds),
+                };
+                self.set(key, &PyValue::int(updated), timeout).await?;
+                Ok(updated)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// `cache.delete(key)`: `DEL <key>`, returning how many keys were removed.
@@ -300,6 +430,22 @@ mod tests {
             Some(CachedValue::Pickled(PyValue::None))
         );
         assert!(decode(b"\x80\x04\x5d\x94\x2e\x2e").is_err());
+    }
+
+    #[test]
+    fn a_missing_incr_key_is_djangos_double_quoted_value_error() {
+        // `ValueError(f"Key '{key!r}' not found")` on `:1:late` — `repr`
+        // contributes one pair of quotes, the f-string another.
+        assert_eq!(
+            Error::MissingKey {
+                key: python_repr(":1:late"),
+            }
+            .to_string(),
+            "Key '':1:late'' not found"
+        );
+        // CPython switches to double quotes when the string has a single one.
+        assert_eq!(python_repr("o'brien"), "\"o'brien\"");
+        assert_eq!(python_repr("a\"b'c"), "'a\"b\\'c'");
     }
 
     #[test]

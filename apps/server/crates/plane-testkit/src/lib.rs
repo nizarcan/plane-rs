@@ -16,6 +16,7 @@ pub mod config;
 pub mod cookies;
 pub mod csrf;
 pub mod db;
+pub mod fixture_redis;
 pub mod http;
 pub mod normalize;
 pub mod password;

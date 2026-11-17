@@ -57,6 +57,7 @@
 
 pub mod description;
 pub mod django_serialize;
+pub mod email;
 pub mod favorite;
 pub mod favorite_queries;
 pub mod fields;

@@ -50,7 +50,7 @@ pub use password::{
     PBKDF2_ITERATIONS, PasswordCheck, check_password, check_password_async, is_password_usable,
     make_password, make_password_async, verify_password,
 };
-pub use session::{SessionCookieAction, SessionStore};
+pub use session::{SessionCookieAction, SessionSlot, SessionStore, delete_all_for_user};
 pub use user::{
     AuthUser, MODEL_BACKEND, RequestUser, SessionUser, get_user, load_session_user_by_id,
 };

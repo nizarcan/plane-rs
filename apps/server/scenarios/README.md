@@ -345,6 +345,22 @@ The response caches written by `plane/utils/cache.py` are ordinary pickled
 `{"data": ..., "status": ...}` dictionaries, so their key names must match and
 their decoded contents are compared like a response body.
 
+### Redis fixtures
+
+A value that only a random side effect creates can be seeded instead of
+captured: `vars: { fixture_redis: "{repo}/scenarios/write/<name>-fixture.redis.json" }`
+writes the file's entries into each target's own Redis database before the
+baseline snapshot, so they are part of both baselines and never a step diff.
+The file is `{"entries": [{"key": …, "value": …, "timeout": …}]}`; `key` is the
+logical django-redis key (the harness prepends `:1:`), `value` follows
+`django_redis`'s encoder (a JSON integer is stored as its ASCII digits,
+everything else as a protocol-4 pickle, so a string is a Python `str`) and
+`timeout` is seconds, absent for no expiry. The e-mail-change code
+(`plane/app/views/user/base.py:170-175`) is the first user: it is random in both
+the Celery task argument and the cached `{"token": …}` value, and the update
+step needs a known one. `crates/plane-testkit/src/fixture_redis.rs` is the
+format's reference and its tests pin the bytes against CPython.
+
 ### Built-in rules
 
 - generated UUIDs (not present in the baseline database) become `<id:N>`,

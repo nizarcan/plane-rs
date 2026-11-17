@@ -24,6 +24,9 @@ pub const DEFAULT_TEMPLATE_DB: &str = "plane_tpl";
 /// The reserved scenario variable naming a SQL fixture (see
 /// [`Scenario::fixture_sql`]).
 pub const FIXTURE_SQL_VAR: &str = "fixture_sql";
+/// The reserved scenario variable naming a Redis fixture (see
+/// [`Scenario::fixture_redis`]).
+pub const FIXTURE_REDIS_VAR: &str = "fixture_redis";
 
 fn default_template_db() -> String {
     DEFAULT_TEMPLATE_DB.to_string()
@@ -459,6 +462,27 @@ impl Scenario {
         })
     }
 
+    /// A Redis fixture applied to **both targets' own** Redis databases
+    /// before the baseline Redis snapshot.
+    ///
+    /// `vars: { fixture_redis: "{repo}/scenarios/write/users-me-email-fixture.redis.json" }`.
+    /// The file is a JSON object `{"entries": [{"key": …, "value": …,
+    /// "timeout": …}]}`; `key` is the logical django-redis key (the harness
+    /// prepends `:1:`), `value` follows `django_redis`'s encoder (an integer
+    /// is its ASCII digits, everything else a protocol-4 pickle) and `timeout`
+    /// is seconds (`null`/absent means no expiry). This is how a scenario
+    /// starts with a value only Python's side effects would normally create —
+    /// for example the 6-digit e-mail-change code
+    /// (`plane/app/views/user/base.py:170-175`), whose value and task argument
+    /// are random. `crate::fixture_redis` owns the format and its tests.
+    pub fn fixture_redis(&self) -> Option<std::path::PathBuf> {
+        self.vars.get(FIXTURE_REDIS_VAR).map(|path| {
+            std::path::PathBuf::from(
+                path.replace("{repo}", &crate::util::repo_root().display().to_string()),
+            )
+        })
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let scenario: Self = read_yaml(path)?;
         scenario.validate()?;
@@ -494,6 +518,16 @@ impl Scenario {
             && !path.is_file()
         {
             bail!("scenario {}: FIXTURE_SQL {path:?} is not a file", self.name);
+        }
+        if let Some(path) = self.fixture_redis() {
+            if !path.is_file() {
+                bail!(
+                    "scenario {}: FIXTURE_REDIS {path:?} is not a file",
+                    self.name
+                );
+            }
+            crate::fixture_redis::load(&path)
+                .map_err(|error| anyhow::anyhow!("scenario {}: {error}", self.name))?;
         }
         for variable in &self.password_vars {
             if !self.vars.contains_key(variable) {
@@ -642,6 +676,12 @@ pub enum RuleMode {
     /// generated during the run (a fresh `uuid4().hex`, say) needs a
     /// placeholder so the two targets can agree on it.
     PlaceholderIfNew,
+    /// Like `placeholder`, but only when the value matches the rule's `shape`.
+    /// A value that does not look generated stays literal and is compared —
+    /// e.g. an API-token `label` supplied in the create body, versus the
+    /// `uuid4().hex` default the model invents when it is missing. A shape
+    /// failure is *not* a violation here; it means "this was not generated".
+    PlaceholderIfShape,
     /// A timestamp relative to the step clock: replace with `<offset+Ns>`
     /// (rounded to 10 s) so `now + a fixed age` is compared by its age.
     RelativeTime,
@@ -723,6 +763,67 @@ pub struct DbRule {
     /// request-scoped DB rule leaves every other step's column alone.
     #[serde(default)]
     pub request: Option<String>,
+}
+
+/// A JSON rule scoped by **document path** instead of key name.
+///
+/// The name-keyed tables (`volatile_json_keys`, `volatile_db_columns`) hold at
+/// most one rule per name/column, so a `token` rule for a new API token
+/// (`plane_api_…`) would replace the `users.token` rule (`64` hex). A path
+/// rule is looked up at the exact JSON path first, so `$.token` on
+/// `POST /api/users/api-tokens/` can have its own shape while every other
+/// `token` keeps the name-keyed one.
+///
+/// `path` uses the same grammar as [`UnorderedPathRule::path`]: `$` is the
+/// root, `*` one component and `**` any number. A rule without `request`
+/// applies to every response body, so scope it unless the path is unique.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JsonPathRule {
+    pub path: String,
+    pub why: String,
+    #[serde(default)]
+    pub mode: RuleMode,
+    #[serde(default)]
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub shape: Option<String>,
+    #[serde(default)]
+    pub check: Option<RuleCheck>,
+    /// A glob over the step's `METHOD path?query`, like [`NamedRule`]'s.
+    #[serde(default)]
+    pub request: Option<String>,
+}
+
+impl JsonPathRule {
+    pub fn spec(&self) -> RuleSpec {
+        RuleSpec {
+            mode: self.mode,
+            placeholder: self.placeholder.clone(),
+            shape: self.shape.clone(),
+            check: self.check,
+            request: self.request.clone(),
+            why: self.why.clone(),
+        }
+    }
+}
+
+/// A regex over every **string** the normaliser rewrites (JSON values, Celery
+/// reprs, Redis values, response text). Used for a random value that has no
+/// JSON key of its own — the six-digit e-mail-change code
+/// (`plane/app/views/user/base.py:170`) appears inside `argsrepr` and inside
+/// the pickled `{"token": …}` cache value.
+///
+/// `request` is mandatory for the same reason as [`JsonPathRule`]'s: a bare
+/// six-digit pattern would rewrite unrelated numbers.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextPatternRule {
+    pub pattern: String,
+    pub placeholder: String,
+    pub why: String,
+    /// A glob over the step's `METHOD path?query`.
+    pub request: String,
 }
 
 /// The parts `NamedRule` and `DbRule` share, after validation.
@@ -814,6 +915,12 @@ pub struct NormalizeRules {
     pub volatile_celery_headers: Vec<NamedRule>,
     #[serde(default)]
     pub volatile_db_columns: Vec<DbRule>,
+    /// Path-scoped JSON rules (see [`JsonPathRule`]).
+    #[serde(default)]
+    pub volatile_json_paths: Vec<JsonPathRule>,
+    /// Request-scoped regexes over strings (see [`TextPatternRule`]).
+    #[serde(default)]
+    pub volatile_text_patterns: Vec<TextPatternRule>,
     #[serde(default = "default_timestamp_slack")]
     pub timestamp_slack_secs: i64,
     #[serde(default = "default_db_schemas")]
@@ -880,6 +987,41 @@ impl NormalizeRules {
             let name = format!("{}.{}", rule.table, rule.column);
             validate_spec("database column", &name, &rule.spec(), &self.shapes)?;
         }
+        for rule in &self.volatile_json_paths {
+            if !rule.path.starts_with('$') {
+                bail!(
+                    "normalize: volatile_json_paths path {:?} must start with `$`",
+                    rule.path
+                );
+            }
+            validate_spec("JSON path", &rule.path, &rule.spec(), &self.shapes)?;
+        }
+        for rule in &self.volatile_text_patterns {
+            if rule.placeholder.trim().is_empty() {
+                bail!(
+                    "normalize: text-pattern rule {:?} has an empty placeholder",
+                    rule.pattern
+                );
+            }
+            if rule.request.trim().is_empty() {
+                bail!(
+                    "normalize: text-pattern rule {:?} needs a request glob, or it                      would rewrite every response",
+                    rule.pattern
+                );
+            }
+            regex::Regex::new(&rule.pattern).map_err(|error| {
+                anyhow::anyhow!(
+                    "normalize: text-pattern rule {:?}: invalid regex: {error}",
+                    rule.pattern
+                )
+            })?;
+            if rule.why.trim().is_empty() {
+                bail!(
+                    "normalize: text-pattern rule {:?} has no justification",
+                    rule.pattern
+                );
+            }
+        }
         for rule in &self.unordered_json_paths {
             if rule.why.trim().is_empty() {
                 bail!(
@@ -930,6 +1072,7 @@ impl NormalizeRules {
             .chain(self.volatile_headers.iter().map(NamedRule::spec))
             .chain(self.volatile_celery_headers.iter().map(NamedRule::spec))
             .chain(self.volatile_db_columns.iter().map(DbRule::spec))
+            .chain(self.volatile_json_paths.iter().map(JsonPathRule::spec))
     }
 
     /// Compile the shape catalogue. Called once per run; the normaliser holds
@@ -968,7 +1111,10 @@ fn validate_spec(
         bail!("normalize: {what} rule {name:?} has an empty `request` glob");
     }
     match spec.mode {
-        RuleMode::Placeholder | RuleMode::PlaceholderIfNonEmpty | RuleMode::PlaceholderIfNew => {
+        RuleMode::Placeholder
+        | RuleMode::PlaceholderIfNonEmpty
+        | RuleMode::PlaceholderIfNew
+        | RuleMode::PlaceholderIfShape => {
             let Some(placeholder) = &spec.placeholder else {
                 bail!("normalize: {what} rule {name:?} needs `placeholder`");
             };

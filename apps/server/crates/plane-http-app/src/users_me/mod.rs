@@ -40,6 +40,7 @@ pub mod user_base;
 pub mod workspace_base;
 pub mod workspace_invite;
 pub mod workspace_user;
+pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///

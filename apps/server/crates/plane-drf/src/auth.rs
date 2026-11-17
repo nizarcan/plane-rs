@@ -42,7 +42,7 @@
 
 use http::Method;
 use plane_auth::csrf;
-use plane_auth::{AuthError, RequestUser, SessionStore, api_key, get_user, origin};
+use plane_auth::{AuthError, RequestUser, SessionSlot, api_key, get_user, origin};
 use plane_core::config::Settings;
 use plane_core::error::ApiError;
 
@@ -65,7 +65,7 @@ pub struct AuthOutcome {
 /// The lazy `request.user` plus the authenticators.
 pub struct Authenticator<'a, 'db> {
     settings: &'a Settings,
-    session: &'a mut SessionStore,
+    session: &'a SessionSlot,
     conn: &'a mut Conn<'db>,
     /// A user the pipeline resolved before dispatch (the middleware's
     /// `SimpleLazyObject` already evaluated), when there is one.
@@ -75,7 +75,7 @@ pub struct Authenticator<'a, 'db> {
 impl<'a, 'db> Authenticator<'a, 'db> {
     pub fn new(
         settings: &'a Settings,
-        session: &'a mut SessionStore,
+        session: &'a SessionSlot,
         conn: &'a mut Conn<'db>,
         preloaded: Option<RequestUser>,
     ) -> Self {
@@ -91,7 +91,9 @@ impl<'a, 'db> Authenticator<'a, 'db> {
     async fn user(&mut self) -> Result<&RequestUser, ViewError> {
         if self.resolved.is_none() {
             let client = self.conn.client().await?;
-            let user = get_user(client, self.settings, self.session).await?;
+            let mut session = self.session.lock().await;
+            let user = get_user(client, self.settings, &mut session).await?;
+            drop(session);
             self.resolved = Some(user);
         }
         match self.resolved.as_ref() {
@@ -103,8 +105,8 @@ impl<'a, 'db> Authenticator<'a, 'db> {
 
     /// `request.session.accessed` at this point, for both the success and the
     /// `_not_authenticated()` path.
-    pub fn session_accessed(&self) -> bool {
-        self.session.accessed
+    pub async fn session_accessed(&self) -> bool {
+        self.session.accessed().await
     }
 
     /// Whether Django's `SimpleLazyObject` has been evaluated. The pipeline
@@ -131,7 +133,7 @@ impl<'a, 'db> Authenticator<'a, 'db> {
                 return Ok(AuthOutcome {
                     user,
                     replaced: false,
-                    session_accessed: self.session_accessed(),
+                    session_accessed: self.session_accessed().await,
                 });
             }
         }
@@ -139,7 +141,7 @@ impl<'a, 'db> Authenticator<'a, 'db> {
         Ok(AuthOutcome {
             user: RequestUser::Anonymous,
             replaced: true,
-            session_accessed: self.session_accessed(),
+            session_accessed: self.session_accessed().await,
         })
     }
 

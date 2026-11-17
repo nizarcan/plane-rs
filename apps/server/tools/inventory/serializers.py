@@ -1974,6 +1974,11 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.favorite.UserFavoriteSerializer",
     "plane.app.serializers.estimate.EstimatePointSerializer",
     "plane.app.serializers.analytic.AnalyticViewSerializer",
+    # users/me writes: `UserEndpoint.partial_update`, `ProfileEndpoint.patch`
+    # and `ApiTokenEndpoint.post`/`patch` (`plans/USERS_ME.md` §2f).
+    "plane.app.serializers.user.UserSerializer",
+    "plane.app.serializers.user.ProfileSerializer",
+    "plane.app.serializers.api.APITokenSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is
