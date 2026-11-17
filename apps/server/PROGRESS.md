@@ -1091,7 +1091,23 @@ independent; each domain's sets start after its own P0. At most three builds run
   - `tests/generated_pk_lookups.rs` pins 12 statements to Django's SQL.
   - On the merge: all 30 write scenarios, 1656 steps, clean DvR; 985 tests.
 
-Running: estimates P0 (done, merging), `users/me` P0.
+- Estimates P0 (merged `35defca288`):
+  - `write::list_of` (DRF 3.18.3 `ListSerializer`, with a 38-case golden corpus from the
+    real `EstimatePointSerializer`);
+  - `estimates::render::{estimate_read, point_list}`;
+  - `estimates/write_queries.rs`;
+  - the generated `EstimatePointSerializer` table;
+  - the request-scoped random-`name` rules;
+  - `estimates-fixture.sql`.
+
+  On the merge: 991 tests; 72 write+read files clean DvR. Four files first failed
+  transiently (0/87, 7/125, …) while another agent's sweep was running, and were clean on
+  re-run; watch for a repeat.
+- Plan corrections from the estimates P0: 49's issue scan is `Issue.objects` (soft-delete
+  only), so triage/archived/draft issues are fanned out too; `[{}]` is the `value` required
+  error, not "Estimate points are required".
+
+Running: `users/me` P0, analytics P0, estimates A (46/47).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
