@@ -1972,6 +1972,7 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.notification.UserNotificationPreferenceSerializer",
     "plane.app.serializers.webhook.WebhookSerializer",
     "plane.app.serializers.favorite.UserFavoriteSerializer",
+    "plane.app.serializers.estimate.EstimatePointSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is

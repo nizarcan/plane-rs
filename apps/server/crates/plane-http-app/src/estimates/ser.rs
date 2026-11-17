@@ -61,6 +61,31 @@ pub fn points_per_estimate(
         .collect()
 }
 
+/// One `EstimateReadSerializer`, borrowing the estimate and its point rows.
+///
+/// The caller owns the point serializers; this only borrows them, so the same
+/// function serves a single estimate and a page of them.
+pub fn estimate_read_serializer<'a>(
+    estimate: &'a Estimate,
+    points: &'a [EstimatePointSerializer<'a>],
+) -> EstimateReadSerializer<'a> {
+    EstimateReadSerializer {
+        id: estimate.id,
+        points,
+        created_at: estimate.created_at,
+        updated_at: estimate.updated_at,
+        deleted_at: estimate.deleted_at,
+        name: &estimate.name,
+        description: &estimate.description,
+        r#type: &estimate.r#type,
+        last_used: estimate.last_used,
+        created_by: estimate.created_by_id,
+        updated_by: estimate.updated_by_id,
+        project: estimate.project_id,
+        workspace: estimate.workspace_id,
+    }
+}
+
 /// One `EstimateReadSerializer` per estimate, borrowing `rows` and `points`.
 ///
 /// `points` must be the point serializers of `rows` (same length and order);
@@ -73,20 +98,6 @@ pub fn estimate_read_serializers<'a>(
     estimates
         .iter()
         .zip(points.iter())
-        .map(|(estimate, points)| EstimateReadSerializer {
-            id: estimate.id,
-            points,
-            created_at: estimate.created_at,
-            updated_at: estimate.updated_at,
-            deleted_at: estimate.deleted_at,
-            name: &estimate.name,
-            description: &estimate.description,
-            r#type: &estimate.r#type,
-            last_used: estimate.last_used,
-            created_by: estimate.created_by_id,
-            updated_by: estimate.updated_by_id,
-            project: estimate.project_id,
-            workspace: estimate.workspace_id,
-        })
+        .map(|(estimate, points)| estimate_read_serializer(estimate, points))
         .collect()
 }
