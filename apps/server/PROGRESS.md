@@ -1040,12 +1040,15 @@ and only `verified` rows are Rust-owned.
   - `RelatedField` `'' → None`;
   - `char_field_required` for a required `CharField`'s form `''`;
   - generated pk fields check `deleted_at IS NULL` when the related queryset does.
-- **Known regression on HEAD**: the live-pk rule keyed on the related model's columns,
-  not the field's queryset. `IssueCreateSerializer.state_id` uses
-  `State.all_state_objects`, so `write/issues.yaml` step 22 and
-  `intake-issues-patch.yaml` step 26 answer a field error where Django gives the
-  non-field error. A fix is running in the favourites session (derive the predicate from
-  `field.queryset`).
+- A regression from that merge (the live-pk rule keyed on the related model's columns)
+  is **fixed** (merged `9be3cc9825`). The generator now compiles each field's own
+  queryset and checks it for `"<table>"."deleted_at" IS NULL`. Only
+  `IssueCreateSerializer.state_id` (`State.all_state_objects`) flipped back. On the
+  merge, all 30 write scenarios plus `read/workspaces*` are clean DvR; 964 tests;
+  `test_favorite_entity_scope_app.py` 33/33. **Flipped with this entry**: 212/213
+  `rust(GET,POST,PATCH,DELETE)` (the other verbs are the covered TypeError 500s).
+- Harness note: a Django target on port 18080 equals `WEB_URL`, so the harness rewrites
+  Celery `origin` on one side only. Don't assign 18080 to a harness `port_range`.
 - Follow-up: some related querysets filter more than `deleted_at`.
   `State.objects` (`StateManager`) also excludes triage, and `IssueManager` excludes
   triage/archived/draft issues and issues in archived projects. Only work-item create
