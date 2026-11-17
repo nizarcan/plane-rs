@@ -11,6 +11,7 @@ apps/server/tools/contract/
   dry_routing.py             static "which test files can reach Rust" pass
   run.sh                     the entry point: env, build, pytest
   smoke/test_replay.py       proof that a Rust publish reaches a patched `.delay`
+  smoke/test_local_mock.py   proof that in-process patches are detected and stay in Django
   README.md                  this file
 ```
 
@@ -31,7 +32,7 @@ apps/api/.venv/bin/python dry_routing.py > /tmp/selected.txt
 # 3. The porting check on the same set.
 ./run.sh --backend mixed -- $(cat /tmp/selected.txt)
 
-# 4. The replay bridge's own proof (starts plane-api, one Rust request).
+# 4. The smoke tests' own proof (starts plane-api; sends one Rust request).
 ./run.sh --backend mixed --smoke
 ```
 
@@ -210,10 +211,13 @@ PLANE_DB=t_rsct_plain PLANE_REDIS_DB=1 PLANE_MQ_VHOST=t_rsct_plain \
 4. **`follow=True` on a Rust route** is not implemented (the redirect walker
    needs a `redirect_chain`); the only `follow=True` calls in the suite are on
    Django-owned `/auth/` routes.
-5. **Django-side patches do not apply to Rust.** A test that patched a helper
-   the view calls in-process would not affect the Rust handler. The report
-   names every Rust-touching test, so such a test is visible; none of the
-   current GET routes is patched that way.
+5. **Django-side patches do not apply to Rust.** A test that patches an object
+   the view calls in-process — a storage wrapper, an OAuth provider class, a
+   cache method, a task at its call site — can only be satisfied by Django.
+   `_local_mock_reason` recognises the known shapes by effect (the patched
+   attribute is a `Mock`) and serves that request in-process, reporting it as a
+   runner limitation. Any other in-process patch fails visibly, because the
+   report names every Rust-touching test.
 6. **`redis_instance()` database** is forced onto the run's Redis database (see
    "Side effects").
 7. **One `plane-api` per session**, started on `PLANE_RS_CONTRACT_PORT`. A
