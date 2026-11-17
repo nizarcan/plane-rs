@@ -128,11 +128,6 @@ impl DrfSerialize for WebhookTen {
 /// [`WebhookTen`]. `created_by`/`updated_by` are `null` for a fixture row with
 /// no audit user, and `deleted_at` is `null` on anything a route returns.
 #[derive(Debug, Clone, Copy)]
-// No route calls this yet: set A's create/regenerate answer with it.
-#[allow(
-    dead_code,
-    reason = "used by the create/regenerate handlers in set A; the test below pins it"
-)]
 pub(super) struct WebhookFull<'a> {
     pub webhook: &'a Webhook,
 }
