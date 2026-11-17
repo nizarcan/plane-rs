@@ -995,7 +995,29 @@ and only `verified` rows are Rust-owned.
     400 here;
   - `chrono-tz` stops applying DST to far-future dates (2100+) where `zoneinfo` uses the
     tzfile footer. This affects every zone conversion, not only parsing.
-- Favourites plan written (`plans/FAVORITES.md`): 212/213 only, one set, no P0.
+- Favourites plan written (`plans/FAVORITES.md`): 212/213 only, one set, no P0. Running.
+
+### Phase 5: webhooks domain (2026-11-17)
+
+- Plan committed (`daf9f705e3`).
+- P0 (merged `3767f92b71`):
+  - `webhooks/validate.rs`: DRF's field chain (null-char, surrogate, schema, domain,
+    `URLValidator`) as a list, then the save-time SSRF check as a bare string, behind a
+    resolver trait;
+  - `plane_core::secrets::webhook_secret_key`;
+  - the `url` field kind and `Serializer::url_field`;
+  - the 10/17-key renderers;
+  - `webhooks/write_queries.rs`;
+  - request-scoped `secret_key` placeholder rules (JSON and DB);
+  - `webhooks-fixture.sql`.
+
+  On the merge: 956 tests; all 27 write scenarios plus `read/webhooks*` are clean DvR.
+- Bug found by P0's read sweep: analytics windows localise naive bounds in the user's
+  timezone, but Django's `DateTimeField.get_prep_value` uses `TIME_ZONE` (UTC).
+  `read/analytics.yaml` (2 steps) and `analytics-extra.yaml` (3) differ once the UTC date
+  is 2026-11-17. A fix agent is running (`rs/analytics-tz`).
+- Running: webhooks A (create + regenerate, 228/229 POST, 230) and B (PATCH + DELETE,
+  228/229).
 
 ## Next three steps
 
