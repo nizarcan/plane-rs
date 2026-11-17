@@ -13,9 +13,8 @@
 //! * `/api/users/file-assets/**`
 //!
 //! This module ports the group's fourteen `GET` routes, the v2 write verbs of
-//! `plans/ASSETS.md` set A (18/19/24/25/26) and the v1 writes ([`legacy`],
-//! routes 13-17, set B). The user-asset routes, `AssetRestoreEndpoint` and
-//! `DuplicateAssetEndpoint` are set C and still answer the pipeline's 501.
+//! `plans/ASSETS.md` set A (18/19/24/25/26), the v1 writes ([`legacy`], routes
+//! 13-17, set B) and set C (20/21/22/28). Every asset write route is ported.
 //!
 //! | Module | Python |
 //! | --- | --- |
@@ -24,12 +23,15 @@
 //! | [`v2`] | `plane/app/views/asset/v2.py` — workspace, project, static, check and download |
 //! | [`workspace_write`] | `v2.py` — `WorkspaceFileAssetEndpoint.post`/`patch`/`delete` (18/19) |
 //! | [`project_write`] | `v2.py` — `ProjectAssetEndpoint` (24/25) and `ProjectBulkAssetEndpoint` (26) |
+//! | [`user_write`] | `v2.py` — `UserAssetsV2Endpoint` (20/21) and `AssetRestoreEndpoint` (22) |
+//! | [`duplicate`] | `v2.py` — `DuplicateAssetEndpoint.post` (28) |
 //! | [`attachment`] | `plane/app/views/issue/attachment.py` — `IssueAttachmentV2Endpoint` |
 //! | [`support`] | `FileAsset`'s model rules, `issue_hidden_from_guest`, the presign call site |
 //! | [`entities`] | the write-only entity helpers: `asset_delete`, the shared `{"error": …}` literals, the invalidation key lists |
 //! | [`write_queries`] | the `file_assets` INSERT/UPDATE/lookup the write sets share |
 //! | [`write_a_queries`] | set A's own `file_assets`/`workspaces`/`projects` statements |
 //! | [`write_b_queries`] | the v1 writes' two `get()` lookups and the `is_deleted` column UPDATE |
+//! | [`write_c_queries`] | set C's `file_assets`/`users`/`projects` statements |
 //!
 //! The six routes that answer `302` sign for the **request's** host
 //! (`request.scheme://request.get_host()`, `plane/settings/storage.py:42-54`),
@@ -57,15 +59,18 @@ use plane_drf::registry::{Registry, RegistryError};
 
 pub mod attachment;
 pub mod base;
+pub mod duplicate;
 pub mod entities;
 pub mod legacy;
 pub mod project_write;
 pub mod queries;
 pub mod support;
+pub mod user_write;
 pub mod v2;
 pub mod workspace_write;
 pub mod write_a_queries;
 pub mod write_b_queries;
+pub mod write_c_queries;
 pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
@@ -95,5 +100,12 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.asset.v2.ProjectBulkAssetEndpoint")?
         .method(Method::POST, project_write::bulk)?;
-    legacy::register(registry)
+    legacy::register(registry)?;
+
+    // Set C: the user-asset writes (20/21), their restore (22) and the
+    // duplicate (28). `user_write` owns both `UserAssetsV2Endpoint` shapes and
+    // `AssetRestoreEndpoint`; `duplicate` owns `DuplicateAssetEndpoint`.
+    user_write::register(registry)?;
+    duplicate::register(registry)?;
+    Ok(())
 }
