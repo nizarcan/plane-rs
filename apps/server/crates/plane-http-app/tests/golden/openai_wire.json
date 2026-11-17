@@ -1,0 +1,696 @@
+{
+  "generated_by": "apps/server/tools/ai/openai_wire.py",
+  "sdk": {
+    "openai": "1.63.2",
+    "python": "3.12.13",
+    "platform_system": "Darwin",
+    "platform_machine": "arm64"
+  },
+  "api_key": "wire-golden-key",
+  "why": "The SDK's request bytes are part of the ported contract: the URL join, the header set and the JSON body. Recorded against a local listener; api.openai.com is never contacted.",
+  "cases": [
+    {
+      "name": "openai-default-model",
+      "env": {},
+      "base_url": "http://127.0.0.1:{port}",
+      "model": "gpt-4o-mini",
+      "task": "Summarise the issue",
+      "prompt": "The issue is about labels.",
+      "request": {
+        "method": "POST",
+        "target": "/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58520"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "112"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"Summarise the issue\\nThe issue is about labels.\"}],\"model\":\"gpt-4o-mini\"}",
+        "body_bytes": 112
+      }
+    },
+    {
+      "name": "openai-v1-suffix",
+      "env": {},
+      "base_url": "http://127.0.0.1:{port}/v1",
+      "model": "gpt-4o",
+      "task": "t",
+      "prompt": "",
+      "request": {
+        "method": "POST",
+        "target": "/v1/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58522"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "63"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"t\\n\"}],\"model\":\"gpt-4o\"}",
+        "body_bytes": 63
+      }
+    },
+    {
+      "name": "openai-path-prefix-trailing-slash",
+      "env": {},
+      "base_url": "http://127.0.0.1:{port}/proxy/openai/",
+      "model": "gpt-3.5-turbo",
+      "task": "t",
+      "prompt": "p",
+      "request": {
+        "method": "POST",
+        "target": "/proxy/openai/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58524"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "71"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"t\\np\"}],\"model\":\"gpt-3.5-turbo\"}",
+        "body_bytes": 71
+      }
+    },
+    {
+      "name": "openai-organization-and-project",
+      "env": {
+        "OPENAI_ORG_ID": "org-wire",
+        "OPENAI_PROJECT_ID": "proj-wire"
+      },
+      "base_url": "http://127.0.0.1:{port}",
+      "model": "o1-mini",
+      "task": "t",
+      "prompt": "p",
+      "request": {
+        "method": "POST",
+        "target": "/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58526"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "OpenAI-Organization",
+            "org-wire"
+          ],
+          [
+            "OpenAI-Project",
+            "proj-wire"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "65"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"t\\np\"}],\"model\":\"o1-mini\"}",
+        "body_bytes": 65
+      }
+    },
+    {
+      "name": "openai-empty-prompt-newline",
+      "env": {},
+      "base_url": "http://127.0.0.1:{port}",
+      "model": "o1-preview",
+      "task": "line one\nline two",
+      "prompt": "",
+      "request": {
+        "method": "POST",
+        "target": "/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58528"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "84"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"line one\\nline two\\n\"}],\"model\":\"o1-preview\"}",
+        "body_bytes": 84
+      }
+    },
+    {
+      "name": "openai-non-ascii",
+      "env": {},
+      "base_url": "http://127.0.0.1:{port}",
+      "model": "gpt-4o-mini",
+      "task": "Résume le ticket → 世界",
+      "prompt": "emoji 🚀 and a tab\tand a \"quote\" and a \\backslash",
+      "request": {
+        "method": "POST",
+        "target": "/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58530"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "150"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"Résume le ticket → 世界\\nemoji 🚀 and a tab\\tand a \\\"quote\\\" and a \\\\backslash\"}],\"model\":\"gpt-4o-mini\"}",
+        "body_bytes": 150
+      }
+    },
+    {
+      "name": "anthropic-default-model",
+      "env": {},
+      "base_url": "http://127.0.0.1:{port}",
+      "model": "claude-3-sonnet-20240229",
+      "task": "t",
+      "prompt": "p",
+      "request": {
+        "method": "POST",
+        "target": "/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58532"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "82"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"t\\np\"}],\"model\":\"claude-3-sonnet-20240229\"}",
+        "body_bytes": 82
+      }
+    },
+    {
+      "name": "gemini-prefixed-model",
+      "env": {},
+      "base_url": "http://127.0.0.1:{port}",
+      "model": "gemini/gemini-pro",
+      "task": "t",
+      "prompt": "p",
+      "request": {
+        "method": "POST",
+        "target": "/chat/completions",
+        "headers": [
+          [
+            "Host",
+            "127.0.0.1:58534"
+          ],
+          [
+            "Accept-Encoding",
+            "gzip, deflate"
+          ],
+          [
+            "Connection",
+            "keep-alive"
+          ],
+          [
+            "Accept",
+            "application/json"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "User-Agent",
+            "OpenAI/Python 1.63.2"
+          ],
+          [
+            "X-Stainless-Lang",
+            "python"
+          ],
+          [
+            "X-Stainless-Package-Version",
+            "1.63.2"
+          ],
+          [
+            "X-Stainless-OS",
+            "MacOS"
+          ],
+          [
+            "X-Stainless-Arch",
+            "arm64"
+          ],
+          [
+            "X-Stainless-Runtime",
+            "CPython"
+          ],
+          [
+            "X-Stainless-Runtime-Version",
+            "3.12.13"
+          ],
+          [
+            "Authorization",
+            "Bearer wire-golden-key"
+          ],
+          [
+            "X-Stainless-Async",
+            "false"
+          ],
+          [
+            "x-stainless-retry-count",
+            "0"
+          ],
+          [
+            "x-stainless-read-timeout",
+            "600"
+          ],
+          [
+            "Content-Length",
+            "75"
+          ]
+        ],
+        "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"t\\np\"}],\"model\":\"gemini/gemini-pro\"}",
+        "body_bytes": 75
+      }
+    }
+  ]
+}

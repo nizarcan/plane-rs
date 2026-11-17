@@ -1,0 +1,282 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The AI assistant with an **LLM key configured** (fixture:
+# `ai-assistant-task-fixture.sql`). This covers the branch after
+# `get_llm_config()` — and every step still stops before the HTTP call, which is
+# what makes it usable in a harness that must never reach a real provider:
+#
+#   * `task` falsy  → 400 {"error": "Task is required"}
+#     (`plane/app/views/external/base.py:159-161`, `:195-197`). Python
+#     truthiness decides: `""`, `null`, `false`, `0`, `0.0`, `[]` and `{}` are
+#     all the 400, not a validation error;
+#   * a non-object body (`[]`, `"x"`, `null`) or malformed JSON → the body is
+#     parsed now, and `request.data.get` on a non-dict is an uncaught
+#     `AttributeError` → the family 500
+#     `{"error": "Something went wrong please try again later"}`
+#     (`plane/app/views/base.py:235-239`), while malformed JSON is DRF's
+#     `{"detail": "JSON parse error - …"}` 400;
+#   * a truthy non-string `task`, or a `prompt` that is absent or not a string →
+#     `task + "\n" + prompt` raises `TypeError` **outside** `get_llm_response`'s
+#     `try` (`external/base.py:125`) → the same family 500. `{"task": "x"}`
+#     without a `prompt` is the interesting one: `request.data.get("prompt",
+#     False)` is `False`, not `""`, so the concatenation fails.
+#
+# A step with a truthy `task` *and* a `prompt` string would call
+# `api.openai.com`; there is none.
+
+name: write-ai-assistant-task
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/ai-assistant-task-fixture.sql"
+  ws: "fix-workspace"
+  project: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # The permission still answers first on both routes.
+  - name: ait-51-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 403
+
+  # --- 51: Task is required ------------------------------------------------
+  - name: ait-51-empty-object
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 400
+
+  - name: ait-51-no-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { prompt: "the issue" }
+    expect_status: 400
+
+  - name: ait-51-empty-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "", prompt: "the issue" }
+    expect_status: 400
+
+  - name: ait-51-null-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: null, prompt: "the issue" }
+    expect_status: 400
+
+  - name: ait-51-false-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: false, prompt: "the issue" }
+    expect_status: 400
+
+  - name: ait-51-zero-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: 0, prompt: "the issue" }
+    expect_status: 400
+
+  - name: ait-51-zero-float-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '{"task": 0.0, "prompt": "the issue"}'
+    expect_status: 400
+
+  - name: ait-51-empty-list-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: [], prompt: "the issue" }
+    expect_status: 400
+
+  - name: ait-51-empty-object-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: {}, prompt: "the issue" }
+    expect_status: 400
+
+  # --- 51: the 500s that never reach the network ---------------------------
+  - name: ait-51-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: []
+    expect_status: 500
+
+  - name: ait-51-null-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: "null"
+    expect_status: 500
+
+  - name: ait-51-string-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '"summarise"'
+    expect_status: 500
+
+  - name: ait-51-malformed-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '{"task": '
+    expect_status: 400
+
+  - name: ait-51-int-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: 5, prompt: "the issue" }
+    expect_status: 500
+
+  - name: ait-51-missing-prompt
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise" }
+    expect_status: 500
+
+  - name: ait-51-null-prompt
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: null }
+    expect_status: 500
+
+  - name: ait-51-list-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: ["summarise"], prompt: "the issue" }
+    expect_status: 500
+
+  - name: ait-51-int-prompt
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: 5 }
+    expect_status: 500
+
+  # --- 52: the same table -------------------------------------------------
+  - name: ait-52-empty-object
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 400
+
+  - name: ait-52-no-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { prompt: "the issue" }
+    expect_status: 400
+
+  - name: ait-52-empty-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "" }
+    expect_status: 400
+
+  - name: ait-52-null-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: null }
+    expect_status: 400
+
+  - name: ait-52-empty-list-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: [] }
+    expect_status: 400
+
+  - name: ait-52-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: []
+    expect_status: 500
+
+  - name: ait-52-malformed-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '{"task": '
+    expect_status: 400
+
+  - name: ait-52-int-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: 5 }
+    expect_status: 500
+
+  - name: ait-52-missing-prompt
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise" }
+    expect_status: 500

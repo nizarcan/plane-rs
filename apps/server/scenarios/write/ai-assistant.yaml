@@ -1,0 +1,258 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The AI assistant with **no LLM configured** — the deterministic surface of
+# both routes (`plans/REMAINING_APP.md` §1a, set A):
+#
+#   POST /api/workspaces/{slug}/projects/{project_id}/ai-assistant/   (51)
+#   POST /api/workspaces/{slug}/ai-assistant/                         (52)
+#
+# `GPTIntegrationEndpoint.post` and `WorkspaceGPTIntegrationEndpoint.post`
+# (`plane/app/views/external/base.py:148-212`) call `get_llm_config()` as their
+# first statement, and only then read `request.data`. `configure_instance` seeds
+# `LLM_API_KEY` with `encrypt_data("")` — the empty string
+# (`plane/utils/instance_config_variables/core.py:216-242`) — so `api_key` is
+# falsy and every request answers
+#
+#   400 {"error": "LLM provider API key and model are required"}
+#
+# **before the body is parsed**. That is why an empty body, a JSON list and
+# malformed JSON all answer the same 400 here: Django never touches the body.
+# `ai-assistant-task.yaml` flips the key with a fixture and covers the branch
+# after this one.
+#
+# Covered:
+#
+#   * permissions. `@allow_permission([ADMIN, MEMBER])` runs in the runtime from
+#     `routes.json`, after `IsAuthenticated`:
+#       - a project GUEST (51) / workspace GUEST (52) → 403;
+#       - a non-member → 403 (the membership join finds nothing);
+#       - a foreign `Origin` → the CSRF 403 of `BaseSessionAuthentication`;
+#       - no session → 401;
+#       - an unknown slug → 403, not 404 (the same membership join);
+#       - a **soft-deleted** workspace still passes: `workspace__slug=` joins
+#         `workspaces` without the soft-delete predicate, so a member of
+#         `fix-deleted` reaches the handler and gets the config 400.
+#   * the body shapes: none, `[]`, malformed JSON, `{"prompt": …}` and
+#     `{"task": …}`. None of them changes the answer.
+#
+# No success-path step: past `Task is required` the view calls OpenAI, which
+# this harness must never do.
+
+name: write-ai-assistant
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws_deleted: "fix-deleted"
+  project: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_deleted: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- 51: permissions ----------------------------------------------------
+  - name: ai51-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 403
+
+  - name: ai51-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 403
+
+  - name: ai51-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: ai51-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: anonymous
+    headers: { Host: plane-fixture.test }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 401
+
+  # The membership join has no workspace row to match: still the permission
+  # body, never a 404.
+  - name: ai51-unknown-slug
+    method: POST
+    path: "/api/workspaces/no-such-workspace/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise" }
+    expect_status: 403
+
+  # A soft-deleted *project* never reaches a lookup: the config check answers
+  # first, so this is the same 400 as everything else in this file.
+  - name: ai51-deleted-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_deleted}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise" }
+    expect_status: 400
+
+  # The project-level half of `allow_permission` needs a `ProjectMember` whose
+  # own `workspace` column matches the slug, so a project of another workspace
+  # is the 403 even when the caller is a member of the URL workspace — and the
+  # unfiltered `workspaces` join cannot make it pass.
+  - name: ai51-foreign-project
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/projects/{{project_deleted}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise" }
+    expect_status: 403
+
+  # --- 51: the no-configuration 400, for every body shape -----------------
+  - name: ai51-member-empty-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    expect_status: 400
+
+  - name: ai51-admin-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: []
+    expect_status: 400
+
+  - name: ai51-admin-malformed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '{"task": '
+    expect_status: 400
+
+  - name: ai51-admin-no-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { prompt: "the issue" }
+    expect_status: 400
+
+  - name: ai51-admin-with-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 400
+
+  # --- 52: permissions ----------------------------------------------------
+  - name: ai52-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 403
+
+  - name: ai52-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: nonmember
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_nonmember}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 403
+
+  - name: ai52-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: ai52-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: anonymous
+    headers: { Host: plane-fixture.test }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 401
+
+  - name: ai52-unknown-slug
+    method: POST
+    path: "/api/workspaces/no-such-workspace/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise" }
+    expect_status: 403
+
+  - name: ai52-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise" }
+    expect_status: 400
+
+  # --- 52: the no-configuration 400, for every body shape -----------------
+  - name: ai52-member-empty-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: member
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_member}}" }
+    expect_status: 400
+
+  - name: ai52-admin-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: []
+    expect_status: 400
+
+  - name: ai52-admin-malformed
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '{"task": '
+    expect_status: 400
+
+  - name: ai52-admin-no-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { prompt: "the issue" }
+    expect_status: 400
+
+  - name: ai52-admin-with-task
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 400

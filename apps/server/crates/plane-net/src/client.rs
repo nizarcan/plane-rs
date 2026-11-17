@@ -51,7 +51,7 @@ use std::sync::Arc;
 
 use base64::Engine;
 use reqwest::Method;
-use reqwest::header::HeaderValue;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect;
 use reqwest::{Client, ClientBuilder, Url};
 
@@ -463,8 +463,17 @@ async fn send(
     for (name, value) in default_headers(preset) {
         builder = builder.header(name, header_value(&value)?);
     }
+    // `OutboundRequest::headers` override the preset's headers on a name
+    // collision, as a per-request `headers=` argument does in `requests`
+    // (`requests/sessions.py:merge_setting`). `RequestBuilder::header`
+    // *appends*, which would put both values on the wire, so each override goes
+    // through `headers()`, whose merge replaces the stored value
+    // (`reqwest::util::replace_headers`).
     for (name, value) in &request.headers {
-        builder = builder.header(name, header_value(value)?);
+        let name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
+            FetchError::Header(format!("invalid header name {name:?}: {error}"))
+        })?;
+        builder = builder.headers(HeaderMap::from_iter([(name, header_value(value)?)]));
     }
     if let Ok(target) = pyurl::split_target(requested_url) {
         builder = builder.header("Host", header_value(&target.host_header())?);
@@ -653,5 +662,67 @@ mod tests {
             .build()
             .expect("runtime");
         assert!(runtime.block_on(resolving).is_err());
+    }
+
+    /// `OutboundRequest::headers` replace a preset header of the same name
+    /// instead of appending a second value, which is what `requests` does with
+    /// a per-request `headers=` argument. `RequestBuilder::header` appends, so
+    /// `send` merges through `headers()`; this pins that.
+    #[test]
+    fn per_request_headers_override_the_presets() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind");
+            let port = listener.local_addr().expect("addr").port();
+            let stub = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.expect("accept");
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 1024];
+                loop {
+                    let read = socket.read(&mut chunk).await.expect("read");
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await
+                    .expect("write");
+                String::from_utf8_lossy(&request).into_owned()
+            });
+
+            let url = format!("http://127.0.0.1:{port}/x");
+            let request = OutboundRequest::new()
+                .header("User-Agent", "override/1.0")
+                .header("Content-Type", "text/plain");
+            HttpEngine::system()
+                .fetch_once(
+                    &crate::preset::UNSPLASH,
+                    Method::GET,
+                    &SsrfPolicy::strict(),
+                    &url,
+                    &request,
+                )
+                .await
+                .expect("fetch");
+
+            let head = stub.await.expect("stub");
+            let lower = head.to_lowercase();
+            assert_eq!(lower.matches("\r\nuser-agent:").count(), 1, "{head}");
+            assert!(lower.contains("\r\nuser-agent: override/1.0\r\n"), "{head}");
+            assert_eq!(lower.matches("\r\ncontent-type:").count(), 1, "{head}");
+            assert!(lower.contains("\r\ncontent-type: text/plain\r\n"), "{head}");
+        });
     }
 }
