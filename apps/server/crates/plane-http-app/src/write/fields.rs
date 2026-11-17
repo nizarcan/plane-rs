@@ -15,11 +15,13 @@
 //! rules from `Field.validate_empty_values` (`fields.py:494-530`). A domain that
 //! needs another class adds it here with its messages.
 
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use chrono_tz::Tz;
 use plane_db::JsonText;
 use plane_serde::pyjson::Value as Json;
 use uuid::Uuid;
+
+use super::pyiso;
 
 /// One DRF error: the rendered text and the `code` behind it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,7 +335,8 @@ pub enum DateInput<'a> {
 }
 
 /// `DateField.to_internal_value` (`rest_framework/fields.py:1200-1240`): ISO
-/// 8601 (`YYYY-MM-DD`) or a declared strptime format;
+/// 8601 through Django's `parse_date` (`date.fromisoformat`, then the
+/// `date_re` fallback) or a declared strptime format;
 /// `Date has wrong format. Use one of these formats instead: …`.
 pub fn date(input: DateInput<'_>, formats: &[&str]) -> Result<chrono::NaiveDate, Detail> {
     let raw = match input {
@@ -352,10 +355,10 @@ pub fn date(input: DateInput<'_>, formats: &[&str]) -> Result<chrono::NaiveDate,
     };
     for format in formats {
         if format.eq_ignore_ascii_case("iso-8601") {
-            if let Some(value) = parse_loose_date(text.trim()) {
+            if let Some(value) = pyiso::parse_date(text) {
                 return Ok(value);
             }
-        } else if let Ok(value) = chrono::NaiveDate::parse_from_str(text.trim(), format) {
+        } else if let Ok(value) = chrono::NaiveDate::parse_from_str(text, format) {
             return Ok(value);
         }
     }
@@ -602,14 +605,17 @@ fn parse_float(text: &str) -> Result<f64, Detail> {
 
 /// `DateTimeField.to_internal_value` with DRF's default `DATETIME_INPUT_FORMATS`
 /// (`['iso-8601']`, `rest_framework/settings.py:108`) through Django's
-/// `parse_datetime` (`django/utils/dateparse.py:104-124`).
+/// `parse_datetime` (`django/utils/dateparse.py:104-124`), then
+/// `DateTimeField.enforce_timezone` (`fields.py:1168-1189`).
 ///
-/// A naive value is made aware in the *active* timezone
-/// (`DateTimeField.enforce_timezone`, `fields.py:1168-1189`); an offset or `Z`
-/// is converted to UTC. The accepted shapes are Django's `datetime_re`:
-/// `YYYY-MM-DD` (CPython 3.11+ `fromisoformat` accepts a bare date),
-/// `YYYY-MM-DD[T ]H:MM[:SS[.ffffff]][Z|±HH[:MM]|±HHMM]`, with 1–2 digit
-/// components.
+/// A naive value is made aware in the *active* timezone; an offset or `Z` is
+/// converted to UTC. The accepted shapes are CPython 3.12's
+/// `datetime.fromisoformat` (extended and basic dates, ISO week dates, `HHMMSS`
+/// times, any single separator character, fractional seconds of any length,
+/// `Z` and `±HH[:MM[:SS[.ffffff]]]`) plus Django's `datetime_re` fallback
+/// (1–2 digit fields, Unicode digits, `\s*` before the zone, one trailing
+/// newline). [`crate::write::pyiso`] is the port; the corpus test below pins
+/// every branch.
 pub fn datetime(raw: Raw<'_>, timezone: Tz) -> Result<DateTime<Utc>, Detail> {
     let invalid = || {
         Detail::new(
@@ -623,136 +629,50 @@ pub fn datetime(raw: Raw<'_>, timezone: Tz) -> Result<DateTime<Utc>, Detail> {
         Raw::Json(Json::Str(value)) => value.as_str().ok_or_else(invalid)?,
         // `isinstance(value, datetime.date)` cannot happen from JSON; a
         // non-string JSON value fails `datetime.fromisoformat` with TypeError,
-        // which DRF suppresses and then fails `invalid`.
+        // which DRF suppresses, and `strptime` with TypeError again, so the
+        // field reports its own format error.
         Raw::Json(_) => return Err(invalid()),
     };
-    parse_datetime(text, timezone).ok_or_else(invalid)
-}
-
-/// Django `parse_datetime`, restricted to the ISO shapes DRF accepts.
-fn parse_datetime(text: &str, timezone: Tz) -> Option<DateTime<Utc>> {
-    // Bare date (CPython 3.11+ `datetime.fromisoformat`).
-    if text.len() == 10
-        && let Ok(date) = NaiveDate::parse_from_str(text, "%Y-%m-%d")
-    {
-        return localize(date.and_hms_opt(0, 0, 0)?, timezone);
-    }
-    let (date_part, rest) = text.split_once(['T', ' '])?;
-    let date = parse_loose_date(date_part)?;
-    let (time_part, offset_part) = split_offset(rest)?;
-    let time = parse_loose_time(time_part)?;
-    let naive = NaiveDateTime::new(date, time);
-    match offset_part {
-        None => localize(naive, timezone),
-        Some(offset) => {
-            let offset = parse_offset(offset)?;
-            let fixed = chrono::FixedOffset::east_opt(offset)?;
-            fixed
-                .from_local_datetime(&naive)
-                .single()
-                .map(|value| value.with_timezone(&Utc))
-        }
-    }
-}
-
-fn parse_loose_date(text: &str) -> Option<NaiveDate> {
-    let mut parts = text.split('-');
-    let year: i32 = parts.next()?.parse().ok()?;
-    let month: u32 = parts.next()?.parse().ok()?;
-    let day: u32 = parts.next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    NaiveDate::from_ymd_opt(year, month, day)
-}
-
-fn parse_loose_time(text: &str) -> Option<chrono::NaiveTime> {
-    let (clock, fraction) = match text.split_once(['.', ',']) {
-        Some((clock, fraction)) => (clock, Some(fraction)),
-        None => (text, None),
-    };
-    let mut parts = clock.split(':');
-    let hour: u32 = parts.next()?.parse().ok()?;
-    let minute: u32 = parts.next()?.parse().ok()?;
-    let second: u32 = match parts.next() {
-        Some(second) => second.parse().ok()?,
-        None => 0,
-    };
-    if parts.next().is_some() {
-        return None;
-    }
-    let microsecond = match fraction {
-        Some(fraction) => {
-            if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
-                return None;
+    let parsed = match pyiso::parse_datetime(text) {
+        Some(value) => value,
+        None => {
+            // `DateTimeField.to_internal_value` (`fields.py:1194-1212`) falls
+            // through to `datetime.strptime(value, input_format)` even after
+            // `parse_datetime` returned `None`. `_strptime` compiles the
+            // format string case-insensitively, so the literal `iso-8601`
+            // parses to 1900-01-01T00:00:00.
+            if !text.eq_ignore_ascii_case("iso-8601") {
+                return Err(invalid());
             }
-            // Django keeps the first six digits.
-            let padded: String = fraction
-                .chars()
-                .chain(std::iter::repeat('0'))
-                .take(6)
-                .collect();
-            padded.parse().ok()?
+            let Some(value) =
+                NaiveDate::from_ymd_opt(1900, 1, 1).and_then(|date| date.and_hms_opt(0, 0, 0))
+            else {
+                return Err(invalid());
+            };
+            pyiso::PyDateTime {
+                naive: value,
+                offset_us: None,
+            }
         }
-        None => 0,
     };
-    chrono::NaiveTime::from_hms_micro_opt(hour, minute, second, microsecond)
-}
-
-/// Split `HH:MM[:SS]` from a trailing `Z`/`±HH[:MM]` offset.
-fn split_offset(text: &str) -> Option<(&str, Option<&str>)> {
-    if let Some(stripped) = text.strip_suffix(['Z', 'z']) {
-        return Some((stripped.trim_end(), Some("Z")));
-    }
-    // An offset starts at the last `+`/`-` that follows the clock.
-    let bytes = text.as_bytes();
-    for index in (1..bytes.len()).rev() {
-        if bytes[index] == b'+' || bytes[index] == b'-' {
-            let (clock, offset) = text.split_at(index);
-            return Some((clock.trim_end(), Some(offset)));
-        }
-        if bytes[index] == b':' {
-            continue;
-        }
-        if !bytes[index].is_ascii_digit() {
-            return None;
-        }
-    }
-    Some((text.trim_end(), None))
-}
-
-fn parse_offset(text: &str) -> Option<i32> {
-    if text == "Z" {
-        return Some(0);
-    }
-    let (sign, digits) = match text.as_bytes()[0] {
-        b'-' => (-1, &text[1..]),
-        b'+' => (1, &text[1..]),
-        _ => return None,
+    let utc = match parsed.offset_us {
+        // `enforce_timezone`: an aware value is `value.astimezone(tz)`, and an
+        // `OverflowError` from that is DRF's `overflow` error. The instant may
+        // be inside Python's range while its wall time in the active zone is
+        // not (`9999-12-31T23:59:59+05:00` in `Asia/Kolkata`), so the zone's
+        // own wall time is checked too.
+        Some(offset) => parsed
+            .naive
+            .checked_sub_signed(chrono::TimeDelta::microseconds(offset))
+            .filter(|utc| (1..=9999).contains(&pyiso::local_wall_time(*utc, timezone).year())),
+        None => pyiso::localize(parsed.naive, timezone),
     };
-    let (hours, minutes) = match digits.split_once(':') {
-        Some((hours, minutes)) => (hours, minutes),
-        None => match digits.len() {
-            2 => (digits, "0"),
-            4 => digits.split_at(2),
-            _ => return None,
-        },
-    };
-    let hours: i32 = hours.parse().ok()?;
-    let minutes: i32 = minutes.parse().ok()?;
-    if minutes >= 60 || hours > 23 {
-        return None;
+    match utc {
+        Some(value) if (1..=9999).contains(&value.year()) => Ok(value.and_utc()),
+        // `Datetime value out of range.` Also covers the year-1 wall time east
+        // of UTC that Django raises an uncaught OverflowError for (a 500).
+        _ => Err(Detail::new("Datetime value out of range.", "overflow")),
     }
-    Some(sign * (hours * 3600 + minutes * 60))
-}
-
-/// `timezone.make_aware(value, timezone)`: `None` when the wall-clock time does
-/// not exist in `timezone` (Django raises `NonExistentTimeError`, a 500).
-fn localize(naive: NaiveDateTime, timezone: Tz) -> Option<DateTime<Utc>> {
-    timezone
-        .from_local_datetime(&naive)
-        .earliest()
-        .map(|value| value.with_timezone(&Utc))
 }
 
 /// `JSONField.to_internal_value` (`rest_framework/fields.py:1848-1858`): any
@@ -1139,5 +1059,264 @@ mod tests {
             "[1, 2]"
         );
         assert!(super::json(Raw::Text("")).is_err());
+    }
+
+    /// Recorded from the real chain — `DateTimeField().to_internal_value` and
+    /// `DateField().to_internal_value` under an active timezone of `UTC` and
+    /// `Asia/Kolkata` (plus `America/New_York` for the four DST cases) — by
+    /// `apps/server/tools/inventory/datetime_corpus.py`. Regenerate from the
+    /// repository root with:
+    ///
+    /// ```sh
+    /// apps/api/.venv/bin/python apps/server/tools/inventory/datetime_corpus.py
+    /// ```
+    const DATETIME_CORPUS: &str = include_str!("../../tests/golden/datetime-parsing.json");
+
+    /// The `isoformat()` DRF's `DateTimeField` hands to `JSONRenderer`.
+    fn rendered_utc(value: DateTime<Utc>) -> String {
+        if value.timestamp_subsec_micros() == 0 {
+            value.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+        } else {
+            value.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()
+        }
+    }
+
+    /// Python's `datetime.isoformat()` of a parsed wall time: the fraction only
+    /// when it is non-zero, the offset as `±HH:MM[:SS[.ffffff]]`.
+    fn rendered_python(value: crate::write::pyiso::PyDateTime) -> String {
+        let mut text = if value.naive.and_utc().timestamp_subsec_micros() == 0 {
+            value.naive.format("%Y-%m-%dT%H:%M:%S").to_string()
+        } else {
+            value.naive.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
+        };
+        if let Some(offset) = value.offset_us {
+            let sign = if offset < 0 { '-' } else { '+' };
+            let magnitude = offset.abs();
+            let hours = magnitude / 3_600_000_000;
+            let minutes = (magnitude / 60_000_000) % 60;
+            let seconds = (magnitude / 1_000_000) % 60;
+            let micros = magnitude % 1_000_000;
+            text.push_str(&format!("{sign}{hours:02}:{minutes:02}"));
+            if seconds != 0 || micros != 0 {
+                text.push_str(&format!(":{seconds:02}"));
+            }
+            if micros != 0 {
+                text.push_str(&format!(".{micros:06}"));
+            }
+        }
+        text
+    }
+
+    fn check_parse(expected: &serde_json::Value, actual: Option<String>, context: &str) {
+        match (expected["ok"].as_bool(), actual) {
+            (Some(true), Some(value)) => assert_eq!(
+                value,
+                expected["value"].as_str().expect("value"),
+                "{context}"
+            ),
+            (Some(true), None) => {
+                panic!("{context}: expected {:?}, got nothing", expected["value"])
+            }
+            (Some(false), None) => {}
+            (Some(false), Some(value)) => {
+                panic!("{context}: expected no value, got {value}")
+            }
+            (None, _) => panic!("{context}: malformed expectation"),
+        }
+    }
+
+    fn check_datetime(
+        raw: Raw<'_>,
+        zone: chrono_tz::Tz,
+        expected: &serde_json::Value,
+        context: &str,
+    ) {
+        let actual = datetime(raw, zone);
+        match (expected["ok"].as_bool(), actual) {
+            (Some(true), Ok(value)) => assert_eq!(
+                rendered_utc(value),
+                expected["value"].as_str().expect("value"),
+                "{context} ({zone})"
+            ),
+            (Some(true), Err(detail)) => {
+                panic!(
+                    "{context} ({zone}): expected {:?}, got {detail:?}",
+                    expected["value"]
+                )
+            }
+            (Some(false), Ok(value)) => panic!(
+                "{context} ({zone}): expected an error, got {}",
+                rendered_utc(value)
+            ),
+            (Some(false), Err(detail)) => {
+                if expected.get("server_error").is_some() {
+                    // Django raises an uncaught OverflowError (a 500) for a
+                    // year-1 wall time east of UTC; `fields::datetime` cannot
+                    // signal that, so any error is accepted here.
+                    return;
+                }
+                assert_eq!(
+                    detail.message,
+                    expected["message"].as_str().expect("message"),
+                    "{context} ({zone})"
+                );
+                assert_eq!(
+                    detail.code,
+                    expected["code"].as_str().expect("code"),
+                    "{context} ({zone})"
+                );
+            }
+            (None, _) => panic!("{context}: malformed expectation"),
+        }
+    }
+
+    fn check_date(raw: Raw<'_>, expected: &serde_json::Value, context: &str) {
+        let actual = date(DateInput::Raw(raw), &["iso-8601"]);
+        match (expected["ok"].as_bool(), actual) {
+            (Some(true), Ok(value)) => assert_eq!(
+                value.format("%Y-%m-%d").to_string(),
+                expected["value"].as_str().expect("value"),
+                "{context}"
+            ),
+            (Some(true), Err(detail)) => {
+                panic!(
+                    "{context}: expected {:?}, got {detail:?}",
+                    expected["value"]
+                )
+            }
+            (Some(false), Ok(value)) => {
+                panic!("{context}: expected an error, got {value}")
+            }
+            (Some(false), Err(detail)) => {
+                assert_eq!(
+                    detail.message,
+                    expected["message"].as_str().expect("message"),
+                    "{context}"
+                );
+                assert_eq!(
+                    detail.code,
+                    expected["code"].as_str().expect("code"),
+                    "{context}"
+                );
+            }
+            (None, _) => panic!("{context}: malformed expectation"),
+        }
+    }
+
+    #[test]
+    fn the_datetime_and_date_parsers_match_drf() {
+        let document: serde_json::Value =
+            serde_json::from_str(DATETIME_CORPUS).expect("corpus json");
+        let cases = document["cases"].as_array().expect("cases");
+        assert!(cases.len() >= 1000, "corpus shrank: {}", cases.len());
+        let mut checked = 0usize;
+        for case in cases {
+            let written = serde_json::to_string(&case["input"]).expect("input json");
+            let value = pyjson::loads(written.as_bytes(), "utf-8").expect("input");
+            let text = case["input"].as_str();
+            let zones = case["datetime"].as_object().expect("datetime");
+            for (name, expected) in zones {
+                let zone: chrono_tz::Tz = name.parse().expect("zone");
+                if let Some(text) = text {
+                    // A JSON string and a form/multipart value reach the field
+                    // as the same Python `str`; both Rust variants must agree.
+                    check_datetime(Raw::Text(text), zone, expected, &written);
+                    check_datetime(Raw::Json(&value), zone, expected, &written);
+                    checked += 2;
+                } else {
+                    check_datetime(Raw::Json(&value), zone, expected, &written);
+                    checked += 1;
+                }
+            }
+            if let Some(text) = text {
+                check_date(Raw::Text(text), &case["date"], &written);
+                check_date(Raw::Json(&value), &case["date"], &written);
+                // Django's `parse_datetime`/`parse_date` themselves: the wall
+                // time and offset they return, before DRF applies the active
+                // timezone.
+                check_parse(
+                    &case["parse"]["datetime"],
+                    crate::write::pyiso::parse_datetime(text).map(rendered_python),
+                    &written,
+                );
+                check_parse(
+                    &case["parse"]["date"],
+                    crate::write::pyiso::parse_date(text)
+                        .map(|value| value.format("%Y-%m-%d").to_string()),
+                    &written,
+                );
+            } else {
+                check_date(Raw::Json(&value), &case["date"], &written);
+            }
+        }
+        assert!(checked >= 2000, "only {checked} datetime checks ran");
+    }
+
+    #[test]
+    fn the_fromisoformat_quirks_are_ported() {
+        let utc = chrono_tz::UTC;
+        for (input, expected) in [
+            ("20261120", "2026-11-20 00:00:00 UTC"),
+            ("2026-W47-5", "2026-11-20 00:00:00 UTC"),
+            ("2026W475", "2026-11-20 00:00:00 UTC"),
+            // Any single character is a valid date/time separator.
+            ("2026-11-20X12:00:00", "2026-11-20 12:00:00 UTC"),
+            // A week date with a time hides the day in a different place.
+            ("2026-W47-15", "2026-11-16 15:00:00 UTC"),
+            // `HHMMSS` with no separators.
+            ("20261120T120000", "2026-11-20 12:00:00 UTC"),
+            // One ignored character before the zone designator.
+            ("2026-11-20T12:00 Z", "2026-11-20 12:00:00 UTC"),
+            // `tzinfo_from_isoformat_results` drops sub-second offsets when
+            // the whole-second part is zero.
+            ("2026-11-20T12:00:00+00:00:00.5", "2026-11-20 12:00:00 UTC"),
+            // Django's `datetime_re` fallback: 1-digit fields, Unicode digits.
+            ("2026-1-2 1:2", "2026-01-02 01:02:00 UTC"),
+            ("٢٠٢٦-١١-٢٠ ١٢:٠٠", "2026-11-20 12:00:00 UTC"),
+            // `strptime(value, "iso-8601")` matches its literal format
+            // case-insensitively.
+            ("iso-8601", "1900-01-01 00:00:00 UTC"),
+        ] {
+            let value = pyjson::loads(
+                serde_json::to_string(input).expect("json").as_bytes(),
+                "utf-8",
+            )
+            .expect("value");
+            assert_eq!(
+                datetime(Raw::Json(&value), utc).expect(input).to_string(),
+                expected,
+                "{input:?}"
+            );
+        }
+        // The previous implementation trimmed whitespace; `fromisoformat`
+        // does not, and Django's `date_re` has no leading `\s*`.
+        let value = pyjson::loads(b"\" 2026-11-2\"", "utf-8").expect("value");
+        assert!(datetime(Raw::Json(&value), utc).is_err());
+        assert!(date(DateInput::Raw(Raw::Json(&value)), &["iso-8601"]).is_err());
+    }
+
+    #[test]
+    fn an_ambiguous_or_imaginary_wall_time_uses_fold_zero() {
+        let new_york: chrono_tz::Tz = "America/New_York".parse().expect("zone");
+        for (input, expected) in [
+            // Imaginary: 02:30 does not exist on 2026-03-08; fold=0 keeps the
+            // pre-gap offset (-05:00).
+            ("2026-03-08 02:30", "2026-03-08 07:30:00 UTC"),
+            // Ambiguous: fold=0 is the first 01:30 (-04:00).
+            ("2026-11-01 01:30", "2026-11-01 05:30:00 UTC"),
+        ] {
+            let value = pyjson::loads(
+                serde_json::to_string(input).expect("json").as_bytes(),
+                "utf-8",
+            )
+            .expect("value");
+            assert_eq!(
+                datetime(Raw::Json(&value), new_york)
+                    .expect(input)
+                    .to_string(),
+                expected,
+                "{input:?}"
+            );
+        }
     }
 }

@@ -62,6 +62,7 @@ pub mod favorite_queries;
 pub mod fields;
 pub mod generated;
 pub mod html;
+pub(crate) mod pyiso;
 pub mod serializer;
 pub mod url;
 
