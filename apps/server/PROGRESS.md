@@ -1626,7 +1626,18 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
    - `plans/PUBLIC_INSTANCES.md`: P0, P0b (`lettre`/fake SMTP/OpenAPI goldens), then
      sets A–C. Health and web stay Django.
 
-   Running: v1 P0, public/instances P0. Then the final benchmark and the environment
+   - Public/instances P0 (merged `7deb402541`, **verification pending**; its agent
+     reported 1203 tests, read sweep 44 files / 2177 steps clean, schema_check
+     700+34): `public::board` (board resolution, the three 404 bodies, the
+     issue/comment scope predicates), `fernet::encrypt_data` (byte-compatible with
+     `cryptography`), `instances::serializer`, `bulk_update_values`, and a `fernet_token`
+     `placeholder_if_shape` rule scoped to `PATCH /api/instances/configurations/`.
+     Upstream: a published *page* board carries `project_id`, so three unfiltered
+     lookups expose that project's members/assets/issues.
+   - Disk is at 24–28 GB with v1 P0 and the browser-walk setup running. The orchestrator
+     verifies the public P0 merge once v1 P0's worktree is removed.
+
+   Running: v1 P0; browser-walk stack setup (D21). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
