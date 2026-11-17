@@ -1,0 +1,1655 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Workspace core set C — routes 207, 218, 219, 220, 221 and 225:
+#
+#   PATCH  /api/workspaces/{slug}/user-properties/       207 patch
+#   POST   /api/workspaces/{slug}/quick-links/           218 create
+#   PATCH  /api/workspaces/{slug}/quick-links/{pk}/      219 partial_update
+#   DELETE /api/workspaces/{slug}/quick-links/{pk}/      219 destroy
+#   PATCH  /api/workspaces/{slug}/home-preferences/      220 the signature 500
+#   PATCH  /api/workspaces/{slug}/home-preferences/{key}/ 221 patch
+#   PATCH  /api/workspaces/{slug}/sidebar-preferences/   225 patch
+#
+# Covers:
+#
+#   * 207's 400-that-writes: `get_or_create` commits **before** the serializer
+#     runs (`user.py:277-284`), so an invalid PATCH leaves a row behind. The
+#     response renders from the in-memory instance — a just-created row shows
+#     the model's Python default dicts (their key order), a stored row shows
+#     `json.loads(jsonb)` — and `created_by`/`deleted_at` are writable while
+#     `workspace`/`user` are not.
+#   * 218/219's `to_internal_value` rewrite: a scheme-less URL is prefixed with
+#     `http://` **before** validation, so `"HTTP://x"` becomes
+#     `"http://HTTP://x"` and fails Django's `URLValidator` with the nested
+#     `{"url": {"error": …}}`; a list body and a truthy non-string `url` are
+#     the family 500; a **form** body with a scheme-less URL is the 500
+#     `This QueryDict instance is immutable` (`request.data` is not mutable).
+#   * 218's duplicate check uses the **URL** workspace while
+#     `WorkspaceBaseModel.save` re-homes the row to the body project's
+#     workspace, so the same URL can be written twice into the other
+#     workspace (`serializers/workspace.py:210-224`, `workspace.py:192-195`).
+#   * the three different 219 misses: `.first()` PATCH is the view's
+#     `404 {"detail": "Quick link not found."}`, `.get()` DELETE is the family
+#     `404 {"error": …}`, and a link of another workspace/owner is both.
+#   * 220 is the signature 500 — the row maps `patch` without the `key` kwarg
+#     the method requires — while 221 binds it and works: the `-created_at`
+#     `.first()` lookup, the "Preference not found" 400 **before** the body is
+#     parsed, the three writable fields (`config` is not one of them) and the
+#     writable `key` that renames the row.
+#   * 225's raw-body loop: `[]`, `{}` and an empty form are 200; a non-empty
+#     object, a non-empty form and a non-dict element are 500; `is_pinned`
+#     goes through Django's strict model `BooleanField` (400) rather than DRF's
+#     lenient one, `null` is a NOT NULL violation (400) and a non-numeric
+#     `sort_order` is a `ValueError` (500). The write is
+#     `save(update_fields=["is_pinned", "sort_order"])`, so `updated_at` and
+#     `updated_by` are untouched.
+#   * permissions: 207 is `WorkspaceViewerPermission` (any active member, 403
+#     `{"detail": …}`), the rest are
+#     `@allow_permission([ADMIN, MEMBER, GUEST], WORKSPACE)` (403
+#     `{"error": "You don't have the required permissions."}`). A guest passes
+#     both; a non-member and a soft-deleted membership fail; a member of a
+#     **soft-deleted** workspace passes the decorator and then 404s (207, 218)
+#     or reaches the 500 (220) / 200 (225) / "not found" (221). A foreign
+#     `Origin` is the CSRF 403 and an anonymous caller the 401.
+#
+# Fixture: the shared `workspace-core-fixture.sql`. `member` gets the two home
+# keys `get` never creates (220/221), admin's sidebar and home preferences come
+# from `build.py`, and the second workspace's `theta` project drives the
+# re-home. No fixture rows are added.
+
+name: write-workspace-preferences
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/workspace-core-fixture.sql"
+  ws: "fix-workspace"
+  ws_second: "fix-second"
+  ws_deleted: "fix-deleted"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  missing_uuid: "77777777-7777-4777-8777-777777777777"
+  member_link: "21b870e4-4b20-4448-8db7-2af5a19808b7"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  title_256: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+steps:
+  # ---------------------------------------------------------------------------
+  # 207 PATCH /api/workspaces/{slug}/user-properties/
+  # ---------------------------------------------------------------------------
+  - name: wsp-01-props-patch-filters
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      filters:
+        priority: "urgent"
+        labels: ["4a1c4d3e-0000-4000-8000-000000000001"]
+    expect_status: 200
+
+  # An empty body still rewrites `updated_at`/`updated_by` (a full save).
+  - name: wsp-02-props-patch-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 200
+
+  # `workspace` and `user` are read-only; `created_by` is not.
+  - name: wsp-03-props-patch-read-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      workspace: "{{missing_uuid}}"
+      user: "{{missing_uuid}}"
+    expect_status: 200
+
+  - name: wsp-04-props-patch-created-by
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+    expect_status: 200
+
+  - name: wsp-05-props-patch-bad-choice
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { navigation_control_preference: "WAT" }
+    expect_status: 400
+
+  - name: wsp-06-props-patch-bad-int
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { navigation_project_limit: "abc" }
+    expect_status: 400
+
+  - name: wsp-07-props-patch-int-too-large
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { navigation_project_limit: 99999999999 }
+    expect_status: 400
+
+  - name: wsp-08-props-patch-filters-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { filters: null }
+    expect_status: 400
+
+  - name: wsp-09-props-patch-bad-datetime
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { deleted_at: "not-a-date" }
+    expect_status: 400
+
+  # The error keys follow `self.fields` order: `deleted_at`, `filters`,
+  # `created_by`.
+  - name: wsp-10-props-patch-multi-error
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      created_by: "not-a-uuid"
+      filters: null
+      deleted_at: "not-a-date"
+    expect_status: 400
+
+  - name: wsp-11-props-patch-body-list
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: '[{"filters": {}}]'
+    expect_status: 400
+
+  - name: wsp-12-props-patch-body-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "null"
+    expect_status: 400
+
+  # A guest may write their own row (`WorkspaceViewerPermission`).
+  - name: wsp-13-props-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      display_filters:
+        display_filters:
+          layout: "board"
+    expect_status: 200
+
+  # `member2` has no row yet: this 200 creates one and renders the model's
+  # Python defaults for every field the body did not carry.
+  - name: wsp-14-props-patch-creates-row
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    json:
+      filters: { priority: "low" }
+    expect_status: 200
+
+  # ... and this 400 leaves the row it created behind (`user.py:277-284`).
+  - name: wsp-15-props-patch-invalid-creates-row
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_berlin}}"
+    json: { navigation_project_limit: "x" }
+    expect_status: 400
+
+  # The class permission is `WorkspaceViewerPermission`: DRF's own 403 detail,
+  # not `allow_permission`'s body.
+  - name: wsp-16-props-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { filters: { priority: "low" } }
+    expect_status: 403
+
+  # A soft-deleted membership fails `is_active`.
+  - name: wsp-17-props-patch-soft-deleted-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: deleted_member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    json: { filters: { priority: "low" } }
+    expect_status: 403
+
+  # The membership of a soft-deleted workspace still resolves, so the
+  # permission passes and `Workspace.objects.get` is the family 404.
+  - name: wsp-18-props-patch-soft-deleted-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws_deleted}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { filters: { priority: "low" } }
+    expect_status: 404
+
+  - name: wsp-19-props-patch-missing-workspace
+    method: PATCH
+    path: "/api/workspaces/no-such-workspace/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { filters: { priority: "low" } }
+    expect_status: 403
+
+  - name: wsp-20-props-patch-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    headers:
+      Host: plane-fixture.test
+    json: { filters: { priority: "low" } }
+    expect_status: 401
+
+  - name: wsp-21-props-patch-foreign-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: { filters: { priority: "low" } }
+    expect_status: 403
+
+  # The stored `jsonb` order, not the request's.
+  - name: wsp-22-props-get-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # ---------------------------------------------------------------------------
+  # 218 POST /api/workspaces/{slug}/quick-links/
+  # ---------------------------------------------------------------------------
+  - name: wsp-23-link-create-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/alpha" }
+    capture:
+      - name: link_min
+        source: db
+        table: workspace_user_links
+        column: id
+    expect_status: 201
+
+  - name: wsp-24-link-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/full"
+      title: "Full"
+      metadata:
+        zeta: 1
+        alpha: 2
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      deleted_at: null
+      workspace: "{{missing_uuid}}"
+      owner: "{{missing_uuid}}"
+    expect_status: 201
+
+  - name: wsp-25-link-create-missing-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { title: "No URL" }
+    expect_status: 400
+
+  - name: wsp-26-link-create-blank-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "" }
+    expect_status: 400
+
+  # The in-place rewrite: the response carries the prefixed URL.
+  - name: wsp-27-link-create-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "probe.example/beta" }
+    capture:
+      - name: link_plain
+        source: db
+        table: workspace_user_links
+        column: id
+    expect_status: 201
+
+  # `validate_url` raises `ValidationError({"error": …})`: the field error is a
+  # nested object, not a list of messages.
+  - name: wsp-28-link-create-invalid-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://a b" }
+    expect_status: 400
+
+  # The prefix check is case-sensitive, so this becomes `http://HTTP://x` and
+  # the URL validator rejects it.
+  - name: wsp-29-link-create-uppercase-scheme
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "HTTP://probe.example/x" }
+    expect_status: 400
+
+  # `create`'s duplicate check, from inside `save()`: the flat `{"error": …}`.
+  - name: wsp-30-link-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/alpha" }
+    expect_status: 400
+
+  # A live row of the same owner with that URL (the rich fixture's "Design
+  # docs" link) is the same 400.
+  - name: wsp-31-link-create-duplicate-fixture
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://docs.example.test/design" }
+    expect_status: 400
+
+  # The same URL under a different owner is fine: the check includes `owner`.
+  - name: wsp-32-link-create-other-owner-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://docs.example.test/runbook" }
+    expect_status: 201
+
+  - name: wsp-33-link-create-project-same-workspace
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/alpha-project"
+      project: "{{project_alpha}}"
+    capture:
+      - name: link_alpha
+        source: db
+        table: workspace_user_links
+        column: id
+    expect_status: 201
+
+  # A project of the **other** workspace re-homes the row
+  # (`WorkspaceBaseModel.save`), while the duplicate check still filters on the
+  # URL workspace.
+  - name: wsp-34-link-create-project-other-workspace
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/theta"
+      project: "{{project_theta}}"
+    capture:
+      - name: link_theta
+        source: db
+        table: workspace_user_links
+        column: id
+    expect_status: 201
+
+  # The same URL and project again: the check looks in `fix-workspace`, the
+  # first row is in `fix-second`, and there is no unique index on `url`.
+  - name: wsp-35-link-create-duplicate-target-workspace
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/theta"
+      project: "{{project_theta}}"
+    expect_status: 201
+
+  # `PrimaryKeyRelatedField(queryset=Project.objects)`: a soft-deleted project
+  # is `does_not_exist`.
+  - name: wsp-36-link-create-soft-deleted-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/delta"
+      project: "{{project_delta}}"
+    expect_status: 400
+
+  - name: wsp-37-link-create-unknown-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/unknown-project"
+      project: "{{missing_uuid}}"
+    expect_status: 400
+
+  - name: wsp-38-link-create-metadata-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/meta-null", metadata: null }
+    expect_status: 400
+
+  # A `JSONField` accepts any JSON value, a string included.
+  - name: wsp-39-link-create-metadata-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/meta-string", metadata: "hello" }
+    expect_status: 201
+
+  - name: wsp-40-link-create-title-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/title-null", title: null }
+    expect_status: 201
+
+  # `CharField` coerces a number: the stored title is `"123"`.
+  - name: wsp-41-link-create-title-number
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/title-number", title: 123 }
+    expect_status: 201
+
+  - name: wsp-42-link-create-title-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/title-long"
+      title: "{{title_256}}"
+    expect_status: 400
+
+  # `to_internal_value` calls `data.get` before DRF's mapping check.
+  - name: wsp-43-link-create-body-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: '[{"url": "https://probe.example/list"}]'
+    expect_status: 500
+
+  # `null` never reaches `to_internal_value`: DRF's "No data provided".
+  - name: wsp-44-link-create-body-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "null"
+    expect_status: 400
+
+  - name: wsp-45-link-create-body-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: '"https://probe.example/string"'
+    expect_status: 500
+
+  # A truthy non-string `url` has no `.startswith`.
+  - name: wsp-46-link-create-url-number
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: 7 }
+    expect_status: 500
+
+  # `false` is falsy: no rewrite, and the field rejects the non-string.
+  - name: wsp-47-link-create-url-false
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: false }
+    expect_status: 400
+
+  # A form body with a scheme is not rewritten, so it validates and inserts.
+  - name: wsp-48-link-create-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "https://probe.example/form"
+      title: "Form Link"
+    capture:
+      - name: link_form
+        source: db
+        table: workspace_user_links
+        column: id
+    expect_status: 201
+
+  # ... a scheme-less form URL is the in-place write on `request.data`, which
+  # is an immutable `QueryDict`.
+  - name: wsp-49-link-create-form-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "probe.example/form2"
+    expect_status: 500
+
+  - name: wsp-50-link-create-form-blank-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: ""
+    expect_status: 400
+
+  # Any active member, guest included.
+  - name: wsp-51-link-create-as-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { url: "https://probe.example/guest" }
+    capture:
+      - name: link_guest
+        source: db
+        table: workspace_user_links
+        column: id
+    expect_status: 201
+
+  # `@allow_permission`'s own 403 body.
+  - name: wsp-52-link-create-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { url: "https://probe.example/nm" }
+    expect_status: 403
+
+  - name: wsp-53-link-create-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    headers:
+      Host: plane-fixture.test
+    json: { url: "https://probe.example/anon" }
+    expect_status: 401
+
+  - name: wsp-54-link-create-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: { url: "https://probe.example/origin" }
+    expect_status: 403
+
+  - name: wsp-55-link-create-soft-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/deleted-ws" }
+    expect_status: 404
+
+  - name: wsp-56-link-create-missing-workspace
+    method: POST
+    path: "/api/workspaces/no-such-workspace/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://probe.example/missing-ws" }
+    expect_status: 403
+
+  # `deleted_at` is writable: the row is inserted already soft-deleted, so the
+  # list below does not show it while the database diff does.
+  - name: wsp-57-link-create-deleted-at
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      url: "https://probe.example/born-deleted"
+      deleted_at: "2020-01-01T00:00:00Z"
+    expect_status: 201
+
+  - name: wsp-58-link-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wsp-59-link-list-guest
+    method: GET
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 200
+
+  # ---------------------------------------------------------------------------
+  # 219 PATCH /api/workspaces/{slug}/quick-links/{pk}/
+  # ---------------------------------------------------------------------------
+  - name: wsp-60-link-patch-title
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { title: "Renamed" }
+    expect_status: 200
+
+  - name: wsp-61-link-patch-url-scheme-less
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "probe.example/renamed" }
+    expect_status: 200
+
+  # `update`'s duplicate check, with the fixture's "Design docs" URL.
+  - name: wsp-62-link-patch-url-duplicate
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "https://docs.example.test/design" }
+    expect_status: 400
+
+  # The same URL as the row itself is excluded from the check.
+  - name: wsp-63-link-patch-url-own
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: "http://probe.example/renamed" }
+    expect_status: 200
+
+  # `workspace`/`owner` are read-only; `created_by` is written verbatim and
+  # `updated_by` is H01's.
+  - name: wsp-64-link-patch-created-by
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      workspace: "{{missing_uuid}}"
+      owner: "{{missing_uuid}}"
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+    expect_status: 200
+
+  # A body project of the other workspace moves the row (and the response's
+  # `workspace` follows the in-memory instance).
+  - name: wsp-65-link-patch-project-other-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { project: "{{project_theta}}" }
+    expect_status: 200
+
+  # The row no longer belongs to the URL workspace.
+  - name: wsp-66-link-patch-after-rehome
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { title: "Again" }
+    expect_status: 404
+
+  - name: wsp-67-link-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { title: "Missing" }
+    expect_status: 404
+
+  # `.filter(..., owner=request.user)`: another owner's row is invisible.
+  - name: wsp-68-link-patch-other-owner
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{member_link}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { title: "Stolen" }
+    expect_status: 404
+
+  - name: wsp-69-link-patch-invalid-url
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{member_link}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { url: "https://a b" }
+    expect_status: 400
+
+  # `deleted_at` is writable on an update too: a soft delete **without** the
+  # cascade publish, because the save is a plain `save()`.
+  - name: wsp-70-link-patch-deleted-at
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{member_link}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { deleted_at: "2020-02-02T00:00:00Z" }
+    expect_status: 200
+
+  # The soft-deletion manager hides it from the next lookup.
+  - name: wsp-71-link-patch-after-soft-delete
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{member_link}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { title: "Ghost" }
+    expect_status: 404
+
+  - name: wsp-72-link-patch-body-list
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_plain}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: '[{"title": "x"}]'
+    expect_status: 500
+
+  - name: wsp-73-link-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_plain}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { title: "Nope" }
+    expect_status: 403
+
+  # `project: null` clears the FK, and a falsy `self.project` means no re-home:
+  # the row keeps its stored workspace.
+  - name: wsp-73a-link-patch-project-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { project: null }
+    expect_status: 200
+
+  - name: wsp-73b-link-patch-url-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { url: null }
+    expect_status: 400
+
+  # ---------------------------------------------------------------------------
+  # 219 DELETE /api/workspaces/{slug}/quick-links/{pk}/
+  # ---------------------------------------------------------------------------
+  - name: wsp-74-link-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wsp-75-link-delete-already-deleted
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{member_link}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wsp-76-link-delete-own
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_plain}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wsp-77-link-delete-own-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_plain}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The form-created link, deleted by its owner.
+  - name: wsp-78-link-delete-form-link
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_form}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # A guest's own link.
+  - name: wsp-79-link-delete-guest-link
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_guest}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  # The re-homed row is invisible through the URL workspace.
+  - name: wsp-80-link-delete-rehomed
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_theta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # A soft-deleted workspace still lets the permission through, but the row's
+  # `workspaces` join carries no `deleted_at` predicate — the operation is the
+  # owner lookup's miss instead.
+  # A live row with no project is deletable by its owner.
+  - name: wsp-81a-link-delete-project-link
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wsp-81-link-delete-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/quick-links/{{link_min}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # ---------------------------------------------------------------------------
+  # 220 PATCH /api/workspaces/{slug}/home-preferences/ — the signature 500
+  # ---------------------------------------------------------------------------
+  - name: wsp-82-home-patch-signature
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { is_enabled: false }
+    expect_status: 500
+
+  # The decorator allows GUEST, so a guest reaches the TypeError too.
+  - name: wsp-83-home-patch-signature-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { is_enabled: false }
+    expect_status: 500
+
+  # A member of a soft-deleted workspace passes `allow_permission` (the join
+  # has no `deleted_at` predicate) and still reaches the 500.
+  - name: wsp-84-home-patch-soft-deleted-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws_deleted}}/home-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { is_enabled: false }
+    expect_status: 500
+
+  - name: wsp-85-home-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { is_enabled: false }
+    expect_status: 403
+
+  - name: wsp-86-home-patch-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    headers:
+      Host: plane-fixture.test
+    json: { is_enabled: false }
+    expect_status: 401
+
+  - name: wsp-87-home-patch-foreign-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: { is_enabled: false }
+    expect_status: 403
+
+  # ---------------------------------------------------------------------------
+  # 221 PATCH /api/workspaces/{slug}/home-preferences/{key}/
+  # ---------------------------------------------------------------------------
+  # The lookup runs before the body, so this is the view's 400 with the
+  # easiest-to-notice body: `{"detail": "Preference not found"}`.
+  - name: wsp-88-home-key-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/nope/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { is_enabled: false }
+    expect_status: 400
+
+  # ... and the order is observable: an unparsable body still gets the 400.
+  - name: wsp-89-home-key-patch-missing-before-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/nope/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: '[{"is_enabled": false}]'
+    expect_status: 400
+
+  - name: wsp-90-home-key-patch-is-enabled
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { is_enabled: false }
+    expect_status: 200
+
+  - name: wsp-91-home-key-patch-sort-order
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { sort_order: 1.5 }
+    expect_status: 200
+
+  # `key` is writable: this renames the row.
+  - name: wsp-92-home-key-patch-rename
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { key: "renamed_widget" }
+    expect_status: 200
+
+  # `config` is not in the serializer's `fields`, so it is ignored.
+  - name: wsp-93-home-key-patch-config-ignored
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/renamed_widget/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      config: { x: 1 }
+      is_enabled: true
+    expect_status: 200
+
+  - name: wsp-94-home-key-patch-key-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/renamed_widget/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { key: null }
+    expect_status: 400
+
+  # DRF's `BooleanField` accepts `"yes"`.
+  - name: wsp-95-home-key-patch-is-enabled-yes
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/renamed_widget/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { is_enabled: "yes" }
+    expect_status: 200
+
+  - name: wsp-96-home-key-patch-is-enabled-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/renamed_widget/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { is_enabled: 2 }
+    expect_status: 400
+
+  - name: wsp-97-home-key-patch-sort-order-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/renamed_widget/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { sort_order: "abc" }
+    expect_status: 400
+
+  - name: wsp-98-home-key-patch-body-list
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/renamed_widget/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: '[{"is_enabled": false}]'
+    expect_status: 400
+
+  # The fixture SQL gives `member` the two keys `get` never creates.
+  - name: wsp-99-home-key-patch-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_tutorial/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { is_enabled: false }
+    expect_status: 200
+
+  # The row is admin's, in the other workspace: the slug filter misses.
+  - name: wsp-100-home-key-patch-other-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws_second}}/home-preferences/quick_tutorial/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { is_enabled: false }
+    expect_status: 400
+
+  - name: wsp-101-home-key-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_tutorial/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { is_enabled: false }
+    expect_status: 400
+
+  - name: wsp-102-home-key-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_tutorial/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { is_enabled: false }
+    expect_status: 403
+
+  - name: wsp-103-home-key-patch-soft-deleted-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws_deleted}}/home-preferences/quick_links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { is_enabled: false }
+    expect_status: 400
+
+  - name: wsp-104-home-key-patch-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_links/"
+    headers:
+      Host: plane-fixture.test
+    json: { is_enabled: false }
+    expect_status: 401
+
+  - name: wsp-105-home-key-patch-foreign-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/home-preferences/quick_links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: { is_enabled: false }
+    expect_status: 403
+
+  # ---------------------------------------------------------------------------
+  # 225 PATCH /api/workspaces/{slug}/sidebar-preferences/
+  # ---------------------------------------------------------------------------
+  - name: wsp-106-sidebar-patch-empty-list
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: []
+    expect_status: 200
+
+  # An empty object iterates no keys, so `data.pop` is never reached.
+  - name: wsp-107-sidebar-patch-empty-object
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 200
+
+  - name: wsp-108-sidebar-patch-update
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        is_pinned: true
+        sort_order: 1.5
+    expect_status: 200
+
+  # Both columns are always written, so this is a no-op UPDATE.
+  - name: wsp-109-sidebar-patch-key-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+    expect_status: 200
+
+  - name: wsp-110-sidebar-patch-unknown-key
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "no_such_widget"
+        is_pinned: true
+    expect_status: 200
+
+  # `if not key` skips an empty key.
+  - name: wsp-111-sidebar-patch-empty-key
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: ""
+        is_pinned: true
+    expect_status: 200
+
+  # `CharField.get_prep_value` is Python's `str()`: `"123"` has no row.
+  - name: wsp-112-sidebar-patch-int-key
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: 123
+        is_pinned: true
+    expect_status: 200
+
+  # Django's model `BooleanField` accepts `1`.
+  - name: wsp-113-sidebar-patch-bool-int
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        is_pinned: 1
+        sort_order: 7
+    expect_status: 200
+
+  # ... but not `"true"`: that is Django's model field, not DRF's.
+  - name: wsp-114-sidebar-patch-bool-string
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        is_pinned: "true"
+    expect_status: 400
+
+  # `null` reaches the NOT NULL column: the family's IntegrityError body.
+  - name: wsp-115-sidebar-patch-bool-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        is_pinned: null
+    expect_status: 400
+
+  - name: wsp-116-sidebar-patch-bool-two
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        is_pinned: 2
+    expect_status: 400
+
+  # `FloatField.get_prep_value` is `float(value)`: a non-numeric string is a
+  # `ValueError`, i.e. the family 500.
+  - name: wsp-117-sidebar-patch-float-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        sort_order: "abc"
+    expect_status: 500
+
+  - name: wsp-118-sidebar-patch-float-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        sort_order: null
+    expect_status: 400
+
+  # 'int' object has no attribute 'pop'.
+  - name: wsp-119-sidebar-patch-element-int
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: [1]
+    expect_status: 500
+
+  # A dict body iterates its keys: 'str' object has no attribute 'pop'.
+  - name: wsp-120-sidebar-patch-dict-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { key: "views" }
+    expect_status: 500
+
+  # Two elements: two lookups, two two-column UPDATEs, in body order.
+  # Two elements: two lookups, two two-column UPDATEs, in body order.
+  - name: wsp-121-sidebar-patch-two-elements
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "analytics"
+        sort_order: 2
+      - key: "views"
+        sort_order: 3
+    expect_status: 200
+
+  # A non-empty form iterates keys, so `str.pop` fails.
+  - name: wsp-122-sidebar-patch-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      key: "views"
+    expect_status: 500
+
+  # ... while an empty form iterates nothing.
+  - name: wsp-123-sidebar-patch-empty-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form: {}
+    expect_status: 200
+
+  # A guest is an active member; they have no rows here, so nothing is written.
+  - name: wsp-124-sidebar-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      - key: "views"
+        is_pinned: true
+    expect_status: 200
+
+  - name: wsp-125-sidebar-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      - key: "views"
+    expect_status: 403
+
+  # The membership of a soft-deleted workspace passes, and the lookup's join
+  # has no `deleted_at` predicate; admin has no rows there, so only the 200
+  # remains.
+  - name: wsp-126-sidebar-patch-soft-deleted-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws_deleted}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - key: "views"
+        is_pinned: true
+    expect_status: 200
+
+  - name: wsp-127-sidebar-patch-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    headers:
+      Host: plane-fixture.test
+    json: []
+    expect_status: 401
+
+  - name: wsp-128-sidebar-patch-foreign-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: []
+    expect_status: 403
+
+  # The final state of the rows these routes wrote.
+  - name: wsp-129-sidebar-get-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/sidebar-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wsp-130-home-get-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/home-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # ---------------------------------------------------------------------------
+  # 207 again — `deleted_at` is writable on this serializer, and a plain save
+  # means no cascade publish; the next GET's `get_or_create` then finds no live
+  # row and creates a fresh one with the model defaults.
+  # ---------------------------------------------------------------------------
+  - name: wsp-131-props-patch-deleted-at
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { deleted_at: "2021-01-01T00:00:00Z" }
+    expect_status: 200
+
+  - name: wsp-132-props-get-recreates
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-properties/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200

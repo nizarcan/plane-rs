@@ -248,6 +248,21 @@ pub fn error_body(status: u16, message: &str) -> Result<ViewResponse, ViewError>
     Ok(ViewResponse::raw(status, APPLICATION_JSON, body))
 }
 
+/// A `{"detail": …}` body a view returns itself — `Response({"detail": …},
+/// status=…)`, e.g. `home.py:77`'s "Preference not found" and
+/// `quick_link.py:43`'s "Quick link not found.".
+///
+/// Unlike [`error_body`] the key is DRF's `detail`, and the status is not
+/// necessarily 404.
+pub fn detail_body(status: u16, message: &str) -> Result<ViewResponse, ViewError> {
+    #[derive(serde::Serialize)]
+    struct Detail<'a> {
+        detail: &'a str,
+    }
+    let rendered = plane_serde::to_vec(Dialect::Drf, &Detail { detail: message })?;
+    Ok(ViewResponse::raw(status, APPLICATION_JSON, rendered))
+}
+
 /// The 404 `get_object_or_404` renders for a model whose row does not exist:
 /// Django raises `Http404("No <Model> matches the given query.")` and DRF's
 /// exception handler turns it into `NotFound` with that detail
