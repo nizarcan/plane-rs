@@ -1246,7 +1246,8 @@ independent; each domain's sets start after its own P0. At most three builds run
     - the collection DELETEs are `KeyError` 400s.
 - **The assets domain is fully on Rust** (13–30), with the attachment rows 76–79 whole.
 
-Running: (none). Queued: `users/me` A, workspace-core A/B/C, analytics A/B/C.
+Running: `users/me` A, workspace-core A, analytics A. Queued: workspace-core B/C,
+analytics B/C; then ai-assistant (51/52) and the held 34/75/82/107 methods (unplanned).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
