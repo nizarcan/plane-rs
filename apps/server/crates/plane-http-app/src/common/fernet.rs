@@ -9,4 +9,4 @@
 //! ([`plane_auth::instance_config`]). This module keeps the old path working so
 //! handlers did not change; it holds no logic.
 
-pub use plane_auth::fernet::decrypt_data;
+pub use plane_auth::fernet::{decrypt_data, encrypt_data};
