@@ -147,16 +147,64 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `created_by`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_CREATED_BY = "write_pk_issue_subscriber_serializer_created_by",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `updated_by`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_UPDATED_BY = "write_pk_issue_subscriber_serializer_updated_by",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `subscriber`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_SUBSCRIBER = "write_pk_issue_subscriber_serializer_subscriber",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s
-        .primary_key_field(client, "created_by", true, "users")
+        .primary_key_field(client, "created_by", true, &PK_CREATED_BY)
         .await?;
     let _ = s
-        .primary_key_field(client, "updated_by", true, "users")
+        .primary_key_field(client, "updated_by", true, &PK_UPDATED_BY)
         .await?;
     let _ = s
-        .primary_key_field(client, "subscriber", false, "users")
+        .primary_key_field(client, "subscriber", false, &PK_SUBSCRIBER)
         .await?;
     if s.missing_required("subscriber") {
         s.push_error("subscriber", Detail::required());

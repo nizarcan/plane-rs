@@ -137,6 +137,22 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `ListField` lookup for `assignee_ids`
+    /// (`db.User`, `QuerySet`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_ASSIGNEE_IDS = "write_pk_issue_relation_serializer_assignee_ids",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" IN ($1)",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s
         .primary_key_list_field(
@@ -147,7 +163,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
                 allow_empty: true,
                 min_length: None,
                 max_length: None,
-                table: "users",
+                query: &PK_ASSIGNEE_IDS,
             },
         )
         .await?;

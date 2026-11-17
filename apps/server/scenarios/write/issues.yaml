@@ -428,6 +428,33 @@ steps:
       Cookie: "session-id={{session_admin}}"
     expect_status: 400
 
+  # The model `state` field uses the default manager `State.objects`
+  # (`StateManager`), which hides soft-deleted and triage states; `state_id`
+  # above accepts both at the field and fails later in `validate()`.
+  - name: write-issues-22b-create-state-triage-model-field
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Triage state via state"
+      state: "{{state_alpha_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-22c-create-state-soft-deleted-model-field
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Deleted state via state"
+      state: "{{state_alpha_blocked_deleted}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
   - name: write-issues-23-create-parent-other-project
     method: POST
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
@@ -451,6 +478,80 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 400
+
+  # The model `parent` field (created by `Meta.fields = "__all__"`) is
+  # `PrimaryKeyRelatedField(queryset=Issue.issue_objects.all())`, so
+  # `IssueManager` hides triage, archived and draft issues and every issue in an
+  # archived project: DRF answers `Invalid pk …` at the field, before
+  # `validate()` runs.
+  - name: write-issues-24b-create-parent-triage
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Triage parent"
+      parent: "{{issue_alpha_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-24c-create-parent-archived
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Archived parent"
+      parent: "{{issue_alpha_archived}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-24d-create-parent-draft
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Draft parent"
+      parent: "{{issue_alpha_draft}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-issues-24e-create-parent-archived-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Archived-project parent"
+      parent: "{{issue_gamma}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # The declared `parent_id` field is `Issue.objects.all()` — the soft-deletion
+  # manager only — and `validate()` re-checks the parent with the same manager,
+  # so the archived parent is accepted under this spelling. The later `parent`
+  # field would overwrite `source="parent"` when a body sends both.
+  - name: write-issues-24f-create-parent-id-archived
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    json:
+      name: "Archived parent via parent_id"
+      parent_id: "{{issue_alpha_archived}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: issue_archived_parent_child
+        source: db
+        table: issues
+        column: id
 
   - name: write-issues-25-create-estimate-other-project
     method: POST

@@ -17,6 +17,7 @@ vars:
   project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
   state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
   state_alpha_done: "940cca1a-bc0d-45c5-8f23-d2e3cc73ba30"
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
   label_alpha_api: "426922e5-ed0b-44e6-af4a-12768a3057c9"
   module_alpha_backlog: "c36df15d-45cc-4e0d-84cf-a2aed3cb5b37"
   admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
@@ -120,6 +121,19 @@ steps:
     json:
       project_id: "{{project_alpha}}"
       state_id: "00000000-0000-4000-8000-000000000000"
+    expect_status: 400
+  # `DraftIssueCreateSerializer.state_id` declares `State.objects.all()`
+  # (`StateManager`), unlike `IssueCreateSerializer.state_id`'s plain
+  # `State.all_state_objects`, so the triage state is a field-level
+  # `Invalid pk …` here.
+  - name: dr-07b-create-triage-state
+    method: POST
+    path: "/api/workspaces/{{ws}}/draft-issues/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      project_id: "{{project_alpha}}"
+      state_id: "{{state_alpha_triage}}"
     expect_status: 400
   - name: dr-08-delete-full
     method: DELETE

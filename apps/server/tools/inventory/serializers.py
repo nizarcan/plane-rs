@@ -106,6 +106,7 @@ import pkgutil
 import re
 import subprocess
 import sys
+import uuid
 from collections import OrderedDict
 from enum import Enum
 from pathlib import Path
@@ -2117,8 +2118,13 @@ def bool_literal(value: bool) -> str:
     return "true" if value else "false"
 
 
-def write_field_record(field: Any, cls: type) -> OrderedDict[str, Any]:
-    """One entry of a serializer's write table."""
+def write_field_record(field: Any, cls: type, many_related: bool = False) -> OrderedDict[str, Any]:
+    """One entry of a serializer's write table.
+
+    ``many_related`` is set for a ``ListField``'s child, whose pk lookup is
+    compiled as ``pk__in`` with one element (the child itself runs one
+    ``get(pk=…)`` per element).
+    """
     from rest_framework import fields as drf_fields
     from rest_framework import relations as drf_relations
     from rest_framework import serializers as drf_serializers
@@ -2178,17 +2184,24 @@ def write_field_record(field: Any, cls: type) -> OrderedDict[str, Any]:
         model = getattr(queryset, "model", None)
         record["related_model"] = model_label(model)
         record["related_table"] = model._meta.db_table if model is not None else None
-        # Whether the **field's own** queryset filters `deleted_at`, not whether
-        # the model has the column: `IssueCreateSerializer.state_id` declares
-        # `State.all_state_objects` (a plain manager), so a soft-deleted state
-        # is accepted by the field and only fails the serializer's `validate()`.
-        record["related_soft_delete"] = bool(
-            model is not None
-            and queryset_filters_deleted_at(queryset, model._meta.db_table)
-        )
+        # The exact lookup DRF runs for this field. It is not just the table's
+        # `deleted_at` column: the field's own queryset decides.
+        # `IssueCreateSerializer.state_id` declares `State.all_state_objects`
+        # (a plain manager) and accepts a soft-deleted or triage state, while an
+        # auto-generated FK reads `State.objects` (`StateManager`) and rejects
+        # both.
+        if queryset is not None:
+            record["related_query"] = pk_lookup_query(
+                field, many_related or isinstance(field, drf_relations.ManyRelatedField)
+            )
 
     if isinstance(field, drf_fields.ListField):
-        record["child"] = write_field_record(field.child, cls)
+        # A `ListField` of `PrimaryKeyRelatedField` children validates each
+        # element with the child's `queryset.get(pk=…)`; the child record is
+        # compiled with `pk__in` so its statement serves one element per query.
+        record["child"] = write_field_record(field.child, cls, many_related=True)
+        if record["child"].get("related_query") is not None:
+            record["related_query"] = record["child"]["related_query"]
     elif isinstance(field, drf_relations.ManyRelatedField):
         record["child"] = write_field_record(field.child_relation, cls)
     elif isinstance(field, drf_serializers.ListSerializer):
@@ -2271,30 +2284,128 @@ def related_queryset(field: Any) -> Any:
 def queryset_filters_deleted_at(queryset: Any, table: str) -> bool:
     """Whether this queryset's compiled SQL filters `"<table>"."deleted_at" IS NULL`.
 
-    Only the field's own queryset decides what DRF accepts; the model's
-    `default_manager` can differ. `UserFavorite.parent` is
-    `UserFavorite.objects` (a `SoftDeletionManager`) and filters it;
-    `IssueCreateSerializer.state_id` is `State.all_state_objects` (a plain
-    manager) and does not, so a soft-deleted state passes the field and fails
-    the serializer's `validate()` with `State is not valid please pass a valid
-    state_id` instead.
-
-    A queryset can carry predicates beyond `deleted_at` (`State.objects`, the
-    `StateManager`, also excludes triage states; `Issue.issue_objects` excludes
-    triage, archived and draft rows). The write pipeline only reproduces the
-    `deleted_at` half; the others are recorded by the oracle for a later port.
+    The predecessor of [`pk_lookup_query`], kept as the independent oracle the
+    generator's self-check compares against: compiling the whole queryset must
+    agree with this predicate's `deleted_at` half for every related field.
     """
     if queryset is None:
         return False
     try:
         sql = str(queryset.query)
     except Exception:
-        # A queryset that cannot compile here (no database alias, an
-        # expression the SQL compiler refuses) is treated as "does not filter
-        # it", which is the safe side: the field then reports DRF's
-        # `does_not_exist` instead of hiding a row the oracle accepts.
         return False
     return f'"{table}"."deleted_at" IS NULL' in sql
+
+
+# A fixed pk used to compile each related field's lookup. Its value never
+# appears in the emitted SQL: Django binds it as a `%s` parameter and
+# `pk_lookup_query` rewrites that one placeholder to `$1`.
+PK_LOOKUP_SENTINEL = uuid.UUID("00000000-0000-0000-0000-000000000000")
+# Stands in for the pk parameter while the queryset's own parameters are
+# rendered as literals. Must not occur in the compiled SQL.
+PK_LOOKUP_MARK = "<plane-pk>"
+
+
+def sql_parameter_literal(value: Any) -> str:
+    """One compiled queryset parameter as a Postgres literal.
+
+    `sql_with_params` returns Django's own constants as separate parameters
+    (`'triage'` for the managers' triage exclusion). Only the pk is a real bind
+    parameter in the emitted statement, so the rest are inlined here. The
+    write serializers' querysets carry strings only today; an unsupported type
+    stops generation rather than emitting SQL that might not mean what Django
+    compiled.
+    """
+    import datetime as dt
+    import decimal
+
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    if value is None:
+        return "NULL"
+    if isinstance(value, uuid.UUID):
+        # Compared with a `uuid` column, an untyped literal is cast by Postgres.
+        return f"'{value}'"
+    if isinstance(value, dt.datetime):
+        return f"'{value.isoformat()}'"
+    if isinstance(value, (dt.date, dt.time)):
+        return f"'{value.isoformat()}'"
+    raise SystemExit(
+        f"error: cannot inline a compiled {type(value).__name__} parameter ({value!r})"
+    )
+
+
+def related_queryset_source(field: Any) -> str:
+    """The field's declared queryset class, for the statement's doc."""
+    from rest_framework import relations as drf_relations
+
+    target = field.child_relation if isinstance(field, drf_relations.ManyRelatedField) else field
+    declared = getattr(target, "queryset", None)
+    if declared is None:
+        return "unknown"
+    return type(declared).__name__
+
+
+def pk_lookup_query(field: Any, many: bool) -> OrderedDict[str, Any]:
+    """Compile DRF's `PrimaryKeyRelatedField.to_internal_value` lookup.
+
+    `rest_framework/relations.py:252-265` does `queryset.get(pk=data)`, and
+    `QuerySet.get` is `filter(pk=data)[:21]`. The limit is only there to detect
+    `MultipleObjectsReturned`, which a pk lookup cannot hit, so the emitted
+    statement drops it and selects only the pk. The WHERE clause — including
+    every join the field's manager adds — is exactly what decides whether DRF
+    accepts the value.
+
+    A many-related (or `ListField` child) lookup compiles `pk__in` with one
+    element: Django renders that as `IN ($1)`, so the same statement serves
+    every element, one round trip each, exactly like the child's own
+    `get(pk=…)`.
+    """
+    queryset = related_queryset(field)
+    lookup = queryset.filter(pk__in=[PK_LOOKUP_SENTINEL]) if many else queryset.filter(pk=PK_LOOKUP_SENTINEL)
+    compiled = lookup.values_list("pk", flat=True).order_by()
+    sql, params = compiled.query.sql_with_params()
+    params = list(params)
+    try:
+        pk_index = params.index(PK_LOOKUP_SENTINEL)
+    except ValueError:  # pragma: no cover - every lookup filters on the pk
+        raise SystemExit(
+            f"error: the compiled lookup for {field.field_name!r} has no pk parameter: {sql}"
+        )
+    literals = [
+        PK_LOOKUP_MARK if index == pk_index else sql_parameter_literal(value)
+        for index, value in enumerate(params)
+    ]
+    # `%` formatting also unescapes Django's `%%`, which `sql_with_params`
+    # leaves in place for a `LIKE` pattern.
+    rendered = sql % tuple(literals)
+    if rendered.count(PK_LOOKUP_MARK) != 1:  # pragma: no cover - guarded above
+        raise SystemExit(
+            f"error: the compiled lookup for {field.field_name!r} binds the pk "
+            f"more than once: {rendered}"
+        )
+    rendered = rendered.replace(PK_LOOKUP_MARK, "$1")
+    # Cross-check against the older, predicate-name-based rule: if the queryset
+    # filtered `deleted_at`, the compiled statement must too.
+    table = queryset.model._meta.db_table
+    if queryset_filters_deleted_at(queryset, table) and f'"{table}"."deleted_at" IS NULL' not in rendered:
+        raise SystemExit(
+            f"error: {field.field_name!r} filters deleted_at but the compiled "
+            f"lookup does not: {rendered}"
+        )
+    return OrderedDict(
+        [
+            ("sql", rendered),
+            ("many", many),
+            ("manager", related_queryset_source(field)),
+        ]
+    )
 
 
 def write_serializer_record(cls: type) -> OrderedDict[str, Any]:
@@ -2510,7 +2621,7 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
                     f"allow_empty: {bool_literal(field['allow_empty'])}, "
                     f"min_length: {rust_usize_option(field, 'min_length')}, "
                     f"max_length: {rust_usize_option(field, 'max_length')}, "
-                    f"table: {rust_string(table)} }}).await?;"
+                    f"query: &{pk_query_const(field)} }}).await?;"
                 )
             else:
                 todo = "list"
@@ -2523,7 +2634,7 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
                 f"    let _ = s.primary_key_many_field(client, {name}, "
                 f"{bool_literal(field['allow_null'])}, "
                 f"{bool_literal(field['allow_empty'])}, "
-                f"{rust_string(field['related_table'])}).await?;"
+                f"&{pk_query_const(field)}).await?;"
             )
         elif kind == "uuid":
             has_statement = True
@@ -2534,14 +2645,9 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
         elif kind == "primary_key" and field.get("related_table"):
             has_statement = True
             uses_client = True
-            helper = (
-                "primary_key_field_live"
-                if field.get("related_soft_delete")
-                else "primary_key_field"
-            )
             lines.append(
-                f"    let _ = s.{helper}(client, {name}, "
-                f"{bool_literal(field['allow_null'])}, {rust_string(field['related_table'])}).await?;"
+                f"    let _ = s.primary_key_field(client, {name}, "
+                f"{bool_literal(field['allow_null'])}, &{pk_query_const(field)}).await?;"
             )
         else:
             todo = todo_kind(field)
@@ -2574,6 +2680,40 @@ def rust_i64_option(field: dict[str, Any], key: str) -> str:
 def rust_usize_option(field: dict[str, Any], key: str) -> str:
     value = field.get(key)
     return f"Some({value})" if isinstance(value, int) and not isinstance(value, bool) else "None"
+
+
+def pk_query_const(field: dict[str, Any]) -> str:
+    """The generated `plane_query!` static for one related field."""
+    return "PK_" + re.sub(r"[^0-9A-Za-z]+", "_", field["name"]).upper().strip("_")
+
+
+def pk_query_name(field: dict[str, Any]) -> str:
+    """The catalog name of that static (unique across the crate)."""
+    return "write_pk_" + write_module_name(field["serializer"]) + "_" + field["name"]
+
+
+def render_pk_query(field: dict[str, Any]) -> list[str]:
+    """The `plane_query!` block for one field's exact DRF pk lookup."""
+    query = field["related_query"]
+    model = field.get("related_model") or (field.get("child") or {}).get("related_model")
+    lines = [
+        "plane_db::plane_query! {",
+        f"    /// `{field['python_class']}` lookup for `{field['name']}`",
+        f"    /// (`{model}`, `{query['manager']}`): DRF runs",
+        "    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);",
+        "    /// this is that queryset compiled by Django's SQL compiler, with the",
+        "    /// select list replaced by the pk and the ordering dropped. Whatever",
+        "    /// the field's manager hides (soft-deleted, triage, archived or draft",
+        "    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly",
+        "    /// as in Python.",
+        "    ///",
+        "    /// Bind order: `$1` the pk.",
+        f"    {pk_query_const(field)} = {rust_string(pk_query_name(field))},",
+        f"    {rust_string(query['sql'])},",
+        '    [("pk", Uuid)]',
+        "}",
+    ]
+    return lines
 
 
 def integer_choices(field: dict[str, Any]) -> bool:
@@ -2668,6 +2808,11 @@ def render_write_module(record: OrderedDict[str, Any]) -> str:
     lines.append("")
     for field in record["fields"]:
         field["serializer"] = record["class"]
+    for field in record["fields"]:
+        if field.get("related_query") is None:
+            continue
+        lines.extend(render_pk_query(field))
+        lines.append("")
     validate, _ = validate_lines(record["fields"])
     lines.extend(validate)
     lines.append("")
@@ -2752,6 +2897,37 @@ def write_generated_mod(records: list[OrderedDict[str, Any]]) -> str:
     ]
     for record in sorted(records, key=lambda item: item["module"]):
         lines.append(f"pub mod {record['module']};")
+    lines.append("pub mod pk_queries;")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_generated_pk_catalog(records: list[OrderedDict[str, Any]]) -> str:
+    """The aggregated catalog of every generated pk lookup.
+
+    A separate file, not `mod.rs`, because `tests/schema_check.rs` discovers
+    catalogs by the `*queries.rs` suffix; naming it that way keeps the
+    completeness check for a new generated lookup working without a special
+    case.
+    """
+    lines = [
+        "// Copyright (c) 2023-present Plane Software, Inc. and contributors",
+        "// SPDX-License-Identifier: AGPL-3.0-only",
+        "// See the LICENSE file for details.",
+        "",
+        "//! Every `plane_db::plane_query!` statement the generated write modules",
+        "//! declare, so `tests/schema_check.rs` prepares each one against the real",
+        "//! schema. Generated by `tools/inventory/serializers.py --rust`; do not",
+        "//! edit.",
+        "",
+        "/// One statement per related field, in module order.",
+        "pub static ALL_QUERIES: &[&plane_db::Query] = &[",
+    ]
+    for record in sorted(records, key=lambda item: item["module"]):
+        for field in record["fields"]:
+            if field.get("related_query") is not None:
+                lines.append(f"    &super::{record['module']}::{pk_query_const(field)},")
+    lines.append("];")
     lines.append("")
     return "\n".join(lines)
 
@@ -2772,6 +2948,9 @@ def write_output(
             render_write_module(record)
         )
     files[WRITE_GENERATED_DIR / "mod.rs"] = format_rust(write_generated_mod(records))
+    files[WRITE_GENERATED_DIR / "pk_queries.rs"] = format_rust(
+        write_generated_pk_catalog(records)
+    )
     return files, records, todos
 
 

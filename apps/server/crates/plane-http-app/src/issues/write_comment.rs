@@ -1166,11 +1166,12 @@ async fn validate_reaction(
     // `IssueReactionSerializer.FIELDS` visits `reaction`, then `created_by`,
     // then `updated_by`; `CommentReactionSerializer` has only `reaction`.
     if with_audit_fields {
+        use crate::write::generated::issue_reaction_serializer as reaction_fields;
         serializer
-            .primary_key_field(client, "created_by", true, "users")
+            .primary_key_field(client, "created_by", true, &reaction_fields::PK_CREATED_BY)
             .await?;
         serializer
-            .primary_key_field(client, "updated_by", true, "users")
+            .primary_key_field(client, "updated_by", true, &reaction_fields::PK_UPDATED_BY)
             .await?;
     }
     match serializer.finish() {

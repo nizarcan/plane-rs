@@ -391,6 +391,54 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `description`
+    /// (`db.Description`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_DESCRIPTION = "write_pk_issue_comment_serializer_description",
+    "SELECT \"descriptions\".\"id\" AS \"pk\" FROM \"descriptions\" WHERE (\"descriptions\".\"deleted_at\" IS NULL AND \"descriptions\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `actor`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_ACTOR = "write_pk_issue_comment_serializer_actor",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `parent`
+    /// (`db.IssueComment`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_PARENT = "write_pk_issue_comment_serializer_parent",
+    "SELECT \"issue_comments\".\"id\" AS \"pk\" FROM \"issue_comments\" WHERE (\"issue_comments\".\"deleted_at\" IS NULL AND \"issue_comments\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s.char_field(
@@ -434,11 +482,13 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     );
     let _ = s.datetime_field("edited_at", true);
     let _ = s
-        .primary_key_field_live(client, "description", true, "descriptions")
+        .primary_key_field(client, "description", true, &PK_DESCRIPTION)
         .await?;
-    let _ = s.primary_key_field(client, "actor", true, "users").await?;
     let _ = s
-        .primary_key_field_live(client, "parent", true, "issue_comments")
+        .primary_key_field(client, "actor", true, &PK_ACTOR)
+        .await?;
+    let _ = s
+        .primary_key_field(client, "parent", true, &PK_PARENT)
         .await?;
     Ok(())
 }

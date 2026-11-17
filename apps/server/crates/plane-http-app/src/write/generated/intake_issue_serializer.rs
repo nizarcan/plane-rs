@@ -160,10 +160,42 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `duplicate_to`
+    /// (`db.Issue`, `IssueManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_DUPLICATE_TO = "write_pk_intake_issue_serializer_duplicate_to",
+    "SELECT \"issues\".\"id\" AS \"pk\" FROM \"issues\" LEFT OUTER JOIN \"states\" ON (\"issues\".\"state_id\" = \"states\".\"id\") INNER JOIN \"projects\" ON (\"issues\".\"project_id\" = \"projects\".\"id\") WHERE (\"issues\".\"deleted_at\" IS NULL AND NOT (\"states\".\"group\" = 'triage' AND \"states\".\"group\" IS NOT NULL) AND NOT (\"issues\".\"archived_at\" IS NOT NULL) AND NOT (\"projects\".\"archived_at\" IS NOT NULL) AND NOT (\"issues\".\"is_draft\") AND \"issues\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `created_by`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_CREATED_BY = "write_pk_intake_issue_serializer_created_by",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.integer_choice_field("status", &[-2, -1, 0, 1, 2]);
     let _ = s
-        .primary_key_field_live(client, "duplicate_to", true, "issues")
+        .primary_key_field(client, "duplicate_to", true, &PK_DUPLICATE_TO)
         .await?;
     let _ = s.datetime_field("snoozed_till", true);
     let _ = s.char_field(
@@ -176,7 +208,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
         },
     );
     let _ = s
-        .primary_key_field(client, "created_by", true, "users")
+        .primary_key_field(client, "created_by", true, &PK_CREATED_BY)
         .await?;
     Ok(())
 }

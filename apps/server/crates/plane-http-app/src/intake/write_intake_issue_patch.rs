@@ -105,7 +105,6 @@ use super::write_intake_issue_patch_queries as patch_queries;
 use super::write_queries;
 use crate::common::{client, jobs};
 use crate::issues::lists::list_common::{error_body, kwarg_text, kwarg_uuid, user_id};
-use crate::issues::write_issue_queries;
 use crate::issues::write_support;
 use crate::issues::{write_issue, write_issue::Extra};
 use crate::write::generated::intake_issue_serializer;
@@ -615,7 +614,6 @@ async fn prepare_nested(
     let mut serializer = Serializer::from_value(ctx, &issue_data, true);
     write_support::mark_serializer_patch_fields(&mut serializer);
     validate_nested_issue(&mut serializer, client).await?;
-    write_issue::recheck_manager_fields(client, &mut serializer).await?;
 
     // `issue_requested_data = json.dumps(writable_data(issue_serializer,
     // issue_data), …)` (`:418`) runs **before** `is_valid()`: a non-mapping
@@ -740,7 +738,6 @@ async fn prepare_intake(
     // `created_by` (`id` and `issue` are read-only).
     let mut serializer = Serializer::new(ctx, true)?;
     intake_issue_serializer::validate(&mut serializer, client).await?;
-    recheck_duplicate_to(client, &mut serializer).await?;
     let validated = match serializer.finish() {
         Ok(validated) => validated,
         Err(errors) => return Ok(Prepared::Invalid(errors.into_response())),
@@ -885,39 +882,6 @@ async fn default_state(
         .await
         .map_err(ViewError::from)?
         .map(|row| row.get(0)))
-}
-
-/// The generated table checks `duplicate_to` with `SELECT 1 FROM issues WHERE
-/// id`, but the serializer's field is `PrimaryKeyRelatedField(queryset=
-/// Issue.objects.all())` — the soft-deletion manager, so a soft-deleted target
-/// is DRF's `Invalid pk …` (`recheck_manager_fields` has no entry for it
-/// because the issue serializers do not declare the field).
-async fn recheck_duplicate_to(
-    client: &Client,
-    serializer: &mut Serializer<'_>,
-) -> Result<(), ViewError> {
-    let Some(write::Value::Uuid(id)) = serializer.value("duplicate_to").cloned() else {
-        return Ok(());
-    };
-    let statement = client
-        .prepare_cached(write_issue_queries::SOFT_DELETED_ISSUES.sql)
-        .await
-        .map_err(ViewError::from)?;
-    if client
-        .query_opt(&statement, &[&vec![id]])
-        .await
-        .map_err(ViewError::from)?
-        .is_some()
-    {
-        serializer.reject(
-            "duplicate_to",
-            write::Detail::new(
-                format!("Invalid pk \"{id}\" - object does not exist."),
-                "does_not_exist",
-            ),
-        );
-    }
-    Ok(())
 }
 
 /// The request body's raw value for one key, as `self.initial_data.get(key)`

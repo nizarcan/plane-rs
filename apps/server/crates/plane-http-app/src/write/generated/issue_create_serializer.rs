@@ -599,12 +599,140 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `state_id`
+    /// (`db.State`, `QuerySet`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_STATE_ID = "write_pk_issue_create_serializer_state_id",
+    "SELECT \"states\".\"id\" AS \"pk\" FROM \"states\" WHERE \"states\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `parent_id`
+    /// (`db.Issue`, `SoftDeletionQuerySet`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_PARENT_ID = "write_pk_issue_create_serializer_parent_id",
+    "SELECT \"issues\".\"id\" AS \"pk\" FROM \"issues\" WHERE (\"issues\".\"deleted_at\" IS NULL AND \"issues\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `ListField` lookup for `label_ids`
+    /// (`db.Label`, `SoftDeletionQuerySet`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_LABEL_IDS = "write_pk_issue_create_serializer_label_ids",
+    "SELECT \"labels\".\"id\" AS \"pk\" FROM \"labels\" WHERE (\"labels\".\"deleted_at\" IS NULL AND \"labels\".\"id\" IN ($1))",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `ListField` lookup for `assignee_ids`
+    /// (`db.User`, `QuerySet`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_ASSIGNEE_IDS = "write_pk_issue_create_serializer_assignee_ids",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" IN ($1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `parent`
+    /// (`db.Issue`, `IssueManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_PARENT = "write_pk_issue_create_serializer_parent",
+    "SELECT \"issues\".\"id\" AS \"pk\" FROM \"issues\" LEFT OUTER JOIN \"states\" ON (\"issues\".\"state_id\" = \"states\".\"id\") INNER JOIN \"projects\" ON (\"issues\".\"project_id\" = \"projects\".\"id\") WHERE (\"issues\".\"deleted_at\" IS NULL AND NOT (\"states\".\"group\" = 'triage' AND \"states\".\"group\" IS NOT NULL) AND NOT (\"issues\".\"archived_at\" IS NOT NULL) AND NOT (\"projects\".\"archived_at\" IS NOT NULL) AND NOT (\"issues\".\"is_draft\") AND \"issues\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `state`
+    /// (`db.State`, `StateManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_STATE = "write_pk_issue_create_serializer_state",
+    "SELECT \"states\".\"id\" AS \"pk\" FROM \"states\" WHERE (\"states\".\"deleted_at\" IS NULL AND NOT (\"states\".\"group\" = 'triage') AND \"states\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `estimate_point`
+    /// (`db.EstimatePoint`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_ESTIMATE_POINT = "write_pk_issue_create_serializer_estimate_point",
+    "SELECT \"estimate_points\".\"id\" AS \"pk\" FROM \"estimate_points\" WHERE (\"estimate_points\".\"deleted_at\" IS NULL AND \"estimate_points\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `type`
+    /// (`db.IssueType`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_TYPE = "write_pk_issue_create_serializer_type",
+    "SELECT \"issue_types\".\"id\" AS \"pk\" FROM \"issue_types\" WHERE (\"issue_types\".\"deleted_at\" IS NULL AND \"issue_types\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s
-        .primary_key_field(client, "state_id", true, "states")
+        .primary_key_field(client, "state_id", true, &PK_STATE_ID)
         .await?;
     let _ = s
-        .primary_key_field_live(client, "parent_id", true, "issues")
+        .primary_key_field(client, "parent_id", true, &PK_PARENT_ID)
         .await?;
     let _ = s
         .primary_key_list_field(
@@ -615,7 +743,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
                 allow_empty: true,
                 min_length: None,
                 max_length: None,
-                table: "labels",
+                query: &PK_LABEL_IDS,
             },
         )
         .await?;
@@ -628,7 +756,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
                 allow_empty: true,
                 min_length: None,
                 max_length: None,
-                table: "users",
+                query: &PK_ASSIGNEE_IDS,
             },
         )
         .await?;
@@ -700,16 +828,14 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
         },
     );
     let _ = s
-        .primary_key_field_live(client, "parent", true, "issues")
+        .primary_key_field(client, "parent", true, &PK_PARENT)
         .await?;
     let _ = s
-        .primary_key_field_live(client, "state", true, "states")
+        .primary_key_field(client, "state", true, &PK_STATE)
         .await?;
     let _ = s
-        .primary_key_field_live(client, "estimate_point", true, "estimate_points")
+        .primary_key_field(client, "estimate_point", true, &PK_ESTIMATE_POINT)
         .await?;
-    let _ = s
-        .primary_key_field_live(client, "type", true, "issue_types")
-        .await?;
+    let _ = s.primary_key_field(client, "type", true, &PK_TYPE).await?;
     Ok(())
 }

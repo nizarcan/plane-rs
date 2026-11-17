@@ -134,16 +134,32 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
 
         // `IssueSubscriberSerializer(data=request.data)` — `deleted_at`,
         // `created_by`, `updated_by`, `subscriber`, in `self.fields` order.
+        use crate::write::generated::issue_subscriber_serializer as subscriber_fields;
         let mut serializer = Serializer::new(ctx, false)?;
         serializer.datetime_field("deleted_at", true);
         serializer
-            .primary_key_field(client, "created_by", true, "users")
+            .primary_key_field(
+                client,
+                "created_by",
+                true,
+                &subscriber_fields::PK_CREATED_BY,
+            )
             .await?;
         serializer
-            .primary_key_field(client, "updated_by", true, "users")
+            .primary_key_field(
+                client,
+                "updated_by",
+                true,
+                &subscriber_fields::PK_UPDATED_BY,
+            )
             .await?;
         let subscriber = serializer
-            .primary_key_field(client, "subscriber", false, "users")
+            .primary_key_field(
+                client,
+                "subscriber",
+                false,
+                &subscriber_fields::PK_SUBSCRIBER,
+            )
             .await?;
         if serializer.missing_required("subscriber") {
             serializer.push_error("subscriber", crate::write::Detail::required());

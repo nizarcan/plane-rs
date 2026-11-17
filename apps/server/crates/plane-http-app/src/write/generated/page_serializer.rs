@@ -403,6 +403,70 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `ListField` lookup for `labels`
+    /// (`db.Label`, `SoftDeletionQuerySet`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_LABELS = "write_pk_page_serializer_labels",
+    "SELECT \"labels\".\"id\" AS \"pk\" FROM \"labels\" WHERE (\"labels\".\"deleted_at\" IS NULL AND \"labels\".\"id\" IN ($1))",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `parent`
+    /// (`db.Page`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_PARENT = "write_pk_page_serializer_parent",
+    "SELECT \"pages\".\"id\" AS \"pk\" FROM \"pages\" WHERE (\"pages\".\"deleted_at\" IS NULL AND \"pages\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `created_by`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_CREATED_BY = "write_pk_page_serializer_created_by",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `updated_by`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_UPDATED_BY = "write_pk_page_serializer_updated_by",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.char_field(
         "name",
@@ -432,20 +496,20 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
                 allow_empty: true,
                 min_length: None,
                 max_length: None,
-                table: "labels",
+                query: &PK_LABELS,
             },
         )
         .await?;
     let _ = s
-        .primary_key_field_live(client, "parent", true, "pages")
+        .primary_key_field(client, "parent", true, &PK_PARENT)
         .await?;
     let _ = s.bool_field("is_locked");
     let _ = s.date_field("archived_at", true, &["iso-8601"]);
     let _ = s
-        .primary_key_field(client, "created_by", true, "users")
+        .primary_key_field(client, "created_by", true, &PK_CREATED_BY)
         .await?;
     let _ = s
-        .primary_key_field(client, "updated_by", true, "users")
+        .primary_key_field(client, "updated_by", true, &PK_UPDATED_BY)
         .await?;
     let _ = s.json_field("view_props", false);
     let _ = s.json_field("logo_props", false);

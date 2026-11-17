@@ -282,8 +282,9 @@ steps:
       snoozed_till: "not-a-date"
     expect_status: 400
 
-  # `duplicate` with a target: `PrimaryKeyRelatedField(queryset=Issue.objects)`,
-  # so any live issue of any project is accepted.
+  # `duplicate` with a target: `PrimaryKeyRelatedField` over Issue's default
+  # manager `issue_objects` (`IssueManager`), so a triage, archived or draft
+  # issue, or one in an archived project, is not a valid target.
   - name: ip-13-duplicate-with-target
     method: PATCH
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_created_by}}/"
@@ -308,6 +309,20 @@ steps:
     json:
       status: 2
       duplicate_to: "{{issue_beta_deleted}}"
+    expect_status: 400
+
+  # `issue_objects` also excludes drafts (`is_draft = True`), which the
+  # soft-deletion manager alone would accept.
+  - name: ip-14b-duplicate-draft-target
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{issue_alpha_duplicate_target}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      status: 2
+      duplicate_to: "{{issue_alpha_draft}}"
     expect_status: 400
 
   - name: ip-15-duplicate-unknown-target

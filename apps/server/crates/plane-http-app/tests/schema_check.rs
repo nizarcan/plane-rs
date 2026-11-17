@@ -202,6 +202,11 @@ fn catalogs() -> Vec<Catalog> {
             queries: plane_http_app::write::favorite_queries::ALL_QUERIES,
         },
         Catalog {
+            domain: "write_generated",
+            source: "write/generated/pk_queries.rs",
+            queries: plane_http_app::write::generated::pk_queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "pages_write_duplicate",
             source: "pages/write_duplicate_queries.rs",
             queries: plane_http_app::pages::write_duplicate_queries::ALL_QUERIES,
@@ -299,6 +304,34 @@ fn collect_query_files(root: &Path, relative: &Path, out: &mut Vec<String>) {
             out.push(relative.to_string_lossy().replace('\\', "/"));
         }
     }
+}
+
+#[test]
+fn every_generated_lookup_is_catalogued() {
+    // The generated modules are not `*queries.rs`, so `collect_query_files`
+    // cannot find their statements; this is the same completeness check scoped
+    // to them. A field whose `plane_db::plane_query!` block is not aggregated
+    // in `write::generated::ALL_QUERIES` would silently never be prepared
+    // against the schema.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/write/generated");
+    let mut declared = 0usize;
+    for entry in std::fs::read_dir(&root).expect("read_dir under src/write/generated") {
+        let path = entry.expect("directory entry").path();
+        if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+            continue;
+        }
+        if path.file_name().and_then(|value| value.to_str()) == Some("mod.rs") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).expect("read generated module");
+        declared += source.matches("plane_db::plane_query! {").count();
+    }
+    assert_eq!(
+        declared,
+        plane_http_app::write::generated::pk_queries::ALL_QUERIES.len(),
+        "generated modules declare {declared} lookups but write::generated::pk_queries::ALL_QUERIES has {}",
+        plane_http_app::write::generated::pk_queries::ALL_QUERIES.len()
+    );
 }
 
 #[test]
