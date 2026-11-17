@@ -1146,8 +1146,8 @@ independent; each domain's sets start after its own P0. At most three builds run
     rejects it;
   - 47 DELETE leaves `projects.estimate_id` and the points live.
 
-Running: (none). Queued: estimates B, assets A/B/C, analytics A/B/C, `users/me` A/B,
-workspace-core P0.
+Running: workspace-core P0, estimates B (48/49), assets A (v2 workspace/project). Queued:
+assets B/C, analytics A/B/C, `users/me` A/B, workspace-core A/B/C (after its P0).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
