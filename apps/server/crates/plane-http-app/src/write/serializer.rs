@@ -827,8 +827,11 @@ impl<'a> Serializer<'a> {
     /// `plane/db/models/favorite.py:25-31`), so a soft-deleted row is
     /// `Invalid pk "…" - object does not exist.` — not a hit.
     ///
-    /// `favorite.parent` is the only such field today; the generator emits this
-    /// helper when the related model has a `deleted_at` column
+    /// The generator picks this helper from the **field's own** queryset, not
+    /// from the related model: `IssueCreateSerializer.state_id` declares
+    /// `State.all_state_objects` (a plain manager) and must accept a
+    /// soft-deleted state, while an auto-generated field for the same model FK
+    /// reads `State.objects` (`StateManager`) and must not
     /// (`tools/inventory/serializers.py`).
     pub async fn primary_key_field_live(
         &mut self,

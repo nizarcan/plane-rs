@@ -2174,18 +2174,17 @@ def write_field_record(field: Any, cls: type) -> OrderedDict[str, Any]:
         record["input_formats"] = [str(item) for item in formats]
 
     if isinstance(field, (drf_relations.PrimaryKeyRelatedField, drf_relations.ManyRelatedField)):
-        queryset = getattr(field, "queryset", None)
+        queryset = related_queryset(field)
         model = getattr(queryset, "model", None)
-        if model is None and isinstance(field, drf_relations.ManyRelatedField):
-            model = getattr(getattr(field.child_relation, "queryset", None), "model", None)
         record["related_model"] = model_label(model)
         record["related_table"] = model._meta.db_table if model is not None else None
-        # A related model that carries `deleted_at` is read through a
-        # `SoftDeletionManager` queryset, so the generated lookup needs
-        # `AND deleted_at IS NULL` (`UserFavorite.parent` is the only one).
+        # Whether the **field's own** queryset filters `deleted_at`, not whether
+        # the model has the column: `IssueCreateSerializer.state_id` declares
+        # `State.all_state_objects` (a plain manager), so a soft-deleted state
+        # is accepted by the field and only fails the serializer's `validate()`.
         record["related_soft_delete"] = bool(
             model is not None
-            and any(model_field.name == "deleted_at" for model_field in model._meta.get_fields())
+            and queryset_filters_deleted_at(queryset, model._meta.db_table)
         )
 
     if isinstance(field, drf_fields.ListField):
@@ -2249,6 +2248,53 @@ def declared_url_validators(field: Any) -> list[str] | None:
 
 def write_module_name(class_name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", class_name).lower()
+
+
+def related_queryset(field: Any) -> Any:
+    """The queryset a related field validates against.
+
+    DRF's `PrimaryKeyRelatedField.get_queryset` returns `self.queryset`, and a
+    `ManyRelatedField` delegates to its `child_relation`; either can be a model
+    **manager** rather than a `QuerySet`.
+    """
+    from rest_framework import relations as drf_relations
+
+    if isinstance(field, drf_relations.ManyRelatedField):
+        queryset = getattr(field.child_relation, "queryset", None)
+    else:
+        queryset = getattr(field, "queryset", None)
+    if queryset is not None and not hasattr(queryset, "query"):
+        queryset = queryset.all()
+    return queryset
+
+
+def queryset_filters_deleted_at(queryset: Any, table: str) -> bool:
+    """Whether this queryset's compiled SQL filters `"<table>"."deleted_at" IS NULL`.
+
+    Only the field's own queryset decides what DRF accepts; the model's
+    `default_manager` can differ. `UserFavorite.parent` is
+    `UserFavorite.objects` (a `SoftDeletionManager`) and filters it;
+    `IssueCreateSerializer.state_id` is `State.all_state_objects` (a plain
+    manager) and does not, so a soft-deleted state passes the field and fails
+    the serializer's `validate()` with `State is not valid please pass a valid
+    state_id` instead.
+
+    A queryset can carry predicates beyond `deleted_at` (`State.objects`, the
+    `StateManager`, also excludes triage states; `Issue.issue_objects` excludes
+    triage, archived and draft rows). The write pipeline only reproduces the
+    `deleted_at` half; the others are recorded by the oracle for a later port.
+    """
+    if queryset is None:
+        return False
+    try:
+        sql = str(queryset.query)
+    except Exception:
+        # A queryset that cannot compile here (no database alias, an
+        # expression the SQL compiler refuses) is treated as "does not filter
+        # it", which is the safe side: the field then reports DRF's
+        # `does_not_exist` instead of hiding a row the oracle accepts.
+        return False
+    return f'"{table}"."deleted_at" IS NULL' in sql
 
 
 def write_serializer_record(cls: type) -> OrderedDict[str, Any]:
