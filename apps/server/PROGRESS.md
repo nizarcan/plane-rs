@@ -1322,8 +1322,24 @@ independent; each domain's sets start after its own P0. At most three builds run
     mutates `request.data`. A urlencoded body with a scheme-less `url` is an immutable
     `QueryDict`, so `AttributeError` gives a 500 in Django, while Rust prefixes in memory.
 
-Running: workspace-core B, workspace-core C. Queued: AI assistant (51/52), the link-form
-500 follow-up.
+- Workspace-core B (merged `387e33da75`, flipped with this entry): 188/190/191
+  `rust(GET,POST)`, 189/194 `rust(GET,PATCH,DELETE)`, 195 `rust(POST)`.
+  `write/workspace-members.yaml` 86/86 in both directions; the contract tests reaching
+  189/194 pass. On the merge, write + workspace/users-me reads are 50 files, 2897 steps
+  clean; 1064 tests.
+  - Upstream quirks kept:
+    - 188's invitation email task is published even for an `ignore_conflicts` duplicate
+      with a token that was never stored;
+    - the JWT embeds the raw body element;
+    - 191 `accepted` truthiness vs `BooleanField.to_python`;
+    - 191's case-sensitive user lookup;
+    - 190 reactivation writes no audit columns;
+    - the sole-admin guard counts ghost rows;
+    - demotion rewrites inactive project memberships, while removal touches only active
+      ones.
+
+Running: (none). Merging: workspace-core C. Queued: AI assistant (51/52), the link-form 500
+follow-up (also hits quick links 218/219), the `parse_float` trailing-underscore fix.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 

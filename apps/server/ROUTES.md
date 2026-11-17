@@ -275,14 +275,14 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 185 | `/api/workspace-slug-check/` | GET | `plane.app.views.workspace.base.WorkSpaceAvailabilityCheckEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 186 | `/api/workspaces/` | GET:list, POST:create | `plane.app.views.workspace.base.WorkSpaceViewSet` | WorkSpaceBasePermission; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET,POST) | verified |
 | 187 | `/api/workspaces/{slug}/` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.app.views.workspace.base.WorkSpaceViewSet` | WorkSpaceBasePermission; PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET,PUT,PATCH,DELETE) | verified |
-| 188 | `/api/workspaces/{slug}/invitations/` | GET:list, POST:create | `plane.app.views.workspace.invite.WorkspaceInvitationsViewset` | WorkSpaceAdminPermission | rust(GET) | verified |
-| 189 | `/api/workspaces/{slug}/invitations/{pk}/` | DELETE:destroy, GET:retrieve, PATCH:partial_update | `plane.app.views.workspace.invite.WorkspaceInvitationsViewset` | WorkSpaceAdminPermission | rust(GET) | verified |
-| 190 | `/api/users/me/workspaces/invitations/` | GET:list, POST:create | `plane.app.views.workspace.invite.UserWorkspaceInvitationsViewSet` | IsAuthenticated | rust(GET) | verified |
-| 191 | `/api/workspaces/{slug}/invitations/{pk}/join/` | GET, POST | `plane.app.views.workspace.invite.WorkspaceJoinEndpoint` | AllowAny | rust(GET) | verified |
+| 188 | `/api/workspaces/{slug}/invitations/` | GET:list, POST:create | `plane.app.views.workspace.invite.WorkspaceInvitationsViewset` | WorkSpaceAdminPermission | rust(GET,POST) | verified |
+| 189 | `/api/workspaces/{slug}/invitations/{pk}/` | DELETE:destroy, GET:retrieve, PATCH:partial_update | `plane.app.views.workspace.invite.WorkspaceInvitationsViewset` | WorkSpaceAdminPermission | rust(GET,PATCH,DELETE) | verified |
+| 190 | `/api/users/me/workspaces/invitations/` | GET:list, POST:create | `plane.app.views.workspace.invite.UserWorkspaceInvitationsViewSet` | IsAuthenticated | rust(GET,POST) | verified |
+| 191 | `/api/workspaces/{slug}/invitations/{pk}/join/` | GET, POST | `plane.app.views.workspace.invite.WorkspaceJoinEndpoint` | AllowAny | rust(GET,POST) | verified |
 | 192 | `/api/workspaces/{slug}/members/` | GET:list | `plane.app.views.workspace.member.WorkSpaceMemberViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 193 | `/api/workspaces/{slug}/project-members/` | GET | `plane.app.views.workspace.member.WorkspaceProjectMemberEndpoint` | WorkspaceEntityPermission | rust(GET) | verified |
-| 194 | `/api/workspaces/{slug}/members/{pk}/` | PATCH:partial_update, DELETE:destroy, GET:retrieve | `plane.app.views.workspace.member.WorkSpaceMemberViewSet` | IsAuthenticated; PATCH,DELETE allow(ADMIN;WORKSPACE); GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
-| 195 | `/api/workspaces/{slug}/members/leave/` | POST:leave | `plane.app.views.workspace.member.WorkSpaceMemberViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | django | not-started |
+| 194 | `/api/workspaces/{slug}/members/{pk}/` | PATCH:partial_update, DELETE:destroy, GET:retrieve | `plane.app.views.workspace.member.WorkSpaceMemberViewSet` | IsAuthenticated; PATCH,DELETE allow(ADMIN;WORKSPACE); GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET,PATCH,DELETE) | verified |
+| 195 | `/api/workspaces/{slug}/members/leave/` | POST:leave | `plane.app.views.workspace.member.WorkSpaceMemberViewSet` | IsAuthenticated; POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(POST) | verified |
 | 196 | `/api/users/last-visited-workspace/` | GET | `plane.app.views.workspace.user.UserLastProjectWithWorkspaceEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 197 | `/api/workspaces/{slug}/workspace-members/me/` | GET | `plane.app.views.workspace.member.WorkspaceMemberUserEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 198 | `/api/workspaces/{slug}/workspace-views/` | POST | `plane.app.views.workspace.member.WorkspaceMemberUserViewsEndpoint` | IsAuthenticated | rust(POST) | verified |
