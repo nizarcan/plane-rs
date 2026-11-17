@@ -1352,9 +1352,9 @@ independent; each domain's sets start after its own P0. At most three builds run
     - 221's miss is a 400 before the body is parsed;
     - 225 uses Django's strict model `BooleanField` and writes only its columns.
 
-Running: (none). Queued: AI assistant (51/52); the issue/module link-form 500 follow-up
-(74/75/108/109); `write::fields::parse_float` accepts a trailing underscore (`"1_"`)
-where CPython raises.
+Running: AI assistant (51/52, `rs/ai`); fix-ups (`rs/fixups`): the link-form 500
+(74/75/108/109) and the `parse_float` trailing-underscore divergence. After these, every
+app-surface write route is on Rust; next is the benchmark re-measure.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
