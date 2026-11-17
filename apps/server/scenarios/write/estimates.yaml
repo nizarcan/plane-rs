@@ -1,0 +1,2025 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Estimates set A of plans/ESTIMATES.md §3 — routes 46 and 47:
+#
+#   POST   /api/workspaces/{slug}/projects/{project_id}/estimates/        (46)
+#   PATCH  /api/workspaces/{slug}/projects/{project_id}/estimates/{id}/   (47, partial_update)
+#   DELETE /api/workspaces/{slug}/projects/{project_id}/estimates/{id}/   (47, destroy)
+#
+# Covers, in the view's own statement order (`plane/app/views/estimate/base.py:63-150`):
+#
+#   * create: the `request.data.get("estimate").get(...)` chain — a non-object
+#     body, a missing key, `null`, a string and a list are the 500 family, not
+#     a 400. `generate_random_name()` when the body carries no name (project
+#     zeta has no estimate) and an explicit ten-lowercase-letter name
+#     elsewhere. The row is hand-built: read-only keys are ignored, an unknown
+#     `type` is stored, `last_used` accepts `1` and rejects `"true"`/`"yes"`
+#     with Django's `ValidationError` 400, `name`/`type` null is the family
+#     `IntegrityError` 400, a 256-character name is a 500. The soft-deleted
+#     `delta` and the archived `gamma` projects both accept a create.
+#   * create validates the points **after** inserting the estimate: every
+#     `EstimatePointSerializer(many=True)` error shape from the P0 corpus
+#     leaves one estimate row and answers 400 (null/absent points are "No data
+#     provided"), and `key: "3.0"` passes DRF but raises Python `int()` inside
+#     the raw `bulk_create` → 500. The valid shapes insert raw values
+#     (`deleted_at` validated, never written; 20 characters accepted, 21 is the
+#     `validate()` error; ints/float strings are stored from the raw value).
+#   * the partial unique index: a live duplicate name is 400, the same name in
+#     another project is 200, and a name only soft-deleted rows hold is 200.
+#   * PATCH: the body guard runs before the lookup (`{}` on a missing estimate
+#     is 400, a good body is 404); `estimate_points: null`/an int is a
+#     `TypeError` 500, a non-empty string/list of non-objects an
+#     `AttributeError` 500 after the lookup. The estimate update is a full save
+#     (name/type raw, duplicate name 400, null 400, 256 characters 500) and
+#     runs before the point ids are parsed, so an invalid UUID in the same body
+#     is a 400 that already wrote the estimate. Point updates write only
+#     `key`/`value`: no 20-character check, null is 400, 256 characters 500,
+#     an invalid key string 500, another estimate's id is silently ignored, the
+#     first duplicate data entry wins, and the response re-reads the points in
+#     `value` order.
+#   * DELETE: `deleted_at` + `updated_by` + the cascade task, 204; the second
+#     delete is 404. Deleting beta's `T-Shirt` leaves `projects.estimate_id`
+#     pointing at it (the cascade task never runs in the harness), so
+#     `project-estimates/` still returns its points while the list hides it.
+#   * permissions: GUEST and non-member 403 on all three verbs, member 200/204,
+#     a workspace admin who is not a member of ws2 403 there and the ws2 admin
+#     succeeds; a foreign Origin is the CSRF 403 and no session is 401.
+#
+# Fixture: `estimates-fixture.sql` on top of `plane_fix_tpl` — alpha
+# `e35c95aa…` (Story Points, 5 points), alpha `11bbd8ea…` (Complexity), beta
+# `c3103528…` (T-Shirt); the fixture adds a soft-deleted + live "Legacy Points"
+# pair in alpha and a live "Legacy Points" in ws2's theta.
+
+name: write-estimates
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/estimates-fixture.sql"
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma_archived: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta_deleted: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  estimate_alpha_points: "e35c95aa-ffa4-4e29-a0a2-64ebc3ee99cb"
+  estimate_alpha_categories: "11bbd8ea-7e90-4608-abf0-ec40a0ed5a95"
+  estimate_beta_tshirt: "c3103528-6292-44e2-86c9-240eb87c1e19"
+  estimate_soft_twin: "b9100000-0000-4000-8000-000000000001"
+  estimate_live_twin: "b9100000-0000-4000-8000-000000000002"
+  estimate_theta: "b9100000-0000-4000-8000-000000000003"
+  point_alpha_1: "cde8ac7a-9213-4538-af75-8692fb681284"
+  point_alpha_2: "3beb8a9d-9567-4023-aa9c-1efc92199bb9"
+  point_alpha_3: "ddea004d-0068-44bb-90c6-7197c8b915e6"
+  point_alpha_5: "99b0d577-7472-49fa-be44-06801dc03c26"
+  point_alpha_8: "5fffb776-488a-4b4b-a464-dd38b27e28a1"
+  point_alpha_categories_low: "40d6bc49-2bc5-4850-81af-0c020ea5c443"
+  missing_estimate: "55555555-5555-4555-8555-555555555555"
+  missing_project: "66666666-6666-4666-8666-666666666666"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- permissions (no writes) ---------------------------------------------
+  - name: write-estimates-01-post-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qaguestpost"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-estimates-02-post-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qanonmember"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: write-estimates-03-post-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qabadorigi"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: write-estimates-04-post-unauthenticated
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qanoauthxx"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # --- create: the `request.data.get("estimate")` chain is the 500 family ---
+  - name: write-estimates-05-post-no-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-estimates-06-post-estimate-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-estimates-07-post-estimate-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-estimates-08-post-estimate-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `request.data` itself is a list: `.get` does not exist.
+  - name: write-estimates-09-post-body-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    body: '[{"estimate": {}}]'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 500
+
+  - name: write-estimates-10-post-body-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    body: '"x"'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 500
+
+  # --- create: success shapes ----------------------------------------------
+  # zeta has no estimate: the absent `name` is `generate_random_name()`
+  # (`base.py:29-31,66`), placeholdered by normalize.yaml.
+  - name: write-estimates-11-create-random-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_random
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-12-create-explicit-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: "qaminimalx"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_named
+        source: db
+        table: estimates
+        column: id
+
+  # Every writable field plus two points, inserted from the raw body.
+  - name: write-estimates-13-create-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qafullbody"
+        type: "points"
+        last_used: true
+      estimate_points:
+        - key: 1
+          value: "1"
+          description: "One"
+        - key: 2
+          value: "2"
+          description: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_alpha_full
+        source: db
+        table: estimates
+        column: id
+
+  # Read-only keys are ignored: only `name` is read from `estimate`.
+  - name: write-estimates-14-create-read-only-estimate-fields
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: "qareadonly"
+        id: "77777777-7777-4777-8777-777777777777"
+        project_id: "{{project_beta}}"
+        workspace_id: "88888888-8888-4888-8888-888888888888"
+        description: "ignored"
+        created_by: "99999999-9999-4999-8999-999999999999"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_readonly
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-15-create-unknown-keys
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: "qaunknowns"
+        bogus: 1
+      unknown_top_level: true
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_unknown
+        source: db
+        table: estimates
+        column: id
+
+  # `type` is only a model CharField here; no choice validation runs.
+  - name: write-estimates-16-create-bogus-type
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: "qabogustyp"
+        type: "bogus"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_bogus_type
+        source: db
+        table: estimates
+        column: id
+
+  # Django's BooleanField accepts 1/0 as True/False.
+  - name: write-estimates-17-create-last-used-one
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: "qalastused"
+        last_used: 1
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_last_used
+        source: db
+        table: estimates
+        column: id
+
+  # BooleanField.to_python does not lower-case: only "t"/"True"/"1" pass.
+  - name: write-estimates-18-create-last-used-string-true
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        last_used: "true"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-19-create-last-used-yes
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        last_used: "yes"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `name`/`type` are NOT NULL: the family IntegrityError 400, no row.
+  - name: write-estimates-20-create-name-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-21-create-type-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: "qatypenull"
+        type: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # varchar(255) overflow is a psycopg DataError, so the family 500.
+  - name: write-estimates-22-create-name-256
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # The project lookup is `_base_manager` (no deleted_at predicate): a
+  # soft-deleted project resolves, a missing one is 404, an unparsable URL
+  # uuid is Django's ValidationError 400.
+  - name: write-estimates-23-create-project-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{missing_project}}/estimates/"
+    json:
+      estimate:
+        name: "qamissingp"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # `<uuid:project_id>` never matches an unparsable id: the URL resolver is 404.
+  - name: write-estimates-24-create-project-invalid-uuid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/not-a-uuid/estimates/"
+    json:
+      estimate:
+        name: "qabaduuidx"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-estimates-25-create-delta-deleted-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_delta_deleted}}/estimates/"
+    json:
+      estimate:
+        name: "qadeltapro"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_delta
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-26-create-gamma-archived-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/estimates/"
+    json:
+      estimate:
+        name: "qagammapro"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_gamma
+        source: db
+        table: estimates
+        column: id
+
+  # --- create: the points serializer runs after the estimate was written ----
+  # Each failing step leaves exactly one estimate row (the capture proves it).
+  - name: write-estimates-27-points-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_points_null
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-28-points-dict
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_points_dict
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-29-points-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_points_str
+        source: db
+        table: estimates
+        column: id
+
+  # An empty list is valid: no points, 200.
+  - name: write-estimates-30-points-empty-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_empty_points
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-31-point-empty-dict
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_empty
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-32-point-blank-value
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_blank
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-33-point-null-value
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_null
+        source: db
+        table: estimates
+        column: id
+
+  # A null element is the child's bare null error, a list in the index object.
+  - name: write-estimates-34-point-null-item
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_null_item
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-35-point-string-item
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_str_item
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-36-point-int-item
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_int_item
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-37-point-bad-key
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - key: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_bad_key
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-38-point-negative-key
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - key: -1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_negative_key
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-39-point-value-21
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: "123456789012345678901"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_value_21
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-40-point-value-256
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_value_256
+        source: db
+        table: estimates
+        column: id
+
+  # Only the failing indices are reported: {"1": {"value": [...]}}.
+  - name: write-estimates-41-point-middle-fails
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: "1"
+        - value: ""
+        - value: "3"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_middle
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-42-point-bad-datetime
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - deleted_at: "nope"
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_datetime
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-43-point-description-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - description: null
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_desc_null
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-44-point-value-dict
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value:
+            a: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_value_dict
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-45-point-value-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value:
+            - "a"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_value_list
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-46-point-value-bool
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_value_bool
+        source: db
+        table: estimates
+        column: id
+
+  # `deleted_at` is validated but never written: the point is inserted live.
+  - name: write-estimates-47-point-null-datetime
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - deleted_at: null
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_point_null_datetime
+        source: db
+        table: estimates
+        column: id
+
+  # Raw values, not `validated_data`: an int validates as "7" and is stored
+  # as the string; "1" validates as 1 and is stored through Python `int()`.
+  - name: write-estimates-48-point-value-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: 7
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_point_value_int
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-49-point-key-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - key: "1"
+          value: "ok"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_point_key_string
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-50-point-unknown-key
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - extra: 1
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_point_unknown
+        source: db
+        table: estimates
+        column: id
+
+  # Every read-only key is ignored; the point gets the estimate's ids.
+  - name: write-estimates-51-point-read-only
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - id: "77777777-7777-4777-8777-777777777777"
+          project_id: "{{project_beta}}"
+          workspace_id: "88888888-8888-4888-8888-888888888888"
+          estimate_id: "{{estimate_alpha_points}}"
+          created_by: "99999999-9999-4999-8999-999999999999"
+          updated_by: "99999999-9999-4999-8999-999999999999"
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_point_read_only
+        source: db
+        table: estimates
+        column: id
+
+  # DRF's IntegerField strips a trailing ".0" before `int()`, so "3.0"
+  # validates as 3; the raw `bulk_create` calls Django's integer prep with the
+  # raw string and raises ValueError → 500. The estimate row stays.
+  - name: write-estimates-52-point-key-float-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - key: "3.0"
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+    capture:
+      - name: est_zeta_point_float_string
+        source: db
+        table: estimates
+        column: id
+
+  # DRF stringifies the value before `int()`: "1.5" does not match its
+  # trailing-`.0` strip, so this is a field error (the raw float never reaches
+  # the insert).
+  - name: write-estimates-53-point-key-float
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - key: 1.5
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_point_key_float
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-54-point-description-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: "x"
+          description: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_point_desc_int
+        source: db
+        table: estimates
+        column: id
+
+  # --- the partial unique index --------------------------------------------
+  - name: write-estimates-55-create-duplicate-name-first
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qaduplicat"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_alpha_dup
+        source: db
+        table: estimates
+        column: id
+
+  # A live row holds (name, project): the family IntegrityError 400.
+  - name: write-estimates-56-create-duplicate-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qaduplicat"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # The same name in beta is not a duplicate: uniqueness is per (name, project).
+  - name: write-estimates-57-create-name-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/estimates/"
+    json:
+      estimate:
+        name: "qaduplicat"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_beta_dup
+        source: db
+        table: estimates
+        column: id
+
+  # --- PATCH the estimate itself -------------------------------------------
+  - name: write-estimates-58-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    json:
+      estimate:
+        name: "qarenamedx"
+        type: "points"
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Back to the duplicate name inside its own project is fine: only one live
+  # row holds it.
+  - name: write-estimates-59-patch-name-back
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    json:
+      estimate:
+        name: "qaduplicat"
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A PATCH that collides with the other live row is the same 400.
+  - name: write-estimates-60-patch-duplicate-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_full}}/"
+    json:
+      estimate:
+        name: "qaduplicat"
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-61-patch-type-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    json:
+      estimate:
+        type: null
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-62-patch-name-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    json:
+      estimate:
+        name: null
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-63-patch-name-256
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    json:
+      estimate:
+        name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-estimates-64-patch-estimate-string
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    json:
+      estimate: "x"
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # An empty `estimate` object is falsy: no save, the points still update.
+  - name: write-estimates-65-patch-empty-estimate
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    json:
+      estimate: {}
+      estimate_points:
+        - id: "{{point_alpha_2}}"
+          value: "two"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- PATCH: the body guard and the points -------------------------------
+  - name: write-estimates-66-patch-empty-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-67-patch-empty-points-list
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # The body guard runs before the lookup: 400, not 404.
+  - name: write-estimates-68-patch-missing-empty-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{missing_estimate}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-69-patch-missing-good-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{missing_estimate}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The lookup runs before the comprehension: a bad element is 404 here.
+  - name: write-estimates-70-patch-missing-bad-points
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{missing_estimate}}/"
+    json:
+      estimate_points:
+        - "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-estimates-71-patch-points-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-estimates-72-patch-points-int
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A non-empty string passes `len()` and fails in the comprehension.
+  - name: write-estimates-73-patch-points-string
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-estimates-74-patch-points-list-int
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # Django's UUIDField.to_python: the family ValidationError 400.
+  - name: write-estimates-75-patch-point-id-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-76-patch-point-id-float
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: 1.5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `None` is `IN (NULL)`: matches nothing, 200 with no update.
+  - name: write-estimates-77-patch-point-id-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: null
+          value: "zz"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # An id from another estimate is filtered by `estimate_id` and ignored.
+  - name: write-estimates-78-patch-point-cross-estimate
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_categories_low}}"
+          value: "zz"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `bulk_update` writes only key/value, but a NULL is a NOT NULL violation.
+  - name: write-estimates-79-patch-point-value-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+          value: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-80-patch-point-key-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+          key: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-81-patch-point-key-string
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+          key: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # No MinValueValidator runs on bulk_update: -5 is stored.
+  - name: write-estimates-82-patch-point-key-negative
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+          key: -5
+          value: "one"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # No 20-character check on PATCH either.
+  - name: write-estimates-83-patch-point-value-21
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_2}}"
+          value: "123456789012345678901"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `bulk_update` casts the CASE to `varchar(255)`, and an explicit cast
+  # truncates silently: 200 with the first 255 characters stored.
+  - name: write-estimates-84-patch-point-value-256
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_2}}"
+          value: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-estimates-85-patch-point-value-int
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_2}}"
+          value: 123
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The first matching data element wins.
+  - name: write-estimates-86-patch-point-first-wins
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_2}}"
+          value: "first"
+        - id: "{{point_alpha_2}}"
+          value: "second"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Unknown fields are ignored; only key/value are written.
+  - name: write-estimates-87-patch-point-unknown-fields
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_2}}"
+          nope: 1
+          key: 2
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The estimate save runs first, then the point update; the response re-reads
+  # the points in `value` order.
+  - name: write-estimates-88-patch-full
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate:
+        name: "Story Points Updated"
+        type: "categories"
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+          key: 10
+          value: "uno"
+        - id: "{{point_alpha_5}}"
+          value: "cinco"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The estimate save happens before the ids are parsed: an invalid id in the
+  # same body is a 400 that already wrote the estimate.
+  - name: write-estimates-89-patch-save-then-bad-id
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate:
+        name: "Story Points Again"
+      estimate_points:
+        - id: "not-a-uuid"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- PATCH: permissions and ws2 isolation --------------------------------
+  - name: write-estimates-90-patch-as-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_3}}"
+          value: "trois"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: write-estimates-91-patch-as-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_3}}"
+          value: "guest"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-estimates-92-patch-as-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_3}}"
+          value: "nonmember"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # The ws admin is not a member of ws2: 403 before the body.
+  - name: write-estimates-93-patch-ws2-as-ws-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws2}}/projects/{{project_theta}}/estimates/{{estimate_theta}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # ws2's admin passes; theta's estimate has no points, so the row is ignored.
+  - name: write-estimates-94-patch-ws2-as-ws2-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws2}}/projects/{{project_theta}}/estimates/{{estimate_theta}}/"
+    json:
+      estimate:
+        name: "Theta Renamed"
+      estimate_points:
+        - id: "{{point_alpha_1}}"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 200
+
+  # --- DELETE --------------------------------------------------------------
+  # The live twin shares its name with the fixture's soft-deleted row; the
+  # partial index and the unique_together (deleted_at included) accept the
+  # delete.
+  - name: write-estimates-95-delete-live-twin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_live_twin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-estimates-96-delete-live-twin-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_live_twin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-estimates-97-get-alpha-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-estimates-98-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{missing_estimate}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `<uuid:estimate_id>` never matches an unparsable id: the URL resolver is 404.
+  - name: write-estimates-99-delete-invalid-uuid
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-estimates-100-delete-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-estimates-101-delete-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_dup}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # A member may delete; the DELETE body is never read, so it is ignored.
+  - name: write-estimates-102-delete-as-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_full}}/"
+    json:
+      anything: 1
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: write-estimates-103-get-deleted-detail
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_alpha_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # beta's T-Shirt is `projects.estimate_id`. Deleting it must leave the
+  # project row pointing at it (the cascade runs in the worker), so
+  # `project-estimates/` still returns its points while the list hides it.
+  - name: write-estimates-104-delete-beta-tshirt
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/estimates/{{estimate_beta_tshirt}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-estimates-105-get-beta-project-estimates
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/project-estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-estimates-106-get-beta-list-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_beta}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-estimates-107-delete-ws2-as-ws-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws2}}/projects/{{project_theta}}/estimates/{{estimate_theta}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  - name: write-estimates-108-delete-ws2-as-ws2-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws2}}/projects/{{project_theta}}/estimates/{{estimate_theta}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 204
+
+  - name: write-estimates-109-delete-ws2-again
+    method: DELETE
+    path: "/api/workspaces/{{ws2}}/projects/{{project_theta}}/estimates/{{estimate_theta}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 404
+
+  # --- a soft-deleted row does not block its name --------------------------
+  - name: write-estimates-110-create-soft-cycle
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qasoftname"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_soft_cycle
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-111-delete-soft-cycle
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{est_soft_cycle}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Only a soft-deleted row holds (name, project): the create succeeds.
+  - name: write-estimates-112-create-name-after-delete
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qasoftname"
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_soft_cycle_2
+        source: db
+        table: estimates
+        column: id
+
+  # Now a live row holds it: the third create is the duplicate 400.
+  - name: write-estimates-113-create-name-live-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    json:
+      estimate:
+        name: "qasoftname"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-114-get-alpha-list-final
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- extra shapes: `deleted_at` is validated but never written -----------
+  - name: write-estimates-115-point-datetime-valid
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - deleted_at: "2026-01-01T00:00:00Z"
+          value: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+    capture:
+      - name: est_zeta_point_datetime_valid
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-116-create-last-used-two
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate:
+        last_used: 2
+      estimate_points: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- extra shapes: the PATCH `CAST` conversions --------------------------
+  - name: write-estimates-117-patch-points-dict
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        a: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `CharField.get_prep_value(True)` is Python's `str(True)` = "True" (not
+  # PostgreSQL's lowercase `true`).
+  - name: write-estimates-118-patch-point-value-bool
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_8}}"
+          value: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `CharField.get_prep_value(1.0)` is Python's `repr(1.0)` = "1.0".
+  - name: write-estimates-119-patch-point-value-float
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_8}}"
+          value: 1.0
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `IntegerField.get_prep_value(1.5)` is Python's `int(1.5)` = 1 (truncation,
+  # not PostgreSQL's rounding cast).
+  - name: write-estimates-120-patch-point-key-float
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/{{estimate_alpha_points}}/"
+    json:
+      estimate_points:
+        - id: "{{point_alpha_8}}"
+          key: 1.5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-estimates-121-get-alpha-list-after-casts
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/estimates/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- the rest of the P0 corpus's `many=True` shapes -----------------------
+  # The key is absent (`request.data.get(…)` → None): "No data provided",
+  # after the estimate row was written.
+  - name: write-estimates-122-points-absent
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+    capture:
+      - name: est_zeta_points_absent
+        source: db
+        table: estimates
+        column: id
+
+  - name: write-estimates-123-point-float-item
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - 1.5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-124-point-bool-item
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-125-point-list-item
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # The boundary: exactly 20 characters is accepted.
+  - name: write-estimates-126-point-value-20
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: "12345678901234567890"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-estimates-127-point-two-field-errors
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - key: "abc"
+          value: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-128-points-non-list-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-129-points-non-list-float
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: 1.5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-estimates-130-points-non-list-bool
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Four failures with different shapes at once: only failing indices remain.
+  - name: write-estimates-131-point-many-failures
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_zeta}}/estimates/"
+    json:
+      estimate: {}
+      estimate_points:
+        - value: ""
+        - value: "ok"
+        - key: "abc"
+          value: ""
+        - null
+        - value: "123456789012345678901"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400

@@ -16,6 +16,9 @@
 //! | `GET …/projects/{project_id}/project-estimates/` | `ProjectEstimatePointEndpoint.get` | `plane/app/views/estimate/base.py:35` |
 //! | `GET …/projects/{project_id}/estimates/` | `BulkEstimatePointEndpoint.list` | `plane/app/views/estimate/base.py:59` |
 //! | `GET …/projects/{project_id}/estimates/{estimate_id}/` | `BulkEstimatePointEndpoint.retrieve` | `plane/app/views/estimate/base.py:103` |
+//! | `POST …/projects/{project_id}/estimates/` | `BulkEstimatePointEndpoint.create` | `plane/app/views/estimate/base.py:63` |
+//! | `PATCH …/projects/{project_id}/estimates/{estimate_id}/` | `BulkEstimatePointEndpoint.partial_update` | `plane/app/views/estimate/base.py:108` |
+//! | `DELETE …/projects/{project_id}/estimates/{estimate_id}/` | `BulkEstimatePointEndpoint.destroy` | `plane/app/views/estimate/base.py:146` |
 //! | `GET …/estimates/` | `WorkspaceEstimatesEndpoint.get` | `plane/app/views/workspace/estimate.py:22` |
 
 use plane_drf::registry::{Registry, RegistryError};
@@ -25,6 +28,8 @@ pub mod queries;
 pub mod render;
 pub mod ser;
 pub mod workspace;
+pub mod write_estimate;
+pub mod write_estimate_queries;
 pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
@@ -36,7 +41,10 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.estimate.base.BulkEstimatePointEndpoint")?
         .action("list", base::list)?
-        .action("retrieve", base::retrieve)?;
+        .action("retrieve", base::retrieve)?
+        .action("create", write_estimate::create)?
+        .action("partial_update", write_estimate::patch)?
+        .action("destroy", write_estimate::destroy)?;
 
     registry
         .api_view("plane.app.views.workspace.estimate.WorkspaceEstimatesEndpoint")?
