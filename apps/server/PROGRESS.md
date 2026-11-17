@@ -1146,8 +1146,21 @@ independent; each domain's sets start after its own P0. At most three builds run
     rejects it;
   - 47 DELETE leaves `projects.estimate_id` and the points live.
 
-Running: workspace-core P0, estimates B (48/49), assets A (v2 workspace/project). Queued:
-assets B/C, analytics A/B/C, `users/me` A/B, workspace-core A/B/C (after its P0).
+- Estimates B (merged `939bb55268`, flipped with this entry): 48 `rust(POST)`, 49
+  `rust(PATCH,DELETE)`. `write/estimate-points.yaml` 94/94 in both directions, with strict
+  Celery comparison. **The estimates domain is fully on Rust** (45–49). Upstream quirks
+  kept:
+  - 48 skips the serializer, so a 21-char `value` is a 200 and a 256-char one is a 500,
+    while 49 PATCH rejects anything over 20;
+  - `key: 1.5` truncates on 48 and is a 400 on 49;
+  - 49 DELETE validates `new_estimate_id` inside the issue loop, after publishing;
+  - 49 DELETE fans out before the point lookup, so a re-delete publishes N messages, then
+    404s;
+  - `allow_permission`'s project branch ignores `WorkspaceMember`, so a ws1 member with a
+    ws2 `ProjectMember` row can write ws2 points.
+
+Running: workspace-core P0, assets A (v2 workspace/project), assets B (legacy). Queued:
+assets C, analytics A/B/C, `users/me` A/B, workspace-core A/B/C (after its P0).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
