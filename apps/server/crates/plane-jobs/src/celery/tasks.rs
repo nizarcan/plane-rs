@@ -1020,34 +1020,39 @@ pub fn get_asset_object_metadata_positional(asset_id: String) -> Message {
 }
 
 /// `plane.bgtasks.export_task.issue_export_task`
-/// (`app/views/exporter/base.py:50`): the workspace id is a `UUID`, the
-/// project ids are a `list[str]`.
+/// (`app/views/exporter/base.py:50`): the workspace id is a `UUID`; the rest
+/// are the values the view hands over unchanged.
+///
+/// `project_ids=request.data.get("project", [])` and
+/// `multiple=request.data.get("multiple", False)` (`exporter/base.py:29-30`)
+/// are raw request-body values, so `project_ids` may be a list of whatever the
+/// client sent (or a bare string) and a form's `"false"` is a truthy `str`.
+/// The task takes them as [`TaskArg`] and the handler passes what
+/// `plane_serde::pyjson` parsed (`TaskArg::Json`).
 #[must_use]
 pub fn issue_export_task(
     provider: String,
     workspace_id: Uuid,
-    project_ids: Vec<String>,
+    project_ids: TaskArg,
     token_id: String,
-    multiple: bool,
+    multiple: TaskArg,
     slug: String,
 ) -> Message {
     let kwargs = vec![
         ("provider", TaskArg::str(provider)),
         ("workspace_id", TaskArg::uuid(workspace_id)),
-        (
-            "project_ids",
-            TaskArg::list(project_ids.into_iter().map(TaskArg::Str)),
-        ),
+        ("project_ids", project_ids),
         ("token_id", TaskArg::str(token_id)),
-        ("multiple", TaskArg::Bool(multiple)),
+        ("multiple", multiple),
         ("slug", TaskArg::str(slug)),
     ];
     Message::new(task_name::ISSUE_EXPORT_TASK, Vec::new(), kwargs)
 }
 
 /// `plane.bgtasks.analytic_plot_export.analytic_export_task`
-/// (`app/views/analytic/base.py:256`): `data=request.data` is a dict, and
-/// `user_id` is `str(...)`.
+/// (`app/views/analytic/base.py:256`): `data=request.data` is the parsed
+/// request body — a dict for the JSON bodies the view reads, but any JSON
+/// value at this constructor's boundary — and `user_id` is `str(...)`.
 #[must_use]
 pub fn analytic_export_task(
     email: String,

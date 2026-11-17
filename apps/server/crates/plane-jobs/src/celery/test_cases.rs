@@ -79,6 +79,15 @@ fn list(items: &[TaskArg]) -> TaskArg {
     TaskArg::List(items.to_vec())
 }
 
+/// `request.data` for one of the export tasks: the value `pyjson` parses from
+/// a JSON body, in the inline (`TaskArg::Json`) form a handler passes.
+fn body_json(text: &str) -> TaskArg {
+    TaskArg::json(
+        plane_serde::pyjson::loads(text.as_bytes(), "utf-8")
+            .unwrap_or_else(|error| panic!("test JSON {text:?} does not parse: {error}")),
+    )
+}
+
 /// Build one representative message by its case id.
 ///
 /// Returns `None` for an unknown id so a tool can report a useful error.
@@ -152,10 +161,50 @@ pub fn build(case: &str) -> Option<Message> {
         "issue_export_task" => issue_export_task(
             "csv".to_string(),
             WORKSPACE,
-            vec![PROJECT_TEXT.to_string(), PROJECT_TEXT.to_string()],
+            list(&[s(PROJECT_TEXT), s(PROJECT_TEXT)]),
             "exporter-token".to_string(),
-            true,
+            TaskArg::Bool(true),
             "acme".to_string(),
+        ),
+        // Raw request-body values for the two export constructors
+        // (`plans/ANALYTICS_EXPORTS.md` §2b): `project_ids`/`multiple` are
+        // `request.data.get(...)` and `data` is `request.data`, so a handler
+        // hands over whatever `pyjson` parsed — not a normalised list/bool.
+        "issue_export_task_raw_string" => issue_export_task(
+            "csv".to_string(),
+            WORKSPACE,
+            body_json(r#""single-project-id""#),
+            "exporter-token".to_string(),
+            body_json(r#""false""#),
+            "acme".to_string(),
+        ),
+        "issue_export_task_raw_ints" => issue_export_task(
+            "xlsx".to_string(),
+            WORKSPACE,
+            body_json("[1, 2, 3]"),
+            "exporter-token".to_string(),
+            body_json("0"),
+            "acme".to_string(),
+        ),
+        "issue_export_task_raw_nested" => issue_export_task(
+            "csv".to_string(),
+            WORKSPACE,
+            body_json(r#"[["nested"], {"k": [1, null, true]}]"#),
+            "exporter-token".to_string(),
+            body_json(r#"{"form": ["false"]}"#),
+            "acme".to_string(),
+        ),
+        "analytic_export_task_raw_list" => analytic_export_task(
+            "admin@example.com".to_string(),
+            body_json(r#"["x_axis", 3, null, {"nested": [true, 2.5]}]"#),
+            "acme".to_string(),
+            USER_TEXT.to_string(),
+        ),
+        "analytic_export_task_raw_int" => analytic_export_task(
+            "admin@example.com".to_string(),
+            body_json("7"),
+            "acme".to_string(),
+            USER_TEXT.to_string(),
         ),
         "forgot_password" => forgot_password(
             "Ada".to_string(),
@@ -594,5 +643,10 @@ pub fn case_ids() -> &'static [&'static str] {
         "unsnooze_expired_intake_issues",
         "stack_email_notification",
         "push_instance_metrics",
+        "issue_export_task_raw_string",
+        "issue_export_task_raw_ints",
+        "issue_export_task_raw_nested",
+        "analytic_export_task_raw_list",
+        "analytic_export_task_raw_int",
     ]
 }

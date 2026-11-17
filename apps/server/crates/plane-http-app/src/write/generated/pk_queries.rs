@@ -9,6 +9,8 @@
 
 /// One statement per related field, in module order.
 pub static ALL_QUERIES: &[&plane_db::Query] = &[
+    &super::analytic_view_serializer::PK_CREATED_BY,
+    &super::analytic_view_serializer::PK_UPDATED_BY,
     &super::cycle_user_properties_serializer::PK_CREATED_BY,
     &super::cycle_user_properties_serializer::PK_UPDATED_BY,
     &super::deploy_board_serializer::PK_CREATED_BY,

@@ -791,6 +791,73 @@ CASES: list[dict[str, Any]] = [
         "call_site": "plane/license/management/commands/register_instance.py:90",
         "task": "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
     },
+    # -- Raw request-body values the export constructors pass through unchanged
+    #    (plans/ANALYTICS_EXPORTS.md §2b): `project_ids=request.data.get(
+    #    "project", [])` and `multiple=request.data.get("multiple", False)`
+    #    (plane/app/views/exporter/base.py:29-30), `data=request.data`
+    #    (plane/app/views/analytic/base.py:256). Appended at the end so every
+    #    earlier case keeps its position-derived task id.
+    {
+        "case": "issue_export_task_raw_string",
+        "call_site": "plane/app/views/exporter/base.py:50 (project/multiple as sent)",
+        "task": "plane.bgtasks.export_task.issue_export_task",
+        "kwargs": {
+            "provider": "csv",
+            "workspace_id": WORKSPACE,
+            "project_ids": "single-project-id",
+            "token_id": "exporter-token",
+            "multiple": "false",
+            "slug": "acme",
+        },
+    },
+    {
+        "case": "issue_export_task_raw_ints",
+        "call_site": "plane/app/views/exporter/base.py:50 (project/multiple as sent)",
+        "task": "plane.bgtasks.export_task.issue_export_task",
+        "kwargs": {
+            "provider": "xlsx",
+            "workspace_id": WORKSPACE,
+            "project_ids": [1, 2, 3],
+            "token_id": "exporter-token",
+            "multiple": 0,
+            "slug": "acme",
+        },
+    },
+    {
+        "case": "issue_export_task_raw_nested",
+        "call_site": "plane/app/views/exporter/base.py:50 (project/multiple as sent)",
+        "task": "plane.bgtasks.export_task.issue_export_task",
+        "kwargs": {
+            "provider": "csv",
+            "workspace_id": WORKSPACE,
+            "project_ids": [["nested"], {"k": [1, None, True]}],
+            "token_id": "exporter-token",
+            "multiple": {"form": ["false"]},
+            "slug": "acme",
+        },
+    },
+    {
+        "case": "analytic_export_task_raw_list",
+        "call_site": "plane/app/views/analytic/base.py:256 (data=request.data)",
+        "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+        "kwargs": {
+            "email": "admin@example.com",
+            "data": ["x_axis", 3, None, {"nested": [True, 2.5]}],
+            "slug": "acme",
+            "user_id": str(USER),
+        },
+    },
+    {
+        "case": "analytic_export_task_raw_int",
+        "call_site": "plane/app/views/analytic/base.py:256 (data=request.data)",
+        "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+        "kwargs": {
+            "email": "admin@example.com",
+            "data": 7,
+            "slug": "acme",
+            "user_id": str(USER),
+        },
+    },
 ]
 
 

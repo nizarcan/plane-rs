@@ -544,6 +544,22 @@ volatile_db_columns:
     shape: estimate_random_name
     request: "POST /api/workspaces/*/projects/*/estimates/"
     why: "generate_random_name() when the create body has no `name` (plane/app/views/estimate/base.py:29-31, :66)"
+  # `ExportIssuesEndpoint.post` stores `ExporterHistory.token = uuid4().hex`
+  # (plane/db/models/exporter.py:20, plane/app/views/exporter/base.py:50) and
+  # publishes the same value as `token_id`. The DB diff is normalised before
+  # the Celery message (plane-testkit/src/runner.rs), so this placeholder is
+  # then substituted inside `kwargs.token_id` and `kwargsrepr`
+  # (normalize.rs::normalize_text → substitute_known). Scoped to the create
+  # route: the fixture's exporter tokens are 64 hex
+  # (tools/fixtures/build.py:2816), not this shape, and a read step must not
+  # try to placeholder them.
+  - table: exporters
+    column: token
+    mode: placeholder
+    placeholder: export-token
+    shape: uuid_hex
+    request: "POST *export-issues*"
+    why: "ExporterHistory.token = uuid4().hex on create (plane/db/models/exporter.py:20, plane/app/views/exporter/base.py:50)"
 
 # Celery transport headers: not part of the task's observable behaviour, so
 # they are dropped rather than placeholdered (their values are per-process).

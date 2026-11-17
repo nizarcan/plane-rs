@@ -2825,6 +2825,226 @@
       },
       "body_b64": "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
       "body_bytes": 77
+    },
+    {
+      "case": "issue_export_task_raw_string",
+      "call_site": "plane/app/views/exporter/base.py:50 (project/multiple as sent)",
+      "task": "plane.bgtasks.export_task.issue_export_task",
+      "task_id": "00000000-0000-4000-8000-000000000065",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000065",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.export_task.issue_export_task",
+        "id": "00000000-0000-4000-8000-000000000065",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000065",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'provider': 'csv', 'workspace_id': UUID('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60'), 'project_ids': 'single-project-id', 'token_id': 'exporter-token', 'multiple': 'false', 'slug': 'acme'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InByb3ZpZGVyIjogImNzdiIsICJ3b3Jrc3BhY2VfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNmExYjZmMGUwZjlhNGI2MjlhMzkxYjJjM2Q0ZTVmNjAifX0sICJwcm9qZWN0X2lkcyI6ICJzaW5nbGUtcHJvamVjdC1pZCIsICJ0b2tlbl9pZCI6ICJleHBvcnRlci10b2tlbiIsICJtdWx0aXBsZSI6ICJmYWxzZSIsICJzbHVnIjogImFjbWUifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 293
+    },
+    {
+      "case": "issue_export_task_raw_ints",
+      "call_site": "plane/app/views/exporter/base.py:50 (project/multiple as sent)",
+      "task": "plane.bgtasks.export_task.issue_export_task",
+      "task_id": "00000000-0000-4000-8000-000000000066",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000066",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.export_task.issue_export_task",
+        "id": "00000000-0000-4000-8000-000000000066",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000066",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'provider': 'xlsx', 'workspace_id': UUID('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60'), 'project_ids': [1, 2, 3], 'token_id': 'exporter-token', 'multiple': 0, 'slug': 'acme'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InByb3ZpZGVyIjogInhsc3giLCAid29ya3NwYWNlX2lkIjogeyJfX3R5cGVfXyI6ICJ1dWlkIiwgIl9fdmFsdWVfXyI6IHsiaGV4IjogIjZhMWI2ZjBlMGY5YTRiNjI5YTM5MWIyYzNkNGU1ZjYwIn19LCAicHJvamVjdF9pZHMiOiBbMSwgMiwgM10sICJ0b2tlbl9pZCI6ICJleHBvcnRlci10b2tlbiIsICJtdWx0aXBsZSI6IDAsICJzbHVnIjogImFjbWUifSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 278
+    },
+    {
+      "case": "issue_export_task_raw_nested",
+      "call_site": "plane/app/views/exporter/base.py:50 (project/multiple as sent)",
+      "task": "plane.bgtasks.export_task.issue_export_task",
+      "task_id": "00000000-0000-4000-8000-000000000067",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000067",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.export_task.issue_export_task",
+        "id": "00000000-0000-4000-8000-000000000067",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000067",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'provider': 'csv', 'workspace_id': UUID('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60'), 'project_ids': [['nested'], {'k': [...]}], 'token_id': 'exporter-token', 'multiple': {'form': ['false']}, 'slug': 'acme'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7InByb3ZpZGVyIjogImNzdiIsICJ3b3Jrc3BhY2VfaWQiOiB7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNmExYjZmMGUwZjlhNGI2MjlhMzkxYjJjM2Q0ZTVmNjAifX0sICJwcm9qZWN0X2lkcyI6IFtbIm5lc3RlZCJdLCB7ImsiOiBbMSwgbnVsbCwgdHJ1ZV19XSwgInRva2VuX2lkIjogImV4cG9ydGVyLXRva2VuIiwgIm11bHRpcGxlIjogeyJmb3JtIjogWyJmYWxzZSJdfSwgInNsdWciOiAiYWNtZSJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 322
+    },
+    {
+      "case": "analytic_export_task_raw_list",
+      "call_site": "plane/app/views/analytic/base.py:256 (data=request.data)",
+      "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+      "task_id": "00000000-0000-4000-8000-000000000068",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000068",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+        "id": "00000000-0000-4000-8000-000000000068",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000068",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'email': 'admin@example.com', 'data': ['x_axis', 3, None, {'nested': [...]}], 'slug': 'acme', 'user_id': '0d1e2f30-4456-4789-9abc-def012345678'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImVtYWlsIjogImFkbWluQGV4YW1wbGUuY29tIiwgImRhdGEiOiBbInhfYXhpcyIsIDMsIG51bGwsIHsibmVzdGVkIjogW3RydWUsIDIuNV19XSwgInNsdWciOiAiYWNtZSIsICJ1c2VyX2lkIjogIjBkMWUyZjMwLTQ0NTYtNDc4OS05YWJjLWRlZjAxMjM0NTY3OCJ9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
+      "body_bytes": 226
+    },
+    {
+      "case": "analytic_export_task_raw_int",
+      "call_site": "plane/app/views/analytic/base.py:256 (data=request.data)",
+      "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+      "task_id": "00000000-0000-4000-8000-000000000069",
+      "properties": {
+        "content_type": "application/json",
+        "content_encoding": "utf-8",
+        "delivery_mode": 2,
+        "delivery_info": {
+          "exchange": "",
+          "routing_key": "celery"
+        },
+        "priority": 0,
+        "correlation_id": "00000000-0000-4000-8000-000000000069",
+        "reply_to": "0f0f0f0f-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "lang": "py",
+        "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+        "id": "00000000-0000-4000-8000-000000000069",
+        "shadow": null,
+        "eta": null,
+        "expires": null,
+        "group": null,
+        "group_index": null,
+        "retries": 0,
+        "timelimit": [
+          null,
+          null
+        ],
+        "root_id": "00000000-0000-4000-8000-000000000069",
+        "parent_id": null,
+        "argsrepr": "()",
+        "kwargsrepr": "{'email': 'admin@example.com', 'data': 7, 'slug': 'acme', 'user_id': '0d1e2f30-4456-4789-9abc-def012345678'}",
+        "origin": "gen4242@celery-golden",
+        "ignore_result": false,
+        "replaced_task_nesting": 0,
+        "stamped_headers": null,
+        "stamps": {}
+      },
+      "body_b64": "W1tdLCB7ImVtYWlsIjogImFkbWluQGV4YW1wbGUuY29tIiwgImRhdGEiOiA3LCAic2x1ZyI6ICJhY21lIiwgInVzZXJfaWQiOiAiMGQxZTJmMzAtNDQ1Ni00Nzg5LTlhYmMtZGVmMDEyMzQ1Njc4In0sIHsiY2FsbGJhY2tzIjogbnVsbCwgImVycmJhY2tzIjogbnVsbCwgImNoYWluIjogbnVsbCwgImNob3JkIjogbnVsbH1d",
+      "body_bytes": 183
     }
   ]
 }
