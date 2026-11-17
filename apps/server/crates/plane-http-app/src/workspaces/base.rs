@@ -37,7 +37,12 @@ use crate::workspaces::rows;
 
 /// `RESTRICTED_WORKSPACE_SLUGS` (`plane/utils/constants.py:5-73`), without the
 /// duplicates the Python list carries — membership is what it is used for.
-static RESTRICTED_WORKSPACE_SLUGS: &[&str] = &[
+///
+/// Two callers, as in Python: `WorkSpaceAvailabilityCheckEndpoint.get`
+/// (`base.py:225`) and the model field's `slug_validator` that
+/// [`crate::write::Serializer::slug_field`] runs before DRF's uniqueness check
+/// (`plane/db/models/workspace.py:114-116`).
+pub static RESTRICTED_WORKSPACE_SLUGS: &[&str] = &[
     "404",
     "accounts",
     "api",

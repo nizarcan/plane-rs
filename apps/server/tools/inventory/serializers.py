@@ -1979,6 +1979,17 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.user.UserSerializer",
     "plane.app.serializers.user.ProfileSerializer",
     "plane.app.serializers.api.APITokenSerializer",
+    # workspace-core writes (`plans/WORKSPACES_CORE.md` §2c): the seven
+    # serializers routes 186/187/188/189/194/199/200/207/218/219/220/221 use.
+    # `WorkSpaceMemberSerializer` is included for its one writable field
+    # (`role`); every other field is read-only, which the table records.
+    "plane.app.serializers.workspace.WorkSpaceSerializer",
+    "plane.app.serializers.workspace.WorkspaceThemeSerializer",
+    "plane.app.serializers.workspace.WorkSpaceMemberInviteSerializer",
+    "plane.app.serializers.workspace.WorkspaceUserPropertiesSerializer",
+    "plane.app.serializers.workspace.WorkspaceUserLinkSerializer",
+    "plane.app.serializers.workspace.WorkspaceHomePreferenceSerializer",
+    "plane.app.serializers.workspace.WorkSpaceMemberSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is
@@ -2013,6 +2024,14 @@ WRITE_EQUIVALENCE = {
 
 FIELD_KIND_VARIANTS = {
     "char": "Char",
+    # `serializers.SlugField`: a `CharField` whose validator chain is the model
+    # field's own validators, DRF's `UniqueValidator`, `MaxLength`, the null and
+    # surrogate checks, and `RegexValidator(r"^[-a-zA-Z0-9_]+$")`
+    # (`rest_framework/fields.py:790-803`). Its own kind so the table shows it
+    # and `validate` points the handler at `Serializer::slug_field`, which runs
+    # the chain in that order (`Workspace.slug`, `plane/app/serializers/
+    # workspace.py:43-86`).
+    "slug": "Slug",
     # `serializers.URLField`: a `CharField` with Django's `URLValidator` and
     # optionally declared validators appended (`rest_framework/fields.py:806-814`).
     # Its own kind so `validate` can emit `url_field` instead of `char_field`.
@@ -2086,6 +2105,9 @@ def write_kind(field: Any) -> str:
     # (`rest_framework/fields.py:794-814`).
     if isinstance(field, drf.URLField):
         return "url"
+    # Before `CharField`: `SlugField` subclasses it (`fields.py:790-803`).
+    if isinstance(field, drf.SlugField):
+        return "slug"
     if isinstance(field, drf.CharField):
         return "char"
     if isinstance(field, drf.ModelField):
@@ -2566,6 +2588,17 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
                 f"max_length: {('Some(' + str(field['max_length']) + ')') if 'max_length' in field else 'None'}, "
                 f"validators: &[{validators}] }})?;"
             )
+        elif kind == "slug":
+            # The chain depends on the model field's declared validators (the
+            # restricted slug list) and on its `UniqueValidator` queryset, so
+            # only a handler can supply them: `Serializer::slug_field` with a
+            # `SlugOptions` built for this serializer.
+            lines.append(
+                f"    // TODO(slug): {field['name']} needs "
+                f"Serializer::slug_field with the model's restricted list and "
+                f"UniqueValidator"
+            )
+            todos.append(("slug", field["serializer"], field["name"]))
         elif kind == "boolean" and not field["allow_null"]:
             has_statement = True
             lines.append(f"    let _ = s.bool_field({name});")
@@ -2843,6 +2876,8 @@ def write_generated_mod(records: list[OrderedDict[str, Any]]) -> str:
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
         "pub enum FieldKind {",
         "    Char,",
+        "    /// `serializers.SlugField`: `Serializer::slug_field`'s validator chain.",
+        "    Slug,",
         "    Url,",
         "    Integer,",
         "    Float,",

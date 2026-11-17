@@ -22,11 +22,11 @@
 //!
 //! H04 (`Model.objects.filter(...).delete()`, the queryset form) is different:
 //! it is a bare `UPDATE ... SET deleted_at=now` with no save hook, no
-//! `updated_at` and no task. No GET route needs it yet; a write route that
-//! deletes a collection adds it here.
+//! `updated_at` and no task — see [`delete_where`].
 
 use chrono::{DateTime, Utc};
 use deadpool_postgres::Client;
+use tokio_postgres::types::ToSql;
 use uuid::Uuid;
 
 use crate::pool::DbError;
@@ -56,4 +56,68 @@ pub async fn delete_instance(
         .execute(&statement, &[&now, &updated_by, &pk])
         .await?;
     Ok(())
+}
+
+/// The `UPDATE` H04 issues, for a predicate the caller supplies.
+///
+/// Only `deleted_at` is assigned: no `updated_at`, no `updated_by_id`, no model
+/// hook. Django's `QuerySet.update()` writes exactly the named column
+/// (`django/db/models/query.py:1200-1220`).
+#[must_use]
+pub fn delete_where_sql(table: &str, predicate: &str) -> String {
+    format!("UPDATE {table} SET deleted_at = $1 WHERE {predicate}")
+}
+
+/// H04 — `SoftDeletionQuerySet.delete(soft=True)` (`plane/db/mixins.py:33-38`):
+/// `self.update(deleted_at=timezone.now())`.
+///
+/// The queryset's own manager predicate (`deleted_at IS NULL`, from
+/// `SoftDeletionManager.get_queryset`) is part of it, so an already deleted row
+/// keeps its timestamp; nothing else is written and no
+/// `soft_delete_related_objects` task is published — the cascade is H03's, for
+/// one instance, not the queryset's.
+///
+/// `query` is the catalogued statement, whose **`$1` is `deleted_at`** and
+/// whose remaining placeholders are `params`, in the order the caller's
+/// predicate declares. `table`/predicate text come from constants, never from
+/// request data.
+///
+/// Returns the row count Django's `.delete()` reports (its result tuple's
+/// first element).
+///
+/// # Errors
+///
+/// A database failure.
+pub async fn delete_where(
+    client: &Client,
+    query: &'static crate::Query,
+    params: &[&(dyn ToSql + Sync)],
+    deleted_at: DateTime<Utc>,
+) -> Result<u64, DbError> {
+    let statement = query.prepare(client).await?;
+    let mut values: Vec<&(dyn ToSql + Sync)> = Vec::with_capacity(params.len() + 1);
+    values.push(&deleted_at);
+    values.extend_from_slice(params);
+    Ok(client.execute(&statement, &values).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn h04_writes_only_deleted_at() {
+        // `ProjectIdentifier.objects.filter(name=name, workspace__slug=slug)
+        // .delete()` (`plane/app/views/project/base.py:470`).
+        assert_eq!(
+            delete_where_sql(
+                "project_identifiers",
+                "deleted_at IS NULL AND name = $2 AND workspace_id IN (\
+                 SELECT id FROM workspaces WHERE slug = $3)"
+            ),
+            "UPDATE project_identifiers SET deleted_at = $1 \
+             WHERE deleted_at IS NULL AND name = $2 AND workspace_id IN (\
+             SELECT id FROM workspaces WHERE slug = $3)"
+        );
+    }
 }

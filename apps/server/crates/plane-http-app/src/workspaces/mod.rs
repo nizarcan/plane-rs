@@ -73,6 +73,7 @@ pub mod user;
 pub mod user_preference;
 pub mod write_favorite;
 pub mod write_favorite_queries;
+pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///

@@ -55,6 +55,22 @@ shapes:
   api_token:
     pattern: '^[0-9a-f]{64}$'
     why: "users.token is two uuid4 hex strings when token_updated_at is set (plane/db/models/user.py:174)"
+  # plane/app/views/workspace/invite.py:90-99: jwt.encode({"email": <raw body>,
+  # "timestamp": <naive-local epoch>}, SECRET_KEY, algorithm="HS256"). PyJWT
+  # writes header.payload.signature, each segment base64url without padding
+  # (jwt/api_jws.py:126-208, jwt/utils.py:36-37).
+  invite_token:
+    pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+    why: "WorkspaceMemberInvite.token = a PyJWT HS256 token on create (plane/app/views/workspace/invite.py:90-99)"
+  # The JSON key `token` carries two different writers: `users.token` (64 hex,
+  # users/me writes) and an invitation's PyJWT (a GET of an invitation created
+  # earlier in the run). The name-keyed table holds one rule per key, so the
+  # rule's shape is the union; a fixture invitation's two-`uuid4().hex` token
+  # matches `api_token` and stays comparable, and every segment is still shape
+  # checked.
+  api_or_invite_token:
+    any_of: [api_token, invite_token]
+    why: "one name-keyed rule serves users.token and a workspace invitation token (scenarios/normalize.yaml's `token` rule)"
   # plane/db/models/api.py:13-14,19: generate_token = "plane_api_" + uuid4().hex.
   plane_api_token:
     pattern: '^plane_api_[0-9a-f]{32}$'
@@ -365,8 +381,8 @@ volatile_json_keys:
   - name: token
     mode: placeholder_if_non_empty
     placeholder: token
-    shape: api_token
-    why: "users.token is 64 random hex characters when token_updated_at is set (plane/db/models/user.py:174)"
+    shape: api_or_invite_token
+    why: "`token` is users.token (two uuid4 hex strings when token_updated_at is set, plane/db/models/user.py:174) or a workspace invitation's PyJWT (plane/app/views/workspace/invite.py:90-99)"
   - name: background_color
     placeholder: colour
     shape: hex_colour
@@ -556,6 +572,17 @@ volatile_db_columns:
     placeholder: colour
     shape: hex_colour
     why: "random default colour, mixed case (plane/db/models/workspace.py:139, plane/utils/color.py:9)"
+  # 188 mints one JWT per requested e-mail (`plane/app/views/workspace/invite.py:90-99`),
+  # so the inserted row's token differs between the two targets. The glob covers
+  # create and the users-me join (190) alike; the latter only soft-deletes
+  # fixture rows, so `token` never appears in its diff (only changed columns are
+  # compared) and a fixture's two-`uuid4().hex` value stays literal.
+  - table: workspace_member_invites
+    column: token
+    placeholder: invite-token
+    shape: invite_token
+    request: "POST */invitations/"
+    why: "WorkspaceMemberInvite.token = jwt.encode({email, timestamp}, SECRET_KEY, HS256) on create (plane/app/views/workspace/invite.py:90-99)"
   - table: labels
     column: color
     mode: placeholder_if_new

@@ -640,23 +640,42 @@ impl Capture {
 /// A named value shape. Rules reference a shape by name; the pattern is
 /// checked *before* a value is placeholdered, on both targets, so a value of
 /// the wrong length or alphabet is a difference rather than a normalised blob.
+///
+/// Exactly one of `pattern` and `any_of` is set. `any_of` is the union of other
+/// shapes and exists because one name-keyed rule can serve two writers: the
+/// JSON key `token` carries `users.token` (64 hex) *and* a workspace
+/// invitation's PyJWT, and `volatile_json_keys` holds one rule per key name.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShapeRule {
-    pub pattern: String,
+    #[serde(default)]
+    pub pattern: Option<String>,
+    /// Names of other shapes; a value matches when it matches any of them.
+    #[serde(default)]
+    pub any_of: Option<Vec<String>>,
     pub why: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct Shape {
     pub name: String,
-    pub regex: regex::Regex,
+    /// One regex per alternative; a value matches when it matches any.
+    pub regexes: Vec<regex::Regex>,
     pub why: String,
 }
 
 impl Shape {
     pub fn is_match(&self, value: &str) -> bool {
-        self.regex.is_match(value)
+        self.regexes.iter().any(|regex| regex.is_match(value))
+    }
+
+    /// The patterns, joined for a failure message.
+    pub fn pattern(&self) -> String {
+        self.regexes
+            .iter()
+            .map(regex::Regex::as_str)
+            .collect::<Vec<_>>()
+            .join(" | ")
     }
 }
 
@@ -951,9 +970,39 @@ impl NormalizeRules {
             if shape.why.trim().is_empty() {
                 bail!("normalize: shape {name} has no justification");
             }
-            regex::Regex::new(&shape.pattern).map_err(|error| {
-                anyhow::anyhow!("normalize: shape {name}: invalid regex: {error}")
-            })?;
+            match (&shape.pattern, &shape.any_of) {
+                (Some(pattern), None) => {
+                    regex::Regex::new(pattern).map_err(|error| {
+                        anyhow::anyhow!("normalize: shape {name}: invalid regex: {error}")
+                    })?;
+                }
+                (None, Some(names)) => {
+                    if names.is_empty() {
+                        bail!("normalize: shape {name}: `any_of` is empty");
+                    }
+                    for other in names {
+                        if other == name {
+                            bail!("normalize: shape {name}: `any_of` names itself");
+                        }
+                        let Some(target) = self.shapes.get(other) else {
+                            bail!(
+                                "normalize: shape {name}: `any_of` names unknown shape {other:?}"
+                            );
+                        };
+                        if target.any_of.is_some() {
+                            bail!(
+                                "normalize: shape {name}: `any_of` names {other:?}, which is itself a union; only direct patterns are allowed"
+                            );
+                        }
+                    }
+                }
+                (Some(_), Some(_)) => {
+                    bail!("normalize: shape {name}: set `pattern` or `any_of`, not both");
+                }
+                (None, None) => {
+                    bail!("normalize: shape {name}: needs `pattern` or `any_of`");
+                }
+            }
         }
         for (what, rule) in self
             .volatile_cookies
@@ -1077,20 +1126,35 @@ impl NormalizeRules {
 
     /// Compile the shape catalogue. Called once per run; the normaliser holds
     /// the compiled regexes.
+    ///
+    /// `any_of` shapes resolve to the union of their targets' compiled regexes;
+    /// [`NormalizeRules::validate`] already rejected an unknown, self-referencing
+    /// or nested union.
     pub fn compile_shapes(&self) -> BTreeMap<String, Shape> {
         self.shapes
             .iter()
             .filter_map(|(name, rule)| {
-                regex::Regex::new(&rule.pattern).ok().map(|regex| {
-                    (
-                        name.clone(),
-                        Shape {
-                            name: name.clone(),
-                            regex,
-                            why: rule.why.clone(),
-                        },
-                    )
-                })
+                let regexes: Vec<regex::Regex> = match (&rule.pattern, &rule.any_of) {
+                    (Some(pattern), _) => vec![regex::Regex::new(pattern).ok()?],
+                    (None, Some(names)) => names
+                        .iter()
+                        .map(|other| {
+                            self.shapes
+                                .get(other)
+                                .and_then(|target| target.pattern.as_deref())
+                                .and_then(|pattern| regex::Regex::new(pattern).ok())
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                    (None, None) => return None,
+                };
+                Some((
+                    name.clone(),
+                    Shape {
+                        name: name.clone(),
+                        regexes,
+                        why: rule.why.clone(),
+                    },
+                ))
             })
             .collect()
     }
@@ -1409,6 +1473,85 @@ shapes:
         );
         let error = rules.validate().expect_err("must reject");
         assert!(error.to_string().contains("invalid regex"));
+    }
+
+    #[test]
+    fn the_committed_normalize_rules_load() {
+        // The harness only loads this file when a run starts; a shape typo
+        // would otherwise surface as a shape violation on every step that
+        // touches the value. `--check`-style guard for CI.
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/normalize.yaml");
+        let rules = NormalizeRules::load(&path).expect("scenarios/normalize.yaml loads");
+        let compiled = rules.compile_shapes();
+        assert!(compiled.contains_key("invite_token"));
+        assert!(compiled.contains_key("api_or_invite_token"));
+        assert!(compiled["api_or_invite_token"].regexes.len() == 2);
+    }
+
+    #[test]
+    fn a_union_shape_needs_two_direct_patterns() {
+        let rules = parse(
+            r#"
+shapes:
+  hex64:
+    pattern: '^[0-9a-f]{64}$'
+    why: "64 hex"
+  jwt:
+    pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+    why: "three-part JWT"
+  either:
+    any_of: [hex64, jwt]
+    why: "users.token or an invitation token"
+"#,
+        );
+        rules.validate().expect("a union of two patterns is valid");
+        let compiled = rules.compile_shapes();
+        let either = &compiled["either"];
+        assert!(either.is_match("a".repeat(64).as_str()));
+        assert!(either.is_match("a.b.c"));
+        assert!(!either.is_match("a.b"));
+        assert_eq!(either.regexes.len(), 2);
+
+        let rules = parse(
+            r#"
+shapes:
+  hex64:
+    pattern: '^[0-9a-f]{64}$'
+    why: "64 hex"
+  nested:
+    any_of: [hex64]
+    why: "x"
+  outer:
+    any_of: [nested]
+    why: "x"
+"#,
+        );
+        let error = rules.validate().expect_err("must reject");
+        assert!(error.to_string().contains("itself a union"));
+
+        let rules = parse(
+            r#"
+shapes:
+  empty:
+    any_of: []
+    why: "x"
+"#,
+        );
+        let error = rules.validate().expect_err("must reject");
+        assert!(error.to_string().contains("`any_of` is empty"));
+
+        let rules = parse(
+            r#"
+shapes:
+  both:
+    pattern: '^x$'
+    any_of: [both]
+    why: "x"
+"#,
+        );
+        let error = rules.validate().expect_err("must reject");
+        assert!(error.to_string().contains("not both"));
     }
 
     #[test]

@@ -65,6 +65,7 @@ pub mod generated;
 pub mod html;
 pub mod list_serializer;
 pub(crate) mod pyiso;
+pub mod repr;
 pub mod serializer;
 pub mod url;
 
@@ -72,7 +73,9 @@ pub use fields::{CharOptions, Detail, IntegerOptions};
 pub use list_serializer::{ChildError, ListError, list_of};
 /// The H01 audit columns (`plane/db/models/base.py:23-45`).
 pub use plane_db::hooks::audit::Audit;
-pub use serializer::{PrimaryKeyListOptions, Serializer, Validated, ValidationErrors, Value};
+pub use serializer::{
+    PrimaryKeyListOptions, Serializer, SlugOptions, SlugUnique, Validated, ValidationErrors, Value,
+};
 pub use url::{UrlOptions, UrlValidator};
 
 use chrono::{DateTime, SubsecRound, Utc};
