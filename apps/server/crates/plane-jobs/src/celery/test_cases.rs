@@ -50,7 +50,6 @@ const ISSUE_TEXT: &str = "11111111-2222-3333-4444-555555555555";
 const PROJECT_TEXT: &str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const PAGE_TEXT: &str = "44444444-5555-6666-7777-888888888888";
 const LINK_TEXT: &str = "66666666-7777-8888-9999-aaaaaaaaaaaa";
-const WORKSPACE_TEXT: &str = "6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60";
 const ASSET_TEXT: &str = "99999999-8888-7777-6666-555555555555";
 const DISPATCH_TEXT: &str = "12345678-1234-5678-1234-567812345678";
 
@@ -558,7 +557,7 @@ pub fn build(case: &str) -> Option<Message> {
             "http://localhost:3000".to_string(),
             "admin@example.com".to_string(),
         ),
-        "workspace_seed" => workspace_seed(WORKSPACE_TEXT.to_string()),
+        "workspace_seed" => workspace_seed(WORKSPACE),
         "delete_api_logs" => delete_api_logs(),
         "delete_email_notification_logs" => delete_email_notification_logs(),
         "delete_issue_description_versions" => delete_issue_description_versions(),

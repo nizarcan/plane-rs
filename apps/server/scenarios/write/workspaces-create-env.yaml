@@ -1,0 +1,44 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# 186's `DISABLE_WORKSPACE_CREATION` gate, **environment** branch: with
+# `SKIP_ENV_VAR=0` (`plane/settings/common.py:401`)
+# `get_configuration_value` ignores `instance_configurations` entirely and reads
+# `os.environ.get("DISABLE_WORKSPACE_CREATION", "0")`
+# (`plane/license/utils/instance_value.py:33-36`). The fixture still holds the
+# `"1"` row from `workspaces-create-disabled.yaml`, so a 201 here proves the row
+# was not consulted — and the environment's `"0"` created a workspace.
+
+name: write-workspaces-create-env
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+  SKIP_ENV_VAR: "0"
+  DISABLE_WORKSPACE_CREATION: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/workspaces-create-config-fixture.sql"
+  session_no_workspace: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  - name: wsce-01-create-env-wins
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Env Allowed"
+      slug: "env-allowed"
+    expect_status: 201
+
+  # The created workspace is readable, so the 201 really wrote rows.
+  - name: wsce-02-retrieve
+    method: GET
+    path: /api/workspaces/env-allowed/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"

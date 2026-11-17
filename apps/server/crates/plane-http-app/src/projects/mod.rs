@@ -46,6 +46,7 @@ pub mod board;
 pub mod deploy_board_write;
 pub mod favorite_write;
 pub mod identifier;
+pub mod identifier_write;
 pub mod invite;
 pub mod invite_write;
 pub mod joined;
@@ -75,7 +76,8 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
 
     registry
         .api_view("plane.app.views.project.base.ProjectIdentifierEndpoint")?
-        .method(http::Method::GET, identifier::get)?;
+        .method(http::Method::GET, identifier::get)?
+        .method(http::Method::DELETE, identifier_write::delete)?;
 
     registry
         .viewset("plane.app.views.project.invite.ProjectInvitationsViewset")?

@@ -783,12 +783,18 @@ pub fn workspace_invitation(
 
 /// `plane.bgtasks.workspace_seed_task.workspace_seed`
 /// (`app/views/workspace/base.py:138`): one positional argument,
-/// `serializer.data["id"]`, a **string**.
+/// `serializer.data["id"]`, a **`UUID` object**.
+///
+/// `WorkSpaceSerializer.id` is `PrimaryKeyRelatedField(read_only=True)` without
+/// a queryset, so `to_representation` returns `value.pk` and not `str(pk)`
+/// (`rest_framework/relations.py:300-310`); kombu then encodes it with its
+/// `__type__` extension and `saferepr` prints `UUID('…')`. The differential
+/// harness caught the difference against a string argument.
 #[must_use]
-pub fn workspace_seed(workspace_id: String) -> Message {
+pub fn workspace_seed(workspace_id: Uuid) -> Message {
     Message::new(
         task_name::WORKSPACE_SEED,
-        vec![TaskArg::str(workspace_id)],
+        vec![TaskArg::uuid(workspace_id)],
         Vec::new(),
     )
 }

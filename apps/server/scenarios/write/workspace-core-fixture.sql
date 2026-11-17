@@ -42,6 +42,11 @@
 --     (`plane/app/views/workspace/home.py:34-37`).
 --   * route 207's `get_or_create` needs a second workspace's properties row
 --     (and a soft-deleted row, which the partial unique index allows).
+--   * route 186's response renders `Workspace.logo_url`; a `logo_asset` of a
+--     non-static entity type reads the asset's own workspace, so a
+--     workspace-less asset raises `AttributeError` inside the property and DRF
+--     omits the key (SkipField) while the create still succeeds. No fixture
+--     asset has a NULL workspace.
 --
 -- `project_identifiers` needs no rows here: `build.py` creates one per project,
 -- so the soft-deleted `delta` project and the archived `gamma` project already
@@ -266,3 +271,32 @@ VALUES
    '{"display_filters": {"layout": "kanban", "group_by": "state"}}',
    '{"display_properties": {"assignee": false, "state": true}}',
    '{}', 10, 'TABBED');
+
+-- 7. A `FileAsset` with **no workspace** and a non-static entity type. Route
+--    186's response evaluates `Workspace.logo_url`, which returns
+--    `self.logo_asset.asset_url` when the FK is set; the description branch of
+--    `asset_url` reads `self.workspace.slug` (`plane/db/models/asset.py:93-104`)
+--    on a NULL workspace, i.e. `None.slug` — an `AttributeError`, which DRF's
+--    `Field.get_attribute` converts to `SkipField`: `logo_url` is omitted from
+--    the body and the create still answers 201 (`rest_framework/fields.py:445-
+--    451`).
+INSERT INTO file_assets
+  (created_at, updated_at, id, attributes, asset, created_by_id, updated_by_id,
+   workspace_id, is_deleted, deleted_at, is_archived, comment_id, entity_type,
+   external_id, external_source, is_uploaded, issue_id, page_id, project_id,
+   size, storage_metadata, user_id, draft_issue_id, entity_identifier)
+VALUES
+  ('2026-01-01 00:00:21+00', '2026-01-01 00:00:21+00',
+   'e0000000-0000-4000-8000-000000000070',
+   '{"name": "orphan.txt", "type": "text/plain", "size": 16}',
+   'user-00000000000000000000000000000070-orphan.txt',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL,
+   NULL, FALSE, NULL, FALSE, NULL, 'ISSUE_DESCRIPTION', NULL, NULL, TRUE,
+   NULL, NULL, NULL, 16, '{}', NULL, NULL, NULL);
+
+-- 8. `no_workspace`'s profile points at the 40-character-slug workspace, so
+--    route 187's DELETE — which 500s on H05's slug rewrite — still shows the
+--    `profiles.last_workspace_id` clear committed (`base.py:161-172`: the clear
+--    runs before `super().destroy()`).
+UPDATE profiles SET last_workspace_id = 'e0000000-0000-4000-8000-000000000001'
+WHERE user_id = (SELECT id FROM users WHERE email = 'fix.lonely@example.com');
