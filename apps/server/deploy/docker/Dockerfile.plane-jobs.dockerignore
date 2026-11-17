@@ -1,0 +1,32 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Dockerfile-specific ignore file for `Dockerfile.plane-jobs`. BuildKit looks
+# for `<Dockerfile>.dockerignore` next to the Dockerfile and uses it instead of
+# the context's `.dockerignore`, so the repository root can be the build context
+# (the Rust binary embeds one `apps/api` template, see the Dockerfile) without
+# uploading `apps/server/target/` (tens of gigabytes) or the Django virtualenv.
+#
+# Patterns are matched against the context root; a `*` does not cross `/`.
+
+# Everything at the top level is out (other apps, packages, .git, ...).
+*
+!apps
+
+# The Rust workspace is in.
+!apps/server
+# ... but not its build output, local dev stack, generated scenarios or the
+# separate testkit workspace (never a dependency of the server binaries).
+apps/server/target
+apps/server/dev
+apps/server/scenarios
+apps/server/tools
+apps/server/deploy
+apps/server/docs
+apps/server/*.md
+apps/server/crates/plane-testkit
+
+# Django is out except for the single template `csrf.rs` embeds.
+apps/api/*
+!apps/api/templates
