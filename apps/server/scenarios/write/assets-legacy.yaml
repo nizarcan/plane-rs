@@ -1,0 +1,895 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Assets set B — the legacy (`v1`) asset writes (`plans/ASSETS.md`):
+#
+#   POST    /api/workspaces/{slug}/file-assets/                          (13)
+#   DELETE  the same route                                               (13) 500
+#   DELETE  /api/workspaces/file-assets/{workspace_id}/{asset_key}/      (14)
+#   POST    the same route                                               (14) 405
+#   POST    /api/users/file-assets/                                      (15)
+#   DELETE  the same route                                               (15) 500
+#   POST    /api/users/file-assets/{asset_key}/                          (16) 500
+#   DELETE  the same route                                               (16)
+#   POST    .../file-assets/{workspace_id}/{asset_key}/restore/          (17)
+#
+# Every branch the Python has, in its order:
+#
+#   * the three upload 500s (an unconditional `S3Storage` `AttributeError`
+#     after a *valid* body) and the three wrong-verb 500s (`TypeError` raised at
+#     call time: 13 DELETE, 15 DELETE, 16 POST);
+#   * every `FileField` 400 (required / null / invalid / empty), the
+#     `JSONField` message, the non-mapping body (`non_field_errors`), the
+#     "No data provided" body, and 15's 415 for a JSON body (no `JSONParser`);
+#   * `is_deleted`-only deletes: a legacy delete leaves `deleted_at` NULL, so
+#     the row stays visible to `FileAsset.objects` and 17 can restore it, while
+#     `assets-fixture.sql`'s already-`deleted_at` row is 404;
+#   * `.get()` cardinality: one live key is a 204/200, two are the family 500,
+#     none is 404, and another user's key is 404 on 16 (no workspace check);
+#   * `can_modify_asset`: workspace admin, project member, project guest
+#     (uploader only), a workspace member outside the project, a workspace
+#     admin/owner of another workspace, plus `WORKSPACE_LOGO` (admin only) and
+#     `PROJECT_COVER` (project admin) — and the route-level 401/403 bodies that
+#     differ from the handler's;
+#   * the foreign `Origin` 403.
+#
+# The fixture ids are `scenarios/write/assets-fixture.sql`'s; `asb-` = assets
+# set B.
+
+name: write-assets-legacy
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/assets-fixture.sql"
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  # Route 14/17 take the workspace's UUID, not the slug (`<uuid:workspace_id>`).
+  ws_id: "a91c3d80-5ed0-40f3-92a8-a28c015f4388"
+  ws2_id: "7045c0d6-5260-494d-a205-4cfbaab24fea"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  # assets-fixture.sql: live PAGE_DESCRIPTION by admin, alpha.
+  asset_page_desc: "e0a00000-0000-4000-8000-000000000003"
+  asset_page_desc_key: "00000000000000000000000000000003-page-diagram.png"
+  # assets-fixture.sql: live DRAFT_ISSUE_DESCRIPTION by admin, alpha.
+  asset_draft_key: "00000000000000000000000000000004-draft-note.txt"
+  # assets-fixture.sql: ws2 asset by e15c61cc (nonmember), project theta.
+  asset_ws2_key: "00000000000000000000000000000005-theta-diagram.png"
+  # assets-fixture.sql: two live rows with this key (admin) → `.get()` 500.
+  asset_dup_key: "00000000000000000000000000000006-duplicate.txt"
+  # assets-fixture.sql: live ISSUE_ATTACHMENT by admin, alpha.
+  asset_pending_key: "00000000000000000000000000000008-pending.png"
+  # assets-fixture.sql: live ISSUE_ATTACHMENT by admin, alpha.
+  asset_no_metadata_key: "00000000000000000000000000000009-no-metadata.png"
+  # assets-fixture.sql: live ISSUE_DESCRIPTION created by the guest, alpha.
+  asset_guest_key: "00000000000000000000000000000b-guest-note.txt"
+  # assets-fixture.sql: soft-deleted (`deleted_at` set) ISSUE_ATTACHMENT.
+  asset_deleted_at_key: "00000000000000000000000000000001-old-spec.pdf"
+  # assets-fixture.sql: USER_COVER created by `member`, no workspace.
+  asset_member_cover_key: "user-00000000000000000000000000000002-cover.png"
+  # assets-fixture.sql's set B block: two live rows with this key, by `member`.
+  asset_user_dup_key: "user-000000000000000000000000000000b1-dup-user-asset.txt"
+  # The rich fixture's WORKSPACE_LOGO (admin-created).
+  asset_logo_key: "a7db82433cdc4534b28788a6ff1346da-logo.png"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  # `7ae351b7`: a fix-workspace MEMBER with no project membership at all —
+  # `can_modify_asset` replaces the workspace role with the (missing) project
+  # role, so there is no promotion.
+  session_member_no_project: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # === 13 POST /api/workspaces/{slug}/file-assets/ =======================
+  # A valid multipart upload validates and then dies in `S3Storage.save`:
+  # `AttributeError: 'S3Storage' object has no attribute 'file_overwrite'`.
+  # No file_assets row, no task.
+  - name: asb-01-13-post-multipart-file
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        attributes: '{"name": "note.txt", "type": "text/plain", "size": 6}'
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello\n"
+    expect_status: 500
+
+  # `asset` absent: `FileField`'s `required` message, not the generic one.
+  - name: asb-02-13-post-multipart-no-file
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        attributes: '{"name": "note.txt"}'
+    expect_status: 400
+
+  # `allow_empty_file=False` and a zero-byte part.
+  - name: asb-03-13-post-multipart-empty-file
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      files:
+        - field: asset
+          filename: empty.txt
+          content_type: text/plain
+          content: ""
+    expect_status: 400
+
+  # `JSONField.get_value` marks a form value as a JSON string; `notjson` is
+  # not JSON. The file part is valid, so the only error is `attributes` — and
+  # it comes first, in `self.fields` order.
+  - name: asb-04-13-post-multipart-bad-attributes
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        attributes: "notjson"
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 400
+
+  # `request.data["attributes"]` is the file object itself; `json.dumps`
+  # refuses it → "Value must be valid JSON.".
+  - name: asb-05-13-post-multipart-attributes-as-file
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+        - field: attributes
+          filename: attributes.json
+          content_type: application/json
+          content: '{"name": "note.txt"}'
+    expect_status: 400
+
+  # `filename=""` is a *field* (`parse_boundary_stream` requires a truthy
+  # filename), so `asset` is the part's text → `invalid`.
+  - name: asb-06-13-post-multipart-empty-filename
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      files:
+        - field: asset
+          filename: ""
+          content_type: text/plain
+          content: "hello"
+    expect_status: 400
+
+  # A urlencoded body's `asset` is a string, not an upload.
+  - name: asb-07-13-post-form-asset
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    body: "asset=hello"
+    expect_status: 400
+
+  # An empty form value is not `empty` for a required field: it reaches
+  # `FileField.to_internal_value` and fails `invalid` (there is no `''`
+  # early-return in DRF 3.18's `FileField`).
+  - name: asb-08-13-post-form-empty-asset
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    body: "asset="
+    expect_status: 400
+
+  # Two failing fields, in `self.fields` order: attributes, then asset.
+  - name: asb-09-13-post-form-both-fields
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    body: "asset=x&attributes=zzz"
+    expect_status: 400
+
+  # A JSON body can never carry a file: `asset` is required.
+  - name: asb-10-13-post-json
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes: { "name": "note.txt" }
+    expect_status: 400
+
+  - name: asb-11-13-post-json-asset-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset: "hello"
+    expect_status: 400
+
+  - name: asb-12-13-post-json-null-asset
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset: null
+    expect_status: 400
+
+  # `Serializer.to_internal_value`'s non-mapping branch.
+  - name: asb-13-13-post-json-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: []
+    expect_status: 400
+
+  # `data=None` is DRF's "No data provided" special case.
+  - name: asb-14-13-post-json-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: "null"
+    expect_status: 400
+
+  # No `JSONParser` for a text/plain body with bytes.
+  - name: asb-15-13-post-text-plain
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: text/plain
+    body: "hello"
+    expect_status: 415
+
+  # An empty body is `{}`: `asset` required.
+  - name: asb-16-13-post-empty-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `WorkspaceMemberPermission` admits a GUEST; the upload then 500s like any
+  # other.
+  - name: asb-17-13-post-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    multipart:
+      files:
+        - field: asset
+          filename: guest.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 500
+
+  # The route-level permission body (`detail`), before the view runs.
+  - name: asb-18-13-post-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    multipart:
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 403
+
+  - name: asb-19-13-post-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    multipart:
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 401
+
+  # Plane's session auth is an origin check; `Host` and `Origin` must agree.
+  - name: asb-20-13-post-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    origin: "http://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 403
+
+  # 13 DELETE: the collection route supplies no `workspace_id`/`asset_key`.
+  - name: asb-21-13-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: asb-22-13-delete-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: asb-23-13-delete-anonymous
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/file-assets/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # === 14 DELETE /api/workspaces/file-assets/{workspace_id}/{asset_key}/ ==
+  # A workspace ADMIN: 204, and only `is_deleted` is written (`deleted_at`,
+  # `updated_at` and `updated_by` keep their fixture values).
+  - name: asb-24-14-delete-admin-page-desc
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_page_desc_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Repeat: the row is still visible to `FileAsset.objects` (deleted_at NULL)
+  # and `can_modify_asset` still passes → 204 again, no DB change.
+  - name: asb-25-14-delete-again
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_page_desc_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # ISSUE_ATTACHMENT: a project MEMBER needs to be an ADMIN or the uploader.
+  - name: asb-26-14-delete-member-attachment
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_pending_key}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  # …while the admin may delete it.
+  - name: asb-27-14-delete-admin-attachment
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_pending_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # No live row with that key.
+  - name: asb-28-14-delete-missing
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/no-such-key.txt/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # Two live rows with the key: `MultipleObjectsReturned` → family 500.
+  - name: asb-29-14-delete-duplicate-key
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_dup_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # Route-level permission on the URL's `workspace_id`.
+  - name: asb-30-14-delete-nonmember
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # A restricted GUEST is a workspace member, so the route admits it; the
+  # handler's `can_modify_asset` then denies an asset it did not upload.
+  - name: asb-31-14-delete-guest-on-admin-asset
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # A workspace MEMBER who is not an alpha project member: `can_modify_asset`
+  # replaces the workspace role with the (missing) project role, so no
+  # promotion — 403.
+  - name: asb-32-14-delete-member-outside-project
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/"
+    jar: member_no_project
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member_no_project}}"
+    expect_status: 403
+
+  # A project MEMBER on a non-attachment asset: allowed.
+  - name: asb-33-14-delete-member-draft
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # The uploader branch: a GUEST with a project role may delete their own.
+  - name: asb-34-14-delete-guest-own
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_guest_key}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  # WORKSPACE_LOGO is admin-only, even for a member of the project.
+  - name: asb-35-14-delete-member-logo
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_logo_key}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: asb-36-14-delete-admin-logo
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_logo_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The ws2 ADMIN on the ws2 asset: both role lookups resolve (workspace 20,
+  # project theta 20).
+  - name: asb-37-14-delete-ws2-admin
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws2_id}}/{{asset_ws2_key}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 204
+
+  # A member of the URL's workspace, but the key belongs to another workspace:
+  # the composed key misses → 404.
+  - name: asb-38-14-delete-foreign-workspace-key
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws2_id}}/{{asset_no_metadata_key}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 404
+
+  # Route 14 restricts its verbs: a POST is a 405 from the route table, not a
+  # `TypeError` 500.
+  - name: asb-39-14-post-method-not-allowed
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_no_metadata_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  - name: asb-40-14-delete-anonymous
+    method: DELETE
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_no_metadata_key}}/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # === 17 POST .../restore/ =============================================
+  # Delete then restore (asb-24 deleted it): `is_deleted` flips back.
+  - name: asb-41-17-restore-deleted
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_page_desc_key}}/restore/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Restoring a live asset is a no-op UPDATE and still 204.
+  - name: asb-42-17-restore-live
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_no_metadata_key}}/restore/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The fixture row has `deleted_at` set, so `FileAsset.objects.get()` misses:
+  # the legacy restore cannot undo a v2 delete.
+  - name: asb-43-17-restore-soft-deleted-row
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_deleted_at_key}}/restore/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: asb-44-17-restore-missing
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/no-such-key.txt/restore/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: asb-45-17-restore-duplicate-key
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_dup_key}}/restore/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `asb-33` deleted it; the guest is neither admin nor uploader.
+  - name: asb-46-17-restore-guest-on-admin-asset
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/restore/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # A project MEMBER may restore a non-attachment asset.
+  - name: asb-47-17-restore-member
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/restore/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # `asb-34` deleted the guest's own asset; the uploader branch restores it.
+  - name: asb-48-17-restore-guest-own
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_guest_key}}/restore/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 204
+
+  - name: asb-49-17-restore-nonmember
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/restore/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: asb-50-17-restore-anonymous
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/restore/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  - name: asb-51-17-restore-foreign-origin
+    method: POST
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_draft_key}}/restore/"
+    jar: admin
+    origin: "http://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # === 15 POST/DELETE /api/users/file-assets/ ===========================
+  - name: asb-52-15-post-multipart
+    method: POST
+    path: "/api/users/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        attributes: '{"name": "user-note.txt"}'
+      files:
+        - field: asset
+          filename: user-note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 500
+
+  # No `JSONParser` on this class.
+  - name: asb-53-15-post-json
+    method: POST
+    path: "/api/users/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes: {}
+    expect_status: 415
+
+  - name: asb-54-15-post-form-asset
+    method: POST
+    path: "/api/users/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/x-www-form-urlencoded
+    body: "asset=hello"
+    expect_status: 400
+
+  - name: asb-55-15-post-empty-body
+    method: POST
+    path: "/api/users/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: asb-56-15-post-empty-file
+    method: POST
+    path: "/api/users/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      files:
+        - field: asset
+          filename: empty.txt
+          content_type: text/plain
+          content: ""
+    expect_status: 400
+
+  - name: asb-57-15-post-anonymous
+    method: POST
+    path: "/api/users/file-assets/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    multipart:
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 401
+
+  # The collection route supplies no `asset_key` for the DELETE signature.
+  - name: asb-58-15-delete
+    method: DELETE
+    path: "/api/users/file-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: asb-59-15-delete-anonymous
+    method: DELETE
+    path: "/api/users/file-assets/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # === 16 POST/DELETE /api/users/file-assets/{asset_key}/ ===============
+  # `post(self, request)` does not take `asset_key`: `TypeError` → 500.
+  - name: asb-60-16-post
+    method: POST
+    path: "/api/users/file-assets/harness-key.txt/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 500
+
+  # The `TypeError` is raised before `request.data` is touched, so this is the
+  # same 500 rather than 15's 415.
+  - name: asb-61-16-post-json
+    method: POST
+    path: "/api/users/file-assets/harness-key.txt/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes: {}
+    expect_status: 500
+
+  - name: asb-62-16-post-anonymous
+    method: POST
+    path: "/api/users/file-assets/harness-key.txt/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    multipart:
+      files:
+        - field: asset
+          filename: note.txt
+          content_type: text/plain
+          content: "hello"
+    expect_status: 401
+
+  # `created_by=request.user` is the only authorisation: the owner deletes
+  # their own USER_COVER (is_deleted only; the user row is not touched).
+  - name: asb-63-16-delete-own
+    method: DELETE
+    path: "/api/users/file-assets/{{asset_member_cover_key}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # Another user's key is a 404, not a 403.
+  - name: asb-64-16-delete-another-users
+    method: DELETE
+    path: "/api/users/file-assets/{{asset_member_cover_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # Two live rows with the same user-style key, both by `member`.
+  - name: asb-65-16-delete-duplicate-key
+    method: DELETE
+    path: "/api/users/file-assets/{{asset_user_dup_key}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 500
+
+  # For the admin the same key matches no row (`created_by` differs).
+  - name: asb-66-16-delete-duplicate-key-other-user
+    method: DELETE
+    path: "/api/users/file-assets/{{asset_user_dup_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: asb-67-16-delete-missing
+    method: DELETE
+    path: "/api/users/file-assets/no-such-user-key.txt/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: asb-68-16-delete-anonymous
+    method: DELETE
+    path: "/api/users/file-assets/{{asset_member_cover_key}}/"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # === the legacy delete's `is_deleted` is visible to the v1 GET =========
+  # `asb-41` restored the PAGE_DESCRIPTION, so the row still serializes; the
+  # point is the DB diff of every step above staying `is_deleted`-only.
+  - name: asb-69-14-get-page-desc
+    method: GET
+    path: "/api/workspaces/file-assets/{{ws_id}}/{{asset_page_desc_key}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200

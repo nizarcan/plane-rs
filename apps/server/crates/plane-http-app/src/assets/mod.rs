@@ -12,15 +12,15 @@
 //! * `/api/workspaces/file-assets/**`
 //! * `/api/users/file-assets/**`
 //!
-//! This module ports the group's fourteen `GET` routes and the v2 write verbs
-//! of `plans/ASSETS.md` set A (18/19/24/25/26). The legacy v1 writes
-//! (`FileAssetEndpoint`/`UserAssetsEndpoint`), `FileAssetViewSet.restore`,
-//! `AssetRestoreEndpoint`, the user-asset routes and `DuplicateAssetEndpoint`
-//! are sets B and C and still answer the pipeline's 501.
+//! This module ports the group's fourteen `GET` routes, the v2 write verbs of
+//! `plans/ASSETS.md` set A (18/19/24/25/26) and the v1 writes ([`legacy`],
+//! routes 13-17, set B). The user-asset routes, `AssetRestoreEndpoint` and
+//! `DuplicateAssetEndpoint` are set C and still answer the pipeline's 501.
 //!
 //! | Module | Python |
 //! | --- | --- |
 //! | [`base`] | `plane/app/views/asset/base.py` — `FileAssetEndpoint`, `UserAssetsEndpoint` |
+//! | [`legacy`] | the same file's v1 writes — `POST`/`DELETE` and `restore` (set B) |
 //! | [`v2`] | `plane/app/views/asset/v2.py` — workspace, project, static, check and download |
 //! | [`workspace_write`] | `v2.py` — `WorkspaceFileAssetEndpoint.post`/`patch`/`delete` (18/19) |
 //! | [`project_write`] | `v2.py` — `ProjectAssetEndpoint` (24/25) and `ProjectBulkAssetEndpoint` (26) |
@@ -29,6 +29,7 @@
 //! | [`entities`] | the write-only entity helpers: `asset_delete`, the shared `{"error": …}` literals, the invalidation key lists |
 //! | [`write_queries`] | the `file_assets` INSERT/UPDATE/lookup the write sets share |
 //! | [`write_a_queries`] | set A's own `file_assets`/`workspaces`/`projects` statements |
+//! | [`write_b_queries`] | the v1 writes' two `get()` lookups and the `is_deleted` column UPDATE |
 //!
 //! The six routes that answer `302` sign for the **request's** host
 //! (`request.scheme://request.get_host()`, `plane/settings/storage.py:42-54`),
@@ -37,6 +38,12 @@
 //!
 //! ## The shared write pieces
 //!
+//! The v1 writes are [`legacy`]: three unconditional upload 500s
+//! (`S3Storage.__init__` never calls the parent), three wrong-verb `TypeError`
+//! 500s (13 DELETE, 15 DELETE, 16 POST), route 14's POST 405, and the
+//! `is_deleted`-only delete and restore.
+//!
+//! The shared write pieces land first, so the set files do not each port them:
 //! [`support`]'s `can_modify_asset`/`sanitize_filename`/presign bodies,
 //! [`write_queries`]'s `file_assets` statements and [`entities`]' error
 //! literals, `asset_delete` and invalidation key lists came first (set P0), so
@@ -51,12 +58,14 @@ use plane_drf::registry::{Registry, RegistryError};
 pub mod attachment;
 pub mod base;
 pub mod entities;
+pub mod legacy;
 pub mod project_write;
 pub mod queries;
 pub mod support;
 pub mod v2;
 pub mod workspace_write;
 pub mod write_a_queries;
+pub mod write_b_queries;
 pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
@@ -86,5 +95,5 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.asset.v2.ProjectBulkAssetEndpoint")?
         .method(Method::POST, project_write::bulk)?;
-    Ok(())
+    legacy::register(registry)
 }
