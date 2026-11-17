@@ -236,3 +236,37 @@ VALUES
 UPDATE users
 SET cover_image_asset_id = 'e0a00000-0000-4000-8000-000000000002'
 WHERE id = '78100240-9cfd-4782-8627-25ab039c6e9a';
+
+-- === set B (legacy v1, `assets-legacy.yaml`) — appended block ==============
+-- Two live rows with the same *user-style* key, both created by `member`:
+-- `UserAssetsEndpoint.delete` (`plane/app/views/asset/base.py:106`) filters on
+-- `asset` + `created_by` with `QuerySet.get()`, and its `<str:asset_key>`
+-- converter cannot carry the `/` of a workspace-keyed asset, so the duplicate
+-- `a91c3d80…/…0006` rows above are a 404 there. These two make it a
+-- `MultipleObjectsReturned` → 500 (for `member`) and a miss → 404 (for `admin`).
+-- Nothing else reads them: no v2 route, no user avatar/cover FK.
+INSERT INTO file_assets
+  (created_at, updated_at, id, attributes, asset, created_by_id, updated_by_id,
+   workspace_id, is_deleted, deleted_at, is_archived, comment_id, entity_type,
+   external_id, external_source, is_uploaded, issue_id, page_id, project_id,
+   size, storage_metadata, user_id, draft_issue_id, entity_identifier)
+VALUES
+  ('2026-01-01 00:00:13+00', '2026-01-01 00:00:13+00',
+   'e0b00000-0000-4000-8000-000000000001',
+   '{"name": "dup-user-asset.txt", "type": "text/plain", "size": 64}',
+   'user-000000000000000000000000000000b1-dup-user-asset.txt',
+   '78100240-9cfd-4782-8627-25ab039c6e9a', NULL,
+   NULL, FALSE, NULL,
+   FALSE, NULL, NULL, NULL, NULL, TRUE,
+   NULL, NULL, NULL, 64, '{}',
+   '78100240-9cfd-4782-8627-25ab039c6e9a', NULL, NULL),
+  ('2026-01-01 00:00:14+00', '2026-01-01 00:00:14+00',
+   'e0b00000-0000-4000-8000-000000000002',
+   '{"name": "dup-user-asset.txt", "type": "text/plain", "size": 64}',
+   'user-000000000000000000000000000000b1-dup-user-asset.txt',
+   '78100240-9cfd-4782-8627-25ab039c6e9a', NULL,
+   NULL, FALSE, NULL,
+   FALSE, NULL, NULL, NULL, NULL, TRUE,
+   NULL, NULL, NULL, 64, '{}',
+   '78100240-9cfd-4782-8627-25ab039c6e9a', NULL, NULL);
+-- === end set B block ======================================================

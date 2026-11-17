@@ -505,6 +505,23 @@ impl Runtime {
         }
 
         // ---- the handler ---------------------------------------------------
+        // `View.dispatch` picks `http_method_not_allowed` when the verb is not
+        // in `http_method_names`, *after* `initial()` (so the permission
+        // classes already ran) and even when the class implements that verb for
+        // another URL shape of the same view: route 14 mounts
+        // `FileAssetEndpoint.as_view(http_method_names=["get", "delete",
+        // "head", "options"])`, while route 13 registers the same class's POST
+        // (`plane/app/urls/asset.py:27-36`). Viewsets resolve through
+        // `action_for`, which already answers `None` for a verb outside the
+        // route's method map.
+        if !registered.family.is_viewset() && !route.is_allowed_method(&method) {
+            if registered.family == Family::DjangoView {
+                return Ok(http_response_not_allowed(
+                    route.allow.as_deref().unwrap_or_default(),
+                ));
+            }
+            return Err(ViewError::Api(metadata::method_not_allowed(route, &method)));
+        }
         let Some(handler) = registered.handler(route, &method) else {
             if registered.family == Family::DjangoView {
                 return Ok(http_response_not_allowed(
@@ -830,6 +847,35 @@ mod tests {
             &Method::GET,
             &[PermissionClass::IsAuthenticated]
         ));
+    }
+
+    /// Route 14 mounts `FileAssetEndpoint` with a restricted
+    /// `http_method_names`, so its POST is a 405 even though the same class
+    /// serves POST on route 13 (`plane/app/urls/asset.py:27-36`). The
+    /// dispatcher's check (before the handler lookup) is what keeps it a 405
+    /// instead of reaching the other route's handler.
+    #[test]
+    fn a_restricted_url_shape_refuses_the_verb_its_class_registers() {
+        let table = table();
+        let route = table
+            .routes()
+            .iter()
+            .find(|route| {
+                route.order == 14 && route.view == "plane.app.views.asset.base.FileAssetEndpoint"
+            })
+            .expect("route 14");
+        assert!(!route.is_allowed_method(&Method::POST));
+        assert!(route.is_allowed_method(&Method::GET));
+        assert!(route.is_allowed_method(&Method::DELETE));
+        // `View.head` copies `get`; OPTIONS is implicit on a DRF view.
+        assert!(route.is_allowed_method(&Method::HEAD));
+        assert!(route.is_allowed_method(&Method::OPTIONS));
+        let response = render_api(metadata::method_not_allowed(route, &Method::POST));
+        assert_eq!(response.status, 405);
+        assert_eq!(
+            std::str::from_utf8(&response.body).expect("utf8"),
+            r#"{"detail":"Method \"POST\" not allowed."}"#
+        );
     }
 
     #[test]
