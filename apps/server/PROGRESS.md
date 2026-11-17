@@ -1211,7 +1211,22 @@ independent; each domain's sets start after its own P0. At most three builds run
 - Disk dipped to 29 GB again with three builds; recovered to 40 GB by removing merged
   worktrees and the verification target.
 
-Running: assets C. Merging: assets B. Queued: `users/me` A, workspace-core A/B/C,
+- Assets B (merged `c73037211f`, flipped with this entry): 13/15/16
+  `rust(GET,POST,DELETE)`, 14 `rust(GET,DELETE)`, 17 `rust(POST)`.
+  `write/assets-legacy.yaml` 69/69 in both directions. On the merge, the full read + write
+  sweep is 78 files, 4233 steps clean; 1035 tests.
+  - Shared runtime fix: `plane-drf` dispatch now refuses a non-viewset route's verb
+    outside `http_method_names` before the handler lookup. Route 14's POST had reached
+    route 13's handler instead of the 405.
+  - Contract: the 14 DELETE / 17 restore tests pass; the two
+    `test_legacy_file_asset_post_readonly_app.py` tests monkeypatch `FileSystemStorage`
+    in Django's process, which is unreachable from Rust (harness limit).
+  - Upstream quirks kept: every v1 upload 500s (`S3Storage.__init__` never calls its
+    parent); `FileAsset.objects.get(asset=…)` on a non-unique column gives
+    `MultipleObjectsReturned`, a 500; v1 delete/restore write only `is_deleted`; a filename
+    over 255 chars is truncated, so `max_length=800` is dead.
+
+Running: (none). Merging: assets C. Queued: `users/me` A, workspace-core A/B/C,
 analytics A/B/C.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.

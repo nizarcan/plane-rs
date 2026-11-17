@@ -100,11 +100,11 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 10 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;PROJECT) | rust(GET) | verified |
 | 11 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics-stats/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsStatsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;PROJECT) | rust(GET) | verified |
 | 12 | `/api/workspaces/{slug}/projects/{project_id}/advance-analytics-charts/` | GET | `plane.app.views.analytic.project_analytics.ProjectAdvanceAnalyticsChartEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
-| 13 | `/api/workspaces/{slug}/file-assets/` | GET, POST, DELETE | `plane.app.views.asset.base.FileAssetEndpoint` | IsAuthenticated+WorkspaceMemberPermission | rust(GET) | verified |
-| 14 | `/api/workspaces/file-assets/{workspace_id}/{asset_key}/` | GET, DELETE | `plane.app.views.asset.base.FileAssetEndpoint` | IsAuthenticated+WorkspaceMemberPermission | rust(GET) | verified |
-| 15 | `/api/users/file-assets/` | GET, POST, DELETE | `plane.app.views.asset.base.UserAssetsEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 16 | `/api/users/file-assets/{asset_key}/` | GET, POST, DELETE | `plane.app.views.asset.base.UserAssetsEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 17 | `/api/workspaces/file-assets/{workspace_id}/{asset_key}/restore/` | POST:restore | `plane.app.views.asset.base.FileAssetViewSet` | IsAuthenticated+WorkspaceMemberPermission | django | not-started |
+| 13 | `/api/workspaces/{slug}/file-assets/` | GET, POST, DELETE | `plane.app.views.asset.base.FileAssetEndpoint` | IsAuthenticated+WorkspaceMemberPermission | rust(GET,POST,DELETE) | verified |
+| 14 | `/api/workspaces/file-assets/{workspace_id}/{asset_key}/` | GET, DELETE | `plane.app.views.asset.base.FileAssetEndpoint` | IsAuthenticated+WorkspaceMemberPermission | rust(GET,DELETE) | verified |
+| 15 | `/api/users/file-assets/` | GET, POST, DELETE | `plane.app.views.asset.base.UserAssetsEndpoint` | IsAuthenticated | rust(GET,POST,DELETE) | verified |
+| 16 | `/api/users/file-assets/{asset_key}/` | GET, POST, DELETE | `plane.app.views.asset.base.UserAssetsEndpoint` | IsAuthenticated | rust(GET,POST,DELETE) | verified |
+| 17 | `/api/workspaces/file-assets/{workspace_id}/{asset_key}/restore/` | POST:restore | `plane.app.views.asset.base.FileAssetViewSet` | IsAuthenticated+WorkspaceMemberPermission | rust(POST) | verified |
 | 18 | `/api/assets/v2/workspaces/{slug}/` | GET, POST, PATCH, DELETE | `plane.app.views.asset.v2.WorkspaceFileAssetEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET,POST,PATCH,DELETE) | verified |
 | 19 | `/api/assets/v2/workspaces/{slug}/{asset_id}/` | GET, POST, PATCH, DELETE | `plane.app.views.asset.v2.WorkspaceFileAssetEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET,POST,PATCH,DELETE) | verified |
 | 20 | `/api/assets/v2/user-assets/` | POST, PATCH, DELETE | `plane.app.views.asset.v2.UserAssetsV2Endpoint` | IsAuthenticated | django | not-started |
