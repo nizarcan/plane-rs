@@ -87,8 +87,12 @@ shapes:
   # django/contrib/auth/hashers.py:313-350: PBKDF2PasswordHasher with a
   # 22-character salt (salt_entropy 128 bits / log2(62)) and a standard-base64
   # SHA-256 digest. "!" + 40 characters is Django's unusable-password marker.
+  # `encode(password, salt)` accepts any salt text, and the rich fixture uses
+  # the hyphenated `fixture-salt-0001` (`tools/fixtures/build.py`), so the salt
+  # class includes `-`: the deactivation path re-hashes and the DB diff then
+  # carries both the old fixture hash and the new random one.
   django_password_hash:
-    pattern: '^(?:pbkdf2_sha256\$[0-9]{1,9}\$[A-Za-z0-9]{1,64}\$[A-Za-z0-9+/]{43}=|![A-Za-z0-9]{40})$'
+    pattern: '^(?:pbkdf2_sha256\$[0-9]{1,9}\$[A-Za-z0-9-]{1,64}\$[A-Za-z0-9+/]{43}=|![A-Za-z0-9]{40})$'
     why: "Django PBKDF2PasswordHasher: algorithm$iterations$salt$base64-sha256 (django/contrib/auth/hashers.py:324)"
   # django/core/signing.py:230-301: value:base62-timestamp:base64url-signature;
   # a leading "." marks a zlib-compressed payload.

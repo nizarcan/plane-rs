@@ -1,0 +1,44 @@
+{
+  "entries": [
+    {
+      "key": "magic_email_update_78100240-9cfd-4782-8627-25ab039c6e9a_fix.member-new@example.com",
+      "value": "{\"token\": \"123456\"}",
+      "timeout": 600
+    },
+    {
+      "key": "magic_email_update_0e8e23a3-9c07-4333-82fd-4cd439b07279_fix.berlin-new@example.com",
+      "value": "{\"token\": \"654321\"}",
+      "timeout": 600
+    },
+    {
+      "key": "magic_email_update_dfb81684-7a80-49ad-968a-a9eda974c651_fix.tokyo-new@example.com",
+      "value": "{\"token\": \"222222\"}",
+      "timeout": 600
+    },
+    {
+      "key": "magic_email_update_dfb81684-7a80-49ad-968a-a9eda974c651_fix.tokyo-new@example.com:verify_attempts",
+      "value": 5,
+      "timeout": 600
+    },
+    {
+      "key": "magic_email_update_f1d4b6e4-0f7b-4fec-8130-208fa8cecc93_fix.kolkata-new@example.com",
+      "value": "{\"token\": \"333333\"}",
+      "timeout": 600
+    },
+    {
+      "key": "magic_email_update_7ae351b7-90a1-488c-ab91-5ea3623b3640_fix.onboarded-new@example.com",
+      "value": "{\"token\": \"111222\"}",
+      "timeout": 600
+    },
+    {
+      "key": "magic_email_update_7ae351b7-90a1-488c-ab91-5ea3623b3640_fix.onboarded-new@example.com:verify_attempts",
+      "value": 4,
+      "timeout": 600
+    },
+    {
+      "key": "magic_email_update_57448566-7260-4150-b32e-d57eebb36818_fix.seeded@example.com:verify_attempts",
+      "value": 4,
+      "timeout": 600
+    }
+  ]
+}

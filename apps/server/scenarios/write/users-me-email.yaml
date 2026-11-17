@@ -1,0 +1,459 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# E-mail change (set B): 165 `POST /api/users/me/email/generate-code/` and
+# 166 `PATCH /api/users/me/email/`.
+#
+# Covers:
+#
+#   * `get_throttles`: 165 runs EmailVerificationThrottle (3/hour per user)
+#     **and** AuthenticationThrottle (10/minute per client IP); 166 runs only
+#     AuthenticationThrottle. Each step sends its own `X-Forwarded-For`, so the
+#     per-IP bucket is not exhausted by the scenario itself, while the per-user
+#     bucket is deliberately spent on `member`/`guest`.
+#   * `_validate_new_email`: empty, malformed, unchanged and already-taken
+#     addresses, all before any cache access.
+#   * the per-address cap `email_update_issued:<address>`: `add(0, 3600)` +
+#     `incr`, five codes per hour; the sixth request increments to 6 and answers
+#     the manual `self.throttled(request, None)` 429. Six different users prove
+#     the counter is keyed by address, not by account.
+#   * the pickled `magic_email_update_<uid>_<address>` entry (`json.dumps` with
+#     default separators), its TTL bucket, and `cache.delete` of the
+#     `:verify_attempts` key when a fresh code is issued (the seeded
+#     `invitee`/`fix.seeded@example.com` counter disappears).
+#   * 166's verify budget: `add(0, 600)` + `incr` before the code is read; a
+#     wrong code still spends an attempt, `attempts >= 5` deletes the code and
+#     the counter, `attempts > 5` refuses even the correct code, a missing key
+#     is "expired or invalid", and a non-ASCII code is simply a mismatch.
+#   * the success path: `user.save()` (H30 rotates the token because the
+#     fixture's `token_updated_at` is set), `cache.delete(code)` (the attempts
+#     key stays), `logout()` (Set-Cookie deletion + `Vary: Cookie`), the two
+#     `send_email_update_confirmation` publishes in order, and the 18-key
+#     `UserMeSerializer` body rendered from the in-memory row (with the avatar
+#     asset's `avatar_url`).
+#   * the 401 after the success step: the caller's session row is gone.
+#
+# The fixture seeds every code 166 needs (`users-me-email-fixture.redis.json`)
+# because `capture` has no Redis source; both targets therefore compare the same
+# code and the success step is deterministic. The destructive 166 success is
+# last for `member`; every other step uses a different account.
+
+name: write-users-me-email
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_redis: "{repo}/apps/server/scenarios/write/users-me-email-fixture.redis.json"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_kolkata: "0eae3e1db09c4157beda8bfb588fa0da000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_newyork: "1f5b7f378c83445f95a6d3530628b5b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_berlin: "b1b1241a6130412c97b82d3e84acf1fb000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_tz_tokyo: "20e6aeb3df4b4a8f8a14360a5df8636c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_invitee: "bee2ce8d1b4c4779957ca8eae897f3a2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_no_workspace: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_bot: "1ba415d760144c84bafed7b8e721aed3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  member_email: "fix.member@example.com"
+  member_new_email: "fix.member-new@example.com"
+  guest_email: "fix.guest@example.com"
+  admin_email: "fix.admin@example.com"
+  berlin_new_email: "fix.berlin-new@example.com"
+  tokyo_new_email: "fix.tokyo-new@example.com"
+  kolkata_new_email: "fix.kolkata-new@example.com"
+  onboarded_new_email: "fix.onboarded-new@example.com"
+  expired_email: "fix.expired@example.com"
+  cap_email: "fix.cap@example.com"
+  seeded_email: "fix.seeded@example.com"
+  nw_new_email: "fix.nw-new@example.com"
+
+steps:
+  # --- 165: validation, before any cache access ---------------------------
+  - name: email-code-01-empty
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      X-Forwarded-For: 198.51.100.11
+    json: { email: "" }
+    expect_status: 400
+
+  - name: email-code-02-invalid
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      X-Forwarded-For: 198.51.100.12
+    json: { email: "not-an-email" }
+    expect_status: 400
+
+  - name: email-code-03-unchanged
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      X-Forwarded-For: 198.51.100.13
+    json: { email: "{{member_email}}" }
+    expect_status: 400
+
+  # The third request spent `member`'s EmailVerificationThrottle budget, so a
+  # fourth one is refused by the throttle before the body is read.
+  - name: email-code-04-user-throttle
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      X-Forwarded-For: 198.51.100.14
+    json: { email: "not-an-email" }
+    expect_status: 429
+
+  # `_validate_new_email`'s last check: an address owned by another account.
+  - name: email-code-05-taken
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+      X-Forwarded-For: 198.51.100.15
+    json: { email: "{{admin_email}}" }
+    expect_status: 400
+
+  # --- 165: success, code replacement and the per-address cap --------------
+  - name: email-code-06-success
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+      X-Forwarded-For: 198.51.100.16
+    json: { email: "fix.guest-code@example.com" }
+    expect_status: 200
+
+  # A second code for the same address replaces the entry and resets the
+  # verify-attempts key; the issued counter moves to 2.
+  - name: email-code-07-regenerate
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+      X-Forwarded-For: 198.51.100.17
+    json: { email: "fix.guest-code@example.com" }
+    expect_status: 200
+
+  # `guest`'s fourth request is refused by the per-user throttle, before the
+  # body is read (the per-address counter below is unaffected).
+  - name: email-code-08-user-throttle
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+      X-Forwarded-For: 198.51.100.18
+    json: { email: "fix.guest-code@example.com" }
+    expect_status: 429
+
+  # The seeded `invitee`/`fix.seeded@example.com` verify counter is deleted
+  # when a fresh code is issued (`cache.delete(f"{cache_key}:verify_attempts")`).
+  - name: email-code-09-resets-attempts
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: invitee
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_invitee}}"
+      X-Forwarded-For: 198.51.100.19
+    json: { email: "{{seeded_email}}" }
+    expect_status: 200
+
+  # Five codes per address across all accounts; the sixth is the manual
+  # 429 and its increment is visible in `email_update_issued`.
+  - name: email-code-10-cap-1
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+      X-Forwarded-For: 198.51.100.20
+    json: { email: "{{cap_email}}" }
+    expect_status: 200
+
+  - name: email-code-11-cap-2
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+      X-Forwarded-For: 198.51.100.21
+    json: { email: "{{cap_email}}" }
+    expect_status: 200
+
+  - name: email-code-12-cap-3
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+      X-Forwarded-For: 198.51.100.22
+    json: { email: "{{cap_email}}" }
+    expect_status: 200
+
+  - name: email-code-13-cap-4
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+      X-Forwarded-For: 198.51.100.23
+    json: { email: "{{cap_email}}" }
+    expect_status: 200
+
+  - name: email-code-14-cap-5
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+      X-Forwarded-For: 198.51.100.24
+    json: { email: "{{cap_email}}" }
+    expect_status: 200
+
+  - name: email-code-15-cap-6
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+      X-Forwarded-For: 198.51.100.25
+    json: { email: "{{cap_email}}" }
+    expect_status: 429
+
+  # --- 165: body shapes and the unauthenticated caller ---------------------
+  - name: email-code-16-null-email
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: bot
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_bot}}"
+      X-Forwarded-For: 198.51.100.26
+    json: { email: null }
+    expect_status: 500
+
+  - name: email-code-17-list-body
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: bot
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_bot}}"
+      X-Forwarded-For: 198.51.100.27
+    json: [1, 2]
+    expect_status: 500
+
+  - name: email-code-18-unauthenticated
+    method: POST
+    path: /api/users/me/email/generate-code/
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.28
+    json: { email: "fix.anyone@example.com" }
+    expect_status: 401
+
+  - name: email-code-19-foreign-origin
+    method: POST
+    path: /api/users/me/email/generate-code/
+    jar: no_workspace
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+      X-Forwarded-For: 198.51.100.29
+      Origin: "http://evil.example"
+    json: { email: "fix.anyone@example.com" }
+    expect_status: 403
+
+  # --- 166: validation and the verify budget -------------------------------
+  - name: email-update-01-invalid
+    method: PATCH
+    path: /api/users/me/email/
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+      X-Forwarded-For: 198.51.100.31
+    json: { email: "still-not-an-email", code: "123456" }
+    expect_status: 400
+
+  - name: email-update-02-unchanged
+    method: PATCH
+    path: /api/users/me/email/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+      X-Forwarded-For: 198.51.100.32
+    json: { email: "{{guest_email}}", code: "123456" }
+    expect_status: 400
+
+  - name: email-update-03-taken
+    method: PATCH
+    path: /api/users/me/email/
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+      X-Forwarded-For: 198.51.100.33
+    json: { email: "{{admin_email}}", code: "123456" }
+    expect_status: 400
+
+  - name: email-update-04-code-required
+    method: PATCH
+    path: /api/users/me/email/
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+      X-Forwarded-For: 198.51.100.34
+    json: { email: "{{nw_new_email}}" }
+    expect_status: 400
+
+  # No stored code: `cache.add`+`incr` still create the attempts key, then the
+  # missing code answers "expired or invalid".
+  - name: email-update-05-expired
+    method: PATCH
+    path: /api/users/me/email/
+    jar: newyork
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_newyork}}"
+      X-Forwarded-For: 198.51.100.35
+    json: { email: "{{expired_email}}", code: "123456" }
+    expect_status: 400
+
+  # Wrong code against the seeded `berlin` entry: the attempt is spent and the
+  # stored code survives.
+  - name: email-update-06-wrong-code
+    method: PATCH
+    path: /api/users/me/email/
+    jar: berlin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_berlin}}"
+      X-Forwarded-For: 198.51.100.36
+    json: { email: "{{berlin_new_email}}", code: "111111" }
+    expect_status: 400
+
+  # Seeded attempts=4: the fifth wrong attempt reaches `>= 5` and deletes both
+  # the code and its counter.
+  - name: email-update-07-attempts-delete
+    method: PATCH
+    path: /api/users/me/email/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+      X-Forwarded-For: 198.51.100.37
+    json: { email: "{{onboarded_new_email}}", code: "999999" }
+    expect_status: 400
+
+  # Seeded attempts=5: the correct code is refused because `attempts > 5`.
+  - name: email-update-08-exhausted
+    method: PATCH
+    path: /api/users/me/email/
+    jar: tokyo
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_tokyo}}"
+      X-Forwarded-For: 198.51.100.38
+    json: { email: "{{tokyo_new_email}}", code: "222222" }
+    expect_status: 400
+
+  # `secrets.compare_digest` is a byte comparison: a non-ASCII code is simply a
+  # mismatch (there is no TypeError in the pinned Python).
+  - name: email-update-09-non-ascii-code
+    method: PATCH
+    path: /api/users/me/email/
+    jar: kolkata
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_tz_kolkata}}"
+      X-Forwarded-For: 198.51.100.39
+    json: { email: "{{kolkata_new_email}}", code: "é" }
+    expect_status: 400
+
+  # A non-string `code`: `request.data.get("code", "").strip()` is an
+  # `AttributeError` inside the view (family 500), before the cache.
+  - name: email-update-10-non-string-code
+    method: PATCH
+    path: /api/users/me/email/
+    jar: no_workspace
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+      X-Forwarded-For: 198.51.100.40
+    json: { email: "{{nw_new_email}}", code: 123456 }
+    expect_status: 500
+
+  - name: email-update-11-list-body
+    method: PATCH
+    path: /api/users/me/email/
+    jar: bot
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_bot}}"
+      X-Forwarded-For: 198.51.100.41
+    json: [1]
+    expect_status: 500
+
+  - name: email-update-12-unauthenticated
+    method: PATCH
+    path: /api/users/me/email/
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.42
+    json: { email: "fix.anyone@example.com", code: "123456" }
+    expect_status: 401
+
+  # --- 166: success (destructive: this caller is signed out) ---------------
+  - name: email-update-13-success
+    method: PATCH
+    path: /api/users/me/email/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      X-Forwarded-For: 198.51.100.43
+    json: { email: "{{member_new_email}}", code: "123456" }
+    expect_status: 200
+
+  # `logout()` deleted `member`'s session row; the cookie is now anonymous.
+  - name: email-update-14-session-gone
+    method: GET
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      X-Forwarded-For: 198.51.100.44
+    expect_status: 401

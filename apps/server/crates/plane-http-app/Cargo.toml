@@ -18,6 +18,7 @@ base64.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 deadpool-postgres.workspace = true
+getrandom.workspace = true
 http.workspace = true
 plane-auth = { path = "../plane-auth" }
 plane-cache = { path = "../plane-cache" }
