@@ -1571,8 +1571,33 @@ independent; each domain's sets start after its own P0. At most three builds run
     `accounts.access_token_expired_at` is in 1970.
   - Residual: `requests` also honours macOS system-proxy exceptions after `NO_PROXY`;
     reqwest doesn't (D9). No provider host is affected.
-- Phase 6 left: the exit check, every flow walked in a browser against the mixed backend
-  (dev proxy `127.0.0.1:18080`).
+- Browser walk (D21), orchestrator's part, 2026-11-18. Stack: `t_walk_1` (from
+  `plane_fix_tpl`), Django 18000 + release `plane-api` 18100 (built at `cf095c6799`),
+  Redis 11, vhost `walk`, SMTP sink 18410, Celery `-P solo`, web/admin/space dev servers,
+  proxy 18080 with no group flags (details in the gitignored
+  `dev/run/walk/REPORT.md`). Walked in the in-app browser through the real frontends:
+  - app: email check, password sign-in, sign-out (session gone, `/api/users/me/` 401),
+    magic-code sign-in, magic sign-up, onboarding set-password, workspace create,
+    forgot password → emailed link → reset → old password rejected (5065) → new
+    password signs in, change password (wrong old 5135, then 200), password sign-up
+    (magic login switched off in god-mode, then back on);
+  - space: email check, password sign-in, sign-out, magic sign-up, password sign-up;
+  - god-mode admin sign-in and the authentication toggles (Django-owned).
+
+  Every `/auth/` request was answered by Rust (19 distinct route/status pairs in the
+  `plane-api` log); 0 5xx on either backend; every email went through the Celery
+  worker to the sink. Change password used the security page's exact XHR (the profile
+  settings dialog isn't reachable through the browser's accessibility tree). The space
+  app has no forgot/reset UI, so the `/auth/spaces/` password-reset routes are covered
+  by the differential scenarios only.
+  - Walk-DB setup notes: the fixture template has `is_setup_done=false` and
+    `ENABLE_MAGIC_LINK_LOGIN=0`; after changing them by hand, the cached
+    `GET /api/instances/` (`@cache_response(7200)`) had to be deleted from Redis 11.
+    Celery prefork hung on this host; `-P solo` works.
+- Phase 6 left: the owner's Google and GitLab sign-in with real credentials (D21).
+  Register `http://127.0.0.1:18080/auth/{google,gitlab}/callback/`: both providers
+  always use the app callback path, also for space sign-in (`google.py:50`,
+  `gitlab.py:56`).
 
 ### Phase 5 exit (2026-11-17)
 
@@ -1618,8 +1643,8 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      only a "starting" log line. The broker connection was not confirmed, so re-check
      with `rabbitmqctl list_connections` during the idle window at the final benchmark.
      The Celery comparison is cross-environment (native macOS RSS) and only indicative.
-2. Phase 6 (auth flows): all 37 routes on Rust. Left: the browser walk-through of every
-   flow against the mixed backend (the exit check).
+2. Phase 6 (auth flows): all 37 routes on Rust; browser walk done for email, magic and
+   password flows. Left: the owner's Google/GitLab sign-in (D21).
 3. Phase 7: plans committed (`adadc1f188`).
    - `plans/V1_API.md`: P0 (new `plane-http-public`, three `plane-drf` fixes, v1
      expansion and write tables, page envelope), then sets A–D.
