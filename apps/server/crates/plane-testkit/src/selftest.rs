@@ -2124,6 +2124,94 @@ pub fn run() -> Result<()> {
         elsewhere_out[0].1 == "/some/redirect/" && elsewhere.take_violations().is_empty(),
     )?;
 
+    // -- `sigv4_date`: the `x-amz-date` field of a presigned POST ---------
+    // Two targets sign at their own instants, so the same rule as D17 applies
+    // one layer in: the value is checked against the step window and becomes
+    // one constant, because two different signing seconds cannot be compared
+    // byte-wise.
+    let sigv4_normalizer = |started: DateTime<Utc>, ended: DateTime<Utc>| {
+        let mut rules = (*rules()).clone();
+        rules
+            .volatile_json_keys
+            .retain(|rule| rule.name != "x-amz-date");
+        rules.volatile_json_keys.push(crate::config::NamedRule {
+            name: "x-amz-date".to_string(),
+            why: "selftest: SigV4 signing date".to_string(),
+            mode: crate::config::RuleMode::Sigv4Date,
+            placeholder: None,
+            shape: Some("upload_date".to_string()),
+            check: None,
+            request: None,
+        });
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(rules),
+            base_url: "http://x".to_string(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: Some(Arc::new(SECRET_KEY.to_vec())),
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        normalizer.start_step(started, ended);
+        normalizer
+    };
+    let at = |text: &str| {
+        chrono::NaiveDateTime::parse_from_str(text, "%Y%m%dT%H%M%SZ")
+            .map(|value| value.and_utc())
+            .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
+    };
+    let windowed = |date: &str| {
+        let mut normalizer = sigv4_normalizer(at(date), at(date) + Duration::seconds(1));
+        let body = normalizer.normalize_body(
+            format!(r#"{{"upload_data":{{"fields":{{"x-amz-date":"{date}"}}}}}}"#).as_bytes(),
+            true,
+        );
+        (body, normalizer)
+    };
+    let (date_a, mut date_a_normalizer) = windowed("20261116T120000Z");
+    let (date_b, _) = windowed("20261116T120001Z");
+    checks.accepted(
+        "SigV4 POST dates one second apart",
+        &compare_bodies(&date_a, &date_b),
+    )?;
+    checks.ok(
+        "SigV4 POST dates are presented as verified",
+        date_a.pretty().contains("<sigv4-date>") && date_a_normalizer.take_violations().is_empty(),
+    )?;
+    // A date outside the *step's* window is a violation, whatever the value
+    // looks like: `late` signs in the 13:00 minute while the step opened at
+    // 12:00.
+    let mut late_normalizer = sigv4_normalizer(
+        at("20261116T120000Z"),
+        at("20261116T120000Z") + Duration::seconds(1),
+    );
+    let late_date = late_normalizer.normalize_body(
+        br#"{"upload_data":{"fields":{"x-amz-date":"20261116T130000Z"}}}"#,
+        true,
+    );
+    checks.ok(
+        "a SigV4 POST date outside the request window is a violation",
+        !late_normalizer.take_violations().is_empty()
+            && !late_date.pretty().contains("<sigv4-date>"),
+    )?;
+    checks.detected(
+        "a SigV4 POST date outside the request window differs",
+        "body",
+        &compare_bodies(&date_a, &late_date),
+    )?;
+    // A non-date string is a violation rather than a silent pass.
+    let mut wrong_shape = sigv4_normalizer(
+        at("20261116T120000Z"),
+        at("20261116T120000Z") + Duration::seconds(1),
+    );
+    let _ = wrong_shape.normalize_body(
+        br#"{"upload_data":{"fields":{"x-amz-date":"not-a-date"}}}"#,
+        true,
+    );
+    checks.ok(
+        "a non-date x-amz-date is a violation",
+        !wrong_shape.take_violations().is_empty(),
+    )?;
+
     // -- ordering of placeholders across parts ----------------------------
     let mut a = normalizer("http://127.0.0.1:18000");
     a.start_step(start, start);

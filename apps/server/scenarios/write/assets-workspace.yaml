@@ -1,0 +1,1263 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Assets set A — the v2 workspace/project writes (`plans/ASSETS.md`):
+#
+#   POST   /api/assets/v2/workspaces/{slug}/                              (18)
+#   PATCH  /api/assets/v2/workspaces/{slug}/                              → TypeError 500
+#   DELETE /api/assets/v2/workspaces/{slug}/                              → TypeError 500
+#   PATCH  /api/assets/v2/workspaces/{slug}/{asset_id}/                   (19)
+#   DELETE /api/assets/v2/workspaces/{slug}/{asset_id}/                   (19)
+#   POST   /api/assets/v2/workspaces/{slug}/{asset_id}/                   → TypeError 500
+#   POST   /api/assets/v2/workspaces/{slug}/projects/{project_id}/        (24)
+#   PATCH  /api/assets/v2/workspaces/{slug}/projects/{project_id}/        → TypeError 500
+#   DELETE /api/assets/v2/workspaces/{slug}/projects/{project_id}/        → TypeError 500
+#   PATCH  /api/assets/v2/workspaces/{slug}/projects/{project_id}/{pk}/   (25)
+#   DELETE /api/assets/v2/workspaces/{slug}/projects/{project_id}/{pk}/   (25)
+#   POST   /api/assets/v2/workspaces/{slug}/projects/{project_id}/{pk}/   → TypeError 500
+#   POST   …/projects/{project_id}/{entity_id}/bulk/                      (26)
+#
+# What the steps prove, in order:
+#
+#   * 18 POST's order: body → `int(size)` (`ValueError`/`TypeError` → 500) →
+#     entity-type list → the admin-only `WORKSPACE_LOGO` gate → the MIME list →
+#     `Workspace.objects.get` → `can_modify_asset` (only for a truthy
+#     `project_id`, `v2.py:420`) → INSERT → presign.
+#   * the `entity_identifier` default `False` (`v2.py:362`): a missing key is the
+#     nil UUID in the FK column → `IntegrityError` → 400 "The payload is not
+#     valid", while an explicit `null` is a NULL and a 200.
+#   * 18 POST's `get_entity_id_field` gap: `DRAFT_ISSUE_DESCRIPTION` has no FK
+#     there (`v2.py:246-276`), so the asset is created unattached.
+#   * 19 PATCH's entity save: the workspace logo is rebound, the *previous* logo
+#     soft-deleted, and the three `/api/…` cache keys deleted (seeded by
+#     `assets-workspace.redis.json` so the Redis diff sees them). Confirming
+#     twice soft-deletes the row it then updates (the self-delete), and a third
+#     attempt is the manager's 404.
+#   * the project-cover entity save and delete, whose save also clears
+#     `cover_image` (`v2.py:321`) — unlike 26's `save_project_cover`.
+#   * the `WORKSPACE_LOGO` rule is admin-only even for the uploader, and a
+#     project-bound upload by a workspace admin who is not a project member gets
+#     no promotion (`v2.py:49-59`) → 403.
+#   * `is_project_accessible_to` before `can_modify_asset` on 19: a restricted
+#     guest's project-bound asset is the 403 "You don't have access to this
+#     asset.", a member's ISSUE_ATTACHMENT the 403 "…required permissions.".
+#   * 19 PATCH on an asset whose workspace is soft-deleted: the asset lookup's
+#     `workspace__slug` join matches, `can_modify_asset` sees the membership,
+#     and `Workspace.objects.get` (`v2.py:331`) is then the 404.
+#   * the three body-shape 500s (`size: "abc"`, `size: null`, a JSON list) and
+#     the one that fires *after* the entity save (19 PATCH with a list body).
+#   * 24 POST is always a 500 for `PROJECT_COVER`: it binds `project_id` twice
+#     (`v2.py:658-667`), whatever the identifier is.
+#   * 24 POST's `DRAFT_ISSUE_DESCRIPTION` FK and 25 PATCH/DELETE without any
+#     entity rebinding; the metadata task only for a falsy `storage_metadata`.
+#   * 26 bulk: the `No asset ids provided.` 400, the 404 for ids the caller did
+#     not upload, the project-cover branch (with two covers, whose *oldest* wins
+#     because the per-asset loop follows `-created_at`), the issue/comment/page/
+#     draft branches and the three swallowed `IntegrityError`s.
+#   * permissions: member, guest, non-member and a workspace-admin-without-
+#     project on every route that takes a project.
+#
+# S3 objects are never compared (the fixture stores no bytes). Presigned POST
+# bodies are compared with `policy`/`x-amz-signature`/`x-amz-date`/
+# `x-amz-credential` placeholders and the request-scoped `key` rule
+# (`scenarios/normalize.yaml:401-406`, D17/D6).
+
+name: write-assets-workspace
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+  # A small `FILE_SIZE_LIMIT` makes the `min(limit, size)` clamp observable and
+  # keeps the presigned policy's `content-length-range` short. Both targets read
+  # it (`plane/settings/common.py:389`, `plane-core`'s `LimitsSettings`).
+  FILE_SIZE_LIMIT: "4096"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/assets-fixture.sql"
+  fixture_redis: "{repo}/apps/server/scenarios/write/assets-workspace.redis.json"
+  ws: "fix-workspace"
+  ws_id: "a91c3d80-5ed0-40f3-92a8-a28c015f4388"
+  ws_second: "fix-second"
+  ws_deleted: "fix-deleted"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  issue_alpha: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  page_alpha: "a0eb70c7-531a-4fb1-bd48-6c746066c310"
+  draft_alpha: "568f87ef-9cd2-4104-b1d5-2b4e4e8ad4c4"
+  comment_alpha: "eaacf1d0-6afc-4972-b0b6-649452ffd341"
+  user_admin: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  user_guest: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  user_ws_admin_only: "a69a1178-503e-4e62-a07b-f89c6af07687"
+  # Seed rows of `assets-fixture.sql`.
+  logo_fixture: "e704fbad-88e7-4a04-ad34-ee44588b924e"
+  logo_member: "e0a00000-0000-4000-8000-00000000000e"
+  logo_deleted_ws: "e0a00000-0000-4000-8000-00000000000d"
+  pending_attachment: "e0a00000-0000-4000-8000-000000000008"
+  with_metadata: "e0a00000-0000-4000-8000-00000000000a"
+  page_asset: "e0a00000-0000-4000-8000-000000000003"
+  draft_asset: "e0a00000-0000-4000-8000-000000000004"
+  issue_asset_a: "e0a00000-0000-4000-8000-000000000006"
+  issue_asset_b: "e0a00000-0000-4000-8000-000000000007"
+  guest_asset: "e0a00000-0000-4000-8000-00000000000b"
+  # The rich fixture's COMMENT_DESCRIPTION in project alpha, created by admin.
+  comment_asset: "f5dbcf9e-5373-4f44-a51c-a50b8a0395a5"
+  missing_asset: "99999999-9999-4999-8999-999999999999"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_ws_admin_only: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- 18 POST: entity-type gate, size, type, workspace --------------------
+  - name: awa-01-post-workspace-logo
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "  ../brand/logo.png "
+      type: "image/png"
+      size: 2048
+      entity_type: "WORKSPACE_LOGO"
+      entity_identifier: "{{ws_id}}"
+    capture:
+      - name: logo_a
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # The decorator passes (MEMBER is in the allowed roles) but the view's own
+  # gate (`v2.py:371-380`) does not.
+  - name: awa-02-post-logo-as-member
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+      entity_identifier: "{{ws_id}}"
+    expect_status: 403
+
+  - name: awa-03-post-logo-as-guest
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+      entity_identifier: "{{ws_id}}"
+    expect_status: 403
+
+  # `allow_permission(..., level="WORKSPACE")` refuses first, with the
+  # decorator's own body.
+  - name: awa-04-post-as-nonmember
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+      entity_identifier: "{{ws_id}}"
+    expect_status: 403
+
+  # The `False` default: the nil UUID in `workspace_id` fails the foreign key
+  # after the INSERT is attempted (`v2.py:362`, `:425`).
+  - name: awa-05-post-logo-without-identifier
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+    expect_status: 400
+
+  # An explicit `null` is a NULL FK: the row is created with no workspace and
+  # the static `asset_url` does not need one.
+  - name: awa-06-post-logo-null-identifier
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+      entity_identifier: null
+      name: "detached.png"
+      type: "image/png"
+      size: 10
+    capture:
+      - name: logo_null
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # A bogus string identifier is Django's `UUIDField` validation on a FK whose
+  # value is truthy, i.e. inside `can_modify_asset`'s project lookup.
+  - name: awa-07-post-project-cover-bogus-identifier
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: "not-a-uuid"
+    expect_status: 400
+
+  # A project-bound upload: `can_modify_asset` needs project ADMIN, which the
+  # workspace admin who is an alpha member has.
+  - name: awa-08-post-project-cover
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: "{{project_alpha}}"
+      name: "cover.png"
+      type: "image/webp"
+      size: 4096
+    capture:
+      - name: cover_a
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # A workspace admin who is not an alpha member gets no promotion
+  # (`v2.py:57-59` needs the membership row), so the cover is denied.
+  - name: awa-09-post-cover-as-ws-admin-without-project
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: ws_admin_only
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_ws_admin_only}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: "{{project_alpha}}"
+    expect_status: 403
+
+  - name: awa-10-post-cover-as-member
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: "{{project_alpha}}"
+    expect_status: 403
+
+  # A member may still upload a *detached* cover: `project_id` is NULL, so
+  # `v2.py:420`'s truthiness guard skips `can_modify_asset` entirely.
+  - name: awa-11-post-detached-cover-as-member
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: null
+      name: "member-cover.png"
+      type: "image/png"
+      size: 100
+    capture:
+      - name: member_cover
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # `get_entity_id_field` has no entry for DRAFT_ISSUE_DESCRIPTION on this
+  # class, so the draft id is dropped and the asset has no FK.
+  - name: awa-12-post-draft-description-dangling
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "DRAFT_ISSUE_DESCRIPTION"
+      entity_identifier: "{{draft_alpha}}"
+      name: "draft.png"
+    capture:
+      - name: dangling
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # A guest uploads an issue attachment (GUEST is in the decorator's roles).
+  - name: awa-13-post-attachment-as-guest
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      entity_identifier: "{{issue_alpha}}"
+      name: "guest-shot.png"
+      type: "image/jpeg"
+      size: 512
+    capture:
+      - name: guest_attachment
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  - name: awa-14-post-invalid-entity-type
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "NOT_A_TYPE"
+    expect_status: 400
+
+  - name: awa-15-post-entity-type-not-a-string
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: 5
+    expect_status: 400
+
+  - name: awa-16-post-invalid-file-type
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      type: "text/plain"
+    expect_status: 400
+
+  - name: awa-17-post-type-not-a-string
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      type: 7
+    expect_status: 400
+
+  # `int("abc")` → ValueError, before the entity checks.
+  - name: awa-18-post-size-not-a-number
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      size: "abc"
+    expect_status: 500
+
+  # `int(None)` → TypeError: the key is present with a null value.
+  - name: awa-19-post-size-null
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      size: null
+    expect_status: 500
+
+  # `request.data.get` on a list body is an AttributeError.
+  - name: awa-20-post-list-body
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      - "not"
+      - "a mapping"
+    expect_status: 500
+
+  # A fractional size truncates to 1024 (`int(1024.9)`) and is clamped by
+  # FILE_SIZE_LIMIT (4096 in this scenario's env).
+  - name: awa-21-post-fractional-size
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_COVER"
+      entity_identifier: "{{user_member}}"
+      name: "member-cover-image.png"
+      type: "image/gif"
+      size: 1024.9
+    capture:
+      - name: user_cover
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # `Workspace.objects.get(slug=…)` on a soft-deleted workspace is the 404
+  # body: the decorator's `workspace__slug` join has no `workspaces.deleted_at`
+  # predicate, so the role check passes and the view's own lookup fails.
+  - name: awa-21a-post-into-deleted-workspace
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  # A `USER_COVER` bound to another user is still writable by a workspace admin:
+  # only `WORKSPACE_LOGO`/`PROJECT_COVER` rebind on confirm.
+  - name: awa-21b-patch-user-cover-as-admin
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{user_cover}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  # --- 19 PATCH/DELETE: the entity save, the self-delete, the manager ------
+  # Confirming the logo rebinds `workspaces.logo_asset_id`, soft-deletes the
+  # previous logo (`e704fbad…`) and deletes the three cache keys.
+  - name: awa-22-patch-confirm-logo
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  # The workspace's logo is now this asset, so the second confirm soft-deletes
+  # the very row it then writes `is_uploaded`/`attributes` to.
+  - name: awa-23-patch-confirm-logo-again
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes:
+        name: "logo-again.png"
+        type: "image/png"
+        size: 1
+    expect_status: 204
+
+  # The row is soft-deleted, so the manager no longer finds it.
+  - name: awa-24-patch-confirm-logo-third
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 404
+
+  # A workspace logo is admin-only even for its uploader.
+  - name: awa-25-patch-member-logo-as-member
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 403
+
+  - name: awa-26-patch-member-logo-as-guest
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_member}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 403
+
+  # The admin passes, and the DELETE below clears the logo again.
+  - name: awa-27-patch-member-logo-as-admin
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  - name: awa-28-delete-workspace-logo
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: awa-29-delete-workspace-logo-again
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The asset's workspace is soft-deleted: the lookup's `workspace__slug` join
+  # matches and the membership check passes, then `Workspace.objects.get`
+  # (`v2.py:331`) is the 404.
+  - name: awa-30-delete-logo-of-deleted-workspace
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws_deleted}}/{{logo_deleted_ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `is_project_accessible_to` is checked before `can_modify_asset`: the guest
+  # is a restricted guest of alpha (`guest_view_all_features` is off) and the
+  # asset hangs off an issue they did not create, so the first 403 body wins.
+  - name: awa-31-patch-guest-asset-as-guest
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{guest_asset}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 403
+
+  # A project MEMBER passes both checks for an ISSUE_DESCRIPTION even though
+  # they are not the uploader (only ISSUE_ATTACHMENT is admin-only).
+  - name: awa-32-patch-guest-asset-as-member
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{guest_asset}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 204
+
+  # A member of the project who is not the uploader fails the
+  # ISSUE_ATTACHMENT rule (`v2.py:65-66`).
+  - name: awa-33-patch-pending-attachment-as-member
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{pending_attachment}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 403
+
+  # The uploader confirms it: `is_uploaded` becomes TRUE, `{}` metadata
+  # enqueues `get_asset_object_metadata`, and ISSUE_ATTACHMENT has no entity
+  # rebinding.
+  - name: awa-34-patch-confirm-pending-attachment
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{pending_attachment}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  # A populated `storage_metadata` enqueues nothing.
+  - name: awa-35-patch-populated-metadata
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{with_metadata}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes:
+        name: "renamed-with-metadata.png"
+        type: "image/png"
+        size: 2
+    expect_status: 204
+
+  # `attributes` is `JSONField(default=dict)` with **no** `null=True`, so an
+  # explicit null is a NOT NULL violation: the task above still fires, then the
+  # UPDATE is the family's 400 `{"error": "The payload is not valid"}`.
+  - name: awa-36-patch-attributes-null
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{issue_asset_b}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes: null
+    expect_status: 400
+
+  # A malformed JSON body is DRF's ParseError, raised at the first
+  # `request.data` access — after the task and the entity save.
+  - name: awa-37-patch-malformed-body
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{dangling}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '{"attributes": '
+    expect_status: 400
+
+  # A JSON list is the AttributeError 500, and the entity save runs first: the
+  # cover is rebound to `cover_a` and the fixture's cover soft-deleted even
+  # though the request fails.
+  - name: awa-38-patch-list-body-after-entity-save
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{cover_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: [1, 2]
+    expect_status: 500
+
+  # The project is now pointing at `cover_a`, so this confirm is the
+  # self-delete: the entity save soft-deletes the very row it then writes.
+  - name: awa-39-patch-confirm-project-cover-again
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{cover_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  - name: awa-40-delete-project-cover-after-self-delete
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/{{cover_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # A fresh cover bound once, then deleted: the project-cover *delete* clears
+  # `cover_image_asset_id` and leaves `cover_image` alone.
+  - name: awa-41-post-project-cover-b
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: "{{project_alpha}}"
+      name: "cover-b.png"
+    capture:
+      - name: cover_b
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  - name: awa-42-patch-confirm-project-cover-b
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{cover_b}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  - name: awa-43-delete-project-cover-b
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/{{cover_b}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: awa-44-delete-missing-asset
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/{{missing_asset}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The guest uploaded `guest_attachment`, so the uploader branch passes even
+  # with a GUEST workspace role (`v2.py:63-64`).
+  - name: awa-41-patch-guest-own-upload
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{guest_attachment}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 204
+
+  # `attributes` from a form body is a `str`, which `JSONField` stores as a
+  # JSON string.
+  - name: awa-42-patch-form-attributes
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/{{dangling}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      attributes: '{"a": 1}'
+    expect_status: 204
+
+  # The same guard on the other verb.
+  - name: awa-44a-delete-guest-asset-as-guest
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/{{guest_asset}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # --- The wrong-shape verbs: 500 after the role check ---------------------
+  - name: awa-43a-patch-collection
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  - name: awa-43b-delete-collection
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: awa-43c-post-detail
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/{{logo_null}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  # A non-member's role check answers 403 *instead of* the 500.
+  - name: awa-43d-patch-collection-as-nonmember
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: {}
+    expect_status: 403
+
+  # --- 24 POST: the cover TypeError, the draft FK, the MIME checks --------
+  # Every project-cover upload binds `project_id` twice (`v2.py:658-667`).
+  - name: awa-47-project-post-cover-typeerror
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: "{{project_alpha}}"
+    expect_status: 500
+
+  # Still a TypeError: the duplicate keyword is raised before any UUID
+  # conversion.
+  - name: awa-48-project-post-cover-bogus-identifier
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: "not-a-uuid"
+    expect_status: 500
+
+  - name: awa-49-project-post-attachment
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      entity_identifier: "{{issue_alpha}}"
+      name: "project-shot.png"
+      type: "image/png"
+      size: 4096
+    capture:
+      - name: p_attachment
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # This class does map DRAFT_ISSUE_DESCRIPTION (unlike 18).
+  - name: awa-50-project-post-draft-description
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "DRAFT_ISSUE_DESCRIPTION"
+      entity_identifier: "{{draft_alpha}}"
+    capture:
+      - name: p_draft
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # DRAFT_ISSUE_ATTACHMENT has no `get_entity_id_field` entry on either class.
+  - name: awa-51-project-post-draft-attachment
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "DRAFT_ISSUE_ATTACHMENT"
+      entity_identifier: "{{draft_alpha}}"
+    capture:
+      - name: p_orphan
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # `entity_identifier` defaults to None on this class, so the issue FK is NULL
+  # and the INSERT succeeds.
+  - name: awa-52-project-post-attachment-no-identifier
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      name: "unbound.png"
+    capture:
+      - name: p_unbound
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # A project MEMBER may upload (the decorator allows any role and 24 POST
+  # never calls `can_modify_asset`).
+  - name: awa-53-project-post-as-member
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "ISSUE_DESCRIPTION"
+      entity_identifier: "{{issue_alpha}}"
+      name: "member-diagram.png"
+    capture:
+      - name: p_member
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # The decorator's PROJECT level: the workspace guest is an alpha member, the
+  # non-member is not.
+  - name: awa-54-project-post-as-nonmember
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 403
+
+  - name: awa-55-project-post-invalid-entity
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: awa-56-project-post-invalid-file-type
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      type: "application/pdf"
+    expect_status: 400
+
+  # --- 25 PATCH/DELETE ----------------------------------------------------
+  # ISSUE_ATTACHMENT needs project ADMIN unless the caller uploaded it.
+  - name: awa-57-project-patch-attachment-as-member
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{p_attachment}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 403
+
+  - name: awa-58-project-patch-confirm-attachment
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{p_attachment}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes:
+        name: "project-shot-confirmed.png"
+        type: "image/png"
+        size: 4096
+    expect_status: 204
+
+  - name: awa-59-project-delete-attachment
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{p_attachment}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: awa-60-project-delete-attachment-again
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{p_attachment}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The URL's project is part of the lookup: `p_draft` belongs to alpha, so the
+  # same id under `beta` (a project the admin is a member of, so the decorator
+  # passes) is the 404 body.
+  - name: awa-61-project-patch-wrong-project
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_beta}}/{{p_draft}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 404
+
+  - name: awa-62-project-patch-collection
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  - name: awa-63-project-delete-collection
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: awa-64-project-post-detail
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{p_draft}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  # --- 26 bulk ------------------------------------------------------------
+  - name: awa-65-bulk-no-ids
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{issue_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: awa-66-bulk-empty-ids
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{issue_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: []
+    expect_status: 400
+
+  # None of these ids belong to a row this caller uploaded in this workspace.
+  - name: awa-67-bulk-unknown-ids
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{issue_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{missing_asset}}"]
+    expect_status: 404
+
+  # The member's own detached cover: the filter matches (created_by=member), so
+  # the answer is the permission 403 rather than the 404.
+  - name: awa-68-bulk-member-cover-as-member
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{project_alpha}}/bulk/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      asset_ids: ["{{member_cover}}"]
+    expect_status: 403
+
+  # The admin cannot touch another user's upload.
+  - name: awa-69-bulk-member-cover-as-admin
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{project_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{member_cover}}"]
+    expect_status: 404
+
+  # The project-cover branch: two detached covers, one `UPDATE` and then one
+  # `Project.objects.get` + save per row in `-created_at` order, so the *older*
+  # of the two ends up as the cover.
+  - name: awa-70-post-detached-cover-two
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: null
+      name: "cover-two.png"
+      size: 64
+    capture:
+      - name: cover_null
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  - name: awa-71-post-detached-cover-three
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_identifier: null
+      name: "cover-three.png"
+      size: 32
+    capture:
+      - name: cover_null_two
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  - name: awa-72-bulk-project-covers
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{project_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{cover_null_two}}", "{{cover_null}}"]
+    expect_status: 204
+
+  # An ISSUE_DESCRIPTION rebind sets `issue_id` and `project_id`.
+  - name: awa-73-bulk-issue-description
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{issue_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{issue_asset_a}}", "{{issue_asset_b}}"]
+    expect_status: 204
+
+  # The comment branch does not set `project_id`. A nonexistent comment id
+  # fails the foreign key, which the view swallows (`v2.py:809-813`).
+  - name: awa-74-bulk-comment-description-missing-comment
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{missing_asset}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{comment_asset}}"]
+    expect_status: 204
+
+  - name: awa-75-bulk-comment-description
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{comment_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{comment_asset}}"]
+    expect_status: 204
+
+  - name: awa-76-bulk-page-description
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{page_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{page_asset}}"]
+    expect_status: 204
+
+  # A nonexistent draft id is a swallowed `IntegrityError` too.
+  - name: awa-77-bulk-draft-description-missing-draft
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{missing_asset}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      asset_ids: ["{{draft_asset}}"]
+    expect_status: 204
+
+  # The guest uploaded `guest_asset` (an ISSUE_DESCRIPTION in alpha), so the
+  # filter matches and the rebind runs without any `can_modify_asset` call.
+  - name: awa-78-bulk-guest-own-asset
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{issue_alpha}}/bulk/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      asset_ids: ["{{guest_asset}}"]
+    expect_status: 204
+
+  # --- verbs the class does not define: DRF's 405, not the pipeline's 501 ---
+  # `ProjectBulkAssetEndpoint` defines only `post`, and `routes.json` lists only
+  # that verb; any other method is DRF's `http_method_not_allowed`.
+  - name: awa-80-bulk-get-is-405
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{issue_alpha}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  # `ProjectAssetEndpoint` defines `get`, `post`, `patch` and `delete` but not
+  # `put` (`v2.py:584-718`), so an allowed method the class lacks is a 405.
+  - name: awa-81-project-put-is-405
+    method: PUT
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 405
+
+  # A record that survives all of the above: the member's own upload keeps its
+  # `project_id` because the issue branch rewrites it.
+  - name: awa-79-read-back-member-asset
+    method: GET
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/{{p_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"

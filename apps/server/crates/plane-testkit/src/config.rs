@@ -712,6 +712,16 @@ pub enum RuleMode {
     /// page-cache response's `Expires`, which is `http_date(now + timeout)`
     /// (`django/utils/cache.py:patch_response_headers`).
     HttpDate,
+    /// A SigV4 signing date (`YYYYMMDDTHHMMSSZ`), the `x-amz-date` field of a
+    /// presigned POST. The two targets sign at their own instants, so the value
+    /// legitimately differs by up to two seconds when a step straddles a second
+    /// boundary — the same fact DECISIONS.md D17 records for a presigned GET
+    /// URL. The value is parsed and checked against the step window (so a
+    /// wrong clock or a replayed body still fails) and replaced by one
+    /// constant, because nothing can be compared byte-wise across two signing
+    /// instants. This replaces a per-value placeholder, which failed a run
+    /// whenever exactly one of the two targets crossed a second boundary.
+    Sigv4Date,
     /// A Django signed session payload: verify the signature with the target's
     /// `SECRET_KEY`, decode it, and replace the value with the decoded
     /// dictionary so both targets compare structurally.
@@ -1196,7 +1206,10 @@ fn validate_spec(
                 );
             }
         }
-        RuleMode::Password | RuleMode::SessionPayload | RuleMode::PresignedUrl => {
+        RuleMode::Password
+        | RuleMode::SessionPayload
+        | RuleMode::PresignedUrl
+        | RuleMode::Sigv4Date => {
             if spec.placeholder.is_some() {
                 bail!("normalize: {what} rule {name:?}: `placeholder` does not apply to this mode");
             }
