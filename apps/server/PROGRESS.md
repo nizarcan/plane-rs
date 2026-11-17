@@ -1272,8 +1272,27 @@ independent; each domain's sets start after its own P0. At most three builds run
   - Contract tests that can't pass against Rust, by design (in-process mocks): 3
     `test_user_email_change_app`, 2 `test_legacy_file_asset_post_readonly_app`.
 
-Running: workspace-core A (done, merging), analytics B+C. Queued: workspace-core B/C;
-then ai-assistant (51/52) and the held 34/75/82/107 methods (unplanned).
+- Workspace-core A (merged `e14d9a7c52`, flipped with this entry): 138
+  `rust(GET,DELETE)`, 186 `rust(GET,POST)`, 187 `rust(GET,PUT,PATCH,DELETE)`, 199
+  `rust(GET,POST)`, 200 `rust(GET,PATCH,DELETE)`. `write/workspaces-core.yaml`
+  118/118 (+ two create-disabled scenarios) in both directions. On the merge, the full read +
+  write sweep is 85 files, 4585 steps clean; 1054 tests.
+  - `workspace_seed` publishes a `uuid.UUID`; the Celery golden is corrected.
+  - `common/instance_config.rs` (`get_configuration_value`) was lifted from the unsplash
+    read.
+  - Upstream quirks kept:
+    - 187's miss is `get_object_or_404`'s detail 404;
+    - `logo_url` is omitted (`SkipField`) for a workspace-less dynamic logo asset;
+    - the 409 bare string relies on psycopg's DETAIL text;
+    - a 40-char-slug delete 500s after the row is deleted.
+  - Contract: `test_workspace_app.py::test_create_workspace_valid_data` can't pass
+    against Rust (it compares the mock's `UUID` arg to the JSON string `id`; harness
+    limit).
+  - Follow-up: the read-side `workspaces/rows.rs::logo_url` renders a dynamic-entity
+    `logo_asset` as `null`, where Django builds the URL or omits the key.
+
+Running: (none). Merging: analytics B+C. Queued: workspace-core B/C; then ai-assistant
+(51/52) and the held 34/75/82/107 methods (unplanned).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
