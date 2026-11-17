@@ -1016,8 +1016,40 @@ and only `verified` rows are Rust-owned.
   timezone, but Django's `DateTimeField.get_prep_value` uses `TIME_ZONE` (UTC).
   `read/analytics.yaml` (2 steps) and `analytics-extra.yaml` (3) differ once the UTC date
   is 2026-11-17. A fix agent is running (`rs/analytics-tz`).
-- Running: webhooks A (create + regenerate, 228/229 POST, 230) and B (PATCH + DELETE,
-  228/229).
+- Analytics timezone fix (merged `a8615494a5`): the advance/project analytics windows are
+  UTC (`timezone.now().date()` with naive bounds made aware in `TIME_ZONE`). The same bug
+  class was fixed in the issue lists' naive `?updated_at__gt=` (`list_common.rs`).
+  Per-user bucketing (`__date`, `ExtractMonth`, `__year`) is left as it was, verified per
+  site. `read/analytics.yaml` 65/65, `analytics-extra.yaml` 275/275, `issues*` clean.
+- Webhooks A (merged `3edaa0b363`) and B (merged `3cfe513941`), flipped with this
+  entry: 228/229 `rust(GET,POST,PATCH,DELETE)` (POST on 229 and PATCH/DELETE on 228 are
+  the covered TypeError 500s), 230 `rust(POST)`. `write/webhooks-create.yaml` 51/51 and
+  `webhooks-patch.yaml` 44/44 in both directions; the three webhook contract tests that
+  reach Rust pass. **The webhooks domain is fully on Rust** (228–231). The disallowed-domain
+  message is unreachable offline and is unit-tested only.
+- Upstream quirks kept: a duplicate URL is 409 on POST and 400 on PATCH; a 1025+-character
+  URL is a 500; `validate_domain` compares the netloc; `raise IntegrityError` re-raises the
+  class; `Webhook.delete()` calls `timezone.now()` twice.
+
+### Phase 5: favourites domain (2026-11-17)
+
+- Workspace favourites 212/213 (merged `9ec9e1f390`, **not flipped yet**):
+  `write/workspace-favorites.yaml` 101/101 in both directions, with a negative control.
+  H25 `before_insert` takes the body's `sequence`.
+- Shared changes:
+  - `RelatedField` `'' → None`;
+  - `char_field_required` for a required `CharField`'s form `''`;
+  - generated pk fields check `deleted_at IS NULL` when the related queryset does.
+- **Known regression on HEAD**: the live-pk rule keyed on the related model's columns,
+  not the field's queryset. `IssueCreateSerializer.state_id` uses
+  `State.all_state_objects`, so `write/issues.yaml` step 22 and
+  `intake-issues-patch.yaml` step 26 answer a field error where Django gives the
+  non-field error. A fix is running in the favourites session (derive the predicate from
+  `field.queryset`).
+- Follow-up: some related querysets filter more than `deleted_at`.
+  `State.objects` (`StateManager`) also excludes triage, and `IssueManager` excludes
+  triage/archived/draft issues and issues in archived projects. Only work-item create
+  re-checks those (`recheck_manager_fields`).
 
 ## Next three steps
 

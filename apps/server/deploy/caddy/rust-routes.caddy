@@ -446,7 +446,9 @@ handle @plane_rs_stickies {
 	expression <<CEL
 		({env.PLANE_RS_GROUP_WEBHOOKS} == "" ? "rust" : {env.PLANE_RS_GROUP_WEBHOOKS}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/webhooks/$") || path_regexp(r"^/api/workspaces/[^/]+/webhooks/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/webhook-logs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			(method("GET", "POST", "PATCH", "DELETE") && (path_regexp(r"^/api/workspaces/[^/]+/webhooks/$") || path_regexp(r"^/api/workspaces/[^/]+/webhooks/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("POST") && (path_regexp(r"^/api/workspaces/[^/]+/webhooks/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/regenerate/$")))
+			|| 			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/webhook-logs/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
 		)
 	CEL
 }

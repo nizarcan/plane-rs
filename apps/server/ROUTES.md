@@ -315,9 +315,9 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 225 | `/api/workspaces/{slug}/sidebar-preferences/` | GET, PATCH | `plane.app.views.workspace.user_preference.WorkspaceUserPreferenceViewSet` | IsAuthenticated; GET,PATCH allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
 | 226 | `/api/users/api-tokens/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 227 | `/api/users/api-tokens/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 228 | `/api/workspaces/{slug}/webhooks/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET) | verified |
-| 229 | `/api/workspaces/{slug}/webhooks/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET) | verified |
-| 230 | `/api/workspaces/{slug}/webhooks/{pk}/regenerate/` | POST | `plane.app.views.webhook.base.WebhookSecretRegenerateEndpoint` | IsAuthenticated; POST allow(ADMIN;WORKSPACE) | django | not-started |
+| 228 | `/api/workspaces/{slug}/webhooks/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET,POST,PATCH,DELETE) | verified |
+| 229 | `/api/workspaces/{slug}/webhooks/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET,POST,PATCH,DELETE) | verified |
+| 230 | `/api/workspaces/{slug}/webhooks/{pk}/regenerate/` | POST | `plane.app.views.webhook.base.WebhookSecretRegenerateEndpoint` | IsAuthenticated; POST allow(ADMIN;WORKSPACE) | rust(POST) | verified |
 | 231 | `/api/workspaces/{slug}/webhook-logs/{webhook_id}/` | GET | `plane.app.views.webhook.base.WebhookLogsEndpoint` | IsAuthenticated; GET allow(ADMIN;WORKSPACE) | rust(GET) | verified |
 | 232 | `/api/timezones/` | GET | `plane.app.views.timezone.base.TimezoneEndpoint` | AllowAny | rust(GET) | verified |
 | 233 | `/api/workspaces/{slug}/export-issues/` | GET, POST | `plane.app.views.exporter.base.ExportIssuesEndpoint` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
