@@ -1414,11 +1414,52 @@ independent; each domain's sets start after its own P0. At most three builds run
 
   Verified on the merge: 1145 tests; full read + write sweep 92 files, 4995 steps clean;
   contract 980 passed, 6 failed (the baseline).
-- **zxcvbn**: the Rust crate (3.1.1) scores identically to Python `zxcvbn==4.4.28` on all
-  830 windows of 100 chars or fewer, but differs on 33 of the 262 longer windows. The crate
-  truncates at 100 chars; Plane's window is 128. `is_password_strong` therefore returns a
-  not-ported error (a 500) above 100 chars, never a weaker policy. Being resolved: try the
-  crate with a 128 window; if any score still differs, port the matchers.
+- **zxcvbn** (merged `78c9408659`): `vendor/zxcvbn/` is upstream 3.1.1 with two
+  documented changes (`VENDORED.md`):
+  - the input cap goes from 100 to 128 chars (Python doesn't truncate; Plane scores
+    128-char windows);
+  - Python's l33t filter `len(token) > 1` (`zxcvbn/matching.py:244`).
+
+  Patched in via `[patch.crates-io]`. Corpus: 742 passwords, 1484 windows (654 over 100
+  chars), **0 score differences, 0 policy differences**. The not-ported path is gone.
+  `validate_password` scores on `spawn_blocking`: the worst case (128 random printable
+  chars) is ~0.65 s in Rust vs 0.36–2.8 s in Python.
+- Auth P0c (merged `57aa5b15b8`):
+  - `auth_flow::tasks`: `magic_link`/`forgot_password`/`user_activation_email` against the
+    Celery golden; `current_site` (raising `plane/utils/host.py`) vs `view_base_host`
+    (non-raising `authentication/utils/host.py`, which every auth view uses);
+  - `auth_flow::instance`: `Instance.objects.first()`, `require_setup`, typed flag reads;
+  - `configuration_values` and `fernet` moved into `plane-auth`, re-exported from the old
+    paths;
+  - fixed `login::normalize_base_path`: an empty `ADMIN_BASE_PATH`/`SPACE_BASE_PATH` is
+    `"/"`, as in Django's `os.environ.get`.
+
+  Verified: full sweep 92 files clean; contract 980/6.
+- Auth P0b (merged `1a8f2bb108`):
+  - `auth_flow::magic::MagicCodeProvider` (Redis state machine, interop-tested both ways
+    against the real Python);
+  - `plane-cache` `eval`/`incr_expire_on_first` (redis-py's Lua script verbatim);
+  - `auth_flow::oauth`: `validate_oauth_state`, `OauthAdapter`, the `OAuthProvider`
+    trait, the `accounts` upsert, `sync_user_data`, avatar download/upload.
+
+  The `AuthProvider` trait changed (`has_token_data`; sync/avatar take `&AdapterContext`).
+- Verified on `78c9408659`: 1170 tests; schema_check (auth, http-app); `oauth_db`,
+  `magic_interop`, `eval_interop` pass (those three only run on Redis DB 9/13/14); full
+  read + write sweep 92 files, 4995 steps clean; contract 980 passed, 6 failed (the
+  baseline). **The auth P0 is complete**; sets A (session), B (magic) and C (OAuth) are
+  next.
+- Upstream bugs noted by P0b/P0c:
+  - `magic_code.py:136` strips `magic_` by substring replace;
+  - `oauth.py:107` dereferences `user_data["user"]` outside the `try`;
+  - `oauth.py:120-132` swallows the account `IntegrityError` (the login still succeeds);
+  - a non-JSON token response is a 500;
+  - GitHub's org check has no `raise_for_status`;
+  - an avatar `Content-Type` with parameters skips the avatar;
+  - `forgot_password` can enqueue `current_site=None`;
+  - `ENABLE_MAGIC_LINK_LOGIN` is seeded `"0"`, read with default `"1"`, compared `== "0"`
+    at the gate and `== "1"` in `/email-check/`.
+- Cleanup note: `plane-db/src/queries.rs:22` `LOAD_INSTANCE` is unused and its column
+  order doesn't match `Instance::from_row`. Delete it with the next `plane-db` change.
 - Upstream bugs kept:
   - an accepted *project* invite always 500s after the workspace memberships are committed
     (`ProjectMember` is built without `project_id`, `workspace_project_join.py:55-65`);
