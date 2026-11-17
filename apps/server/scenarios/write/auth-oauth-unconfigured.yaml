@@ -1,0 +1,112 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth set C — the OAuth initiate views when their provider is **not**
+# configured (routes 365, 367, 369, 371, 373, 375, 385, 387).
+#
+# `plane_fix_tpl` seeds every OAuth configuration row as `""`, and a database
+# row beats the environment (`instance_configs`, ENV.md), so Google, GitHub and
+# GitLab answer `*_NOT_CONFIGURED` without any fixture. The fixture gives Gitea
+# a credential but a host without a scheme, which is the `GITEA_NOT_CONFIGURED`
+# branch at `provider/oauth/gitea.py:48-56`.
+#
+# Each view redirects to its base with the error parameters; the app Gitea view
+# additionally appends the *validated* `next_path`, the space Gitea view builds
+# the URL with `f"{base}?{urlencode(params)}"`, and the other six go through
+# `get_safe_redirect_url`.
+#
+# This scenario has no fake provider and no outbound call: the error is raised
+# before any HTTP request.
+
+name: write-auth-oauth-unconfigured
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-oauth-unconfigured-fixture.sql"
+  host: "plane-fixture.test"
+steps:
+  - name: auth-oauth-unconfigured-01-google-app
+    method: GET
+    path: "/auth/google/"
+    query:
+      next_path: "/fix-workspace/"
+    jar: google
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.70
+    expect_status: 302
+
+  - name: auth-oauth-unconfigured-02-google-space
+    method: GET
+    path: "/auth/spaces/google/"
+    jar: space_google
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.71
+    expect_status: 302
+
+  - name: auth-oauth-unconfigured-03-github-app
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "/fix-workspace/"
+    jar: github
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.72
+    expect_status: 302
+
+  - name: auth-oauth-unconfigured-04-github-space
+    method: GET
+    path: "/auth/spaces/github/"
+    jar: space_github
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.73
+    expect_status: 302
+
+  - name: auth-oauth-unconfigured-05-gitlab-app
+    method: GET
+    path: "/auth/gitlab/"
+    query:
+      next_path: "/fix-workspace/"
+    jar: gitlab
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.74
+    expect_status: 302
+
+  - name: auth-oauth-unconfigured-06-gitlab-space
+    method: GET
+    path: "/auth/spaces/gitlab/"
+    jar: space_gitlab
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.75
+    expect_status: 302
+
+  # Gitea: credentials present, host without a scheme.
+  - name: auth-oauth-unconfigured-07-gitea-app
+    method: GET
+    path: "/auth/gitea/"
+    query:
+      next_path: "/fix-workspace/"
+    jar: gitea
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.76
+    expect_status: 302
+
+  - name: auth-oauth-unconfigured-08-gitea-space
+    method: GET
+    path: "/auth/spaces/gitea/"
+    query:
+      next_path: "/fix-workspace/"
+    jar: space_gitea
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.77
+    expect_status: 302

@@ -27,14 +27,16 @@ pub mod instance;
 pub mod magic;
 pub mod oauth;
 pub mod password;
+pub mod providers;
 pub mod redirect;
 pub mod reset_token;
 pub mod tasks;
 
 pub use adapter::{
     AdapterContext, AdapterError, AuthCallback, AuthProvider, CompletedLogin, InviteOutcome,
-    PostUserAuthWorkflow, complete_login_or_signup, process_workspace_project_invitations,
-    sanitize_email, save_user_data, signup_allowed, validate_password,
+    PostUserAuthWorkflow, complete_login_or_signup, create_profile,
+    process_workspace_project_invitations, sanitize_email, save_user_data, signup_allowed,
+    validate_password,
 };
 pub use email::validate_email;
 pub use error::{ALL as ALL_AUTH_ERROR_CODES, AuthErrorCode, AuthFlowError};
@@ -56,6 +58,7 @@ pub use oauth::{
     validate_oauth_state,
 };
 pub use password::{is_password_strong, is_password_strong_async};
+pub use providers::{GiteaProvider, GithubProvider, GitlabProvider, GoogleProvider};
 pub use redirect::{
     PyValueError, RedirectionPath, allowed_hosts, get_safe_redirect_url, settings_allowed_hosts,
     space_redirect_url, url_has_allowed_host_and_scheme, url_has_allowed_host_and_scheme_https,

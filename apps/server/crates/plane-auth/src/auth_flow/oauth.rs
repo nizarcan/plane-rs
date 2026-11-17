@@ -381,7 +381,12 @@ impl<'a> OAuthHttp<'a> {
             tracing::warn!(target: "plane.auth", status = response.status, "oauth request failed");
             return Err(AdapterError::Auth(AuthFlowError::new(self.error_code)));
         }
+        // `response.json()` is inside the Python `try`, and requests 2.33's
+        // `JSONDecodeError` subclasses `RequestException`
+        // (`requests/exceptions.py`), so a non-JSON body is the provider's
+        // error — not the 500 an older requests would have produced.
         parse_json(&response.text())
+            .map_err(|_| AdapterError::Auth(AuthFlowError::new(self.error_code)))
     }
 
     /// `requests.get(url, headers=headers)` with **no** `raise_for_status`, as
@@ -408,6 +413,39 @@ impl<'a> OAuthHttp<'a> {
             .map_err(|error| AdapterError::Internal(error.to_string()))
     }
 
+    /// `requests.get(url, headers=headers)` with **no** `raise_for_status`,
+    /// returning the status and the decoded body.
+    ///
+    /// Both `__get_email` helpers handle a non-2xx themselves and catch
+    /// `RequestException` with a message of their own (`github.py:104-137`,
+    /// `gitea.py:117-155`), so the two halves stay separate here: a transport
+    /// failure comes back as [`FetchError`] for the provider to map, and the
+    /// body is returned unparsed because a non-JSON one is Python's uncaught
+    /// `response.json()` `ValueError` — a 500 the provider decides about.
+    ///
+    /// # Errors
+    ///
+    /// The [`FetchError`] of the request itself.
+    pub async fn get_unchecked(
+        &self,
+        preset: &Preset,
+        url: &str,
+        headers: &[(String, String)],
+    ) -> Result<UncheckedResponse, FetchError> {
+        let mut request = OutboundRequest::new();
+        for (name, value) in headers {
+            request = request.header(name.clone(), value.clone());
+        }
+        let (response, _) = self
+            .engine
+            .fetch(preset, Method::GET, &SsrfPolicy::strict(), url, &request)
+            .await?;
+        Ok(UncheckedResponse {
+            status: response.status,
+            body: response.text(),
+        })
+    }
+
     /// The provider's `*_OAUTH_PROVIDER_ERROR` for a `requests.RequestException`
     /// — `get_user_token`/`get_user_response` catch exactly that class
     /// (`oauth.py:81-84,92-96`). A TLS configuration failure is an `OSError` in
@@ -427,9 +465,37 @@ impl<'a> OAuthHttp<'a> {
 /// `requests` decodes the body with the header's charset (`utf-8` for
 /// `application/json`, `ISO-8859-1` for `text/*`) and replaces invalid bytes;
 /// [`plane_net::PinnedResponse::text`] is that decoder.
-fn parse_json(body: &str) -> Result<Value, AdapterError> {
+pub(crate) fn parse_json(body: &str) -> Result<Value, AdapterError> {
     serde_json::from_str(body)
         .map_err(|error| AdapterError::Internal(format!("json.decoder.JSONDecodeError: {error}")))
+}
+
+/// A response fetched without `raise_for_status`: what
+/// [`OAuthHttp::get_unchecked`] hands a provider's `__get_email`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UncheckedResponse {
+    pub status: u16,
+    pub body: String,
+}
+
+impl UncheckedResponse {
+    /// `response.ok` (`requests`' `status_code < 400`).
+    #[must_use]
+    pub fn ok(&self) -> bool {
+        self.status < 400
+    }
+
+    /// `response.json()`, with the decode failure left to the provider: both
+    /// `__get_email` helpers call it inside their `except RequestException`
+    /// block, and requests 2.33's `JSONDecodeError` **is** a
+    /// `RequestException` (`requests/exceptions.py`).
+    ///
+    /// # Errors
+    ///
+    /// [`serde_json::Error`] for a body that is not JSON.
+    pub fn json(&self) -> Result<Value, serde_json::Error> {
+        serde_json::from_str(&self.body)
+    }
 }
 
 /// `OauthAdapter` (`adapter/oauth.py:24-132`) with an [`OAuthProvider`] behind
@@ -540,7 +606,10 @@ impl OauthAdapter {
             tracing::warn!(target: "plane.auth", status = response.status, "Error getting user token");
             return Err(self.token_error());
         }
-        let body = parse_json(&response.text())?;
+        // As in `get_json`: `response.json()`'s decode error is a
+        // `RequestException` in requests 2.33 and lands in `get_user_token`'s
+        // `except` (`oauth.py:78-85`).
+        let body = parse_json(&response.text()).map_err(|_| self.token_error())?;
         self.provider.token_data(&body)
     }
 
@@ -876,8 +945,20 @@ async fn delete_old_avatar(context: &AdapterContext<'_>, user: &mut User) {
         return;
     };
     let request = storage.request(storage_request_info(context.ctx));
-    // `storage.delete_files([asset.asset.name])` swallows an S3 error itself.
-    let _ = request.delete_objects(&[key.as_str()]).await;
+    // `storage.delete_files([asset.asset.name])` catches only boto3's
+    // `ClientError`; a **transport** failure (`EndpointConnectionError` — an
+    // unreachable custom domain) propagates to `delete_old_avatar`'s
+    // `except Exception`, which returns before dropping the link
+    // (`base.py:253-272`). `plane-storage` reports an S3 error response as
+    // `false` and a transport failure as `Err` (DECISIONS.md D6), so the two
+    // branches are distinguishable here.
+    match request.delete_objects(&[key.as_str()]).await {
+        Ok(_) => {}
+        Err(error) => {
+            log_avatar_failure(&error);
+            return;
+        }
+    }
     let deleted: Result<u64, plane_db::DbError> = async {
         let statement = crate::queries::DELETE_FILE_ASSET_BY_ID
             .prepare(context.client)

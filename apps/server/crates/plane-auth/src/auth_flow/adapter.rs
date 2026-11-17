@@ -887,6 +887,13 @@ async fn insert_notification_preference(
 
 /// `Profile.objects.create(user=user)` with the model defaults
 /// (`plane/db/models/user.py:200-268`).
+///
+/// Public because the OAuth callback's `get_redirection_path` runs the same
+/// `get_or_create` (`utils/redirection_path.py:10`).
+pub async fn create_profile(client: &Client, user: &User) -> Result<(), AdapterError> {
+    insert_profile(client, user).await
+}
+
 async fn insert_profile(client: &Client, user: &User) -> Result<(), AdapterError> {
     let timestamp = now();
     let statement = crate::queries::INSERT_PROFILE.prepare(client).await?;

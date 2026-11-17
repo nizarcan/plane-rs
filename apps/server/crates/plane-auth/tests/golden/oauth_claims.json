@@ -1,0 +1,1503 @@
+{
+  "cases": [
+    {
+      "kind": "auth_url",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "state": "0123456789abcdef0123456789abcdef",
+      "result": {
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile&redirect_uri=http%3A%2F%2Fplane.example.test%2Fauth%2Fgoogle%2Fcallback%2F&response_type=code&access_type=offline&prompt=consent&state=0123456789abcdef0123456789abcdef"
+      }
+    },
+    {
+      "kind": "auth_url",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "",
+        "GOOGLE_CLIENT_SECRET": "s"
+      },
+      "state": "s",
+      "result": {
+        "authentication_exception": {
+          "error_code": 5105,
+          "error_message": "GOOGLE_NOT_CONFIGURED",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "auth_url",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "state": "0123456789abcdef0123456789abcdef",
+      "result": {
+        "auth_url": "https://github.com/login/oauth/authorize?client_id=github-client&redirect_uri=http%3A%2F%2Fplane.example.test%2Fauth%2Fgithub%2Fcallback%2F&scope=read%3Auser+user%3Aemail&state=0123456789abcdef0123456789abcdef"
+      }
+    },
+    {
+      "kind": "auth_url",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret",
+        "GITHUB_ORGANIZATION_ID": "acme"
+      },
+      "state": "0123456789abcdef0123456789abcdef",
+      "result": {
+        "auth_url": "https://github.com/login/oauth/authorize?client_id=github-client&redirect_uri=http%3A%2F%2Fplane.example.test%2Fauth%2Fgithub%2Fcallback%2F&scope=read%3Auser+user%3Aemail+read%3Aorg&state=0123456789abcdef0123456789abcdef"
+      }
+    },
+    {
+      "kind": "auth_url",
+      "provider": "gitlab",
+      "config": {
+        "GITLAB_CLIENT_ID": "gitlab-client",
+        "GITLAB_CLIENT_SECRET": "gitlab-secret",
+        "GITLAB_HOST": "http://127.0.0.1:18400"
+      },
+      "state": "0123456789abcdef0123456789abcdef",
+      "result": {
+        "auth_url": "http://127.0.0.1:18400/oauth/authorize?client_id=gitlab-client&redirect_uri=http%3A%2F%2Fplane.example.test%2Fauth%2Fgitlab%2Fcallback%2F&response_type=code&scope=read_user&state=0123456789abcdef0123456789abcdef"
+      }
+    },
+    {
+      "kind": "auth_url",
+      "provider": "gitlab",
+      "config": {
+        "GITLAB_CLIENT_ID": "gitlab-client",
+        "GITLAB_CLIENT_SECRET": "gitlab-secret",
+        "GITLAB_HOST": ""
+      },
+      "state": "s",
+      "result": {
+        "authentication_exception": {
+          "error_code": 5111,
+          "error_message": "GITLAB_NOT_CONFIGURED",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "auth_url",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400/"
+      },
+      "state": "0123456789abcdef0123456789abcdef",
+      "result": {
+        "auth_url": "http://127.0.0.1:18400/login/oauth/authorize?client_id=gitea-client&scope=openid+email+profile+read%3Auser&redirect_uri=http%3A%2F%2Fplane.example.test%2Fauth%2Fgitea%2Fcallback%2F&response_type=code&state=0123456789abcdef0123456789abcdef"
+      }
+    },
+    {
+      "kind": "auth_url",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "gitea.example.test"
+      },
+      "state": "s",
+      "result": {
+        "authentication_exception": {
+          "error_code": 5112,
+          "error_message": "GITEA_NOT_CONFIGURED",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "response": "token-ok",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "access-ok",
+        "refresh_token": "refresh-ok",
+        "expires_in": 3600,
+        "refresh_token_expired_at": 1700000000,
+        "id_token": "id-token-ok"
+      },
+      "result": {
+        "token_request": {
+          "url": "https://oauth2.googleapis.com/token",
+          "data": [
+            [
+              "code",
+              "fixture-code"
+            ],
+            [
+              "client_id",
+              "google-client"
+            ],
+            [
+              "client_secret",
+              "google-secret"
+            ],
+            [
+              "redirect_uri",
+              "http://plane.example.test/auth/google/callback/"
+            ],
+            [
+              "grant_type",
+              "authorization_code"
+            ]
+          ],
+          "headers": {}
+        },
+        "access_token": "access-ok",
+        "refresh_token": "refresh-ok",
+        "access_token_expired_at": "1970-01-01T01:00:00+00:00",
+        "refresh_token_expired_at": "2023-11-14T22:13:20+00:00",
+        "id_token": "id-token-ok"
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "response": "token-minimal",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "access-min"
+      },
+      "result": {
+        "token_request": {
+          "url": "https://oauth2.googleapis.com/token",
+          "data": [
+            [
+              "code",
+              "fixture-code"
+            ],
+            [
+              "client_id",
+              "google-client"
+            ],
+            [
+              "client_secret",
+              "google-secret"
+            ],
+            [
+              "redirect_uri",
+              "http://plane.example.test/auth/google/callback/"
+            ],
+            [
+              "grant_type",
+              "authorization_code"
+            ]
+          ],
+          "headers": {}
+        },
+        "access_token": "access-min",
+        "refresh_token": null,
+        "access_token_expired_at": null,
+        "refresh_token_expired_at": null,
+        "id_token": ""
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "response": "token-zero-expiry",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "a",
+        "expires_in": 0
+      },
+      "result": {
+        "token_request": {
+          "url": "https://oauth2.googleapis.com/token",
+          "data": [
+            [
+              "code",
+              "fixture-code"
+            ],
+            [
+              "client_id",
+              "google-client"
+            ],
+            [
+              "client_secret",
+              "google-secret"
+            ],
+            [
+              "redirect_uri",
+              "http://plane.example.test/auth/google/callback/"
+            ],
+            [
+              "grant_type",
+              "authorization_code"
+            ]
+          ],
+          "headers": {}
+        },
+        "access_token": "a",
+        "refresh_token": null,
+        "access_token_expired_at": null,
+        "refresh_token_expired_at": null,
+        "id_token": ""
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "response": "token-string-expiry",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "a",
+        "expires_in": "3600"
+      },
+      "result": {
+        "exception": "TypeError"
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "response": "token-ok",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "access-ok",
+        "refresh_token": "refresh-ok",
+        "expires_in": 3600,
+        "refresh_token_expired_at": 1700000000,
+        "id_token": "id-token-ok"
+      },
+      "result": {
+        "token_request": {
+          "url": "https://github.com/login/oauth/access_token",
+          "data": [
+            [
+              "client_id",
+              "github-client"
+            ],
+            [
+              "client_secret",
+              "github-secret"
+            ],
+            [
+              "code",
+              "fixture-code"
+            ],
+            [
+              "redirect_uri",
+              "http://plane.example.test/auth/github/callback/"
+            ]
+          ],
+          "headers": {
+            "Accept": "application/json"
+          }
+        },
+        "access_token": "access-ok",
+        "refresh_token": "refresh-ok",
+        "access_token_expired_at": "1970-01-01T01:00:00+00:00",
+        "refresh_token_expired_at": "2023-11-14T22:13:20+00:00",
+        "id_token": "id-token-ok"
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "gitlab",
+      "config": {
+        "GITLAB_CLIENT_ID": "gitlab-client",
+        "GITLAB_CLIENT_SECRET": "gitlab-secret",
+        "GITLAB_HOST": "http://127.0.0.1:18400"
+      },
+      "response": "token-gitlab",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "gitlab-access",
+        "refresh_token": "gitlab-refresh",
+        "created_at": 1700000000,
+        "expires_in": 7200
+      },
+      "result": {
+        "token_request": {
+          "url": "http://127.0.0.1:18400/oauth/token",
+          "data": [
+            [
+              "client_id",
+              "gitlab-client"
+            ],
+            [
+              "client_secret",
+              "gitlab-secret"
+            ],
+            [
+              "code",
+              "fixture-code"
+            ],
+            [
+              "redirect_uri",
+              "http://plane.example.test/auth/gitlab/callback/"
+            ],
+            [
+              "grant_type",
+              "authorization_code"
+            ]
+          ],
+          "headers": {
+            "Accept": "application/json"
+          }
+        },
+        "access_token": "gitlab-access",
+        "refresh_token": "gitlab-refresh",
+        "access_token_expired_at": "2023-11-15T00:13:20+00:00",
+        "refresh_token_expired_at": null,
+        "id_token": ""
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "gitlab",
+      "config": {
+        "GITLAB_CLIENT_ID": "gitlab-client",
+        "GITLAB_CLIENT_SECRET": "gitlab-secret",
+        "GITLAB_HOST": "http://127.0.0.1:18400"
+      },
+      "response": "token-gitlab-no-created",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "a",
+        "expires_in": 7200
+      },
+      "result": {
+        "exception": "TypeError"
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "response": "token-gitea",
+      "status": 200,
+      "body_is_json": true,
+      "token_response": {
+        "access_token": "gitea-access",
+        "expires_in": 3600
+      },
+      "result": {
+        "token_request": {
+          "url": "http://127.0.0.1:18400/login/oauth/access_token",
+          "data": [
+            [
+              "code",
+              "fixture-code"
+            ],
+            [
+              "client_id",
+              "gitea-client"
+            ],
+            [
+              "client_secret",
+              "gitea-secret"
+            ],
+            [
+              "redirect_uri",
+              "http://plane.example.test/auth/gitea/callback/"
+            ],
+            [
+              "grant_type",
+              "authorization_code"
+            ]
+          ],
+          "headers": {
+            "Accept": "application/json"
+          }
+        },
+        "access_token": "gitea-access",
+        "refresh_token": null,
+        "access_token_expired_at": "2026-11-17T18:00:55.594750+00:00",
+        "refresh_token_expired_at": null,
+        "id_token": ""
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "response": "token-error",
+      "status": 401,
+      "body_is_json": true,
+      "token_response": {
+        "error": "invalid_grant"
+      },
+      "result": {
+        "authentication_exception": {
+          "error_code": 5123,
+          "error_message": "GITEA_OAUTH_PROVIDER_ERROR",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "token",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "response": "token-not-json",
+      "status": 200,
+      "body_is_json": false,
+      "token_response": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5123,
+          "error_message": "GITEA_OAUTH_PROVIDER_ERROR",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "userinfo": {
+        "id": 1001,
+        "email": "ada@example.com",
+        "verified_email": true,
+        "given_name": "Ada",
+        "family_name": "Lovelace",
+        "picture": "https://example.test/ada.png"
+      },
+      "extra": {},
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "avatar": "https://example.test/ada.png",
+            "first_name": "Ada",
+            "last_name": "Lovelace",
+            "provider_id": 1001,
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "userinfo": {
+        "id": 1001,
+        "email": "ada@example.com",
+        "verified_email": false,
+        "given_name": "Ada",
+        "family_name": "Lovelace",
+        "picture": "https://example.test/ada.png"
+      },
+      "extra": {},
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "userinfo": {
+        "id": 1001,
+        "email": "ada@example.com",
+        "verified_email": null,
+        "given_name": "Ada",
+        "family_name": "Lovelace",
+        "picture": "https://example.test/ada.png"
+      },
+      "extra": {},
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "google",
+      "config": {
+        "GOOGLE_CLIENT_ID": "google-client",
+        "GOOGLE_CLIENT_SECRET": "google-secret"
+      },
+      "userinfo": {
+        "id": 1001,
+        "email": "ada@example.com",
+        "verified_email": 1,
+        "given_name": "Ada",
+        "family_name": "Lovelace",
+        "picture": "https://example.test/ada.png"
+      },
+      "extra": {},
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitlab",
+      "config": {
+        "GITLAB_CLIENT_ID": "gitlab-client",
+        "GITLAB_CLIENT_SECRET": "gitlab-secret",
+        "GITLAB_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 2001,
+        "email": "ada@example.com",
+        "confirmed_at": "2026-01-01T00:00:00Z",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {},
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "provider_id": 2001,
+            "email": "ada@example.com",
+            "avatar": "https://example.test/ada.png",
+            "first_name": "Ada Lovelace",
+            "last_name": null,
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitlab",
+      "config": {
+        "GITLAB_CLIENT_ID": "gitlab-client",
+        "GITLAB_CLIENT_SECRET": "gitlab-secret",
+        "GITLAB_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 2001,
+        "email": "ada@example.com",
+        "confirmed_at": null,
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {},
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitlab",
+      "config": {
+        "GITLAB_CLIENT_ID": "gitlab-client",
+        "GITLAB_CLIENT_SECRET": "gitlab-secret",
+        "GITLAB_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 2001,
+        "email": "ada@example.com",
+        "confirmed_at": "",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {},
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "second@example.com",
+              "primary": false,
+              "verified": true
+            },
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "provider_id": 3001,
+            "email": "ada@example.com",
+            "avatar": "https://example.test/ada.png",
+            "first_name": "Ada Lovelace",
+            "last_name": null,
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "second@example.com",
+              "primary": false,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": false
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": []
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": {
+            "email": "ada@example.com"
+          }
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5120,
+          "error_message": "GITHUB_OAUTH_PROVIDER_ERROR",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "exception": "KeyError"
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            "ada@example.com"
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "exception": "AttributeError"
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 403,
+          "body_is_json": true,
+          "payload": {
+            "message": "Bad credentials"
+          }
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5120,
+          "error_message": "GITHUB_OAUTH_PROVIDER_ERROR",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": false,
+          "payload": null
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5120,
+          "error_message": "GITHUB_OAUTH_PROVIDER_ERROR",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret",
+        "GITHUB_ORGANIZATION_ID": "acme"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/memberships/ada": {
+          "status": 404,
+          "body_is_json": true,
+          "payload": {
+            "message": "Not Found"
+          }
+        },
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": "acme",
+      "result": {
+        "authentication_exception": {
+          "error_code": 5122,
+          "error_message": "GITHUB_USER_NOT_IN_ORG",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "github",
+      "config": {
+        "GITHUB_CLIENT_ID": "github-client",
+        "GITHUB_CLIENT_SECRET": "github-secret",
+        "GITHUB_ORGANIZATION_ID": "acme"
+      },
+      "userinfo": {
+        "id": 3001,
+        "login": "ada",
+        "name": "Ada Lovelace",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/memberships/ada": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": {
+            "state": "active"
+          }
+        },
+        "/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": "acme",
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "provider_id": 3001,
+            "email": "ada@example.com",
+            "avatar": "https://example.test/ada.png",
+            "first_name": "Ada Lovelace",
+            "last_name": null,
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "second@example.com",
+              "primary": false,
+              "verified": true
+            },
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "provider_id": "4001",
+            "email": "ada@example.com",
+            "avatar": "https://example.test/ada.png",
+            "first_name": "Ada Lovelace",
+            "last_name": "",
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "second@example.com",
+              "primary": false,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "second@example.com",
+          "user": {
+            "provider_id": "4001",
+            "email": "second@example.com",
+            "avatar": "https://example.test/ada.png",
+            "first_name": "Ada Lovelace",
+            "last_name": "",
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": false
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": []
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5123,
+          "error_message": "GITEA_OAUTH_PROVIDER_ERROR: No emails found",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": {
+            "email": "ada@example.com"
+          }
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "exception": "AttributeError"
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": "abc"
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "exception": "AttributeError"
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5124,
+          "error_message": "OAUTH_PROVIDER_UNVERIFIED_EMAIL",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 403,
+          "body_is_json": true,
+          "payload": {
+            "message": "forbidden"
+          }
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5123,
+          "error_message": "GITEA_OAUTH_PROVIDER_ERROR: Failed to fetch emails",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4001,
+        "login": "ada",
+        "full_name": "Ada Lovelace",
+        "email": "",
+        "avatar_url": "https://example.test/ada.png"
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": false,
+          "payload": null
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "authentication_exception": {
+          "error_code": 5123,
+          "error_message": "GITEA_OAUTH_PROVIDER_ERROR: Exception occurred while fetching emails",
+          "payload": {}
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4002,
+        "login": "ada",
+        "full_name": "",
+        "avatar_url": null
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "provider_id": "4002",
+            "email": "ada@example.com",
+            "avatar": null,
+            "first_name": "ada",
+            "last_name": "",
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "id": 4003,
+        "avatar_url": null
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "provider_id": "4003",
+            "email": "ada@example.com",
+            "avatar": null,
+            "first_name": null,
+            "last_name": "",
+            "is_password_autoset": true
+          }
+        }
+      }
+    },
+    {
+      "kind": "user_data",
+      "provider": "gitea",
+      "config": {
+        "GITEA_CLIENT_ID": "gitea-client",
+        "GITEA_CLIENT_SECRET": "gitea-secret",
+        "GITEA_HOST": "http://127.0.0.1:18400"
+      },
+      "userinfo": {
+        "login": "",
+        "full_name": ""
+      },
+      "extra": {
+        "/api/v1/user/emails": {
+          "status": 200,
+          "body_is_json": true,
+          "payload": [
+            {
+              "email": "ada@example.com",
+              "primary": true,
+              "verified": true
+            }
+          ]
+        }
+      },
+      "organization_id": null,
+      "result": {
+        "user_data": {
+          "email": "ada@example.com",
+          "user": {
+            "provider_id": "None",
+            "email": "ada@example.com",
+            "avatar": null,
+            "first_name": "",
+            "last_name": "",
+            "is_password_autoset": true
+          }
+        }
+      }
+    }
+  ]
+}

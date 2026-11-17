@@ -42,6 +42,7 @@
 pub mod ai;
 pub mod analytics;
 pub mod assets;
+pub mod auth;
 pub mod common;
 pub mod cycles;
 pub mod estimates;
@@ -79,6 +80,7 @@ use plane_drf::view::ViewCtx;
 /// that is deliberate and is what keeps its routes on Django.
 pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     meta::register(registry)?;
+    auth::register(registry)?;
     users_me::register(registry)?;
     assets::register(registry)?;
     workspaces::register(registry)?;

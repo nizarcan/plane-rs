@@ -320,6 +320,17 @@ plane_query! {
 }
 
 plane_query! {
+    /// `django.contrib.auth.models.update_last_login`: the `user_logged_in`
+    /// receiver Django connects in `auth/models.py` (not Plane's code) does
+    /// `user.last_login = timezone.now(); user.save(update_fields=["last_login"])`,
+    /// so exactly one column moves and `updated_at` does **not**. Every
+    /// `login()` — email, magic and OAuth — writes it.
+    UPDATE_USER_LAST_LOGIN = "auth_update_user_last_login",
+    "UPDATE users SET last_login = $1 WHERE id = $2",
+    []
+}
+
+plane_query! {
     /// `sync_user_data`'s trailing `user.save()` (`adapter/base.py:303-304`),
     /// before `save_user_data` runs its own full save. The columns the sync
     /// assigns plus H30 and `auto_now`.
@@ -641,6 +652,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &LOAD_USER_FULL_BY_EMAIL,
     &INSERT_USER,
     &UPDATE_USER_LOGIN,
+    &UPDATE_USER_LAST_LOGIN,
     &UPDATE_USER_SYNC,
     &INVITE_EXISTS_FOR_EMAIL,
     &USER_EXISTS_BY_EMAIL,

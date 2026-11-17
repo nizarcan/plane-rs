@@ -1,0 +1,849 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth set C — OAuth (routes 365-376, 385-388), `plans/AUTH_FLOWS.md` §4.
+#
+# Run it through `tools/auth/run-oauth-scenario.sh`, which starts
+# `tools/auth/fake_provider.py` on 127.0.0.1:18400. The fixture
+# (`auth-oauth-fixture.sql`) points GITLAB_HOST/GITEA_HOST at that server and
+# gives Google/GitHub dummy credentials, so every initiate takes its configured
+# branch. Google's and GitHub's **callbacks** are not exercised: they need TLS
+# interception of accounts.google.com/github.com, which is out of scope here
+# (their claim mapping is recorded from the Python classes in
+# `crates/plane-auth/tests/golden/oauth_claims.json`). The unconfigured-provider
+# errors are in `auth-oauth-unconfigured.yaml`.
+#
+# What each step pins:
+#
+#   * the initiate redirect: the provider URL's parameter order and encoding,
+#     the `redirect_uri` built from `Host`, and the session rows (`host`,
+#     `next_path` for the app variants and for Gitea, `state`);
+#   * the callback: state validation (delete on success, keep on a mismatch,
+#     consumed before the `code` check), the token exchange and userinfo call
+#     against the fake provider, the claim rules, signup/upsert/login, the
+#     `csrftoken` rotation and the redirect builder of each variant;
+#   * the spaces variants' differences: no `next_path` at initiation, no
+#     `post_user_auth_workflow`, no `get_redirection_path`, and the Gitea
+#     success URL that concatenates the base and the path with no separator;
+#   * the app Gitea quirk: `get_redirection_path`'s bare slug is passed to
+#     `urljoin` unvalidated, so a user without a `next_path` lands on
+#     `/onboarding` instead of the app root.
+#
+# The OAuth `state` is `uuid.uuid4().hex` and appears in the `Location` header
+# and in the session payload; `normalize.yaml`'s `GET /auth/*`-scoped
+# `oauth-state` rule placeholders both.
+
+name: write-auth-oauth
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  # DRF's auth throttle is read at import time; the plain OAuth views do not use
+  # it, but keep the shared Redis history identical to the other auth scenarios.
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-oauth-fixture.sql"
+  host: "plane-fixture.test"
+  next_path: "/fix-workspace/"
+  space_next_path: "/fix-workspace/"
+steps:
+  # -------------------------------------------------------------------------
+  # Initiate: all four providers, app and space.
+  # -------------------------------------------------------------------------
+  - name: auth-oauth-01-gitlab-init-app
+    method: GET
+    path: "/auth/gitlab/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gl_app
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.10
+    expect_status: 302
+    capture:
+      - name: gl_app_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-02-gitlab-init-app-no-next
+    method: GET
+    path: "/auth/gitlab/"
+    jar: gl_plain
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.11
+    expect_status: 302
+    capture:
+      - name: gl_plain_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-03-github-init-app
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gh_app
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.12
+    expect_status: 302
+    capture:
+      - name: gh_app_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-04-google-init-app
+    method: GET
+    path: "/auth/google/"
+    query:
+      next_path: "{{next_path}}"
+    jar: google_app
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.13
+    expect_status: 302
+    capture:
+      - name: google_app_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-05-gitea-init-app-next
+    method: GET
+    path: "/auth/gitea/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gitea_app
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.14
+    expect_status: 302
+    capture:
+      - name: gitea_app_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # `next_path` is an absolute URL: `validate_next_path` keeps only its path,
+  # so the session stores `/x` and the success redirect is `.../x`.
+  - name: auth-oauth-06-gitea-init-app-absolute-next
+    method: GET
+    path: "/auth/gitea/"
+    query:
+      next_path: "https://evil.example.test/x"
+    jar: gitea_abs
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.15
+    expect_status: 302
+    capture:
+      - name: gitea_abs_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-07-gitlab-init-space
+    method: GET
+    path: "/auth/spaces/gitlab/"
+    jar: space_gl
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.16
+    expect_status: 302
+    capture:
+      - name: space_gl_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-08-gitea-init-space-next
+    method: GET
+    path: "/auth/spaces/gitea/"
+    query:
+      next_path: "{{space_next_path}}"
+    jar: space_gitea
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.17
+    expect_status: 302
+    capture:
+      - name: space_gitea_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-09-google-init-space
+    method: GET
+    path: "/auth/spaces/google/"
+    jar: space_google
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.18
+    expect_status: 302
+    capture:
+      - name: space_google_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # A session started by the *app* initiate, finished on the space callback:
+  # the space views never store `next_path` themselves, so this is the only way
+  # their success builder sees one.
+  - name: auth-oauth-10-app-init-for-space-callback
+    method: GET
+    path: "/auth/gitlab/"
+    query:
+      next_path: "/fix-workspace/"
+    jar: space_gl_next
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.19
+    expect_status: 302
+    capture:
+      - name: space_gl_next_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # -------------------------------------------------------------------------
+  # GitLab callbacks (app).
+  # -------------------------------------------------------------------------
+  # Sign-up with no `next_path`: the invite for this address is accepted, so
+  # the callback joins the workspace and soft-deletes the invite. The redirect
+  # is the app root because `get_redirection_path` answers "onboarding", a bare
+  # slug `validate_next_path` drops.
+  - name: auth-oauth-11-gitlab-callback-signup
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-signup
+      state: "{{gl_plain_state}}"
+    jar: gl_plain
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.20
+    expect_status: 302
+
+  # The same code again in the same session: the user exists, so this is a
+  # sign-in, the account row is updated and (sync is on) the IDP data is
+  # re-applied.
+  - name: auth-oauth-12-gitlab-init-app-repeat
+    method: GET
+    path: "/auth/gitlab/"
+    jar: gl_plain
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.21
+    expect_status: 302
+    capture:
+      - name: gl_plain_state2
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-13-gitlab-callback-signin-existing
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-signup
+      state: "{{gl_plain_state2}}"
+    jar: gl_plain
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.22
+    expect_status: 302
+
+  # Sign-in of a fixture user with `next_path`: the fixture `accounts` row is
+  # upserted, `users` gets the login columns and the synced name/avatar.
+  - name: auth-oauth-14-gitlab-callback-signin-fixture
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-signin
+      state: "{{gl_app_state}}"
+    jar: gl_app
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.23
+    expect_status: 302
+
+  # A token response without `access_token` reaches `accounts.access_token`
+  # NOT NULL: `create_update_account` swallows the DatabaseError and the login
+  # still succeeds.
+  - name: auth-oauth-15-gitlab-init-app-no-token
+    method: GET
+    path: "/auth/gitlab/"
+    jar: gl_no_token
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.24
+    expect_status: 302
+    capture:
+      - name: gl_no_token_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-16-gitlab-callback-no-access-token
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-token-no-access-token
+      state: "{{gl_no_token_state}}"
+    jar: gl_no_token
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.25
+    expect_status: 302
+
+  # Unverified email (`confirmed_at` absent) is the `OAUTH_PROVIDER_UNVERIFIED_EMAIL`
+  # redirect, with the session's `next_path` on the query string.
+  - name: auth-oauth-17-gitlab-init-app-unverified
+    method: GET
+    path: "/auth/gitlab/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gl_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.26
+    expect_status: 302
+    capture:
+      - name: gl_unverified_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-18-gitlab-callback-unverified
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-unverified
+      state: "{{gl_unverified_state}}"
+    jar: gl_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.27
+    expect_status: 302
+
+  # A non-JSON token body: requests 2.33's `JSONDecodeError` is a
+  # `RequestException`, so `get_user_token` catches it.
+  - name: auth-oauth-19-gitlab-init-app-token-not-json
+    method: GET
+    path: "/auth/gitlab/"
+    jar: gl_token_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.28
+    expect_status: 302
+    capture:
+      - name: gl_token_not_json_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # `response.json()`'s decode error is a `RequestException` in requests 2.33,
+  # so `get_user_token`'s `except` turns it into the provider error.
+  - name: auth-oauth-20-gitlab-callback-token-not-json
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-token-not-json
+      state: "{{gl_token_not_json_state}}"
+    jar: gl_token_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.29
+    expect_status: 302
+
+  # A userinfo body that is not an object is the provider's `.get` AttributeError.
+  - name: auth-oauth-21-gitlab-init-app-userinfo-not-object
+    method: GET
+    path: "/auth/gitlab/"
+    jar: gl_userinfo_not_object
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.30
+    expect_status: 302
+    capture:
+      - name: gl_userinfo_not_object_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-22-gitlab-callback-userinfo-not-object
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-userinfo-not-object
+      state: "{{gl_userinfo_not_object_state}}"
+    jar: gl_userinfo_not_object
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.31
+    expect_status: 500
+
+  # A 4xx from the token endpoint is the provider's own error code.
+  - name: auth-oauth-23-gitlab-init-app-token-error
+    method: GET
+    path: "/auth/gitlab/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gl_token_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.32
+    expect_status: 302
+    capture:
+      - name: gl_token_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-24-gitlab-callback-token-error
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-token-error
+      state: "{{gl_token_error_state}}"
+    jar: gl_token_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.33
+    expect_status: 302
+
+  # A 4xx from the userinfo endpoint is the same error after a token exchange.
+  - name: auth-oauth-25-gitlab-init-app-userinfo-error
+    method: GET
+    path: "/auth/gitlab/"
+    jar: gl_userinfo_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.34
+    expect_status: 302
+    capture:
+      - name: gl_userinfo_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-26-gitlab-callback-userinfo-error
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-userinfo-error
+      state: "{{gl_userinfo_error_state}}"
+    jar: gl_userinfo_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.35
+    expect_status: 302
+
+  # A mismatched state keeps the session's state (the DB diff is empty for the
+  # session, and the redirect carries the error).
+  - name: auth-oauth-27-gitlab-callback-state-mismatch
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-signup
+      state: "00000000000000000000000000000000"
+    jar: gl_app2
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.36
+    expect_status: 302
+
+  - name: auth-oauth-28-gitlab-init-app-before-mismatch
+    method: GET
+    path: "/auth/gitlab/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gl_app2
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.37
+    expect_status: 302
+    capture:
+      - name: gl_app2_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-29-gitlab-callback-state-mismatch-with-session
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-signup
+      state: "ffffffffffffffffffffffffffffffff"
+    jar: gl_app2
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.38
+    expect_status: 302
+
+  # The stored state still matches, and the missing `code` is the error while
+  # the state is consumed.
+  - name: auth-oauth-30-gitlab-callback-no-code
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      state: "{{gl_app2_state}}"
+    jar: gl_app2
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.39
+    expect_status: 302
+
+  # No session at all: `request.session.get("state")` is `None`.
+  - name: auth-oauth-31-gitlab-callback-no-session
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-signup
+      state: "0123456789abcdef0123456789abcdef"
+    jar: gl_no_session
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.40
+    expect_status: 302
+
+  # -------------------------------------------------------------------------
+  # Gitea callbacks (app).
+  # -------------------------------------------------------------------------
+  # Sign-up without `next_path`: `get_redirection_path` says "invitations"
+  # (the unaccepted invite counts) and the app Gitea view `urljoin`s the bare
+  # slug, landing on `/invitations`.
+  - name: auth-oauth-32-gitea-init-app-no-next
+    method: GET
+    path: "/auth/gitea/"
+    jar: gitea_plain
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.41
+    expect_status: 302
+    capture:
+      - name: gitea_plain_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-33-gitea-callback-signup
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-signup
+      state: "{{gitea_plain_state}}"
+    jar: gitea_plain
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.42
+    expect_status: 302
+
+  # Sign-in of a fixture user with `next_path` and sync on.
+  - name: auth-oauth-34-gitea-callback-signin-fixture
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-signin
+      state: "{{gitea_app_state}}"
+    jar: gitea_app
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.43
+    expect_status: 302
+
+  # The absolute `next_path` from step 06 was stored validated as `/x`.
+  - name: auth-oauth-35-gitea-callback-absolute-next
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-signin
+      state: "{{gitea_abs_state}}"
+    jar: gitea_abs
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.44
+    expect_status: 302
+
+  # Only a secondary verified address: Gitea's fallback accepts it.
+  - name: auth-oauth-36-gitea-init-app-secondary
+    method: GET
+    path: "/auth/gitea/"
+    query:
+      next_path: "/fix-second/"
+    jar: gitea_secondary
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.45
+    expect_status: 302
+    capture:
+      - name: gitea_secondary_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-37-gitea-callback-verified-secondary
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-verified-secondary
+      state: "{{gitea_secondary_state}}"
+    jar: gitea_secondary
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.46
+    expect_status: 302
+
+  - name: auth-oauth-38-gitea-init-app-unverified
+    method: GET
+    path: "/auth/gitea/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gitea_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.47
+    expect_status: 302
+    capture:
+      - name: gitea_unverified_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-39-gitea-callback-unverified
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-emails-unverified
+      state: "{{gitea_unverified_state}}"
+    jar: gitea_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.48
+    expect_status: 302
+
+  # An empty list is `GITEA_OAUTH_PROVIDER_ERROR: No emails found`.
+  - name: auth-oauth-40-gitea-init-app-no-emails
+    method: GET
+    path: "/auth/gitea/"
+    query:
+      next_path: "{{next_path}}"
+    jar: gitea_no_emails
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.49
+    expect_status: 302
+    capture:
+      - name: gitea_no_emails_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-41-gitea-callback-no-emails
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-no-emails
+      state: "{{gitea_no_emails_state}}"
+    jar: gitea_no_emails
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.50
+    expect_status: 302
+
+  # A 4xx from `/emails` is `GITEA_OAUTH_PROVIDER_ERROR: Failed to fetch emails`.
+  - name: auth-oauth-42-gitea-init-app-emails-error
+    method: GET
+    path: "/auth/gitea/"
+    jar: gitea_emails_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.51
+    expect_status: 302
+    capture:
+      - name: gitea_emails_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-43-gitea-callback-emails-error
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-emails-error
+      state: "{{gitea_emails_error_state}}"
+    jar: gitea_emails_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.52
+    expect_status: 302
+
+  # `str(user_info_response.get("id"))` of a missing id is `"None"`.
+  - name: auth-oauth-44-gitea-init-app-missing-id
+    method: GET
+    path: "/auth/gitea/"
+    jar: gitea_missing_id
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.53
+    expect_status: 302
+    capture:
+      - name: gitea_missing_id_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-45-gitea-callback-missing-id
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-missing-id
+      state: "{{gitea_missing_id_state}}"
+    jar: gitea_missing_id
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.54
+    expect_status: 302
+
+  - name: auth-oauth-46-gitea-init-app-token-not-json
+    method: GET
+    path: "/auth/gitea/"
+    jar: gitea_token_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.55
+    expect_status: 302
+    capture:
+      - name: gitea_token_not_json_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # As above: requests' `JSONDecodeError` is a `RequestException`.
+  - name: auth-oauth-47-gitea-callback-token-not-json
+    method: GET
+    path: "/auth/gitea/callback/"
+    query:
+      code: gitea-token-not-json
+      state: "{{gitea_token_not_json_state}}"
+    jar: gitea_token_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.56
+    expect_status: 302
+
+  # -------------------------------------------------------------------------
+  # Space callbacks.
+  # -------------------------------------------------------------------------
+  # A space sign-in with no `next_path`: `space_redirect_url` strips the base's
+  # trailing slash.
+  - name: auth-oauth-48-space-gitlab-callback-signin
+    method: GET
+    path: "/auth/spaces/gitlab/callback/"
+    query:
+      code: gitlab-signin
+      state: "{{space_gl_state}}"
+    jar: space_gl
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.57
+    expect_status: 302
+
+  # The app-initiated session's `next_path` reaches the space builder.
+  - name: auth-oauth-49-space-gitlab-callback-next
+    method: GET
+    path: "/auth/spaces/gitlab/callback/"
+    query:
+      code: gitlab-signin
+      state: "{{space_gl_next_state}}"
+    jar: space_gl_next
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.58
+    expect_status: 302
+
+  # Space Gitea stores `next_path` at initiation and concatenates base + path
+  # with no separator: `.../spaces//fix-workspace/`.
+  - name: auth-oauth-50-space-gitea-callback-next
+    method: GET
+    path: "/auth/spaces/gitea/callback/"
+    query:
+      code: gitea-signin
+      state: "{{space_gitea_state}}"
+    jar: space_gitea
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.59
+    expect_status: 302
+
+  # Space Gitea's error redirects append the validated `next_path` to the base
+  # with a `?`.
+  - name: auth-oauth-51-space-gitea-init-error
+    method: GET
+    path: "/auth/spaces/gitea/"
+    query:
+      next_path: "/fix-second/"
+    jar: space_gitea_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.60
+    expect_status: 302
+    capture:
+      - name: space_gitea_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-52-space-gitea-callback-error
+    method: GET
+    path: "/auth/spaces/gitea/callback/"
+    query:
+      code: gitea-emails-unverified
+      state: "{{space_gitea_error_state}}"
+    jar: space_gitea_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.61
+    expect_status: 302
+
+  # A space Google callback cannot be exercised (it would need TLS
+  # interception); its initiate and its state-mismatch redirect are.
+  - name: auth-oauth-53-space-google-callback-state-mismatch
+    method: GET
+    path: "/auth/spaces/google/callback/"
+    query:
+      code: fixture-code
+      state: "0123456789abcdef0123456789abcdef"
+    jar: space_google
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.62
+    expect_status: 302
+
+  - name: auth-oauth-54-space-google-callback-no-session
+    method: GET
+    path: "/auth/spaces/google/callback/"
+    jar: space_google_fresh
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.63
+    expect_status: 302
+
+  # A space Gitlab state mismatch: the session's `state` is kept, the error
+  # redirect goes through `get_safe_redirect_url`.
+  - name: auth-oauth-55-space-gitlab-callback-state-mismatch
+    method: GET
+    path: "/auth/spaces/gitlab/callback/"
+    query:
+      code: gitlab-signup
+      state: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: space_gitlab_mismatch
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.64
+    expect_status: 302
