@@ -1352,9 +1352,27 @@ independent; each domain's sets start after its own P0. At most three builds run
     - 221's miss is a 400 before the body is parsed;
     - 225 uses Django's strict model `BooleanField` and writes only its columns.
 
-Running: AI assistant (51/52, `rs/ai`); fix-ups (`rs/fixups`): the link-form 500
-(74/75/108/109) and the `parse_float` trailing-underscore divergence. After these, every
-app-surface write route is on Rust; next is the benchmark re-measure.
+- AI assistant (merged `f263a8ceab`, flipped with this entry): 51/52 `rust(POST)`
+  (`ai` group). `write/ai-assistant.yaml` 23/23, `ai-assistant-task.yaml` 28/28 and
+  `ai-assistant-config.yaml` 7/7 in both directions. On the merge, the full read + write
+  sweep is 92 files, 4977 steps clean; 1101 tests.
+  - The OpenAI request is pinned by a wire golden: `tools/ai/openai_wire.py` records the
+    real SDK against a local listener, and `tests/openai_wire.rs` compares (8 cases). The
+    success path was checked byte-identical once against a local stub; the harness never
+    reaches the network.
+  - Shared fix: `plane-net` `OutboundRequest::headers` now override preset headers, as
+    documented (they had been appended).
+  - Not reproduced: the SDK's retry backoff timing; `X-Stainless-OS/Arch` come from the
+    Rust platform.
+  - Upstream bugs kept:
+    - the project lookup is unscoped;
+    - `task + "\n" + prompt` sits outside the `try`, so a missing `prompt` is a 500;
+    - `(None, None)` from the LLM gives the family 500;
+    - a NULL `LLM_PROVIDER` row is a 500;
+    - the "not configured" state is logged as an exception on every call.
+
+Running: (none). Merging: fix-ups (`rs/fixups`). After it, every app-surface write route
+is on Rust; next is the benchmark re-measure.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 

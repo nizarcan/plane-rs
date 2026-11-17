@@ -88,7 +88,7 @@
 # | search | `PLANE_RS_GROUP_SEARCH` | 3 | 9 | yes |
 # | stickies | `PLANE_RS_GROUP_STICKIES` | 2 | 9 | yes |
 # | webhooks | `PLANE_RS_GROUP_WEBHOOKS` | 4 | 17 | yes |
-# | ai | `PLANE_RS_GROUP_AI` | 2 | 4 | no |
+# | ai | `PLANE_RS_GROUP_AI` | 2 | 4 | yes |
 # | auth-session | `PLANE_RS_GROUP_AUTH_SESSION` | 15 | 31 | no |
 # | auth-magic | `PLANE_RS_GROUP_AUTH_MAGIC` | 6 | 12 | no |
 # | auth-oauth | `PLANE_RS_GROUP_AUTH_OAUTH` | 16 | 48 | no |
@@ -472,5 +472,21 @@ handle @plane_rs_stickies {
 	CEL
 }
 handle @plane_rs_webhooks {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# ai: The LLM assistant endpoint, workspace and project scoped.
+# 2 route(s), 4 endpoint x method pair(s); PLANE_RS_GROUP_AI=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_ai {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_AI} == "" ? "rust" : {env.PLANE_RS_GROUP_AI}) == "rust"
+		&& (
+			(method("POST") && (path_regexp(r"^/api/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ai-assistant/$") || path_regexp(r"^/api/workspaces/[^/]+/ai-assistant/$")))
+		)
+	CEL
+}
+handle @plane_rs_ai {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
