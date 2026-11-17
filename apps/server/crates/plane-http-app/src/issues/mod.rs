@@ -42,8 +42,8 @@ mod sub_resources;
 ///
 /// `pub(crate)` since the intake-issue create/PATCH sets reuse the shared
 /// pieces the plan lists (`plans/INTAKE.md` §2d): `validate_issue` with
-/// `allow_triage`, `apply_patch`, `ensure_state_for_save`, `recheck_manager_fields`,
-/// `field_order`, `fk_value`, `strip_html` and the two task publishers.
+/// `allow_triage`, `apply_patch`, `ensure_state_for_save`, `field_order`,
+/// `fk_value`, `strip_html` and the two task publishers.
 pub(crate) mod write_issue;
 pub mod write_issue_queries;
 pub(crate) mod write_support;

@@ -420,6 +420,70 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `user`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_USER = "write_pk_issue_attachment_serializer_user",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `draft_issue`
+    /// (`db.DraftIssue`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_DRAFT_ISSUE = "write_pk_issue_attachment_serializer_draft_issue",
+    "SELECT \"draft_issues\".\"id\" AS \"pk\" FROM \"draft_issues\" WHERE (\"draft_issues\".\"deleted_at\" IS NULL AND \"draft_issues\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `comment`
+    /// (`db.IssueComment`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_COMMENT = "write_pk_issue_attachment_serializer_comment",
+    "SELECT \"issue_comments\".\"id\" AS \"pk\" FROM \"issue_comments\" WHERE (\"issue_comments\".\"deleted_at\" IS NULL AND \"issue_comments\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `page`
+    /// (`db.Page`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_PAGE = "write_pk_issue_attachment_serializer_page",
+    "SELECT \"pages\".\"id\" AS \"pk\" FROM \"pages\" WHERE (\"pages\".\"deleted_at\" IS NULL AND \"pages\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s.json_field("attributes", false);
@@ -468,15 +532,13 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     let _ = s.float_field("size", false);
     let _ = s.bool_field("is_uploaded");
     let _ = s.json_field("storage_metadata", true);
-    let _ = s.primary_key_field(client, "user", true, "users").await?;
+    let _ = s.primary_key_field(client, "user", true, &PK_USER).await?;
     let _ = s
-        .primary_key_field_live(client, "draft_issue", true, "draft_issues")
+        .primary_key_field(client, "draft_issue", true, &PK_DRAFT_ISSUE)
         .await?;
     let _ = s
-        .primary_key_field_live(client, "comment", true, "issue_comments")
+        .primary_key_field(client, "comment", true, &PK_COMMENT)
         .await?;
-    let _ = s
-        .primary_key_field_live(client, "page", true, "pages")
-        .await?;
+    let _ = s.primary_key_field(client, "page", true, &PK_PAGE).await?;
     Ok(())
 }

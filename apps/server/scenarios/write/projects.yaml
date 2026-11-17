@@ -46,6 +46,7 @@ vars:
   unknown_project: "55555555-5555-4555-8555-555555555555"
   unknown_user: "66666666-6666-4666-8666-666666666666"
   admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
   member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
   member2_id: "bc437914-c250-4c9f-ac69-85003fdf6205"
   nonmember_id: "e15c61cc-f495-4e69-a88f-9c2cf5cdca7b"
@@ -177,6 +178,22 @@ steps:
       Cookie: "session-id={{session_member}}"
 
   # --- create: duplicate name and identifier are 400 -----------------------
+  # `default_state` is a model FK, so its `PrimaryKeyRelatedField` reads
+  # `State._default_manager` = `State.objects` (`StateManager`): a soft-deleted
+  # or triage state is a field-level `Invalid pk …`.
+  - name: write-projects-04c-create-triage-default-state
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/"
+    json:
+      name: "Write Triage Default State"
+      identifier: "wtd"
+      default_state: "{{state_alpha_triage}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
   - name: write-projects-05-create-duplicate-name
     method: POST
     path: "/api/workspaces/{{ws}}/projects/"

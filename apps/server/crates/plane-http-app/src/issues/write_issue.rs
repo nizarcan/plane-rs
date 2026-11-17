@@ -81,7 +81,7 @@ use crate::issues::write_support::{self, IssueSummary};
 use crate::write::description::{self, HtmlValidation};
 use crate::write::fields::Detail;
 use crate::write::generated::issue_create_serializer;
-use crate::write::{self, Serializer, Validated, ValidationErrors, Value};
+use crate::write::{self, Serializer, Validated, ValidationErrors};
 
 /// `PUT` (`rest_framework.mixins.UpdateModelMixin.update`) is refused by
 /// `BaseViewSet`'s guard (`routes.json` `viewset_guard.refused_methods`): the
@@ -260,7 +260,6 @@ async fn prepare_create_with(
     mut serializer: Serializer<'_>,
 ) -> Result<PreparedCreate, ViewError> {
     write::generated::issue_create_serializer::validate(&mut serializer, client).await?;
-    recheck_manager_fields(client, &mut serializer).await?;
     let validated = match serializer.finish() {
         Ok(validated) => validated,
         Err(mut errors) => {
@@ -371,7 +370,6 @@ pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
         let mut serializer = Serializer::new(ctx, true)?;
         write_support::mark_serializer_patch_fields(&mut serializer);
         issue_create_serializer::validate(&mut serializer, client).await?;
-        recheck_manager_fields(client, &mut serializer).await?;
         let validated = match serializer.finish() {
             Ok(validated) => validated,
             Err(mut errors) => {
@@ -1244,88 +1242,6 @@ async fn filter_labels(
         .await
         .map_err(ViewError::from)?;
     Ok(rows.iter().map(|row| row.get(0)).collect())
-}
-
-// ---------------------------------------------------------------------------
-// Field re-checks
-// ---------------------------------------------------------------------------
-
-/// The generated validator checks a pk with `SELECT 1 FROM <table> WHERE id`,
-/// but the serializer's fields use model managers, and every one of these
-/// tables is soft-deletable:
-///
-/// * `parent`/`parent_id`: `Issue.objects` (`deleted_at IS NULL`);
-/// * `label_ids` children: `Label.objects`;
-/// * `state`: `State.objects` — soft-deleted **and** `group = 'triage'` rows,
-///   because the model field's `PrimaryKeyRelatedField` uses the default
-///   manager, not `all_state_objects`;
-/// * `estimate_point`: `EstimatePoint.objects`;
-/// * `type`: `IssueType.objects`.
-///
-/// `state_id` is deliberately absent: its declared field uses
-/// `State.all_state_objects`, the plain manager, so soft-deleted and triage
-/// states are resolved (the project/triage check in `validate()` is what
-/// rejects them).
-pub(crate) async fn recheck_manager_fields(
-    client: &Client,
-    serializer: &mut Serializer<'_>,
-) -> Result<(), ViewError> {
-    for (field, query) in [
-        ("parent_id", &queries::SOFT_DELETED_ISSUES),
-        ("parent", &queries::SOFT_DELETED_ISSUES),
-        ("state", &queries::INVALID_STATE_MANAGER),
-        ("estimate_point", &queries::SOFT_DELETED_ESTIMATE_POINTS),
-        ("type", &queries::SOFT_DELETED_ISSUE_TYPES),
-    ] {
-        let Some(Value::Uuid(id)) = serializer.value(field).cloned() else {
-            continue;
-        };
-        let statement = client
-            .prepare_cached(query.sql)
-            .await
-            .map_err(ViewError::from)?;
-        if client
-            .query_opt(&statement, &[&vec![id]])
-            .await
-            .map_err(ViewError::from)?
-            .is_some()
-        {
-            let raw = serializer.raw_text(field).unwrap_or_else(|| id.to_string());
-            serializer.reject(
-                field,
-                Detail::new(
-                    format!("Invalid pk \"{raw}\" - object does not exist."),
-                    "does_not_exist",
-                ),
-            );
-        }
-    }
-
-    let Some(Value::UuidList(ids)) = serializer.value("label_ids").cloned() else {
-        return Ok(());
-    };
-    let statement = client
-        .prepare_cached(queries::SOFT_DELETED_LABELS.sql)
-        .await
-        .map_err(ViewError::from)?;
-    let rows = client
-        .query(&statement, &[&ids])
-        .await
-        .map_err(ViewError::from)?;
-    let deleted: HashSet<Uuid> = rows.iter().map(|row| row.get(0)).collect();
-    for (index, id) in ids.iter().enumerate() {
-        if deleted.contains(id) {
-            serializer.reject_indexed(
-                "label_ids",
-                index,
-                Detail::new(
-                    format!("Invalid pk \"{id}\" - object does not exist."),
-                    "does_not_exist",
-                ),
-            );
-        }
-    }
-    Ok(())
 }
 
 /// The generated serializer's `self.fields` order (the key order

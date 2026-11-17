@@ -527,82 +527,6 @@ plane_query! {
 }
 
 plane_query! {
-    /// The soft-deleted rows the issue serializer's `parent`/`parent_id`
-    /// fields reject after the generated table-only pk check
-    /// (`Issue.objects` is the default soft-deletion manager).
-    ///
-    /// Bind order: `$1` issue ids.
-    SOFT_DELETED_ISSUES = "issues_write_soft_deleted_issues",
-    "SELECT id FROM issues \
-     WHERE deleted_at IS NOT NULL AND id = ANY($1::uuid[])",
-    [
-        ("id", Uuid),
-    ]
-}
-
-plane_query! {
-    /// The soft-deleted labels the generated `label_ids` child check misses
-    /// (`Label.objects` is the default soft-deletion manager).
-    ///
-    /// Bind order: `$1` label ids.
-    SOFT_DELETED_LABELS = "issues_write_soft_deleted_labels",
-    "SELECT id FROM labels \
-     WHERE deleted_at IS NOT NULL AND id = ANY($1::uuid[])",
-    [
-        ("id", Uuid),
-    ]
-}
-
-plane_query! {
-    /// The states the issue serializer's **model** `state` field rejects after
-    /// the generated table-only pk check.
-    ///
-    /// `IssueCreateSerializer` declares `state_id` with
-    /// `queryset=State.all_state_objects.all()` (`plane/app/serializers/issue.py:84-86`),
-    /// but `Meta.fields = "__all__"` also builds the model field `state`, whose
-    /// `PrimaryKeyRelatedField` uses the **default** manager `State.objects` —
-    /// `StateManager`, which hides soft-deleted rows and every
-    /// `group = 'triage'` row (`plane/db/models/state.py:49-68`). DRF visits
-    /// `self.fields` in declaration order, so `state` comes after `state_id` and
-    /// wins in `validated_data` (`fk_value`). A body that sends the injected
-    /// triage state under `state` therefore gets a field error, while the same
-    /// id under `state_id` is accepted — an upstream oddity kept as it is.
-    ///
-    /// Bind order: `$1` state ids.
-    INVALID_STATE_MANAGER = "issues_write_invalid_state_manager",
-    "SELECT id FROM states \
-     WHERE id = ANY($1::uuid[]) \
-       AND (deleted_at IS NOT NULL OR \"group\" = 'triage')",
-    [
-        ("id", Uuid),
-    ]
-}
-
-plane_query! {
-    /// The soft-deleted estimate points the generated pk check misses.
-    ///
-    /// Bind order: `$1` estimate point ids.
-    SOFT_DELETED_ESTIMATE_POINTS = "issues_write_soft_deleted_estimate_points",
-    "SELECT id FROM estimate_points \
-     WHERE deleted_at IS NOT NULL AND id = ANY($1::uuid[])",
-    [
-        ("id", Uuid),
-    ]
-}
-
-plane_query! {
-    /// The soft-deleted issue types the generated pk check misses.
-    ///
-    /// Bind order: `$1` issue type ids.
-    SOFT_DELETED_ISSUE_TYPES = "issues_write_soft_deleted_issue_types",
-    "SELECT id FROM issue_types \
-     WHERE deleted_at IS NOT NULL AND id = ANY($1::uuid[])",
-    [
-        ("id", Uuid),
-    ]
-}
-
-plane_query! {
     /// `Issue.objects.bulk_update(issues, ["archived_at"])`
     /// (`plane/app/views/issue/archive.py:337`): one UPDATE, no audit columns
     /// and no `updated_at`.
@@ -634,11 +558,6 @@ pub static ALL_QUERIES: &[&Query] = &[
     &VALID_ESTIMATE_POINT_IN_PROJECT,
     &FILTER_ASSIGNEES,
     &FILTER_LABELS,
-    &SOFT_DELETED_ISSUES,
-    &SOFT_DELETED_LABELS,
-    &INVALID_STATE_MANAGER,
-    &SOFT_DELETED_ESTIMATE_POINTS,
-    &SOFT_DELETED_ISSUE_TYPES,
 ];
 
 #[cfg(test)]

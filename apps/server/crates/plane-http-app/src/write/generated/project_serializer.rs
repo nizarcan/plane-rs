@@ -1154,6 +1154,86 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `default_assignee`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_DEFAULT_ASSIGNEE = "write_pk_project_serializer_default_assignee",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `project_lead`
+    /// (`db.User`, `UserManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_PROJECT_LEAD = "write_pk_project_serializer_project_lead",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `cover_image_asset`
+    /// (`db.FileAsset`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_COVER_IMAGE_ASSET = "write_pk_project_serializer_cover_image_asset",
+    "SELECT \"file_assets\".\"id\" AS \"pk\" FROM \"file_assets\" WHERE (\"file_assets\".\"deleted_at\" IS NULL AND \"file_assets\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `estimate`
+    /// (`db.Estimate`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_ESTIMATE = "write_pk_project_serializer_estimate",
+    "SELECT \"estimates\".\"id\" AS \"pk\" FROM \"estimates\" WHERE (\"estimates\".\"deleted_at\" IS NULL AND \"estimates\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `default_state`
+    /// (`db.State`, `StateManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_DEFAULT_STATE = "write_pk_project_serializer_default_state",
+    "SELECT \"states\".\"id\" AS \"pk\" FROM \"states\" WHERE (\"states\".\"deleted_at\" IS NULL AND NOT (\"states\".\"group\" = 'triage') AND \"states\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.char_field_required(
         "name",
@@ -1695,19 +1775,19 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
         },
     );
     let _ = s
-        .primary_key_field(client, "default_assignee", true, "users")
+        .primary_key_field(client, "default_assignee", true, &PK_DEFAULT_ASSIGNEE)
         .await?;
     let _ = s
-        .primary_key_field(client, "project_lead", true, "users")
+        .primary_key_field(client, "project_lead", true, &PK_PROJECT_LEAD)
         .await?;
     let _ = s
-        .primary_key_field_live(client, "cover_image_asset", true, "file_assets")
+        .primary_key_field(client, "cover_image_asset", true, &PK_COVER_IMAGE_ASSET)
         .await?;
     let _ = s
-        .primary_key_field_live(client, "estimate", true, "estimates")
+        .primary_key_field(client, "estimate", true, &PK_ESTIMATE)
         .await?;
     let _ = s
-        .primary_key_field_live(client, "default_state", true, "states")
+        .primary_key_field(client, "default_state", true, &PK_DEFAULT_STATE)
         .await?;
     Ok(())
 }

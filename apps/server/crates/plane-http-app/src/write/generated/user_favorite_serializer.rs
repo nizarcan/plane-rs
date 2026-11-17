@@ -189,6 +189,22 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `parent`
+    /// (`db.UserFavorite`, `SoftDeletionManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_PARENT = "write_pk_user_favorite_serializer_parent",
+    "SELECT \"user_favorites\".\"id\" AS \"pk\" FROM \"user_favorites\" WHERE (\"user_favorites\".\"deleted_at\" IS NULL AND \"user_favorites\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.char_field_required(
         "entity_type",
@@ -215,7 +231,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     let _ = s.bool_field("is_folder");
     let _ = s.float_field("sequence", false);
     let _ = s
-        .primary_key_field_live(client, "parent", true, "user_favorites")
+        .primary_key_field(client, "parent", true, &PK_PARENT)
         .await?;
     Ok(())
 }

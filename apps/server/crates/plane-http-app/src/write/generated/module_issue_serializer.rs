@@ -140,10 +140,26 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField` lookup for `issue`
+    /// (`db.Issue`, `IssueManager`): DRF runs
+    /// `queryset.get(pk=…)` (`rest_framework/relations.py:252-265`);
+    /// this is that queryset compiled by Django's SQL compiler, with the
+    /// select list replaced by the pk and the ordering dropped. Whatever
+    /// the field's manager hides (soft-deleted, triage, archived or draft
+    /// rows, depending on the queryset) is DRF's `does_not_exist`, exactly
+    /// as in Python.
+    ///
+    /// Bind order: `$1` the pk.
+    PK_ISSUE = "write_pk_module_issue_serializer_issue",
+    "SELECT \"issues\".\"id\" AS \"pk\" FROM \"issues\" LEFT OUTER JOIN \"states\" ON (\"issues\".\"state_id\" = \"states\".\"id\") INNER JOIN \"projects\" ON (\"issues\".\"project_id\" = \"projects\".\"id\") WHERE (\"issues\".\"deleted_at\" IS NULL AND NOT (\"states\".\"group\" = 'triage' AND \"states\".\"group\" IS NOT NULL) AND NOT (\"issues\".\"archived_at\" IS NOT NULL) AND NOT (\"projects\".\"archived_at\" IS NOT NULL) AND NOT (\"issues\".\"is_draft\") AND \"issues\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s
-        .primary_key_field_live(client, "issue", false, "issues")
+        .primary_key_field(client, "issue", false, &PK_ISSUE)
         .await?;
     if s.missing_required("issue") {
         s.push_error("issue", Detail::required());

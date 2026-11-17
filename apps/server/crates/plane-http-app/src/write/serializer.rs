@@ -208,7 +208,8 @@ pub struct PrimaryKeyListOptions {
     pub allow_empty: bool,
     pub min_length: Option<usize>,
     pub max_length: Option<usize>,
-    pub table: &'static str,
+    /// The generated child `queryset.get(pk=…)` statement.
+    pub query: &'static plane_db::Query,
 }
 
 /// `serializer.errors`: ordered `(field, details)` pairs.
@@ -801,58 +802,30 @@ impl<'a> Serializer<'a> {
         Some(parsed)
     }
 
-    /// `PrimaryKeyRelatedField` (`rest_framework/relations.py:250-290`): parse
-    /// the pk, then one `SELECT 1 FROM <queryset model> WHERE id = $1`. Django
-    /// runs exactly one `queryset.get(pk=…)` per field, so the round-trip count
-    /// is the same.
+    /// `PrimaryKeyRelatedField` (`rest_framework/relations.py:252-265`): parse
+    /// the pk, then run the **field's own** queryset, compiled to SQL by the
+    /// generator.
     ///
-    /// The queryset is a generated `ModelSerializer` field's
-    /// `related_model._default_manager.all()`, i.e. the **plain** manager; a
-    /// model that carries `deleted_at` needs
-    /// [`Self::primary_key_field_live`].
+    /// DRF does `queryset.get(pk=data)`; the generated [`plane_db::Query`] is
+    /// that queryset's compiler output with the pk as the only bind parameter
+    /// and the select list replaced by the pk. It is not a plain
+    /// `WHERE id = $1`: the field's manager decides which rows exist for DRF,
+    /// so `State.objects` (`StateManager`) rejects a triage state and
+    /// `Issue.issue_objects` (`IssueManager`) rejects a triage, archived or
+    /// draft issue and an issue in an archived project.
+    /// `IssueCreateSerializer.state_id` declares `State.all_state_objects`, so
+    /// a soft-deleted or triage state is accepted by the field and fails the
+    /// serializer's `validate()` instead.
+    ///
+    /// One prepared statement per field (`prepare_cached`, shared with every
+    /// other use of the same SQL) and one execute per value, exactly like the
+    /// Python.
     pub async fn primary_key_field(
         &mut self,
         client: &Client,
         name: &'static str,
         allow_null: bool,
-        table: &'static str,
-    ) -> Result<Option<uuid::Uuid>, ViewError> {
-        let predicate = "";
-        self.related_key_field(client, name, allow_null, table, predicate)
-            .await
-    }
-
-    /// [`Self::primary_key_field`] for a relation whose queryset is a
-    /// soft-deletion manager (`UserFavorite.objects` for `UserFavorite.parent`,
-    /// `plane/db/models/favorite.py:25-31`), so a soft-deleted row is
-    /// `Invalid pk "…" - object does not exist.` — not a hit.
-    ///
-    /// The generator picks this helper from the **field's own** queryset, not
-    /// from the related model: `IssueCreateSerializer.state_id` declares
-    /// `State.all_state_objects` (a plain manager) and must accept a
-    /// soft-deleted state, while an auto-generated field for the same model FK
-    /// reads `State.objects` (`StateManager`) and must not
-    /// (`tools/inventory/serializers.py`).
-    pub async fn primary_key_field_live(
-        &mut self,
-        client: &Client,
-        name: &'static str,
-        allow_null: bool,
-        table: &'static str,
-    ) -> Result<Option<uuid::Uuid>, ViewError> {
-        let predicate = " AND deleted_at IS NULL";
-        self.related_key_field(client, name, allow_null, table, predicate)
-            .await
-    }
-
-    /// The shared body of the two `PrimaryKeyRelatedField` helpers.
-    async fn related_key_field(
-        &mut self,
-        client: &Client,
-        name: &'static str,
-        allow_null: bool,
-        table: &'static str,
-        predicate: &'static str,
+        query: &'static plane_db::Query,
     ) -> Result<Option<uuid::Uuid>, ViewError> {
         let Some(raw) = self.related_field_value(name, allow_null) else {
             return Ok(None);
@@ -864,11 +837,9 @@ impl<'a> Serializer<'a> {
                 return Ok(None);
             }
         };
-        // The table name is a generated const from model metadata, and the
-        // predicate a constant of this module, never input.
-        let sql = format!("SELECT 1 FROM {table} WHERE id = $1{predicate}");
+        let statement = query.prepare(client).await.map_err(ViewError::from)?;
         let exists = client
-            .query_opt(sql.as_str(), &[&value])
+            .query_opt(&statement, &[&value])
             .await
             .map_err(ViewError::from)?
             .is_some();
@@ -960,8 +931,9 @@ impl<'a> Serializer<'a> {
 
     /// `ListField` of `PrimaryKeyRelatedField` children
     /// (`rest_framework/fields.py:1690-1740`): `not_a_list`/`empty`, then one
-    /// `queryset.get(pk=…)` per element. Child failures are rendered under the
-    /// element's index, as DRF's `errors[idx]` dict.
+    /// `queryset.get(pk=…)` per element, each running the generated child
+    /// lookup (see [`Self::primary_key_field`]). Child failures are rendered
+    /// under the element's index, as DRF's `errors[idx]` dict.
     pub async fn primary_key_list_field(
         &mut self,
         client: &Client,
@@ -973,7 +945,7 @@ impl<'a> Serializer<'a> {
             allow_empty,
             min_length,
             max_length,
-            table,
+            query,
         } = options;
         let Some(raw) = self.field_value(name, allow_null, Some(false)) else {
             return Ok(None);
@@ -990,7 +962,7 @@ impl<'a> Serializer<'a> {
             self.errors.push(name, fields::empty_list());
             return Ok(None);
         }
-        let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
+        let statement = query.prepare(client).await.map_err(ViewError::from)?;
         let mut values = Vec::with_capacity(items.len());
         let mut failed = false;
         for (index, item) in items.iter().enumerate() {
@@ -1012,7 +984,7 @@ impl<'a> Serializer<'a> {
                 }
             };
             let exists = client
-                .query_opt(sql.as_str(), &[&value])
+                .query_opt(&statement, &[&value])
                 .await
                 .map_err(ViewError::from)?
                 .is_some();
@@ -1054,14 +1026,14 @@ impl<'a> Serializer<'a> {
 
     /// `ManyRelatedField` (`rest_framework/relations.py:480-560`): the child's
     /// error propagates directly (no per-index dict), and validation stops at
-    /// the first failure.
+    /// the first failure. Each element runs the generated child lookup.
     pub async fn primary_key_many_field(
         &mut self,
         client: &Client,
         name: &'static str,
         allow_null: bool,
         allow_empty: bool,
-        table: &'static str,
+        query: &'static plane_db::Query,
     ) -> Result<Option<Vec<uuid::Uuid>>, ViewError> {
         let Some(raw) = self.field_value(name, allow_null, Some(false)) else {
             return Ok(None);
@@ -1078,7 +1050,7 @@ impl<'a> Serializer<'a> {
             self.errors.push(name, fields::empty_list());
             return Ok(None);
         }
-        let sql = format!("SELECT 1 FROM {table} WHERE id = $1");
+        let statement = query.prepare(client).await.map_err(ViewError::from)?;
         let mut values = Vec::with_capacity(items.len());
         for item in &items {
             // `ManyRelatedField` delegates to the child's
@@ -1097,7 +1069,7 @@ impl<'a> Serializer<'a> {
                 }
             };
             let exists = client
-                .query_opt(sql.as_str(), &[&value])
+                .query_opt(&statement, &[&value])
                 .await
                 .map_err(ViewError::from)?
                 .is_some();
