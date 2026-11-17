@@ -22,8 +22,10 @@ use plane_drf::registry::{Registry, RegistryError};
 
 pub mod base;
 pub mod queries;
+pub mod render;
 pub mod ser;
 pub mod workspace;
+pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {

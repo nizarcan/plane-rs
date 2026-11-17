@@ -112,6 +112,13 @@ shapes:
   webhook_secret:
     pattern: '^plane_wh_[0-9a-f]{32}$'
     why: "Webhook.generate_token: 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
+  # plane/app/views/estimate/base.py:29-31: generate_random_name() joins ten
+  # `random.choice(string.ascii_lowercase)`. `:66` calls it eagerly on every
+  # create and uses it when the body has no `name`, so the inserted row and the
+  # response's `name` differ between two runs.
+  estimate_random_name:
+    pattern: '^[a-z]{10}$'
+    why: "generate_random_name: 10 random lowercase ASCII letters (plane/app/views/estimate/base.py:29-31, :66)"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -430,6 +437,23 @@ volatile_json_keys:
     shape: webhook_secret
     request: "*webhooks*"
     why: "generated HMAC secret: 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
+  # `create` calls `generate_random_name()` eagerly and stores it when the body
+  # carries no `name` (plane/app/views/estimate/base.py:29-31, :66), so the
+  # response's `name` is a different ten-letter word per target. Scoped to the
+  # create route: a PATCH echoes the name the request carried, and every other
+  # response's `name` is a fixture literal.
+  #
+  # The scope is the request, not the body: a create step that *does* send
+  # `name` still runs this rule, so its literal must also match the generated
+  # shape (`^[a-z]{10}$`) or the shape check fails the step. A step that
+  # proves an explicit name is written should use such a value (or assert the
+  # echo through `PATCH …/estimates/{id}/`, which this rule does not touch).
+  - name: name
+    mode: placeholder
+    placeholder: estimate-name
+    shape: estimate_random_name
+    request: "POST /api/workspaces/*/projects/*/estimates/"
+    why: "generate_random_name() when the create body has no `name` (plane/app/views/estimate/base.py:29-31, :66)"
 
 volatile_db_columns:
   - table: sessions
@@ -509,6 +533,17 @@ volatile_db_columns:
     shape: webhook_secret
     request: "*webhooks*"
     why: "Webhook.secret_key = generate_token(): 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
+  # The DB half of the `name` rule above: the INSERT carries the generated
+  # name, and the same raw value gets the same placeholder in the response
+  # body and in the `estimates` row diff. Scoped to the create route so a
+  # PATCH's `name` update stays a literal comparison.
+  - table: estimates
+    column: name
+    mode: placeholder
+    placeholder: estimate-name
+    shape: estimate_random_name
+    request: "POST /api/workspaces/*/projects/*/estimates/"
+    why: "generate_random_name() when the create body has no `name` (plane/app/views/estimate/base.py:29-31, :66)"
 
 # Celery transport headers: not part of the task's observable behaviour, so
 # they are dropped rather than placeholdered (their values are per-process).

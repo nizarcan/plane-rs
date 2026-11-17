@@ -62,11 +62,13 @@ pub mod favorite_queries;
 pub mod fields;
 pub mod generated;
 pub mod html;
+pub mod list_serializer;
 pub(crate) mod pyiso;
 pub mod serializer;
 pub mod url;
 
 pub use fields::{CharOptions, Detail, IntegerOptions};
+pub use list_serializer::{ChildError, ListError, list_of};
 /// The H01 audit columns (`plane/db/models/base.py:23-45`).
 pub use plane_db::hooks::audit::Audit;
 pub use serializer::{PrimaryKeyListOptions, Serializer, Validated, ValidationErrors, Value};

@@ -23,12 +23,11 @@ use plane_db::models::estimate::{Estimate, EstimatePoint};
 use plane_db::models::project::Project;
 use plane_drf::error::ViewError;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
-use plane_serializers::generated::app_estimate::{EstimatePointSerializer, EstimateReadSerializer};
+use plane_serializers::generated::app_estimate::EstimatePointSerializer;
 
 use crate::common::render::RequestRender;
 use crate::common::{client, lookup, render_list};
-use crate::estimates::queries;
-use crate::estimates::ser;
+use crate::estimates::{queries, render, ser};
 
 /// `ProjectEstimatePointEndpoint.get` (`plane/app/views/estimate/base.py:35-47`).
 pub fn project_estimates<'a>(
@@ -50,7 +49,6 @@ pub fn project_estimates<'a>(
         };
         let project = Project::from_row(&project_row, 0)?;
 
-        let prepared = RequestRender::from_ctx(ctx);
         let Some(estimate_id) = project.estimate_id else {
             // `return Response([], status=200)` — an empty list, not a 404.
             return Ok(ViewResponse::raw(200, APPLICATION_JSON, b"[]".to_vec()));
@@ -66,9 +64,7 @@ pub fn project_estimates<'a>(
         for row in &rows {
             points.push(EstimatePoint::from_row(row, 0)?);
         }
-        let serializers: Vec<EstimatePointSerializer<'_>> =
-            points.iter().map(ser::point_serializer).collect();
-        let body = render_list(&serializers, &prepared.render_ctx())?;
+        let body = render::point_list(ctx, &points)?;
         Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
     })
 }
@@ -116,34 +112,9 @@ pub fn retrieve<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
         };
         let estimate = Estimate::from_row(&row, 0)?;
 
-        // `EstimateReadSerializer(estimate)` walks `estimate.points`, which is a
-        // reverse manager: one query for this instance.
-        let statement = queries::ESTIMATE_POINTS_OF_ESTIMATE
-            .prepare(client(ctx)?)
-            .await?;
-        let point_rows = client(ctx)?.query(&statement, &[&estimate.id]).await?;
-        let mut points = Vec::with_capacity(point_rows.len());
-        for row in &point_rows {
-            points.push(EstimatePoint::from_row(row, 0)?);
-        }
-        let point_serializers: Vec<EstimatePointSerializer<'_>> =
-            points.iter().map(ser::point_serializer).collect();
-        let serializer = EstimateReadSerializer {
-            id: estimate.id,
-            points: &point_serializers,
-            created_at: estimate.created_at,
-            updated_at: estimate.updated_at,
-            deleted_at: estimate.deleted_at,
-            name: &estimate.name,
-            description: &estimate.description,
-            r#type: &estimate.r#type,
-            last_used: estimate.last_used,
-            created_by: estimate.created_by_id,
-            updated_by: estimate.updated_by_id,
-            project: estimate.project_id,
-            workspace: estimate.workspace_id,
-        };
-        let body = crate::common::render(ctx, &serializer)?;
+        // `EstimateReadSerializer(estimate)` walks `estimate.points`, which is
+        // a reverse manager: one query for this instance.
+        let body = render::estimate_read(ctx, &estimate).await?;
         Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
     })
 }
