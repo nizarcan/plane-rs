@@ -98,4 +98,4 @@ pub use error::ViewError;
 pub use policy::{Family, PolicyTable, RoutePolicy};
 pub use registry::{Registry, RegistryError};
 pub use request::{QueryDict, ViewRequest};
-pub use view::{DrfResponse, HandlerFn, ViewCtx, ViewResponse};
+pub use view::{DrfResponse, HandlerFn, PlainViewState, ViewCtx, ViewResponse};

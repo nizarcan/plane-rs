@@ -1,0 +1,4374 @@
+{
+ "python": "3.12.13",
+ "zxcvbn": "4.4.28",
+ "cases": [
+  {
+   "password": "password",
+   "first": "password",
+   "last": "password",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Password1",
+   "first": "Password1",
+   "last": "Password1",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Password123",
+   "first": "Password123",
+   "last": "Password123",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "password123!",
+   "first": "password123!",
+   "last": "password123!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "123456",
+   "first": "123456",
+   "last": "123456",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "12345678",
+   "first": "12345678",
+   "last": "12345678",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "qwerty",
+   "first": "qwerty",
+   "last": "qwerty",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "qwertyuiop",
+   "first": "qwertyuiop",
+   "last": "qwertyuiop",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abc123",
+   "first": "abc123",
+   "last": "abc123",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "letmein",
+   "first": "letmein",
+   "last": "letmein",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "welcome",
+   "first": "welcome",
+   "last": "welcome",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "monkey",
+   "first": "monkey",
+   "last": "monkey",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "dragon",
+   "first": "dragon",
+   "last": "dragon",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "iloveyou",
+   "first": "iloveyou",
+   "last": "iloveyou",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "admin",
+   "first": "admin",
+   "last": "admin",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "administrator",
+   "first": "administrator",
+   "last": "administrator",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "root",
+   "first": "root",
+   "last": "root",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "toor",
+   "first": "toor",
+   "last": "toor",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "changeme",
+   "first": "changeme",
+   "last": "changeme",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "secret",
+   "first": "secret",
+   "last": "secret",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "pl@ne",
+   "first": "pl@ne",
+   "last": "pl@ne",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "plane",
+   "first": "plane",
+   "last": "plane",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "plane123",
+   "first": "plane123",
+   "last": "plane123",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "makeplane",
+   "first": "makeplane",
+   "last": "makeplane",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "test",
+   "first": "test",
+   "last": "test",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "test1234",
+   "first": "test1234",
+   "last": "test1234",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "guest",
+   "first": "guest",
+   "last": "guest",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaa",
+   "first": "aaaaaaaa",
+   "last": "aaaaaaaa",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaa",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "11111111",
+   "first": "11111111",
+   "last": "11111111",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "00000000",
+   "first": "00000000",
+   "last": "00000000",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "asdfghjkl",
+   "first": "asdfghjkl",
+   "last": "asdfghjkl",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "zxcvbnm",
+   "first": "zxcvbnm",
+   "last": "zxcvbnm",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "qazwsx",
+   "first": "qazwsx",
+   "last": "qazwsx",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "1q2w3e4r",
+   "first": "1q2w3e4r",
+   "last": "1q2w3e4r",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "1qaz2wsx",
+   "first": "1qaz2wsx",
+   "last": "1qaz2wsx",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "trustno1",
+   "first": "trustno1",
+   "last": "trustno1",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "sunshine",
+   "first": "sunshine",
+   "last": "sunshine",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "princess",
+   "first": "princess",
+   "last": "princess",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "football",
+   "first": "football",
+   "last": "football",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "baseball",
+   "first": "baseball",
+   "last": "baseball",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "superman",
+   "first": "superman",
+   "last": "superman",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "starwars",
+   "first": "starwars",
+   "last": "starwars",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "master",
+   "first": "master",
+   "last": "master",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "shadow",
+   "first": "shadow",
+   "last": "shadow",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "michael",
+   "first": "michael",
+   "last": "michael",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "jennifer",
+   "first": "jennifer",
+   "last": "jennifer",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "jordan",
+   "first": "jordan",
+   "last": "jordan",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "harley",
+   "first": "harley",
+   "last": "harley",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "ranger",
+   "first": "ranger",
+   "last": "ranger",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abcdef",
+   "first": "abcdef",
+   "last": "abcdef",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abcdefgh",
+   "first": "abcdefgh",
+   "last": "abcdefgh",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abcd1234",
+   "first": "abcd1234",
+   "last": "abcd1234",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "a1b2c3d4",
+   "first": "a1b2c3d4",
+   "last": "a1b2c3d4",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passw0rd",
+   "first": "passw0rd",
+   "last": "passw0rd",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "p@ssw0rd",
+   "first": "p@ssw0rd",
+   "last": "p@ssw0rd",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "correcthorsebatterystaple",
+   "first": "correcthorsebatterystaple",
+   "last": "correcthorsebatterystaple",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Tr0ub4dor&3",
+   "first": "Tr0ub4dor&3",
+   "last": "Tr0ub4dor&3",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "hunter2",
+   "first": "hunter2",
+   "last": "hunter2",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "letmein1",
+   "first": "letmein1",
+   "last": "letmein1",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "qwerty123",
+   "first": "qwerty123",
+   "last": "qwerty123",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "1q2w3e4r5t",
+   "first": "1q2w3e4r5t",
+   "last": "1q2w3e4r5t",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "zaq12wsx",
+   "first": "zaq12wsx",
+   "last": "zaq12wsx",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "qweasdzxc",
+   "first": "qweasdzxc",
+   "last": "qweasdzxc",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "123qweasd",
+   "first": "123qweasd",
+   "last": "123qweasd",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "11111111111111111111111111111111",
+   "first": "11111111111111111111111111111111",
+   "last": "11111111111111111111111111111111",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc",
+   "first": "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc",
+   "last": "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpassword",
+   "first": "passwordpasswordpasswordpassword",
+   "last": "passwordpasswordpasswordpassword",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwerty",
+   "first": "qwertyqwertyqwertyqwertyqwerty",
+   "last": "qwertyqwertyqwertyqwertyqwerty",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "123456789012345678901234567890",
+   "first": "123456789012345678901234567890",
+   "last": "123456789012345678901234567890",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaA1!",
+   "first": "aaaaaaaA1!",
+   "last": "aaaaaaaA1!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "password1!",
+   "first": "password1!",
+   "last": "password1!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "P@ssword",
+   "first": "P@ssword",
+   "last": "P@ssword",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "P@ssw0rd!",
+   "first": "P@ssw0rd!",
+   "last": "P@ssw0rd!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Welcome1",
+   "first": "Welcome1",
+   "last": "Welcome1",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Summer2024!",
+   "first": "Summer2024!",
+   "last": "Summer2024!",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Winter2024!",
+   "first": "Winter2024!",
+   "last": "Winter2024!",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Company123!",
+   "first": "Company123!",
+   "last": "Company123!",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Plane@123",
+   "first": "Plane@123",
+   "last": "Plane@123",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "password123",
+   "first": "password123",
+   "last": "password123",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "test-password",
+   "first": "test-password",
+   "last": "test-password",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Str0ng!Passw0rd",
+   "first": "Str0ng!Passw0rd",
+   "last": "Str0ng!Passw0rd",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "fixture-password",
+   "first": "fixture-password",
+   "last": "fixture-password",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Admin1234!",
+   "first": "Admin1234!",
+   "last": "Admin1234!",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "demo1234",
+   "first": "demo1234",
+   "last": "demo1234",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "user1234",
+   "first": "user1234",
+   "last": "user1234",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "plane@123",
+   "first": "plane@123",
+   "last": "plane@123",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Plane1234!",
+   "first": "Plane1234!",
+   "last": "Plane1234!",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "x",
+   "first": "x",
+   "last": "x",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "1",
+   "first": "1",
+   "last": "1",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "12",
+   "first": "12",
+   "last": "12",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "123",
+   "first": "123",
+   "last": "123",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "2",
+   "first": "2",
+   "last": "2",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "s",
+   "first": "s",
+   "last": "s",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "a",
+   "first": "a",
+   "last": "a",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "3",
+   "first": "3",
+   "last": "3",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "p",
+   "first": "p",
+   "last": "p",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "nv",
+   "first": "nv",
+   "last": "nv",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "MB",
+   "first": "MB",
+   "last": "MB",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "lo",
+   "first": "lo",
+   "last": "lo",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "00",
+   "first": "00",
+   "last": "00",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "JB",
+   "first": "JB",
+   "last": "JB",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "sET",
+   "first": "sET",
+   "last": "sET",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "p$~",
+   "first": "p$~",
+   "last": "p$~",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "mpf",
+   "first": "mpf",
+   "last": "mpf",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "248",
+   "first": "248",
+   "last": "248",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "-(h",
+   "first": "-(h",
+   "last": "-(h",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Np61",
+   "first": "Np61",
+   "last": "Np61",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "*v-<",
+   "first": "*v-<",
+   "last": "*v-<",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "wwvg",
+   "first": "wwvg",
+   "last": "wwvg",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "8121",
+   "first": "8121",
+   "last": "8121",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": ";9bf",
+   "first": ";9bf",
+   "last": ";9bf",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "iGlhK",
+   "first": "iGlhK",
+   "last": "iGlhK",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "L|)_v",
+   "first": "L|)_v",
+   "last": "L|)_v",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "jkccs",
+   "first": "jkccs",
+   "last": "jkccs",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "25524",
+   "first": "25524",
+   "last": "25524",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!Ne~l",
+   "first": "!Ne~l",
+   "last": "!Ne~l",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "z9MGSt",
+   "first": "z9MGSt",
+   "last": "z9MGSt",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!AR)+b",
+   "first": "!AR)+b",
+   "last": "!AR)+b",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "mlgynl",
+   "first": "mlgynl",
+   "last": "mlgynl",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "670344",
+   "first": "670344",
+   "last": "670344",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "`m+_#m",
+   "first": "`m+_#m",
+   "last": "`m+_#m",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "0LhGqY4",
+   "first": "0LhGqY4",
+   "last": "0LhGqY4",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "wLlQ}gy",
+   "first": "wLlQ}gy",
+   "last": "wLlQ}gy",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "kpljqbn",
+   "first": "kpljqbn",
+   "last": "kpljqbn",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "5293797",
+   "first": "5293797",
+   "last": "5293797",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "bY*oit9",
+   "first": "bY*oit9",
+   "last": "bY*oit9",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "OEu2CCCI",
+   "first": "OEu2CCCI",
+   "last": "OEu2CCCI",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "JeEPY`\\[",
+   "first": "JeEPY`\\[",
+   "last": "JeEPY`\\[",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "gxdeaaze",
+   "first": "gxdeaaze",
+   "last": "gxdeaaze",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "47506636",
+   "first": "47506636",
+   "last": "47506636",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "M\\{VM;!S",
+   "first": "M\\{VM;!S",
+   "last": "M\\{VM;!S",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "d2RWmOJHf",
+   "first": "d2RWmOJHf",
+   "last": "d2RWmOJHf",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "ofO]+xGv[",
+   "first": "ofO]+xGv[",
+   "last": "ofO]+xGv[",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "isqgktaai",
+   "first": "isqgktaai",
+   "last": "isqgktaai",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "966187192",
+   "first": "966187192",
+   "last": "966187192",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "!C&kpFw6;",
+   "first": "!C&kpFw6;",
+   "last": "!C&kpFw6;",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "69x9h9l5qZ",
+   "first": "69x9h9l5qZ",
+   "last": "69x9h9l5qZ",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "KI&PB^$+,$",
+   "first": "KI&PB^$+,$",
+   "last": "KI&PB^$+,$",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "gcdqtmbbet",
+   "first": "gcdqtmbbet",
+   "last": "gcdqtmbbet",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "9169363374",
+   "first": "9169363374",
+   "last": "9169363374",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "CxHCKxw/G'",
+   "first": "CxHCKxw/G'",
+   "last": "CxHCKxw/G'",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "DuVFXt6puE6",
+   "first": "DuVFXt6puE6",
+   "last": "DuVFXt6puE6",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "JL\\5?QfW5Od",
+   "first": "JL\\5?QfW5Od",
+   "last": "JL\\5?QfW5Od",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "wqdfiwskaxn",
+   "first": "wqdfiwskaxn",
+   "last": "wqdfiwskaxn",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "73113697281",
+   "first": "73113697281",
+   "last": "73113697281",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "0#OaK<w'G(\"",
+   "first": "0#OaK<w'G(\"",
+   "last": "0#OaK<w'G(\"",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "UZp3r8ZHh1Wa",
+   "first": "UZp3r8ZHh1Wa",
+   "last": "UZp3r8ZHh1Wa",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "I<'GrAu@dIg*",
+   "first": "I<'GrAu@dIg*",
+   "last": "I<'GrAu@dIg*",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "zegqogjtopdz",
+   "first": "zegqogjtopdz",
+   "last": "zegqogjtopdz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "542501702785",
+   "first": "542501702785",
+   "last": "542501702785",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "S6vxA!erw.q<",
+   "first": "S6vxA!erw.q<",
+   "last": "S6vxA!erw.q<",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "pPPUQ1Np482Dz",
+   "first": "pPPUQ1Np482Dz",
+   "last": "pPPUQ1Np482Dz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "\"-E}lIj!)9H#f",
+   "first": "\"-E}lIj!)9H#f",
+   "last": "\"-E}lIj!)9H#f",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "agnmpnvvbovoz",
+   "first": "agnmpnvvbovoz",
+   "last": "agnmpnvvbovoz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "0671258789666",
+   "first": "0671258789666",
+   "last": "0671258789666",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "d_#8<}7mKmMAr",
+   "first": "d_#8<}7mKmMAr",
+   "last": "d_#8<}7mKmMAr",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "xqz8fgj4GY9eE0Ok",
+   "first": "xqz8fgj4GY9eE0Ok",
+   "last": "xqz8fgj4GY9eE0Ok",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ph@|~_<-[>w48_rh",
+   "first": "ph@|~_<-[>w48_rh",
+   "last": "ph@|~_<-[>w48_rh",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ixwriujscfsdokql",
+   "first": "ixwriujscfsdokql",
+   "last": "ixwriujscfsdokql",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "8010214129468438",
+   "first": "8010214129468438",
+   "last": "8010214129468438",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "c1$27~!+E#hc@F]q",
+   "first": "c1$27~!+E#hc@F]q",
+   "last": "c1$27~!+E#hc@F]q",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "HBeUU4s4juiX2Iy7E8Qt",
+   "first": "HBeUU4s4juiX2Iy7E8Qt",
+   "last": "HBeUU4s4juiX2Iy7E8Qt",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ht5SdlWn{Q2iT0~|>kyV",
+   "first": "ht5SdlWn{Q2iT0~|>kyV",
+   "last": "ht5SdlWn{Q2iT0~|>kyV",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "bxsnfbgxlmtkoqwnquov",
+   "first": "bxsnfbgxlmtkoqwnquov",
+   "last": "bxsnfbgxlmtkoqwnquov",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "95463849059587173599",
+   "first": "95463849059587173599",
+   "last": "95463849059587173599",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": ",\\A\"_)NiqoR3tt1?>5r+",
+   "first": ",\\A\"_)NiqoR3tt1?>5r+",
+   "last": ",\\A\"_)NiqoR3tt1?>5r+",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "WIla6qwRKva3K7DQzuDrJ3A3",
+   "first": "WIla6qwRKva3K7DQzuDrJ3A3",
+   "last": "WIla6qwRKva3K7DQzuDrJ3A3",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "4G-,qo.]q{M]F'HliXNI*xCG",
+   "first": "4G-,qo.]q{M]F'HliXNI*xCG",
+   "last": "4G-,qo.]q{M]F'HliXNI*xCG",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "bexxwkiyjuhyynowbgarncne",
+   "first": "bexxwkiyjuhyynowbgarncne",
+   "last": "bexxwkiyjuhyynowbgarncne",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "512804881170355917226858",
+   "first": "512804881170355917226858",
+   "last": "512804881170355917226858",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "P>q`Jv/&@U[39>yLdM_qn/Al",
+   "first": "P>q`Jv/&@U[39>yLdM_qn/Al",
+   "last": "P>q`Jv/&@U[39>yLdM_qn/Al",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "6dRS7ecG7WzQSqbByaPYhXQKoydZ03HG",
+   "first": "6dRS7ecG7WzQSqbByaPYhXQKoydZ03HG",
+   "last": "6dRS7ecG7WzQSqbByaPYhXQKoydZ03HG",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "7=Myloot==R\\SfWI;&Z`j9*IoGA_E#C5",
+   "first": "7=Myloot==R\\SfWI;&Z`j9*IoGA_E#C5",
+   "last": "7=Myloot==R\\SfWI;&Z`j9*IoGA_E#C5",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "vzmjesjkjocjruwnfvatkieuhtyyjzyj",
+   "first": "vzmjesjkjocjruwnfvatkieuhtyyjzyj",
+   "last": "vzmjesjkjocjruwnfvatkieuhtyyjzyj",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "39766800144575960085623361116075",
+   "first": "39766800144575960085623361116075",
+   "last": "39766800144575960085623361116075",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "[{\"amo64ay$08_9;u`eJ_D=Q3m*sArFW",
+   "first": "[{\"amo64ay$08_9;u`eJ_D=Q3m*sArFW",
+   "last": "[{\"amo64ay$08_9;u`eJ_D=Q3m*sArFW",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "lqkLjbuq2jKEoKn8IxK9sRQROrEZVdTtkdJph3Km",
+   "first": "lqkLjbuq2jKEoKn8IxK9sRQROrEZVdTtkdJph3Km",
+   "last": "lqkLjbuq2jKEoKn8IxK9sRQROrEZVdTtkdJph3Km",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "#*gfckZ,~q#LtWo$@oS/\\Q~NilUZKqrG.VjafDtQ",
+   "first": "#*gfckZ,~q#LtWo$@oS/\\Q~NilUZKqrG.VjafDtQ",
+   "last": "#*gfckZ,~q#LtWo$@oS/\\Q~NilUZKqrG.VjafDtQ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ncegnrbilmbuoseewmsjaegcnaconygiugvdfdji",
+   "first": "ncegnrbilmbuoseewmsjaegcnaconygiugvdfdji",
+   "last": "ncegnrbilmbuoseewmsjaegcnaconygiugvdfdji",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "3554287542287967734720856799076350157054",
+   "first": "3554287542287967734720856799076350157054",
+   "last": "3554287542287967734720856799076350157054",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "yGz*.7&(16OUg-1|m9n[+pcG&xMN~ad3@R]Z,\\KJ",
+   "first": "yGz*.7&(16OUg-1|m9n[+pcG&xMN~ad3@R]Z,\\KJ",
+   "last": "yGz*.7&(16OUg-1|m9n[+pcG&xMN~ad3@R]Z,\\KJ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "AUWc4rq81vyRLg6mIw2uUFwmrVPTmrlM0izaepvjqOzbJUk9",
+   "first": "AUWc4rq81vyRLg6mIw2uUFwmrVPTmrlM0izaepvjqOzbJUk9",
+   "last": "AUWc4rq81vyRLg6mIw2uUFwmrVPTmrlM0izaepvjqOzbJUk9",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Ho7Z!!%gz;/Q0|ar_n]%PyHgo%xQTZ`!l#l'rGGl,X5Yl;RG",
+   "first": "Ho7Z!!%gz;/Q0|ar_n]%PyHgo%xQTZ`!l#l'rGGl,X5Yl;RG",
+   "last": "Ho7Z!!%gz;/Q0|ar_n]%PyHgo%xQTZ`!l#l'rGGl,X5Yl;RG",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ofzeecyrhvpuortcjtgepvluczwsiduybksjoyabojtvufxz",
+   "first": "ofzeecyrhvpuortcjtgepvluczwsiduybksjoyabojtvufxz",
+   "last": "ofzeecyrhvpuortcjtgepvluczwsiduybksjoyabojtvufxz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "391642234694043307369186849309675886230567218233",
+   "first": "391642234694043307369186849309675886230567218233",
+   "last": "391642234694043307369186849309675886230567218233",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "IQ'UNx,L\"vy$t>2:d~.*1Upccc?n|k.I`S(`cB@AK:msSSzT",
+   "first": "IQ'UNx,L\"vy$t>2:d~.*1Upccc?n|k.I`S(`cB@AK:msSSzT",
+   "last": "IQ'UNx,L\"vy$t>2:d~.*1Upccc?n|k.I`S(`cB@AK:msSSzT",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ey4ZNf9lFVaM98NPGMcYB7ls2wxWR7IsygmN3kWFXzO03HDCdpxn2yYg",
+   "first": "ey4ZNf9lFVaM98NPGMcYB7ls2wxWR7IsygmN3kWFXzO03HDCdpxn2yYg",
+   "last": "ey4ZNf9lFVaM98NPGMcYB7ls2wxWR7IsygmN3kWFXzO03HDCdpxn2yYg",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "IPe(^9\"me\\]~oj+\\|stF!id.JGN{w7nKVRO(1r^kRJE`GY$}3@;Ewwm0",
+   "first": "IPe(^9\"me\\]~oj+\\|stF!id.JGN{w7nKVRO(1r^kRJE`GY$}3@;Ewwm0",
+   "last": "IPe(^9\"me\\]~oj+\\|stF!id.JGN{w7nKVRO(1r^kRJE`GY$}3@;Ewwm0",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "hjcledmdfdpuaaalngvxcjlmbwsmwbsfmhjzoqxypwojrrczsjsfzfjb",
+   "first": "hjcledmdfdpuaaalngvxcjlmbwsmwbsfmhjzoqxypwojrrczsjsfzfjb",
+   "last": "hjcledmdfdpuaaalngvxcjlmbwsmwbsfmhjzoqxypwojrrczsjsfzfjb",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "85478922077183828355135113570195213027290331162371054277",
+   "first": "85478922077183828355135113570195213027290331162371054277",
+   "last": "85478922077183828355135113570195213027290331162371054277",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "s_/+,s;Lbhgg5Keo(W\"Xit-X%pF*c\"W*z0oWtX2l%c8B&]u%a42KHbHt",
+   "first": "s_/+,s;Lbhgg5Keo(W\"Xit-X%pF*c\"W*z0oWtX2l%c8B&]u%a42KHbHt",
+   "last": "s_/+,s;Lbhgg5Keo(W\"Xit-X%pF*c\"W*z0oWtX2l%c8B&]u%a42KHbHt",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "GryjNlUt9UWRcXsvEkkcgK76yaUqzM916qewSZvfgRJ3hpSs7lcQNmGpxtnmgQn5",
+   "first": "GryjNlUt9UWRcXsvEkkcgK76yaUqzM916qewSZvfgRJ3hpSs7lcQNmGpxtnmgQn5",
+   "last": "GryjNlUt9UWRcXsvEkkcgK76yaUqzM916qewSZvfgRJ3hpSs7lcQNmGpxtnmgQn5",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "{soj[z*3+Lgn+`skm<.JN7G`NBW=)UeJg'm}8'l]!*;zg]A)x9l*[\\Sb+dgJbr`L",
+   "first": "{soj[z*3+Lgn+`skm<.JN7G`NBW=)UeJg'm}8'l]!*;zg]A)x9l*[\\Sb+dgJbr`L",
+   "last": "{soj[z*3+Lgn+`skm<.JN7G`NBW=)UeJg'm}8'l]!*;zg]A)x9l*[\\Sb+dgJbr`L",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "lvcvoeywantvzquhaeisqpdtdrtwowujeulonrrvdeztsnyaiqvxfddtgnfuzdcm",
+   "first": "lvcvoeywantvzquhaeisqpdtdrtwowujeulonrrvdeztsnyaiqvxfddtgnfuzdcm",
+   "last": "lvcvoeywantvzquhaeisqpdtdrtwowujeulonrrvdeztsnyaiqvxfddtgnfuzdcm",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "4119923586753380174120930669018472163232180900472374622737567622",
+   "first": "4119923586753380174120930669018472163232180900472374622737567622",
+   "last": "4119923586753380174120930669018472163232180900472374622737567622",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aln8=ZEyao\"4eU+KX6}0m>{NJ#|q:S<Bq~3w/}`66yw_`7LUoo\\2FDZL+j9RiWC%",
+   "first": "aln8=ZEyao\"4eU+KX6}0m>{NJ#|q:S<Bq~3w/}`66yw_`7LUoo\\2FDZL+j9RiWC%",
+   "last": "aln8=ZEyao\"4eU+KX6}0m>{NJ#|q:S<Bq~3w/}`66yw_`7LUoo\\2FDZL+j9RiWC%",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "D9CLVq61ll7fGgqla8q8DorVpjNjNtzvF2bX9E9w4cPLk4dlRWdw5zeF0h6I7XyKbti2reze0xsTeQIS",
+   "first": "D9CLVq61ll7fGgqla8q8DorVpjNjNtzvF2bX9E9w4cPLk4dlRWdw5zeF0h6I7XyKbti2reze0xsTeQIS",
+   "last": "D9CLVq61ll7fGgqla8q8DorVpjNjNtzvF2bX9E9w4cPLk4dlRWdw5zeF0h6I7XyKbti2reze0xsTeQIS",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "/7t4gm416/3gf^C*&sy\\RYPTq\\@7;AD\\J#2R@|d`2ODXm+^(cUrc`M;5KkX1GLv@}2/Q8Uv\"s>&sfz[<",
+   "first": "/7t4gm416/3gf^C*&sy\\RYPTq\\@7;AD\\J#2R@|d`2ODXm+^(cUrc`M;5KkX1GLv@}2/Q8Uv\"s>&sfz[<",
+   "last": "/7t4gm416/3gf^C*&sy\\RYPTq\\@7;AD\\J#2R@|d`2ODXm+^(cUrc`M;5KkX1GLv@}2/Q8Uv\"s>&sfz[<",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "kqbkmjkuneqianlaopngjswadafdkdjlnvnacddeiklltpenfnyngrjrlaowdlrhpxlwdiwghfushnwh",
+   "first": "kqbkmjkuneqianlaopngjswadafdkdjlnvnacddeiklltpenfnyngrjrlaowdlrhpxlwdiwghfushnwh",
+   "last": "kqbkmjkuneqianlaopngjswadafdkdjlnvnacddeiklltpenfnyngrjrlaowdlrhpxlwdiwghfushnwh",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "65112079205546598790689637983737763639487578761298843930076087598131974244101437",
+   "first": "65112079205546598790689637983737763639487578761298843930076087598131974244101437",
+   "last": "65112079205546598790689637983737763639487578761298843930076087598131974244101437",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "v%+[e7ei]zB|liF8sQ&yG@ng1[Vcumz7jdGi:s:N52|-=q>[Xq1k1RGU+_xMnI{H`ZYXx{M7^;QsqEYh",
+   "first": "v%+[e7ei]zB|liF8sQ&yG@ng1[Vcumz7jdGi:s:N52|-=q>[Xq1k1RGU+_xMnI{H`ZYXx{M7^;QsqEYh",
+   "last": "v%+[e7ei]zB|liF8sQ&yG@ng1[Vcumz7jdGi:s:N52|-=q>[Xq1k1RGU+_xMnI{H`ZYXx{M7^;QsqEYh",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "cSDQuLuL8n7MZrHzeNO8LTbG4KDH3Qm2gLz2oS5T4dkqbuTA1BC52YKG8vrGdaSqu5kAJVzfteYjlEiFIFQ3E0v2GEIOp1IC",
+   "first": "cSDQuLuL8n7MZrHzeNO8LTbG4KDH3Qm2gLz2oS5T4dkqbuTA1BC52YKG8vrGdaSqu5kAJVzfteYjlEiFIFQ3E0v2GEIOp1IC",
+   "last": "cSDQuLuL8n7MZrHzeNO8LTbG4KDH3Qm2gLz2oS5T4dkqbuTA1BC52YKG8vrGdaSqu5kAJVzfteYjlEiFIFQ3E0v2GEIOp1IC",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "99#LX#]c]%qg:uc);ZtH92a.*/ZQ3HDWHYK`Ov)&X{8B9Lif0%tS].G;gQUr1bg|IMOih_4_usF^Rs`GSB+Xy6U.Ilqf%Otn",
+   "first": "99#LX#]c]%qg:uc);ZtH92a.*/ZQ3HDWHYK`Ov)&X{8B9Lif0%tS].G;gQUr1bg|IMOih_4_usF^Rs`GSB+Xy6U.Ilqf%Otn",
+   "last": "99#LX#]c]%qg:uc);ZtH92a.*/ZQ3HDWHYK`Ov)&X{8B9Lif0%tS].G;gQUr1bg|IMOih_4_usF^Rs`GSB+Xy6U.Ilqf%Otn",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "wypubqkcjmbvsgkrwtqynszizfvyqergtzhuckqqcftzddrnaicsoquohejslirrxwwtxtcemjfcpuuysaqzhynxdwxomfke",
+   "first": "wypubqkcjmbvsgkrwtqynszizfvyqergtzhuckqqcftzddrnaicsoquohejslirrxwwtxtcemjfcpuuysaqzhynxdwxomfke",
+   "last": "wypubqkcjmbvsgkrwtqynszizfvyqergtzhuckqqcftzddrnaicsoquohejslirrxwwtxtcemjfcpuuysaqzhynxdwxomfke",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "209073803456624856949664505968506314328039869865653647048981502399390668672151683289576862810077",
+   "first": "209073803456624856949664505968506314328039869865653647048981502399390668672151683289576862810077",
+   "last": "209073803456624856949664505968506314328039869865653647048981502399390668672151683289576862810077",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "y/>V`W`Kyiv^TVD<5@2X.J*;$fz{*X-uhCU>QI.-o8(bHyLi36Um>B]l9\"Ejp,x-,iQ5NceF=ID%78a#0V;wg{']8RZErsJh",
+   "first": "y/>V`W`Kyiv^TVD<5@2X.J*;$fz{*X-uhCU>QI.-o8(bHyLi36Um>B]l9\"Ejp,x-,iQ5NceF=ID%78a#0V;wg{']8RZErsJh",
+   "last": "y/>V`W`Kyiv^TVD<5@2X.J*;$fz{*X-uhCU>QI.-o8(bHyLi36Um>B]l9\"Ejp,x-,iQ5NceF=ID%78a#0V;wg{']8RZErsJh",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "MiN3mQfAdZkhvcDWZKKjeGqUqBzXN2Re0OABZlLcAmFvw900WQNgzBNqw0Qt0tdIPb6tkFUSo13zFSYbUhBMos980StjSx9sEPSP",
+   "first": "MiN3mQfAdZkhvcDWZKKjeGqUqBzXN2Re0OABZlLcAmFvw900WQNgzBNqw0Qt0tdIPb6tkFUSo13zFSYbUhBMos980StjSx9sEPSP",
+   "last": "MiN3mQfAdZkhvcDWZKKjeGqUqBzXN2Re0OABZlLcAmFvw900WQNgzBNqw0Qt0tdIPb6tkFUSo13zFSYbUhBMos980StjSx9sEPSP",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "u|e{#q*g(U/k3p6hVURzTH}Iy{@'x;yXtcN)}pfF}/ul+m!8rfvJs(uOW)S`I(oa,gxX-z@+7b2z>OD*`@{h33H)4qudPmhm@I|1",
+   "first": "u|e{#q*g(U/k3p6hVURzTH}Iy{@'x;yXtcN)}pfF}/ul+m!8rfvJs(uOW)S`I(oa,gxX-z@+7b2z>OD*`@{h33H)4qudPmhm@I|1",
+   "last": "u|e{#q*g(U/k3p6hVURzTH}Iy{@'x;yXtcN)}pfF}/ul+m!8rfvJs(uOW)S`I(oa,gxX-z@+7b2z>OD*`@{h33H)4qudPmhm@I|1",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "foeoozutczjfpojxxaooxvskvrgzocunydscngbrphbjojefbynpvhysvandmkobauzuhdivuwphwlmjolwrfjqqzxoezagnfhdd",
+   "first": "foeoozutczjfpojxxaooxvskvrgzocunydscngbrphbjojefbynpvhysvandmkobauzuhdivuwphwlmjolwrfjqqzxoezagnfhdd",
+   "last": "foeoozutczjfpojxxaooxvskvrgzocunydscngbrphbjojefbynpvhysvandmkobauzuhdivuwphwlmjolwrfjqqzxoezagnfhdd",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "7087900347237709691723465679039617835668600019921823375144693563734772095598109354769823958823292218",
+   "first": "7087900347237709691723465679039617835668600019921823375144693563734772095598109354769823958823292218",
+   "last": "7087900347237709691723465679039617835668600019921823375144693563734772095598109354769823958823292218",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "B{r!6VfatE;cLzjfp2qC+B03@.o<{>5^7o33T+Cp0xNwHbWO'X$$FLR\\l+teL?||q]77,}L<HPI>8)iD$?1N;TspjG8KK^q^>vP]",
+   "first": "B{r!6VfatE;cLzjfp2qC+B03@.o<{>5^7o33T+Cp0xNwHbWO'X$$FLR\\l+teL?||q]77,}L<HPI>8)iD$?1N;TspjG8KK^q^>vP]",
+   "last": "B{r!6VfatE;cLzjfp2qC+B03@.o<{>5^7o33T+Cp0xNwHbWO'X$$FLR\\l+teL?||q]77,}L<HPI>8)iD$?1N;TspjG8KK^q^>vP]",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "5VYDKKtWchNtFbA26evQLUTuKVHFVdZFdFyCmO93R6r90PiI2oMVITR2yLABLue6CZfTSMT75rpVD7K5qGJwgSsX2ioLSRwJvQcVpv9idJxHb3wnWGD0J11H",
+   "first": "5VYDKKtWchNtFbA26evQLUTuKVHFVdZFdFyCmO93R6r90PiI2oMVITR2yLABLue6CZfTSMT75rpVD7K5qGJwgSsX2ioLSRwJvQcVpv9idJxHb3wnWGD0J11H",
+   "last": "5VYDKKtWchNtFbA26evQLUTuKVHFVdZFdFyCmO93R6r90PiI2oMVITR2yLABLue6CZfTSMT75rpVD7K5qGJwgSsX2ioLSRwJvQcVpv9idJxHb3wnWGD0J11H",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "L4~STiT[xU|`'g2sIMJvFGu@aE-t\\P)bzeA/!i*FA<Sr)OPEli?N~@/s3ADqh\"WtSWYChn@6xhbM73B2yJu\"o}s0yof6mJ?.5'Sm1OL4S4Ky\\|1.$T*+7cdv",
+   "first": "L4~STiT[xU|`'g2sIMJvFGu@aE-t\\P)bzeA/!i*FA<Sr)OPEli?N~@/s3ADqh\"WtSWYChn@6xhbM73B2yJu\"o}s0yof6mJ?.5'Sm1OL4S4Ky\\|1.$T*+7cdv",
+   "last": "L4~STiT[xU|`'g2sIMJvFGu@aE-t\\P)bzeA/!i*FA<Sr)OPEli?N~@/s3ADqh\"WtSWYChn@6xhbM73B2yJu\"o}s0yof6mJ?.5'Sm1OL4S4Ky\\|1.$T*+7cdv",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "eznfbsiphvuoznqytafadeyjbdppybavwgsxbqiexhduergubqptohtpkvqfdtuvpkoomwqnkdepxtvugajnzsuyeuzgsdjvxkoctvetycsbuaougayrtggi",
+   "first": "eznfbsiphvuoznqytafadeyjbdppybavwgsxbqiexhduergubqptohtpkvqfdtuvpkoomwqnkdepxtvugajnzsuyeuzgsdjvxkoctvetycsbuaougayrtggi",
+   "last": "eznfbsiphvuoznqytafadeyjbdppybavwgsxbqiexhduergubqptohtpkvqfdtuvpkoomwqnkdepxtvugajnzsuyeuzgsdjvxkoctvetycsbuaougayrtggi",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "976730004127958610717418852491409505051001290200026863365898621127416788354862110237528942941907663363880047735925935218",
+   "first": "976730004127958610717418852491409505051001290200026863365898621127416788354862110237528942941907663363880047735925935218",
+   "last": "976730004127958610717418852491409505051001290200026863365898621127416788354862110237528942941907663363880047735925935218",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "'74.z(Sn~!TZ-;z;1Q#.iAmgfTG.d%(0gM]XAe2E(Ye(W&VM4$-BUGyNch{AsE2c'MUn;`CI+2-x:5c$Gg?o.,x&U?Dc)E~o&[TiYRo=|Hcp_j.@Ju9q%jen",
+   "first": "'74.z(Sn~!TZ-;z;1Q#.iAmgfTG.d%(0gM]XAe2E(Ye(W&VM4$-BUGyNch{AsE2c'MUn;`CI+2-x:5c$Gg?o.,x&U?Dc)E~o&[TiYRo=|Hcp_j.@Ju9q%jen",
+   "last": "'74.z(Sn~!TZ-;z;1Q#.iAmgfTG.d%(0gM]XAe2E(Ye(W&VM4$-BUGyNch{AsE2c'MUn;`CI+2-x:5c$Gg?o.,x&U?Dc)E~o&[TiYRo=|Hcp_j.@Ju9q%jen",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "yFkf4k3EoyWmLgu301l9ngk4AAvqjVMeDa6vutq7SJ4v9B9wZaALWBAQrCwSS7weFWeXDMi5lYQVkLL4JHiyLeKYX3i0zCPdfpoFZImB95KlHPZ5ReYdiZo1sSk0KeB",
+   "first": "yFkf4k3EoyWmLgu301l9ngk4AAvqjVMeDa6vutq7SJ4v9B9wZaALWBAQrCwSS7weFWeXDMi5lYQVkLL4JHiyLeKYX3i0zCPdfpoFZImB95KlHPZ5ReYdiZo1sSk0KeB",
+   "last": "yFkf4k3EoyWmLgu301l9ngk4AAvqjVMeDa6vutq7SJ4v9B9wZaALWBAQrCwSS7weFWeXDMi5lYQVkLL4JHiyLeKYX3i0zCPdfpoFZImB95KlHPZ5ReYdiZo1sSk0KeB",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "73G9g_B|Cs0NG:nS|n(t<;PajkeEqJFGmqPRq5'8IV0c'L4HjIRmq9EhL=CB-t2#oz[>913X.>g]&pWdME4ux.N@hZxjK+qz.e;`5h19q\"6}eiMSki)=<Z7Or#H5ASv",
+   "first": "73G9g_B|Cs0NG:nS|n(t<;PajkeEqJFGmqPRq5'8IV0c'L4HjIRmq9EhL=CB-t2#oz[>913X.>g]&pWdME4ux.N@hZxjK+qz.e;`5h19q\"6}eiMSki)=<Z7Or#H5ASv",
+   "last": "73G9g_B|Cs0NG:nS|n(t<;PajkeEqJFGmqPRq5'8IV0c'L4HjIRmq9EhL=CB-t2#oz[>913X.>g]&pWdME4ux.N@hZxjK+qz.e;`5h19q\"6}eiMSki)=<Z7Or#H5ASv",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ykfasenjcicvcsyvtumtdzxislqmrhpphvqnjaadcqeuxydcveylmcsqscrzthggxfivwslbqqvvcdvbkmjdfrmusalhsqtygrjqefgvtzxtoymarjnrcbxfrgyivkw",
+   "first": "ykfasenjcicvcsyvtumtdzxislqmrhpphvqnjaadcqeuxydcveylmcsqscrzthggxfivwslbqqvvcdvbkmjdfrmusalhsqtygrjqefgvtzxtoymarjnrcbxfrgyivkw",
+   "last": "ykfasenjcicvcsyvtumtdzxislqmrhpphvqnjaadcqeuxydcveylmcsqscrzthggxfivwslbqqvvcdvbkmjdfrmusalhsqtygrjqefgvtzxtoymarjnrcbxfrgyivkw",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "8462976060429085766612184257075340232627930669650529374747789761456923461695056139399541009884591384135289236169433486896644005",
+   "first": "8462976060429085766612184257075340232627930669650529374747789761456923461695056139399541009884591384135289236169433486896644005",
+   "last": "8462976060429085766612184257075340232627930669650529374747789761456923461695056139399541009884591384135289236169433486896644005",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "^GezrA[szY&?\\>rn.@|o+7#_~y?4X.)`iu%b-uQF]-tP!U@'g@c\\_fY(A\\v1parzw_s&QBW,I/_u]J~o5,km-b&m9NeHL5&GU4P?>_Sed2P~zqR*0k,+z/07Z?L=s/n",
+   "first": "^GezrA[szY&?\\>rn.@|o+7#_~y?4X.)`iu%b-uQF]-tP!U@'g@c\\_fY(A\\v1parzw_s&QBW,I/_u]J~o5,km-b&m9NeHL5&GU4P?>_Sed2P~zqR*0k,+z/07Z?L=s/n",
+   "last": "^GezrA[szY&?\\>rn.@|o+7#_~y?4X.)`iu%b-uQF]-tP!U@'g@c\\_fY(A\\v1parzw_s&QBW,I/_u]J~o5,km-b&m9NeHL5&GU4P?>_Sed2P~zqR*0k,+z/07Z?L=s/n",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "JM4bTK9Ug68CpAIschEQ4K9T0kqauicghE0y2SBf1foSKQwoIS6Ng4u1mGmKKAYCfVtMAQqFkl4p0vcAglhcpsmoufYF23pUAYwfHGJLF9iNTIHv5vJyIdA1TlZ0qJ6D",
+   "first": "JM4bTK9Ug68CpAIschEQ4K9T0kqauicghE0y2SBf1foSKQwoIS6Ng4u1mGmKKAYCfVtMAQqFkl4p0vcAglhcpsmoufYF23pUAYwfHGJLF9iNTIHv5vJyIdA1TlZ0qJ6D",
+   "last": "JM4bTK9Ug68CpAIschEQ4K9T0kqauicghE0y2SBf1foSKQwoIS6Ng4u1mGmKKAYCfVtMAQqFkl4p0vcAglhcpsmoufYF23pUAYwfHGJLF9iNTIHv5vJyIdA1TlZ0qJ6D",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "S1FQ^q95xeslYZ08Rc)ZzzalKKk&6^zDO{OM;6a!mo^dM{;sezs3v$si[\"&Xx-Bw=ZwQ:TXN#S\"1uQR]MG,)}nENd@`4v,3^+I[4&pin-CvSEQcVWGW[7D-YZ.U-#?/S",
+   "first": "S1FQ^q95xeslYZ08Rc)ZzzalKKk&6^zDO{OM;6a!mo^dM{;sezs3v$si[\"&Xx-Bw=ZwQ:TXN#S\"1uQR]MG,)}nENd@`4v,3^+I[4&pin-CvSEQcVWGW[7D-YZ.U-#?/S",
+   "last": "S1FQ^q95xeslYZ08Rc)ZzzalKKk&6^zDO{OM;6a!mo^dM{;sezs3v$si[\"&Xx-Bw=ZwQ:TXN#S\"1uQR]MG,)}nENd@`4v,3^+I[4&pin-CvSEQcVWGW[7D-YZ.U-#?/S",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "pjajlrwirwzujlewgzqsjabyltxtetznkcyuvegynnlhojiwutbxkbsmqmxjefxecdllzkgfirjynelrcxiqfqwkvrqifwzxavkyvszicblixgzqksvgzjxsrqvuirua",
+   "first": "pjajlrwirwzujlewgzqsjabyltxtetznkcyuvegynnlhojiwutbxkbsmqmxjefxecdllzkgfirjynelrcxiqfqwkvrqifwzxavkyvszicblixgzqksvgzjxsrqvuirua",
+   "last": "pjajlrwirwzujlewgzqsjabyltxtetznkcyuvegynnlhojiwutbxkbsmqmxjefxecdllzkgfirjynelrcxiqfqwkvrqifwzxavkyvszicblixgzqksvgzjxsrqvuirua",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "65505605312119071817957159150620411272247560658190194472882595098018311190314228529884733787401416967035106699740960765654933580",
+   "first": "65505605312119071817957159150620411272247560658190194472882595098018311190314228529884733787401416967035106699740960765654933580",
+   "last": "65505605312119071817957159150620411272247560658190194472882595098018311190314228529884733787401416967035106699740960765654933580",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": ";'w:zF_%Q>DyD]0a)*#vK#g?nt^8v@6fcs3LSHZD$7?1GE*A&EWy\"$>Va2O3[#9nx%<Z`A->4cx>t#[.\\uh]41+JQxs_{EGJ/Q\"cXW~8=~mp=:89yzIaPk`A998ch;NG",
+   "first": ";'w:zF_%Q>DyD]0a)*#vK#g?nt^8v@6fcs3LSHZD$7?1GE*A&EWy\"$>Va2O3[#9nx%<Z`A->4cx>t#[.\\uh]41+JQxs_{EGJ/Q\"cXW~8=~mp=:89yzIaPk`A998ch;NG",
+   "last": ";'w:zF_%Q>DyD]0a)*#vK#g?nt^8v@6fcs3LSHZD$7?1GE*A&EWy\"$>Va2O3[#9nx%<Z`A->4cx>t#[.\\uh]41+JQxs_{EGJ/Q\"cXW~8=~mp=:89yzIaPk`A998ch;NG",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "VzrVUdcS1VmhN8u5M1YwOOUl2660rzYw2mconLkXHJh439yTQ193R6JLb5jSBQpdQANmWaU3c7Vy010xWJbror79Gp3ziorBJkN1THK5QjnsyB8MIKf216a3QpkGnkX4V",
+   "first": "VzrVUdcS1VmhN8u5M1YwOOUl2660rzYw2mconLkXHJh439yTQ193R6JLb5jSBQpdQANmWaU3c7Vy010xWJbror79Gp3ziorBJkN1THK5QjnsyB8MIKf216a3QpkGnkX4",
+   "last": "zrVUdcS1VmhN8u5M1YwOOUl2660rzYw2mconLkXHJh439yTQ193R6JLb5jSBQpdQANmWaU3c7Vy010xWJbror79Gp3ziorBJkN1THK5QjnsyB8MIKf216a3QpkGnkX4V",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "o'2.CRQ^[DEWP\\o6F}`2^\\N=f?$]o~M4Mj\\7TYGkwcu%A<Oo'WlOs-PzaxkAGEyjW>x0H?GzE*'P`ea|P$bCE=1J`nRX6t?\"W]T5b\"55nYF0\"&\\bex#]l1.[+7!TxV++2",
+   "first": "o'2.CRQ^[DEWP\\o6F}`2^\\N=f?$]o~M4Mj\\7TYGkwcu%A<Oo'WlOs-PzaxkAGEyjW>x0H?GzE*'P`ea|P$bCE=1J`nRX6t?\"W]T5b\"55nYF0\"&\\bex#]l1.[+7!TxV++",
+   "last": "'2.CRQ^[DEWP\\o6F}`2^\\N=f?$]o~M4Mj\\7TYGkwcu%A<Oo'WlOs-PzaxkAGEyjW>x0H?GzE*'P`ea|P$bCE=1J`nRX6t?\"W]T5b\"55nYF0\"&\\bex#]l1.[+7!TxV++2",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "pgncsxxrwlvgvpabatjbezfysopsbocxegsygnfeqspfbekrqhfkljrglxotfwjvuxuuzefdavrwnclzamszmorvmhvsrohzlkfvetewsqetdvvxkdxxluxunmsoyrtsf",
+   "first": "pgncsxxrwlvgvpabatjbezfysopsbocxegsygnfeqspfbekrqhfkljrglxotfwjvuxuuzefdavrwnclzamszmorvmhvsrohzlkfvetewsqetdvvxkdxxluxunmsoyrts",
+   "last": "gncsxxrwlvgvpabatjbezfysopsbocxegsygnfeqspfbekrqhfkljrglxotfwjvuxuuzefdavrwnclzamszmorvmhvsrohzlkfvetewsqetdvvxkdxxluxunmsoyrtsf",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "480896575649584114356815839632086146106913086859764818252118272492754909691707426127226663890825575166259643616931586881195973262",
+   "first": "48089657564958411435681583963208614610691308685976481825211827249275490969170742612722666389082557516625964361693158688119597326",
+   "last": "80896575649584114356815839632086146106913086859764818252118272492754909691707426127226663890825575166259643616931586881195973262",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "/Zj1Ft1$bE`/djJ|P4c-/C$hAkUCN*T('hgZb,+*d8JBWd?DrU1&d*u0994yKmSr0_&>>S^s+hB!FO\\u_nf_A_smq[]Q_k4l'PRL0NTBo[?paE9h-:y.5FqPuVk]Zv<[k",
+   "first": "/Zj1Ft1$bE`/djJ|P4c-/C$hAkUCN*T('hgZb,+*d8JBWd?DrU1&d*u0994yKmSr0_&>>S^s+hB!FO\\u_nf_A_smq[]Q_k4l'PRL0NTBo[?paE9h-:y.5FqPuVk]Zv<[",
+   "last": "Zj1Ft1$bE`/djJ|P4c-/C$hAkUCN*T('hgZb,+*d8JBWd?DrU1&d*u0994yKmSr0_&>>S^s+hB!FO\\u_nf_A_smq[]Q_k4l'PRL0NTBo[?paE9h-:y.5FqPuVk]Zv<[k",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "EL4pDOQHALiSj95UbzWlcGh6IUmLluI3dy1kNnDhSVUCEMFZszFEEx7xOH9tdg0s2PHSupxF5OzYrPmg2tOlsS53npzxIEQfTW3IQYM2doq4pt2lxcTrbinjM3UbrSDym2yCOrCLBSsLcO08w0Fc1v",
+   "first": "EL4pDOQHALiSj95UbzWlcGh6IUmLluI3dy1kNnDhSVUCEMFZszFEEx7xOH9tdg0s2PHSupxF5OzYrPmg2tOlsS53npzxIEQfTW3IQYM2doq4pt2lxcTrbinjM3UbrSDy",
+   "last": "h6IUmLluI3dy1kNnDhSVUCEMFZszFEEx7xOH9tdg0s2PHSupxF5OzYrPmg2tOlsS53npzxIEQfTW3IQYM2doq4pt2lxcTrbinjM3UbrSDym2yCOrCLBSsLcO08w0Fc1v",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "fgxbe^TV\"\"&dMLi8>U&;bxux}nt1D>N.|O`_1p=\"k>(;qc)67wxr6j@M8-3/8JNi,k^AcA<>.!/z5qpcW::HGoxr:u({vpftrXR?9R/Z<r&5OwfQb9In22{*foCR;]q4Z;25RD0m\\e50f+mDP}axSa",
+   "first": "fgxbe^TV\"\"&dMLi8>U&;bxux}nt1D>N.|O`_1p=\"k>(;qc)67wxr6j@M8-3/8JNi,k^AcA<>.!/z5qpcW::HGoxr:u({vpftrXR?9R/Z<r&5OwfQb9In22{*foCR;]q4",
+   "last": "ux}nt1D>N.|O`_1p=\"k>(;qc)67wxr6j@M8-3/8JNi,k^AcA<>.!/z5qpcW::HGoxr:u({vpftrXR?9R/Z<r&5OwfQb9In22{*foCR;]q4Z;25RD0m\\e50f+mDP}axSa",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "pfagssdaqienwssjfgkohsdwaqxfpnhiyvngqwloxcsqzscjztrwiohsnwyvvhoaddesawqtpbfqhmsyvgbtlghovzjtxqfpfpemxrqxzdckbfziwobqmertfjxuannhvxqqcuqnxgtbpfpxtpfzrz",
+   "first": "pfagssdaqienwssjfgkohsdwaqxfpnhiyvngqwloxcsqzscjztrwiohsnwyvvhoaddesawqtpbfqhmsyvgbtlghovzjtxqfpfpemxrqxzdckbfziwobqmertfjxuannh",
+   "last": "dwaqxfpnhiyvngqwloxcsqzscjztrwiohsnwyvvhoaddesawqtpbfqhmsyvgbtlghovzjtxqfpfpemxrqxzdckbfziwobqmertfjxuannhvxqqcuqnxgtbpfpxtpfzrz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "393120635629196013330021405403626057961951893636486985596125046936695810557903302249740778916105530569113257821693473514860513171274312241150351742513",
+   "first": "39312063562919601333002140540362605796195189363648698559612504693669581055790330224974077891610553056911325782169347351486051317",
+   "last": "21405403626057961951893636486985596125046936695810557903302249740778916105530569113257821693473514860513171274312241150351742513",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "-CTkufRX$%}3`@nHr:FcLGbAp)>\"aiVvjRRHinQ9XhK8W82L6/'U,:0)-k:sK\\A%h);c@4q'rPMXrt^GX<f17PEI@)\"bY/Gf:PZ~y(H;pc.^U5lYi0x\"i1.3Cq2C\\hvK}!l9#zwLse*z0+yucn&5;r",
+   "first": "-CTkufRX$%}3`@nHr:FcLGbAp)>\"aiVvjRRHinQ9XhK8W82L6/'U,:0)-k:sK\\A%h);c@4q'rPMXrt^GX<f17PEI@)\"bY/Gf:PZ~y(H;pc.^U5lYi0x\"i1.3Cq2C\\hvK",
+   "last": "bAp)>\"aiVvjRRHinQ9XhK8W82L6/'U,:0)-k:sK\\A%h);c@4q'rPMXrt^GX<f17PEI@)\"bY/Gf:PZ~y(H;pc.^U5lYi0x\"i1.3Cq2C\\hvK}!l9#zwLse*z0+yucn&5;r",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "WgsYwRUJ9G6bdFYm8zWiY3xS0OpyIUKC2LACe8Kv4o6NSsanzR0Qi251517NE9aYdU9Fz6R85XQCo8yhQmrtJa9FadDdrdxl4f8tVytpJ1TfU80dO4fD6KcaqrORGQiQXy9I31iiVoJsuybfTEOBZHNgcH8sQ9Ilqxha6LodlXMcQAFnA5w8yAHG9fSCgbDhpGcAPhAJ",
+   "first": "WgsYwRUJ9G6bdFYm8zWiY3xS0OpyIUKC2LACe8Kv4o6NSsanzR0Qi251517NE9aYdU9Fz6R85XQCo8yhQmrtJa9FadDdrdxl4f8tVytpJ1TfU80dO4fD6KcaqrORGQiQ",
+   "last": "5XQCo8yhQmrtJa9FadDdrdxl4f8tVytpJ1TfU80dO4fD6KcaqrORGQiQXy9I31iiVoJsuybfTEOBZHNgcH8sQ9Ilqxha6LodlXMcQAFnA5w8yAHG9fSCgbDhpGcAPhAJ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Pw]kAY-c`k6PLmw<qb~=y$JHKjB#H=yU\\}hXI{Z*|$Fb;qz9/,o,D$t'fsY*~6r'D%HO]#:,/GIu7Q@C/YRwVHjKc?@HM~g\\5z)LzAZdbQHd8<}[(Hu%#SXUIazGulZIF^2aN&u4p0Hv5XX6q#]Y:~'ink%=XFg}&m@6:a_|?g:0OY!Bb)_8<O'5_IhPNCQcqpZjC&\"N",
+   "first": "Pw]kAY-c`k6PLmw<qb~=y$JHKjB#H=yU\\}hXI{Z*|$Fb;qz9/,o,D$t'fsY*~6r'D%HO]#:,/GIu7Q@C/YRwVHjKc?@HM~g\\5z)LzAZdbQHd8<}[(Hu%#SXUIazGulZI",
+   "last": "/GIu7Q@C/YRwVHjKc?@HM~g\\5z)LzAZdbQHd8<}[(Hu%#SXUIazGulZIF^2aN&u4p0Hv5XX6q#]Y:~'ink%=XFg}&m@6:a_|?g:0OY!Bb)_8<O'5_IhPNCQcqpZjC&\"N",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "kygtalktiqbcsvjjviogjpsfpxbherzbynyouqjrcffzdzmnqoreszznzstjsiasnaynecetxwfkwmtalaoxhtqzaxklkgnrlxwjptoondnyzervmjhljgdqsudletzvzvxaherlyfenrllthrpeehjmkttaplnsoyuczmzybcwujvhpehlaviwigrtytgqzrnpkhsql",
+   "first": "kygtalktiqbcsvjjviogjpsfpxbherzbynyouqjrcffzdzmnqoreszznzstjsiasnaynecetxwfkwmtalaoxhtqzaxklkgnrlxwjptoondnyzervmjhljgdqsudletzv",
+   "last": "xwfkwmtalaoxhtqzaxklkgnrlxwjptoondnyzervmjhljgdqsudletzvzvxaherlyfenrllthrpeehjmkttaplnsoyuczmzybcwujvhpehlaviwigrtytgqzrnpkhsql",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "31950318355736218280300794807715125805796161657102327926566447809995985586581356271918254228678127915391293924678306381105297556821321632581012467175736365046038123789292730064529010889496622276601538",
+   "first": "31950318355736218280300794807715125805796161657102327926566447809995985586581356271918254228678127915391293924678306381105297556",
+   "last": "86581356271918254228678127915391293924678306381105297556821321632581012467175736365046038123789292730064529010889496622276601538",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "6nbE_Gr@/e_;lQkgjW1ls(t_5khR4P*m80oLGo=wQ.e9\"UTyKT)*aFX\"^VUL|I[(Tb>HS:3Xudp[)NGU!^}rG>H%;.O\\sTkJ~{ia<1,'D`Ep'0Q2)ygh,y6m}xtIXouUhtj&s9)B956y&vy~H)Ze1q~U]\\o!?^azrH1Eie\"WEW=y$!1!$N3xDL8Ew0blwDDz\\QxZ@4jM",
+   "first": "6nbE_Gr@/e_;lQkgjW1ls(t_5khR4P*m80oLGo=wQ.e9\"UTyKT)*aFX\"^VUL|I[(Tb>HS:3Xudp[)NGU!^}rG>H%;.O\\sTkJ~{ia<1,'D`Ep'0Q2)ygh,y6m}xtIXouU",
+   "last": "udp[)NGU!^}rG>H%;.O\\sTkJ~{ia<1,'D`Ep'0Q2)ygh,y6m}xtIXouUhtj&s9)B956y&vy~H)Ze1q~U]\\o!?^azrH1Eie\"WEW=y$!1!$N3xDL8Ew0blwDDz\\QxZ@4jM",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "dUmc2QOaKaxPjLgLYQrHr7TA0hjsCXFtUo7PFJQ6h0pbGijEb2xoz8PSqG5pOnSX20CtpOobsbp9C5bNtFCD57XJX8YKdUlkPQqrwZb3H9MNPCdHeN7zikjGOQNUc2T2o4mu5TeQYlAHgINUnI4LpTg95QCLLbfCLdb0dS1xoHUnv5s5p1JfkAXS2TzYmaruaWUz8K26ta9EHnxCKuFEBC9Zh1SNj7JKpPBK4xR84bxXq7k7Q8C4fbQJfTnvUftk",
+   "first": "dUmc2QOaKaxPjLgLYQrHr7TA0hjsCXFtUo7PFJQ6h0pbGijEb2xoz8PSqG5pOnSX20CtpOobsbp9C5bNtFCD57XJX8YKdUlkPQqrwZb3H9MNPCdHeN7zikjGOQNUc2T2",
+   "last": "o4mu5TeQYlAHgINUnI4LpTg95QCLLbfCLdb0dS1xoHUnv5s5p1JfkAXS2TzYmaruaWUz8K26ta9EHnxCKuFEBC9Zh1SNj7JKpPBK4xR84bxXq7k7Q8C4fbQJfTnvUftk",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Cgh59y|(q?3kpoc$HuW[|A#|%)?5byRjb0X}DlYIv/UZ`;pF+m_avqch\"Pr\\3hUsUf41*$u${l#%.N8}?{UL1I\\FytL7rL@kB&U:nW[#9h3t#(sR{PfZ>`pn?#$urU@;u.hnYu<x9}tGM1UWACGA&~Y`OKd<#{&=vH~iwjEe4]e?7[60NwT{oWvFz=2'$,5mN.b!d_5]jQe?~iD.k\\=Xh@u96);s\".qWS#t8[a9nwft%A\\s\\LTH@6G~vCynRDn.m",
+   "first": "Cgh59y|(q?3kpoc$HuW[|A#|%)?5byRjb0X}DlYIv/UZ`;pF+m_avqch\"Pr\\3hUsUf41*$u${l#%.N8}?{UL1I\\FytL7rL@kB&U:nW[#9h3t#(sR{PfZ>`pn?#$urU@;",
+   "last": "u.hnYu<x9}tGM1UWACGA&~Y`OKd<#{&=vH~iwjEe4]e?7[60NwT{oWvFz=2'$,5mN.b!d_5]jQe?~iD.k\\=Xh@u96);s\".qWS#t8[a9nwft%A\\s\\LTH@6G~vCynRDn.m",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qujzihunbsfllczobkwtujlevkzopcbgghdtunagdltvgiwfrixfmmlfjvrfhnyfyeaaniftamnjitfaatelbwvkqkramxkvukgdjqafqycwrkhbevbigtnmclxxsuushmeotqrmcrsejqtjtyssqrhujnlgptknklgfdjpzfvummqejlakyqxosqkeyracjlqvwvijtaclorrngbectpdeibxmvzdauumbgvjyoekeyuvudyplorpweciiotgkv",
+   "first": "qujzihunbsfllczobkwtujlevkzopcbgghdtunagdltvgiwfrixfmmlfjvrfhnyfyeaaniftamnjitfaatelbwvkqkramxkvukgdjqafqycwrkhbevbigtnmclxxsuus",
+   "last": "hmeotqrmcrsejqtjtyssqrhujnlgptknklgfdjpzfvummqejlakyqxosqkeyracjlqvwvijtaclorrngbectpdeibxmvzdauumbgvjyoekeyuvudyplorpweciiotgkv",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "4755991866866472683210878971923306572035436759637117911487692920058678019016326478380766062133367349157988475432215058129626855498665061140807271104970516571120371408316584190683829543112111380855911654651033262254334266200832344433719950315261600522079067",
+   "first": "47559918668664726832108789719233065720354367596371179114876929200586780190163264783807660621333673491579884754322150581296268554",
+   "last": "98665061140807271104970516571120371408316584190683829543112111380855911654651033262254334266200832344433719950315261600522079067",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "MBFnI?cPVZc`s`3C|OOaU)(`<6s6&6m:-))\"-(ASp;#;}EpN5o$H>]*M(h64ymFC*V:Pv~[6Lh+{{\"0cRc&ix*&e.B8Tz+*JAC1bb_\"YA0inl*QU%r>~WK\\E{\"Z_uw5?q)nN*O@*JTT~^6:mn9/gE(~\"kT$[koDw1\":g8CRjskCqV~{nQk3WT~L$YAnxwN9Xac`^hm.l4^{+B$CUU%&bI?`&02aF01~d+]QFLX)9b2TCu1\\'7W[pT';\\4p-hq8\\t",
+   "first": "MBFnI?cPVZc`s`3C|OOaU)(`<6s6&6m:-))\"-(ASp;#;}EpN5o$H>]*M(h64ymFC*V:Pv~[6Lh+{{\"0cRc&ix*&e.B8Tz+*JAC1bb_\"YA0inl*QU%r>~WK\\E{\"Z_uw5?",
+   "last": "q)nN*O@*JTT~^6:mn9/gE(~\"kT$[koDw1\":g8CRjskCqV~{nQk3WT~L$YAnxwN9Xac`^hm.l4^{+B$CUU%&bI?`&02aF01~d+]QFLX)9b2TCu1\\'7W[pT';\\4p-hq8\\t",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "n2a8vo1YUDbC6HKIIPnfIBQz6a81aY7wmmag4wzivyaIZSUpFeOnRpp3ryJERZ5AHIFxg96RqnW1hhGb4aEyenfTNmkxR7ibOsmV3sEPLlZMkuiFDoree3X4S4cSN1owEBLN15r3CTOabgMxydQc8JGLE3ShMyZHzf4c7fxaGKC9OxupEVO3uZR5gkVbf2VgZzzHhEdsisMsmEm4pcE4vI43sLqndbr9Xut8auJwd7dIjo71ElKiMG4Y0hIdBtXpGFkTUb0vx67XQ8cRv0JyKPtCONSUG8m1lH4rYcsTlICC",
+   "first": "n2a8vo1YUDbC6HKIIPnfIBQz6a81aY7wmmag4wzivyaIZSUpFeOnRpp3ryJERZ5AHIFxg96RqnW1hhGb4aEyenfTNmkxR7ibOsmV3sEPLlZMkuiFDoree3X4S4cSN1ow",
+   "last": "OxupEVO3uZR5gkVbf2VgZzzHhEdsisMsmEm4pcE4vI43sLqndbr9Xut8auJwd7dIjo71ElKiMG4Y0hIdBtXpGFkTUb0vx67XQ8cRv0JyKPtCONSUG8m1lH4rYcsTlICC",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "#8QvqVaCB2_}>)gSwV!PY1L|Zh%gmjUGoBKc\"mI`2-L1M6>>wbtz2DV&MO!YE%E)T;_>m|?ueg}bBbow]&<\"SS?x!&E!{,V>6uTFO:>[Sy^Hnq&a#94s!J7YE\"'2ef7m.O|1p[kJVB7KgsFllb^-]2Mj[nY7,tx.C=muCM2KKsVCp^L5;XH4!]f>7h*h~7RBQZGh[>>Wh<\\cOnYg9qmJ2xU^2tD<S%-uwS.)~XPg[b_~]\"z%_sv.z4p}z5f`_|*<L[r')m/KUu#I5J.TaGMn9mRd|`bP@zBX>k(m\"MkQ@;q`",
+   "first": "#8QvqVaCB2_}>)gSwV!PY1L|Zh%gmjUGoBKc\"mI`2-L1M6>>wbtz2DV&MO!YE%E)T;_>m|?ueg}bBbow]&<\"SS?x!&E!{,V>6uTFO:>[Sy^Hnq&a#94s!J7YE\"'2ef7m",
+   "last": "p^L5;XH4!]f>7h*h~7RBQZGh[>>Wh<\\cOnYg9qmJ2xU^2tD<S%-uwS.)~XPg[b_~]\"z%_sv.z4p}z5f`_|*<L[r')m/KUu#I5J.TaGMn9mRd|`bP@zBX>k(m\"MkQ@;q`",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "jgmszxoikczcsdykwabtvfhuoqhxrzwsvounstbozrftxhtpoimbhvazuqfrdabvxraewhximtjacfytljbmcgqvjjjppeoqdeffvvwjkuibiudzzutshapxukquiamokaigtrfbpdksuqxysoitnmymfqamnlhdezhtgtpjlxpgshdjcwsyaingrziulmiuwdiijfnnfrelsfbnlirpqabktshadfzdcwckeergobubawofflirammpasavanutrqharvoxfgxqvleyxklseilwsvmwgkaskbddcffflkki",
+   "first": "jgmszxoikczcsdykwabtvfhuoqhxrzwsvounstbozrftxhtpoimbhvazuqfrdabvxraewhximtjacfytljbmcgqvjjjppeoqdeffvvwjkuibiudzzutshapxukquiamo",
+   "last": "shdjcwsyaingrziulmiuwdiijfnnfrelsfbnlirpqabktshadfzdcwckeergobubawofflirammpasavanutrqharvoxfgxqvleyxklseilwsvmwgkaskbddcffflkki",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "849374382161573279259724616129531628802298919655750986676023695834704420612239751670497882981171123620500186192681413251741168898061063850031649327049476900272075775041864989483904221858509178184418569681909606015675574671182935835859836432465604377338717366426852368514585883556681634353389888868154",
+   "first": "84937438216157327925972461612953162880229891965575098667602369583470442061223975167049788298117112362050018619268141325174116889",
+   "last": "89483904221858509178184418569681909606015675574671182935835859836432465604377338717366426852368514585883556681634353389888868154",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "C\"R.{m\\eTBP0qw8Vjqq.4O{ybc0%lU;^mc?<GlBsSTFFqu!H9?+5[{K\\Ea*b\\!2/G3v8.2v39e2zx}g6%|P.2>wFlFGCfl}>KYP-w*h<_i\"6\\G:&Ca*'vqruhJ!TRf)|P?m*1kKGMI2;~Wz.M((WfTKA(j''y|VnCHKI#Wv1K0V3u2AZsPl5|vlIRMvm0Ck>|`/DkLtK;d:[+`ijdm=8Bon;=DBPY\"#K:>WJ|F1Q8'M@`b(&^c503WJ=eQ4e8|5hB\\<j4]_\\~ZB7y:STsT/6,&Z}&I#LLm<m-U}K,](zB)Zp",
+   "first": "C\"R.{m\\eTBP0qw8Vjqq.4O{ybc0%lU;^mc?<GlBsSTFFqu!H9?+5[{K\\Ea*b\\!2/G3v8.2v39e2zx}g6%|P.2>wFlFGCfl}>KYP-w*h<_i\"6\\G:&Ca*'vqruhJ!TRf)|",
+   "last": "u2AZsPl5|vlIRMvm0Ck>|`/DkLtK;d:[+`ijdm=8Bon;=DBPY\"#K:>WJ|F1Q8'M@`b(&^c503WJ=eQ4e8|5hB\\<j4]_\\~ZB7y:STsT/6,&Z}&I#LLm<m-U}K,](zB)Zp",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aM/YmE%|&S8#M*R*Fo+Wzd7]d<vkB$7bj(%1je69*_\\[`SAk}7u<-&XHDPEIhog>&-*m**O;?V5AB-febr!9eo:3S;7pgD\"nka+t,~~nYQvF;/&*=NT}U7mO.xlX=d{'8DzT&Qap'wxgd]TD|(!*.9vm*lZ]|Liu@vIt92Pg%?@@+:Vmhl17,M%/&gNdFgzU#CI|u@>u+!))SV+I%~}f6],>`;6C<",
+   "first": "aM/YmE%|&S8#M*R*Fo+Wzd7]d<vkB$7bj(%1je69*_\\[`SAk}7u<-&XHDPEIhog>&-*m**O;?V5AB-febr!9eo:3S;7pgD\"nka+t,~~nYQvF;/&*=NT}U7mO.xlX=d{'",
+   "last": "D\"nka+t,~~nYQvF;/&*=NT}U7mO.xlX=d{'8DzT&Qap'wxgd]TD|(!*.9vm*lZ]|Liu@vIt92Pg%?@@+:Vmhl17,M%/&gNdFgzU#CI|u@>u+!))SV+I%~}f6],>`;6C<",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "3Qm&NBlDJf]Q[w,W@udFqm;X-R'4en_Qa#XB_<Cn[*/OLxb@\\BgTFDrRS9!KkcUmqr0^+Ut[w|-Q0Q<ylId~vS.-:s/|T2jDa0zdZ`}gKjF='4\"E^o77P&_2M,fsG>:=(Qkpt{C]A3wP/K&n0Ya.81c++N5y|;9^`INEM/Z{129p3Kb@-mFXCr<EM)~\"n2P>J`)3ChkdYu0Ilj/H$oXnkZ<[Tk>\\>gnjC*Wdb\"c;546%7q&baeSH?:In",
+   "first": "3Qm&NBlDJf]Q[w,W@udFqm;X-R'4en_Qa#XB_<Cn[*/OLxb@\\BgTFDrRS9!KkcUmqr0^+Ut[w|-Q0Q<ylId~vS.-:s/|T2jDa0zdZ`}gKjF='4\"E^o77P&_2M,fsG>:=",
+   "last": "M,fsG>:=(Qkpt{C]A3wP/K&n0Ya.81c++N5y|;9^`INEM/Z{129p3Kb@-mFXCr<EM)~\"n2P>J`)3ChkdYu0Ilj/H$oXnkZ<[Tk>\\>gnjC*Wdb\"c;546%7q&baeSH?:In",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "-Shi\\o\"Sh4I9R(/B63,N~l{]EPiWDx=m}27|{O)1he3pY1\\4x(4_$i9&R^*\\6(M-WWuw'WmUY~ROXR.Ig!6[UL&LHf\"|k#(r-^\"5C!4Ggd<G/wlS,&1`A~C+5Lp]<@SB.pOEjzHS4!F,H-{<Q:0PcrX@Bdx[K!hop~P%py,R+&jxI\\:NZiU*1~(*NQsy!X`^\"JtYB%3\")!*NOM#XJ*mKE^@j#I\"v<<~XBsQ#..cgsDR@^Ve>X8[7",
+   "first": "-Shi\\o\"Sh4I9R(/B63,N~l{]EPiWDx=m}27|{O)1he3pY1\\4x(4_$i9&R^*\\6(M-WWuw'WmUY~ROXR.Ig!6[UL&LHf\"|k#(r-^\"5C!4Ggd<G/wlS,&1`A~C+5Lp]<@SB",
+   "last": "A~C+5Lp]<@SB.pOEjzHS4!F,H-{<Q:0PcrX@Bdx[K!hop~P%py,R+&jxI\\:NZiU*1~(*NQsy!X`^\"JtYB%3\")!*NOM#XJ*mKE^@j#I\"v<<~XBsQ#..cgsDR@^Ve>X8[7",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "mX_.L7^!AD'Xkcp=%/=0",
+   "first": "mX_.L7^!AD'Xkcp=%/=0",
+   "last": "mX_.L7^!AD'Xkcp=%/=0",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "RHw",
+   "first": "RHw",
+   "last": "RHw",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "U*PEdEN{*\\N\\&T5LO'vhSGN?Fdpz+RvckpoY[!X9u\"e.%(<JKpZ*4E8SjrN>=|$m75X>i\"eGl(7C.mTf\"R&qGrPP6EUdZ+?u-Yyo|mE5g(eWE&$zc]$P&=x(>;>UVJ-9{FL4>>dwfgIV]zlWP|)Ip)aOgccTA<%tw;-AzM",
+   "first": "U*PEdEN{*\\N\\&T5LO'vhSGN?Fdpz+RvckpoY[!X9u\"e.%(<JKpZ*4E8SjrN>=|$m75X>i\"eGl(7C.mTf\"R&qGrPP6EUdZ+?u-Yyo|mE5g(eWE&$zc]$P&=x(>;>UVJ-9",
+   "last": "X9u\"e.%(<JKpZ*4E8SjrN>=|$m75X>i\"eGl(7C.mTf\"R&qGrPP6EUdZ+?u-Yyo|mE5g(eWE&$zc]$P&=x(>;>UVJ-9{FL4>>dwfgIV]zlWP|)Ip)aOgccTA<%tw;-AzM",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Tq(,^&A!g0M9s\"s5ymd*S3XebSk(Q8^F`|/CTO9Hv8K]c=Sio96mex\\Y&(09b-:f5v7\\Qz>xg6@,PrO:taI^pXrKEhy;I^A\"xL*I7]^_._qKn,D/|{8/H>)<h*.zUNKgf@+30+-98!9-JE2(RFrJ{E4N:9lBc#.9cCZSeu+FA(To{FE/j7hu#bOFXq@jEe>Q()-2@rq]{lCHu189[Ab1Kp^_R#Kt`s-hia,\\r`!e,XkR9&Ig<;^vLO$9h:Q@J(OC",
+   "first": "Tq(,^&A!g0M9s\"s5ymd*S3XebSk(Q8^F`|/CTO9Hv8K]c=Sio96mex\\Y&(09b-:f5v7\\Qz>xg6@,PrO:taI^pXrKEhy;I^A\"xL*I7]^_._qKn,D/|{8/H>)<h*.zUNKg",
+   "last": "f@+30+-98!9-JE2(RFrJ{E4N:9lBc#.9cCZSeu+FA(To{FE/j7hu#bOFXq@jEe>Q()-2@rq]{lCHu189[Ab1Kp^_R#Kt`s-hia,\\r`!e,XkR9&Ig<;^vLO$9h:Q@J(OC",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "S0&[BlKDwU$CL>MNuw6p4;@B7fS)rbL-fH40&LG`/Ol18=M`o|i;%pHTbZu`CcPmX$DbAD:J,_PfdF9Z5][T>9NOB+^AI^QfJ)'Zzf8+.0>!}t*<.2n-h*W*J`#q6bzS_\\4Kg[dyvZ_j",
+   "first": "S0&[BlKDwU$CL>MNuw6p4;@B7fS)rbL-fH40&LG`/Ol18=M`o|i;%pHTbZu`CcPmX$DbAD:J,_PfdF9Z5][T>9NOB+^AI^QfJ)'Zzf8+.0>!}t*<.2n-h*W*J`#q6bzS",
+   "last": "L>MNuw6p4;@B7fS)rbL-fH40&LG`/Ol18=M`o|i;%pHTbZu`CcPmX$DbAD:J,_PfdF9Z5][T>9NOB+^AI^QfJ)'Zzf8+.0>!}t*<.2n-h*W*J`#q6bzS_\\4Kg[dyvZ_j",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "'7E4GvZ_WKnq^7U3NF/'aTW'5fFiPDRIPV.?-<HR,h6VwsH~v!>,|Sh}u4;.ZUU=5QX<brw,?\"+eE/`F>+*IF(TShe?;4T#(D*{[H.{Jv:%r`$zgDn_Z>g^^E!(6M,@9g",
+   "first": "'7E4GvZ_WKnq^7U3NF/'aTW'5fFiPDRIPV.?-<HR,h6VwsH~v!>,|Sh}u4;.ZUU=5QX<brw,?\"+eE/`F>+*IF(TShe?;4T#(D*{[H.{Jv:%r`$zgDn_Z>g^^E!(6M,@9",
+   "last": "7E4GvZ_WKnq^7U3NF/'aTW'5fFiPDRIPV.?-<HR,h6VwsH~v!>,|Sh}u4;.ZUU=5QX<brw,?\"+eE/`F>+*IF(TShe?;4T#(D*{[H.{Jv:%r`$zgDn_Z>g^^E!(6M,@9g",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "NRS+5%mUZ|XY:/#0~\\3+Z`~#~+L7e)m\"Ewz5P~Bl`8J(//K(NU`29E!SrG1'U~f|$G)a:|YiD]Jf@<:l+fsAN?v`*=%;\\x^00.dTS_+-DeJpL)MLYSiY&#Lz)_/y@wD-&_fps_#:.Q^mWyy72bW_L|BN4\"<A`RZ%%|Q(p@hu?]b}8@7QCem[+Vvf2R=cf=7|yZ[Q:[/R|lVwV$[C}z^?mCiKw$P`QK6-604IV9]aA>C\\l7c[@JG7HfxAnowQsr~'",
+   "first": "NRS+5%mUZ|XY:/#0~\\3+Z`~#~+L7e)m\"Ewz5P~Bl`8J(//K(NU`29E!SrG1'U~f|$G)a:|YiD]Jf@<:l+fsAN?v`*=%;\\x^00.dTS_+-DeJpL)MLYSiY&#Lz)_/y@wD-",
+   "last": "&_fps_#:.Q^mWyy72bW_L|BN4\"<A`RZ%%|Q(p@hu?]b}8@7QCem[+Vvf2R=cf=7|yZ[Q:[/R|lVwV$[C}z^?mCiKw$P`QK6-604IV9]aA>C\\l7c[@JG7HfxAnowQsr~'",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ApzV7BGb'v@~.H.YxAac`qBWx<tfZHy%cj663\"L5W[&r`l8+VYs{kugLmX?]6tSPAD62{@^Sd*y8RXdLl+!GWrnmW%UP(7e)8rba,!k,xWzTT#P4Cd>5|(~]CR[w(TAz^HL{Jb^Vl='Y<MZhhschK_`Wi:Puir~60b0r;=EHe//*)NXF2E}MFI@2;!f",
+   "first": "ApzV7BGb'v@~.H.YxAac`qBWx<tfZHy%cj663\"L5W[&r`l8+VYs{kugLmX?]6tSPAD62{@^Sd*y8RXdLl+!GWrnmW%UP(7e)8rba,!k,xWzTT#P4Cd>5|(~]CR[w(TAz",
+   "last": "]6tSPAD62{@^Sd*y8RXdLl+!GWrnmW%UP(7e)8rba,!k,xWzTT#P4Cd>5|(~]CR[w(TAz^HL{Jb^Vl='Y<MZhhschK_`Wi:Puir~60b0r;=EHe//*)NXF2E}MFI@2;!f",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "^/Kb}y0^4%oM}:},~Rw%P}O%x[5p9/kUk_m/o&V\"XXss_IwTJe|am'z_]>{0iw'HWQv8QAt=+cv_4X*I^%ot{!s\"\\&$i=4\"FV!sW\\;8IZ[?d}JG{SW?P4RBZzx4RG`4-itX!&f'?0zNxa\\.x/@]aHPZ\\tE'9@-3N[F{Zb_2|3[S?`88GW_y>b3nIxpLRhEh&y\\#51&iOt{",
+   "first": "^/Kb}y0^4%oM}:},~Rw%P}O%x[5p9/kUk_m/o&V\"XXss_IwTJe|am'z_]>{0iw'HWQv8QAt=+cv_4X*I^%ot{!s\"\\&$i=4\"FV!sW\\;8IZ[?d}JG{SW?P4RBZzx4RG`4-",
+   "last": "v_4X*I^%ot{!s\"\\&$i=4\"FV!sW\\;8IZ[?d}JG{SW?P4RBZzx4RG`4-itX!&f'?0zNxa\\.x/@]aHPZ\\tE'9@-3N[F{Zb_2|3[S?`88GW_y>b3nIxpLRhEh&y\\#51&iOt{",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "MA,y}-||$RG)8+LS2C&*{n)~JmqcFT5JiMq]H.'5,k[J*ZH{j$YO^laHX",
+   "first": "MA,y}-||$RG)8+LS2C&*{n)~JmqcFT5JiMq]H.'5,k[J*ZH{j$YO^laHX",
+   "last": "MA,y}-||$RG)8+LS2C&*{n)~JmqcFT5JiMq]H.'5,k[J*ZH{j$YO^laHX",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "+t#Zml(JOyKPu^B]XGRIcu~XRVbX~*7(fAAkf5.fS^wd{m>3,L_B=?2{$k%_MJroU)\"LV}~5ajA,'A8q|)6im-@+)%~p{MMy`tfm3mHLfDX8HD<EFS2;",
+   "first": "+t#Zml(JOyKPu^B]XGRIcu~XRVbX~*7(fAAkf5.fS^wd{m>3,L_B=?2{$k%_MJroU)\"LV}~5ajA,'A8q|)6im-@+)%~p{MMy`tfm3mHLfDX8HD<EFS2;",
+   "last": "+t#Zml(JOyKPu^B]XGRIcu~XRVbX~*7(fAAkf5.fS^wd{m>3,L_B=?2{$k%_MJroU)\"LV}~5ajA,'A8q|)6im-@+)%~p{MMy`tfm3mHLfDX8HD<EFS2;",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "t$[\\&xo;?,Po+Ru<S7r\"\\OL%h1l,Z0.u7~%J*?o{e*=tyiIeAso<&KQr*u2}0\\OWt`",
+   "first": "t$[\\&xo;?,Po+Ru<S7r\"\\OL%h1l,Z0.u7~%J*?o{e*=tyiIeAso<&KQr*u2}0\\OWt`",
+   "last": "t$[\\&xo;?,Po+Ru<S7r\"\\OL%h1l,Z0.u7~%J*?o{e*=tyiIeAso<&KQr*u2}0\\OWt`",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "<|YDumilVh@d%u[YA(-3PZ,iPT\\-4XHTcqagvxD8(G%:KrV0ur/B{2DZFv\"x331u~iTbO[!6xgeFO>>7[yg?<5X,u(44:^PFZ8UsHQ3K#m=4K)CJzmqDKwL7l<l.p8`YF{[8l!E!x/Eu]c4+-CSz'Y]",
+   "first": "<|YDumilVh@d%u[YA(-3PZ,iPT\\-4XHTcqagvxD8(G%:KrV0ur/B{2DZFv\"x331u~iTbO[!6xgeFO>>7[yg?<5X,u(44:^PFZ8UsHQ3K#m=4K)CJzmqDKwL7l<l.p8`Y",
+   "last": "iPT\\-4XHTcqagvxD8(G%:KrV0ur/B{2DZFv\"x331u~iTbO[!6xgeFO>>7[yg?<5X,u(44:^PFZ8UsHQ3K#m=4K)CJzmqDKwL7l<l.p8`YF{[8l!E!x/Eu]c4+-CSz'Y]",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "B/4K7TRFpJ`!1[m%]%;<;AxIbQyxG6$;t..[>!keK00lF2)DPkz[aJ%bjwsm\\>}:8TB@vOB\\s/PU:?$y1-&T*Zt-p/.D,2<&",
+   "first": "B/4K7TRFpJ`!1[m%]%;<;AxIbQyxG6$;t..[>!keK00lF2)DPkz[aJ%bjwsm\\>}:8TB@vOB\\s/PU:?$y1-&T*Zt-p/.D,2<&",
+   "last": "B/4K7TRFpJ`!1[m%]%;<;AxIbQyxG6$;t..[>!keK00lF2)DPkz[aJ%bjwsm\\>}:8TB@vOB\\s/PU:?$y1-&T*Zt-p/.D,2<&",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "EAT7H/3K$$DCH}-I[0!u'MSsyl1{{d{AQ\"APte65-`vbhoEm|27'7cd,q.#,Oc=6f1P6#o)tj#fG+.3UjRE'lJ@-<xS0HG=b=XC{8ci03-u{h}\\q6{W@'r;sKnM%94M)8<kAOv1~o\"MN&)G@l37+&\\se'DVch_.C526dF[,QR7^F(.!",
+   "first": "EAT7H/3K$$DCH}-I[0!u'MSsyl1{{d{AQ\"APte65-`vbhoEm|27'7cd,q.#,Oc=6f1P6#o)tj#fG+.3UjRE'lJ@-<xS0HG=b=XC{8ci03-u{h}\\q6{W@'r;sKnM%94M)",
+   "last": "m|27'7cd,q.#,Oc=6f1P6#o)tj#fG+.3UjRE'lJ@-<xS0HG=b=XC{8ci03-u{h}\\q6{W@'r;sKnM%94M)8<kAOv1~o\"MN&)G@l37+&\\se'DVch_.C526dF[,QR7^F(.!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "%1R%?[amfz#ZJw98QOoH|~27-}T\\'|a'qHUwZ?|Wz/:T<M(]b#`St7qw9v(U4$hG'H$_#SS:S[=",
+   "first": "%1R%?[amfz#ZJw98QOoH|~27-}T\\'|a'qHUwZ?|Wz/:T<M(]b#`St7qw9v(U4$hG'H$_#SS:S[=",
+   "last": "%1R%?[amfz#ZJw98QOoH|~27-}T\\'|a'qHUwZ?|Wz/:T<M(]b#`St7qw9v(U4$hG'H$_#SS:S[=",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "\"D${pT[kugNAPk-[T$[i]aI{oFT;I8BBZ\\_Tbb-S~\"Z{b=zh6hgg<#wO)[b@=hVdBbyNJ\\/5[e@OUGb<d/_{,[C=Z+5QaH055kT;no)9kD(c9}~4Q;]\\V'f.~k_JVsp6l')MZPA",
+   "first": "\"D${pT[kugNAPk-[T$[i]aI{oFT;I8BBZ\\_Tbb-S~\"Z{b=zh6hgg<#wO)[b@=hVdBbyNJ\\/5[e@OUGb<d/_{,[C=Z+5QaH055kT;no)9kD(c9}~4Q;]\\V'f.~k_JVsp6",
+   "last": "kugNAPk-[T$[i]aI{oFT;I8BBZ\\_Tbb-S~\"Z{b=zh6hgg<#wO)[b@=hVdBbyNJ\\/5[e@OUGb<d/_{,[C=Z+5QaH055kT;no)9kD(c9}~4Q;]\\V'f.~k_JVsp6l')MZPA",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ey+6fkquf]G8/y=hl$zV:E22\\$$x}|K[CMSR+S|nI+Bi?-D$MYLfN\\.q0bp@!6EQ4(xD3GA/tY5k~ms;L_|,R@S\"*2}z-F?NNEf,/.27[imJ,+~0T~Jt47U?jv-j>U{``\\>2?n$4<PipgoGsj~#Dm|bx,jWxf2Pk$:{VX\\[yB(!nO9g'jjk'oFO.vzyr3v7$!b^:e\"QU\"",
+   "first": "ey+6fkquf]G8/y=hl$zV:E22\\$$x}|K[CMSR+S|nI+Bi?-D$MYLfN\\.q0bp@!6EQ4(xD3GA/tY5k~ms;L_|,R@S\"*2}z-F?NNEf,/.27[imJ,+~0T~Jt47U?jv-j>U{`",
+   "last": "Y5k~ms;L_|,R@S\"*2}z-F?NNEf,/.27[imJ,+~0T~Jt47U?jv-j>U{``\\>2?n$4<PipgoGsj~#Dm|bx,jWxf2Pk$:{VX\\[yB(!nO9g'jjk'oFO.vzyr3v7$!b^:e\"QU\"",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Vy}qbpoFAWlq:p!#%boX(##3KNXcRo6MS:~",
+   "first": "Vy}qbpoFAWlq:p!#%boX(##3KNXcRo6MS:~",
+   "last": "Vy}qbpoFAWlq:p!#%boX(##3KNXcRo6MS:~",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "@)>H[6NotJJf>BH\\[\\.-+)|_s*NL~L<WOWS?py'Layc(8nUJmxJ|ug",
+   "first": "@)>H[6NotJJf>BH\\[\\.-+)|_s*NL~L<WOWS?py'Layc(8nUJmxJ|ug",
+   "last": "@)>H[6NotJJf>BH\\[\\.-+)|_s*NL~L<WOWS?py'Layc(8nUJmxJ|ug",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "V\\G#U4[m1l1!gM{$WD/W#qW@!ot8<EQ24PEgZ|WB'?ZM3,p9`,6JNm\"~CKFX'`zNF@@>-#]=|yI-!\"V+6_>\\`Ffv(=eRf]^%",
+   "first": "V\\G#U4[m1l1!gM{$WD/W#qW@!ot8<EQ24PEgZ|WB'?ZM3,p9`,6JNm\"~CKFX'`zNF@@>-#]=|yI-!\"V+6_>\\`Ffv(=eRf]^%",
+   "last": "V\\G#U4[m1l1!gM{$WD/W#qW@!ot8<EQ24PEgZ|WB'?ZM3,p9`,6JNm\"~CKFX'`zNF@@>-#]=|yI-!\"V+6_>\\`Ffv(=eRf]^%",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "&Gx*WW#aOIk\\@pn*VD1vPcH0o%RJs~qv~:4rXo_jl>&bc0l)Y#(=^(Zs4G%bDE1L.<sb4/O'?F+c<Fr-x",
+   "first": "&Gx*WW#aOIk\\@pn*VD1vPcH0o%RJs~qv~:4rXo_jl>&bc0l)Y#(=^(Zs4G%bDE1L.<sb4/O'?F+c<Fr-x",
+   "last": "&Gx*WW#aOIk\\@pn*VD1vPcH0o%RJs~qv~:4rXo_jl>&bc0l)Y#(=^(Zs4G%bDE1L.<sb4/O'?F+c<Fr-x",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "1R-L+kP4Wu;1Ysao`qYb.y'DX2\"B+tzVAP,OWxO[,oK^V'U&}DDNTmeh8<\"Uyvn8#UE\\>k^8Dz&d*cZqTk{4%O_ELoW'z-G^Zgq9wPQO#l38LG55^Va.@v)#S2xa",
+   "first": "1R-L+kP4Wu;1Ysao`qYb.y'DX2\"B+tzVAP,OWxO[,oK^V'U&}DDNTmeh8<\"Uyvn8#UE\\>k^8Dz&d*cZqTk{4%O_ELoW'z-G^Zgq9wPQO#l38LG55^Va.@v)#S2xa",
+   "last": "1R-L+kP4Wu;1Ysao`qYb.y'DX2\"B+tzVAP,OWxO[,oK^V'U&}DDNTmeh8<\"Uyvn8#UE\\>k^8Dz&d*cZqTk{4%O_ELoW'z-G^Zgq9wPQO#l38LG55^Va.@v)#S2xa",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "KK=yBQ6W{JrZH98N+;n)zliN<7!`--7PP&D$T]/LoL[>bEgNgOq](PE$}dK|_y_Vg>48Hp:[:.9gb4rx6I?L+D_NLdn]7LOjM5\"l_;QmJ^.,X:[45-4`]&):7|{H;U31?3",
+   "first": "KK=yBQ6W{JrZH98N+;n)zliN<7!`--7PP&D$T]/LoL[>bEgNgOq](PE$}dK|_y_Vg>48Hp:[:.9gb4rx6I?L+D_NLdn]7LOjM5\"l_;QmJ^.,X:[45-4`]&):7|{H;U31",
+   "last": "=yBQ6W{JrZH98N+;n)zliN<7!`--7PP&D$T]/LoL[>bEgNgOq](PE$}dK|_y_Vg>48Hp:[:.9gb4rx6I?L+D_NLdn]7LOjM5\"l_;QmJ^.,X:[45-4`]&):7|{H;U31?3",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": ")K]m\\PXi?yN,Pu[$<C\\9wpoC[h7T_QHp@}m4f0^OJwQS=IpZ!e;X\"T4?D!<`TT(I:%drh6vv@yxEX~RJN:`Kioy=8Ir)&AiqUm3V$1'$rxW;%zPlxR$DgO&.1B+U$G:Yo~}J??<U>UhNT.(ErplJ;Zs%D^(6F&F]b<P$rbU%+\\w?0TW3g]0j*YAh^,xs\\)|6o42b*;|V3/g4Uf?QSE>jUCB!*z=+AC&.!2+V",
+   "first": ")K]m\\PXi?yN,Pu[$<C\\9wpoC[h7T_QHp@}m4f0^OJwQS=IpZ!e;X\"T4?D!<`TT(I:%drh6vv@yxEX~RJN:`Kioy=8Ir)&AiqUm3V$1'$rxW;%zPlxR$DgO&.1B+U$G:Y",
+   "last": "$1'$rxW;%zPlxR$DgO&.1B+U$G:Yo~}J??<U>UhNT.(ErplJ;Zs%D^(6F&F]b<P$rbU%+\\w?0TW3g]0j*YAh^,xs\\)|6o42b*;|V3/g4Uf?QSE>jUCB!*z=+AC&.!2+V",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "{Whj:I4;P{kjpt25mPAG&.hgl?QvBo?|C~H323|+lq@ssImunTReqH,U?dbY~.wQCUz]\"~@BxX>\\x@|Z_H*f=X-Rbp,Nas[hwU;jl<!~-LR*]i{a-$%E^l,i:1uEPQ,N<aIaK}\".^r:^A\\JTgL3Y`*JS{pBvEZ@v}qNJCSK#.3",
+   "first": "{Whj:I4;P{kjpt25mPAG&.hgl?QvBo?|C~H323|+lq@ssImunTReqH,U?dbY~.wQCUz]\"~@BxX>\\x@|Z_H*f=X-Rbp,Nas[hwU;jl<!~-LR*]i{a-$%E^l,i:1uEPQ,N",
+   "last": "@ssImunTReqH,U?dbY~.wQCUz]\"~@BxX>\\x@|Z_H*f=X-Rbp,Nas[hwU;jl<!~-LR*]i{a-$%E^l,i:1uEPQ,N<aIaK}\".^r:^A\\JTgL3Y`*JS{pBvEZ@v}qNJCSK#.3",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "((j(VmiV$XuSmKCSx(Wuhdl3)).T0uXwl0;j82jqwi1[PW/;=+BZHLW`j)ke2]],:Ot",
+   "first": "((j(VmiV$XuSmKCSx(Wuhdl3)).T0uXwl0;j82jqwi1[PW/;=+BZHLW`j)ke2]],:Ot",
+   "last": "((j(VmiV$XuSmKCSx(Wuhdl3)).T0uXwl0;j82jqwi1[PW/;=+BZHLW`j)ke2]],:Ot",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "F1E3F{pAjZ849:dH$8)@=|/Q=0lB7}mc^{K>SubPRS+C!PL-P+VP|BwT6*!q<Igj.{MbSA''[C`5@0zsWWA=L3f`#HNI6`~q.b/S~9f8Jcxp",
+   "first": "F1E3F{pAjZ849:dH$8)@=|/Q=0lB7}mc^{K>SubPRS+C!PL-P+VP|BwT6*!q<Igj.{MbSA''[C`5@0zsWWA=L3f`#HNI6`~q.b/S~9f8Jcxp",
+   "last": "F1E3F{pAjZ849:dH$8)@=|/Q=0lB7}mc^{K>SubPRS+C!PL-P+VP|BwT6*!q<Igj.{MbSA''[C`5@0zsWWA=L3f`#HNI6`~q.b/S~9f8Jcxp",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ex-2Xt\\GyJP?D_<>JUg{k^}XV45_SlIZhTL%Wmg\"*xEO#~LAzCWj+!nQ`J85/,kPC)~qW|LtW?=_P%$0C&7o#(=n'H-OLL5?,PB{BN$sw}bna.u4S<\"A/^/E5cTF}$Uyl}Y&hHZ+310y.6xB!vw=uPl1_'RC<1CuCx|2_Xn>jjcl[#^%a$R#h7~ICq6,KU>1,wJcms-jU4a^&Lh5PBrc,|8Za|3D.XXLr)6DSwN,.<LNX:VxGA[(JZ",
+   "first": "ex-2Xt\\GyJP?D_<>JUg{k^}XV45_SlIZhTL%Wmg\"*xEO#~LAzCWj+!nQ`J85/,kPC)~qW|LtW?=_P%$0C&7o#(=n'H-OLL5?,PB{BN$sw}bna.u4S<\"A/^/E5cTF}$Uy",
+   "last": "/E5cTF}$Uyl}Y&hHZ+310y.6xB!vw=uPl1_'RC<1CuCx|2_Xn>jjcl[#^%a$R#h7~ICq6,KU>1,wJcms-jU4a^&Lh5PBrc,|8Za|3D.XXLr)6DSwN,.<LNX:VxGA[(JZ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p$T=,iZToo?8]hRY^$k(QTqjE!kDx(b$ta!@?'}p:#pjIdg):llP8b?@KItntifY)u{XeXOl$H%=-ueNsr>R-AKSd8ZjAcqEzidK6$E7.r{fJnT68glm/@|jzdlYGVIlnm9!grxhKC78f}yeSTKDqVHTwIo6]G}1[dXYE;AN33,dd0Piu=A4Bcui\"UR2KGW#m4Enj~:YtapYV]'huu,SU>aQ",
+   "first": "p$T=,iZToo?8]hRY^$k(QTqjE!kDx(b$ta!@?'}p:#pjIdg):llP8b?@KItntifY)u{XeXOl$H%=-ueNsr>R-AKSd8ZjAcqEzidK6$E7.r{fJnT68glm/@|jzdlYGVIl",
+   "last": "d8ZjAcqEzidK6$E7.r{fJnT68glm/@|jzdlYGVIlnm9!grxhKC78f}yeSTKDqVHTwIo6]G}1[dXYE;AN33,dd0Piu=A4Bcui\"UR2KGW#m4Enj~:YtapYV]'huu,SU>aQ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "RBKH[?W>VOq1,:qsqnTS6(xJ-LMk#AK@OfA.THo5srQ9UvuA/`zO=1ws2g3{xZ<#C^]J>EH_,'yl2w2/b&Z`\\-%`,|~K_x@C}\\z|Q.BoD4q",
+   "first": "RBKH[?W>VOq1,:qsqnTS6(xJ-LMk#AK@OfA.THo5srQ9UvuA/`zO=1ws2g3{xZ<#C^]J>EH_,'yl2w2/b&Z`\\-%`,|~K_x@C}\\z|Q.BoD4q",
+   "last": "RBKH[?W>VOq1,:qsqnTS6(xJ-LMk#AK@OfA.THo5srQ9UvuA/`zO=1ws2g3{xZ<#C^]J>EH_,'yl2w2/b&Z`\\-%`,|~K_x@C}\\z|Q.BoD4q",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "V>Ro<I4a3vAQ>(U`",
+   "first": "V>Ro<I4a3vAQ>(U`",
+   "last": "V>Ro<I4a3vAQ>(U`",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "#B!tp[a]dfZx/!/Lm^Xu>jk-CzZ4^_R,bh.j>Dvk{/apR}\\IL(o.tj'gB$.jbqnp=svmv7~5D#vUkL5$Je$Y\"WxmX",
+   "first": "#B!tp[a]dfZx/!/Lm^Xu>jk-CzZ4^_R,bh.j>Dvk{/apR}\\IL(o.tj'gB$.jbqnp=svmv7~5D#vUkL5$Je$Y\"WxmX",
+   "last": "#B!tp[a]dfZx/!/Lm^Xu>jk-CzZ4^_R,bh.j>Dvk{/apR}\\IL(o.tj'gB$.jbqnp=svmv7~5D#vUkL5$Je$Y\"WxmX",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "TeJi%X_mhnh.iAC.jV}V1zo+q{&0Z8zkqvU3{&2dGiZpp*?Ll|[&DNH`jXvg4c'%OB>MC`yBD|I1*];w4Tj|\"`c=",
+   "first": "TeJi%X_mhnh.iAC.jV}V1zo+q{&0Z8zkqvU3{&2dGiZpp*?Ll|[&DNH`jXvg4c'%OB>MC`yBD|I1*];w4Tj|\"`c=",
+   "last": "TeJi%X_mhnh.iAC.jV}V1zo+q{&0Z8zkqvU3{&2dGiZpp*?Ll|[&DNH`jXvg4c'%OB>MC`yBD|I1*];w4Tj|\"`c=",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "t\\-YPKFw0hOv//x`3!CIDbYX$$|%Cri1peX:DA0Qa,@~Zq\\Q%eFb)-^SVvpo%.-k5",
+   "first": "t\\-YPKFw0hOv//x`3!CIDbYX$$|%Cri1peX:DA0Qa,@~Zq\\Q%eFb)-^SVvpo%.-k5",
+   "last": "t\\-YPKFw0hOv//x`3!CIDbYX$$|%Cri1peX:DA0Qa,@~Zq\\Q%eFb)-^SVvpo%.-k5",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "6k0Sa5tDqv?n]`{au)SP3MSO;`3t(`+b]h\\I;kbw/8Srw1fLViTx~2T5<544;oiSVPqh<LNhd4LcS~}-X}C4mv;Ue)on5Z~uS:(O?_3$qlySXI{l+Eho*`p_yE4J",
+   "first": "6k0Sa5tDqv?n]`{au)SP3MSO;`3t(`+b]h\\I;kbw/8Srw1fLViTx~2T5<544;oiSVPqh<LNhd4LcS~}-X}C4mv;Ue)on5Z~uS:(O?_3$qlySXI{l+Eho*`p_yE4J",
+   "last": "6k0Sa5tDqv?n]`{au)SP3MSO;`3t(`+b]h\\I;kbw/8Srw1fLViTx~2T5<544;oiSVPqh<LNhd4LcS~}-X}C4mv;Ue)on5Z~uS:(O?_3$qlySXI{l+Eho*`p_yE4J",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "1xN[>^sk!9'D7<jN/=&{jx;o5jq[e^Agg:v~P'8zUd}lM1nMvG!w[l;}ITE_k-/l3Sg2u,CI?#uCqgx|*+cV[n-!:<J7gy)G@C-\"wZ<Yce(@:<,>YCK'9fgk[/7%y^O[e\".6}@AyGZe=)oL5R:z2JnDPeP6LlGa\\f)]kvBa6)vNZvm~sL|}kP]-=;I@3Vmrt%0\\)s|;Yn+OlMaw0~yjV&nj-Egm::",
+   "first": "1xN[>^sk!9'D7<jN/=&{jx;o5jq[e^Agg:v~P'8zUd}lM1nMvG!w[l;}ITE_k-/l3Sg2u,CI?#uCqgx|*+cV[n-!:<J7gy)G@C-\"wZ<Yce(@:<,>YCK'9fgk[/7%y^O[",
+   "last": "y)G@C-\"wZ<Yce(@:<,>YCK'9fgk[/7%y^O[e\".6}@AyGZe=)oL5R:z2JnDPeP6LlGa\\f)]kvBa6)vNZvm~sL|}kP]-=;I@3Vmrt%0\\)s|;Yn+OlMaw0~yjV&nj-Egm::",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "1k_|+{MI;HiA']k1moRRG45ioriX,j7DeF.9c]Xn#$V\"P*2",
+   "first": "1k_|+{MI;HiA']k1moRRG45ioriX,j7DeF.9c]Xn#$V\"P*2",
+   "last": "1k_|+{MI;HiA']k1moRRG45ioriX,j7DeF.9c]Xn#$V\"P*2",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Vj}FX^t%dS+xjsrkRi}}V<GnJ;oXMgWj_XA-h(uMXfH6:5q[8tppU44?!C2AnJ*0EPmOlq~\\?1[_ET_G(Wz3(%+l00/`1]?d{NotUA=2,W&JvNaq_oq(V_02g@RZtf0",
+   "first": "Vj}FX^t%dS+xjsrkRi}}V<GnJ;oXMgWj_XA-h(uMXfH6:5q[8tppU44?!C2AnJ*0EPmOlq~\\?1[_ET_G(Wz3(%+l00/`1]?d{NotUA=2,W&JvNaq_oq(V_02g@RZtf0",
+   "last": "Vj}FX^t%dS+xjsrkRi}}V<GnJ;oXMgWj_XA-h(uMXfH6:5q[8tppU44?!C2AnJ*0EPmOlq~\\?1[_ET_G(Wz3(%+l00/`1]?d{NotUA=2,W&JvNaq_oq(V_02g@RZtf0",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "$&6m7A.37vV(h[a~zd$(AU.ra.b6Ma9m^CIsP9wF;^P59^V3{D<HHDG0sb%%$fP(E9c)-B\"t0m4W+[Qz:8qqZ2n!i})5yx>}Jh1,(A3~n*D'w0*ZR=;W^X5nFVqkZu3:Wss'v>CH<ks?*NAF;Rie37opHXbD>L%nf",
+   "first": "$&6m7A.37vV(h[a~zd$(AU.ra.b6Ma9m^CIsP9wF;^P59^V3{D<HHDG0sb%%$fP(E9c)-B\"t0m4W+[Qz:8qqZ2n!i})5yx>}Jh1,(A3~n*D'w0*ZR=;W^X5nFVqkZu3:",
+   "last": "CIsP9wF;^P59^V3{D<HHDG0sb%%$fP(E9c)-B\"t0m4W+[Qz:8qqZ2n!i})5yx>}Jh1,(A3~n*D'w0*ZR=;W^X5nFVqkZu3:Wss'v>CH<ks?*NAF;Rie37opHXbD>L%nf",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "^3Y~|H\\mY.JT'~g\\GRoWDNT@;GO|`u=tl\"(Nv'E}8|lSd)pjct+[?LtJb>3>^%`U-CMvF<MA.k_s~9dov>bpTtSpPG:'/iP'|2*/TM<H+)AX28I1,^.MVjqvQ#KEqKRszpX~Na0c\\@-(KB,Q!&~V52g(&O_:Ta0A$v!B|d:][`HvG&\"}Yud%J?Gk'9+aW#kugkX`Yr8Hmr09T4Jj+zW__SwXue8e7I,k{+2H^K@;/O=bAn,?",
+   "first": "^3Y~|H\\mY.JT'~g\\GRoWDNT@;GO|`u=tl\"(Nv'E}8|lSd)pjct+[?LtJb>3>^%`U-CMvF<MA.k_s~9dov>bpTtSpPG:'/iP'|2*/TM<H+)AX28I1,^.MVjqvQ#KEqKRs",
+   "last": ",^.MVjqvQ#KEqKRszpX~Na0c\\@-(KB,Q!&~V52g(&O_:Ta0A$v!B|d:][`HvG&\"}Yud%J?Gk'9+aW#kugkX`Yr8Hmr09T4Jj+zW__SwXue8e7I,k{+2H^K@;/O=bAn,?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "J:l6?q<@[*p=Q'6C;(D*v/b2b}#N\"/;C?J:h_9,x*wp-,i%+1]>Snr_|6KC2z5]StqWP2i%bPmh&5#",
+   "first": "J:l6?q<@[*p=Q'6C;(D*v/b2b}#N\"/;C?J:h_9,x*wp-,i%+1]>Snr_|6KC2z5]StqWP2i%bPmh&5#",
+   "last": "J:l6?q<@[*p=Q'6C;(D*v/b2b}#N\"/;C?J:h_9,x*wp-,i%+1]>Snr_|6KC2z5]StqWP2i%bPmh&5#",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "DHEK8EwCHJUa>hJ(zl:_U0_^xxTw1GKU~/c}%YR&gu*,n\")i\\t\\U{LWNX\"p:{wmqizn3pKBBqp4'RYH5Hhe-cd#GK4,1jgt/#J!yt;ZB`][7tS~('H2B6{\\h?H(^EVK]:>>@yzTno|!K|#.orVxux$%(l)K{M2\\mKhb5;BE_`At_Qx159\\=)Cw]KirtUo\\hv'q_X[h~\"`I*p-atwi!R@LnAA[vVZB",
+   "first": "DHEK8EwCHJUa>hJ(zl:_U0_^xxTw1GKU~/c}%YR&gu*,n\")i\\t\\U{LWNX\"p:{wmqizn3pKBBqp4'RYH5Hhe-cd#GK4,1jgt/#J!yt;ZB`][7tS~('H2B6{\\h?H(^EVK]",
+   "last": "gt/#J!yt;ZB`][7tS~('H2B6{\\h?H(^EVK]:>>@yzTno|!K|#.orVxux$%(l)K{M2\\mKhb5;BE_`At_Qx159\\=)Cw]KirtUo\\hv'q_X[h~\"`I*p-atwi!R@LnAA[vVZB",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "uU,;5>",
+   "first": "uU,;5>",
+   "last": "uU,;5>",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "_UOtlICoYL'd'JPj0s2-yk{$b[7]581E~PF.8%pIvu;a3}U/udLSVnY]vbfq\"2D|JRZ%p@XRSdz?pc7yt0>8{xML_Dv{TbnF^\"vUHet{FR",
+   "first": "_UOtlICoYL'd'JPj0s2-yk{$b[7]581E~PF.8%pIvu;a3}U/udLSVnY]vbfq\"2D|JRZ%p@XRSdz?pc7yt0>8{xML_Dv{TbnF^\"vUHet{FR",
+   "last": "_UOtlICoYL'd'JPj0s2-yk{$b[7]581E~PF.8%pIvu;a3}U/udLSVnY]vbfq\"2D|JRZ%p@XRSdz?pc7yt0>8{xML_Dv{TbnF^\"vUHet{FR",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "=M%%e9\",~vSGXohy4CE;IL[^/dfpEZrXKkRWa0#^;0CBL/#]`A0eY6IZXQ^9$_ZC:?ur8W>=h8sBX0*Qt@jCcFE+Cif7+4xhsqfI-a!UKslYvMfgMs@+jkX{?Rj<rcG{-Y73G8U\"BsnF8w]d{aQTG1/wG/i_+@]x_t[s|,qL`mB0847?LX$I",
+   "first": "=M%%e9\",~vSGXohy4CE;IL[^/dfpEZrXKkRWa0#^;0CBL/#]`A0eY6IZXQ^9$_ZC:?ur8W>=h8sBX0*Qt@jCcFE+Cif7+4xhsqfI-a!UKslYvMfgMs@+jkX{?Rj<rcG{",
+   "last": "Y6IZXQ^9$_ZC:?ur8W>=h8sBX0*Qt@jCcFE+Cif7+4xhsqfI-a!UKslYvMfgMs@+jkX{?Rj<rcG{-Y73G8U\"BsnF8w]d{aQTG1/wG/i_+@]x_t[s|,qL`mB0847?LX$I",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "K_",
+   "first": "K_",
+   "last": "K_",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Cl#WmGS/GUyoW:16kvlH.w?wHAo5)HN|wigo;\"?JgmLS(1TiML]='O+\"4|a`Hh(;Zj_MqF1%]{lUfDOgMB`tqde|{CS~`t6m\\vT.?0,:[oBg>T@rkC4kRNP.4\\)\\t}xrB34h!y!?~$PS-1E0564GpozR,%Wfc.$j0BN6!j_UYb!X<{XjW{c&v>;b%f'3Zu=1(c-JQ1+`gB]6~;LJ0f&R\"gWLHY.E,v*YG~m\"?)S]TalZ2_m{bLZF#cgyHUc",
+   "first": "Cl#WmGS/GUyoW:16kvlH.w?wHAo5)HN|wigo;\"?JgmLS(1TiML]='O+\"4|a`Hh(;Zj_MqF1%]{lUfDOgMB`tqde|{CS~`t6m\\vT.?0,:[oBg>T@rkC4kRNP.4\\)\\t}xr",
+   "last": "\\t}xrB34h!y!?~$PS-1E0564GpozR,%Wfc.$j0BN6!j_UYb!X<{XjW{c&v>;b%f'3Zu=1(c-JQ1+`gB]6~;LJ0f&R\"gWLHY.E,v*YG~m\"?)S]TalZ2_m{bLZF#cgyHUc",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": ":,3964[QXjotlvgUe-Vjkda,*)tL!M)oQo-p-<fp=`oT28BAc4e(wBtRsB;?L'euTJFn+)).o;3a%e@yov[fZmX4E`Sd<h.+5df@>kDk/8miCLAb>C`Veg~tYiN^:#1oN-%2T:~??LR{Wqv=De12Vg;&u^wl\\0i)Y)=W0OfK*ySL@ktXUgh,8R')di*[o\\!/4Ni!",
+   "first": ":,3964[QXjotlvgUe-Vjkda,*)tL!M)oQo-p-<fp=`oT28BAc4e(wBtRsB;?L'euTJFn+)).o;3a%e@yov[fZmX4E`Sd<h.+5df@>kDk/8miCLAb>C`Veg~tYiN^:#1o",
+   "last": "+)).o;3a%e@yov[fZmX4E`Sd<h.+5df@>kDk/8miCLAb>C`Veg~tYiN^:#1oN-%2T:~??LR{Wqv=De12Vg;&u^wl\\0i)Y)=W0OfK*ySL@ktXUgh,8R')di*[o\\!/4Ni!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "c~y{JeVOc{<[VZ%g0z*35+xK>X*]S/j4d\"@j~aZrE^$YsCe%$\\B&4_MdAM.Q,GS3U0vf<Ga<2]~|n#F[dpVCl2\"G}}On_tgami|jiF=m|D3MzVq1\"\\PN?htGWkGbQ2=x^Z$p$0q.BO;6Q&}]qLs",
+   "first": "c~y{JeVOc{<[VZ%g0z*35+xK>X*]S/j4d\"@j~aZrE^$YsCe%$\\B&4_MdAM.Q,GS3U0vf<Ga<2]~|n#F[dpVCl2\"G}}On_tgami|jiF=m|D3MzVq1\"\\PN?htGWkGbQ2=x",
+   "last": "35+xK>X*]S/j4d\"@j~aZrE^$YsCe%$\\B&4_MdAM.Q,GS3U0vf<Ga<2]~|n#F[dpVCl2\"G}}On_tgami|jiF=m|D3MzVq1\"\\PN?htGWkGbQ2=x^Z$p$0q.BO;6Q&}]qLs",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "uKP;]/0'>PG|Uce7#[x3J`_Ml1QI5iJTUSkxl\\9]E>L&j\\B)z3Ga9H]o]?rc",
+   "first": "uKP;]/0'>PG|Uce7#[x3J`_Ml1QI5iJTUSkxl\\9]E>L&j\\B)z3Ga9H]o]?rc",
+   "last": "uKP;]/0'>PG|Uce7#[x3J`_Ml1QI5iJTUSkxl\\9]E>L&j\\B)z3Ga9H]o]?rc",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "^|mKC5V:d`!]:kv$1;dotAJ[EE.H=|~;/QMec2F0HwP2gbm*<({;Kh5Fvu}L{m@XgRX9Ttt@i=#)<6W&h:ZFPhDOj|9Qp'6YqG`X%bT{VcwHK;]\\2:oh8l4!y<v|N(\\t[nU=dtd0r|hK|n,NTui.G't:37hZ+Qr_+D}25~r)R?5qhv@ia#12:I[4L4Kao%zkg",
+   "first": "^|mKC5V:d`!]:kv$1;dotAJ[EE.H=|~;/QMec2F0HwP2gbm*<({;Kh5Fvu}L{m@XgRX9Ttt@i=#)<6W&h:ZFPhDOj|9Qp'6YqG`X%bT{VcwHK;]\\2:oh8l4!y<v|N(\\t",
+   "last": "RX9Ttt@i=#)<6W&h:ZFPhDOj|9Qp'6YqG`X%bT{VcwHK;]\\2:oh8l4!y<v|N(\\t[nU=dtd0r|hK|n,NTui.G't:37hZ+Qr_+D}25~r)R?5qhv@ia#12:I[4L4Kao%zkg",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "X,",
+   "first": "X,",
+   "last": "X,",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "6&JN''3@1zm@rE=D^1M~@_)`owT\\3=[QfF?J3(\"jZDi/+k18V!H_)H[l'yT-B9WT$\\.ZD|+d,T3S2x{.v@yI2$U=d(:FH.t;Ybvy&`20?qTGJ(-r*A9@@[0nq+ZHh%nmV]t/pB'YAalScp1`8@UcI'n:#}0[zR7[^92",
+   "first": "6&JN''3@1zm@rE=D^1M~@_)`owT\\3=[QfF?J3(\"jZDi/+k18V!H_)H[l'yT-B9WT$\\.ZD|+d,T3S2x{.v@yI2$U=d(:FH.t;Ybvy&`20?qTGJ(-r*A9@@[0nq+ZHh%nm",
+   "last": "J3(\"jZDi/+k18V!H_)H[l'yT-B9WT$\\.ZD|+d,T3S2x{.v@yI2$U=d(:FH.t;Ybvy&`20?qTGJ(-r*A9@@[0nq+ZHh%nmV]t/pB'YAalScp1`8@UcI'n:#}0[zR7[^92",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "XOGt:9ErMaVxl%",
+   "first": "XOGt:9ErMaVxl%",
+   "last": "XOGt:9ErMaVxl%",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "X}}`4?@*@;WCpWff7a~oc2J_2j-?&YW9XBfwLF6XQ=$B$5iaG#p?th7Q9=za$DVN]aIss)",
+   "first": "X}}`4?@*@;WCpWff7a~oc2J_2j-?&YW9XBfwLF6XQ=$B$5iaG#p?th7Q9=za$DVN]aIss)",
+   "last": "X}}`4?@*@;WCpWff7a~oc2J_2j-?&YW9XBfwLF6XQ=$B$5iaG#p?th7Q9=za$DVN]aIss)",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "hw.EH@vbL-m'|PkYxC1&H=3e\\^Dq;L[tdX;+)rVEW^{;1aw`akX71@rzqpR8mg}m",
+   "first": "hw.EH@vbL-m'|PkYxC1&H=3e\\^Dq;L[tdX;+)rVEW^{;1aw`akX71@rzqpR8mg}m",
+   "last": "hw.EH@vbL-m'|PkYxC1&H=3e\\^Dq;L[tdX;+)rVEW^{;1aw`akX71@rzqpR8mg}m",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "пароль",
+   "first": "пароль",
+   "last": "пароль",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Пароль123",
+   "first": "Пароль123",
+   "last": "Пароль123",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "密码",
+   "first": "密码",
+   "last": "密码",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "密码123456",
+   "first": "密码123456",
+   "last": "密码123456",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "パスワード",
+   "first": "パスワード",
+   "last": "パスワード",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "パスワード123",
+   "first": "パスワード123",
+   "last": "パスワード123",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "비밀번호",
+   "first": "비밀번호",
+   "last": "비밀번호",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "كلمةالسر",
+   "first": "كلمةالسر",
+   "last": "كلمةالسر",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "motdepasse",
+   "first": "motdepasse",
+   "last": "motdepasse",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "MotDePasse123!",
+   "first": "MotDePasse123!",
+   "last": "MotDePasse123!",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "contraseña",
+   "first": "contraseña",
+   "last": "contraseña",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Contraseña123!",
+   "first": "Contraseña123!",
+   "last": "Contraseña123!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "senha",
+   "first": "senha",
+   "last": "senha",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Senha123!",
+   "first": "Senha123!",
+   "last": "Senha123!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "passwort",
+   "first": "passwort",
+   "last": "passwort",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Passwort123!",
+   "first": "Passwort123!",
+   "last": "Passwort123!",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "😀😀😀😀😀😀😀😀",
+   "first": "😀😀😀😀😀😀😀😀",
+   "last": "😀😀😀😀😀😀😀😀",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "😀a😀b😀c😀d",
+   "first": "😀a😀b😀c😀d",
+   "last": "😀a😀b😀c😀d",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "éééééééééééééééééééé",
+   "first": "éééééééééééééééééééé",
+   "last": "éééééééééééééééééééé",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "first": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "last": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩ",
+   "first": "ΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩ",
+   "last": "ΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩΩ",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "日本語のパスワード",
+   "first": "日本語のパスワード",
+   "last": "日本語のパスワード",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "密码密码密码密码密码密码密码密码",
+   "first": "密码密码密码密码密码密码密码密码",
+   "last": "密码密码密码密码密码密码密码密码",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "üñïçøðé",
+   "first": "üñïçøðé",
+   "last": "üñïçøðé",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "pässwörd",
+   "first": "pässwörd",
+   "last": "pässwörd",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "pässwörd123!",
+   "first": "pässwörd123!",
+   "last": "pässwörd123!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥",
+   "first": "🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥",
+   "last": "🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "  ",
+   "first": "  ",
+   "last": "  ",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "a\u0000b",
+   "first": "a\u0000b",
+   "last": "a\u0000b",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+   "first": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+   "last": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "44Sbpswdv7eV1P9vdhkvs0q6tn1X7XRPUmcNt7SPrbAaUoDYdFCluuRx2tjNmZJKT8DZeohQRKw3QCB1nbPoN4kbOgAXjr3ICmEuXVJTtoJWPFKqbG3UFJWaLB7xMzD1",
+   "first": "44Sbpswdv7eV1P9vdhkvs0q6tn1X7XRPUmcNt7SPrbAaUoDYdFCluuRx2tjNmZJKT8DZeohQRKw3QCB1nbPoN4kbOgAXjr3ICmEuXVJTtoJWPFKqbG3UFJWaLB7xMzD1",
+   "last": "44Sbpswdv7eV1P9vdhkvs0q6tn1X7XRPUmcNt7SPrbAaUoDYdFCluuRx2tjNmZJKT8DZeohQRKw3QCB1nbPoN4kbOgAXjr3ICmEuXVJTtoJWPFKqbG3UFJWaLB7xMzD1",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "babababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first_score": 0,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordp",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "asswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordp",
+   "first_score": 0,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!x",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "Y9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!x",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "BokWHUZBmxs3yjpMsW6wzEyNfks70ycrxkt5oCGsBLEbDrIqe5o8B0Gkdg22PTJnzvMd1MT1GVqA2O9nPdPANQoHlSmIZsVlUEsC2NKv9hyar13lpAP2e8Xg4d9lKhAW5",
+   "first": "BokWHUZBmxs3yjpMsW6wzEyNfks70ycrxkt5oCGsBLEbDrIqe5o8B0Gkdg22PTJnzvMd1MT1GVqA2O9nPdPANQoHlSmIZsVlUEsC2NKv9hyar13lpAP2e8Xg4d9lKhAW",
+   "last": "okWHUZBmxs3yjpMsW6wzEyNfks70ycrxkt5oCGsBLEbDrIqe5o8B0Gkdg22PTJnzvMd1MT1GVqA2O9nPdPANQoHlSmIZsVlUEsC2NKv9hyar13lpAP2e8Xg4d9lKhAW5",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpa",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "sswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpa",
+   "first_score": 0,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "L155wABDrAeB1pBbCdbGxQWqKkTM6Jra9o1EXpi7nJ4koi64BHo8LI2Gjdh4T8PBtHS2Sgd7jXXAmPTU12R9SBsqlcKWpwCyXz3r58LdtG13HG9X4bAvVhUekhNMn1ALF9",
+   "first": "L155wABDrAeB1pBbCdbGxQWqKkTM6Jra9o1EXpi7nJ4koi64BHo8LI2Gjdh4T8PBtHS2Sgd7jXXAmPTU12R9SBsqlcKWpwCyXz3r58LdtG13HG9X4bAvVhUekhNMn1AL",
+   "last": "55wABDrAeB1pBbCdbGxQWqKkTM6Jra9o1EXpi7nJ4koi64BHo8LI2Gjdh4T8PBtHS2Sgd7jXXAmPTU12R9SBsqlcKWpwCyXz3r58LdtG13HG9X4bAvVhUekhNMn1ALF9",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "rdpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first_score": 0,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "PkRV4kvy5ynfCrz9bJpZoWovlZEyiJtvDoIIDDc5ZpWLVxGYGCm02hNYF1ZxphB0LloPyeAxomcCDetFu6IB2sNc2j8Bzl8mE146EYL5EDCpb5c1N80VuWy9sch4RkVEidX0LP9v8qUufO58KbMJzD",
+   "first": "PkRV4kvy5ynfCrz9bJpZoWovlZEyiJtvDoIIDDc5ZpWLVxGYGCm02hNYF1ZxphB0LloPyeAxomcCDetFu6IB2sNc2j8Bzl8mE146EYL5EDCpb5c1N80VuWy9sch4RkVE",
+   "last": "ovlZEyiJtvDoIIDDc5ZpWLVxGYGCm02hNYF1ZxphB0LloPyeAxomcCDetFu6IB2sNc2j8Bzl8mE146EYL5EDCpb5c1N80VuWy9sch4RkVEidX0LP9v8qUufO58KbMJzD",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "rsCREjFF3snD6S0k7C8uNSGdIQlYLsSgIHIy5B6leiyLfvQrheIcEr2yDFSYYtidsnZ0PkbLnH5kyRMe0gVJjYxVKMoQQQitve9AqPQoO5eiBjmpiO2mN1Pr2nfavDmi2rQVb65AA13GQgMYDLCCC3wE036jRq4MFQIr5hilJiOle30HMdvgSHwDXcnacUsWnH2HJGev",
+   "first": "rsCREjFF3snD6S0k7C8uNSGdIQlYLsSgIHIy5B6leiyLfvQrheIcEr2yDFSYYtidsnZ0PkbLnH5kyRMe0gVJjYxVKMoQQQitve9AqPQoO5eiBjmpiO2mN1Pr2nfavDmi",
+   "last": "nH5kyRMe0gVJjYxVKMoQQQitve9AqPQoO5eiBjmpiO2mN1Pr2nfavDmi2rQVb65AA13GQgMYDLCCC3wE036jRq4MFQIr5hilJiOle30HMdvgSHwDXcnacUsWnH2HJGev",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "DENKfLhb8GJ3eJNWCIMm4lpj8SKmC1pnPy4z2e3WJQUzv4ITprh8m7Be8gaVzurNbR7LcpEScjoyDeDeDqgLNtq0nwFiBlEnmoGj3HRRa8KgSTZ9tZzJRDNJGHtANWSiDHiJgVViENCOZVCvArGd9pB4BTxG3Ak4IIaMOmsnKnzfgCD36TvbQ3vlsOFNdesx8CS31C8WGchRz4kdQa9YTgBkDlnVIWNtBui0RpYEVFptOQXj41HcGi6rVDEIHpve",
+   "first": "DENKfLhb8GJ3eJNWCIMm4lpj8SKmC1pnPy4z2e3WJQUzv4ITprh8m7Be8gaVzurNbR7LcpEScjoyDeDeDqgLNtq0nwFiBlEnmoGj3HRRa8KgSTZ9tZzJRDNJGHtANWSi",
+   "last": "DHiJgVViENCOZVCvArGd9pB4BTxG3Ak4IIaMOmsnKnzfgCD36TvbQ3vlsOFNdesx8CS31C8WGchRz4kdQa9YTgBkDlnVIWNtBui0RpYEVFptOQXj41HcGi6rVDEIHpve",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpass",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "wordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpass",
+   "first_score": 0,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "NTWO4MfBVssVri7KfZ4sOTykSqWi4AHxQFBaRKwYcImqHcebK9VoFT4D73jibSBFYcO7aH926A0RAIwrjBXa9TVSATKi02mUBsAjnZlMixfhmHwAEjSg0eoaDVDuUgUmneaGF0gm7UH88wbXRdN9BjsvMzR8zT09gRAZ0IkDN6fk3nNdlViguTeFgtQ2hdZK1CO6Lv7DQIKlDQJZavrAMgI4F2sYwhZDaSFyr0G8PKghkX2Gn2L13eFKCA9KzpBEEcTdnJoGHMlO3IgUD5RuSYHPNBYPdEjzu6ZRTv1DFnQD",
+   "first": "NTWO4MfBVssVri7KfZ4sOTykSqWi4AHxQFBaRKwYcImqHcebK9VoFT4D73jibSBFYcO7aH926A0RAIwrjBXa9TVSATKi02mUBsAjnZlMixfhmHwAEjSg0eoaDVDuUgUm",
+   "last": "3nNdlViguTeFgtQ2hdZK1CO6Lv7DQIKlDQJZavrAMgI4F2sYwhZDaSFyr0G8PKghkX2Gn2L13eFKCA9KzpBEEcTdnJoGHMlO3IgUD5RuSYHPNBYPdEjzu6ZRTv1DFnQD",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "last": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "b4lQcLzWqn9ikvR2HLKEMAz6bIXjeNASDoq5FBmlIz1wlCVcPGjHdskRgH6plQ91nL4bjcsijcTEgKCE4PFU9IMrTucfgMaY7BLrCtDRmlS4vNwfIKzs5GAwaqfz84nV1tNUL9oBJEoh7rmj7v2roPOEnQtMT4EXjLIAVIy97tB2X05cCkSBPjBZv4FhAazJVHyAnrwuSk7nAEjif9BreJ3PwEjf03YLrF0dFM6mYH701ydSYldHFsQ9RVuL0g3HSNIepqRZo0BHodMcWkOuJVES02ZH011MuZBxLelOtJ3oueJzy4sqJa0ybipBoGvBCz0cNhHcsFEzEIW3M4xPXb4twx1oyWwy3LHOjwRVuv30E5uFFkjHVLbs87gjVMYzkH5LPY95sk0osb6u",
+   "first": "b4lQcLzWqn9ikvR2HLKEMAz6bIXjeNASDoq5FBmlIz1wlCVcPGjHdskRgH6plQ91nL4bjcsijcTEgKCE4PFU9IMrTucfgMaY7BLrCtDRmlS4vNwfIKzs5GAwaqfz84nV",
+   "last": "WkOuJVES02ZH011MuZBxLelOtJ3oueJzy4sqJa0ybipBoGvBCz0cNhHcsFEzEIW3M4xPXb4twx1oyWwy3LHOjwRVuv30E5uFFkjHVLbs87gjVMYzkH5LPY95sk0osb6u",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaxY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaxY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!",
+   "first_score": 1,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 3,
+   "last_score": 1,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaTr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "or&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!",
+   "first_score": 1,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4dor&3xY9!Tr0ub4do",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 4,
+   "last_score": 1,
+   "strong": true
+  },
+  {
+   "password": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "first": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "last": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码",
+   "first": "密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码",
+   "last": "密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Dave@staple",
+   "first": "Dave@staple",
+   "last": "Dave@staple",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "correct",
+   "first": "correct",
+   "last": "correct",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "grace_judy1047",
+   "first": "grace_judy1047",
+   "last": "grace_judy1047",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ivan_cycle_correct",
+   "first": "ivan_cycle_correct",
+   "last": "ivan_cycle_correct",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Client_company1858",
+   "first": "Client_company1858",
+   "last": "Client_company1858",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "london.redis.horse.walter?",
+   "first": "london.redis.horse.walter?",
+   "last": "london.redis.horse.walter?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "mallory1889",
+   "first": "mallory1889",
+   "last": "mallory1889",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "coffee@coffee@oscar",
+   "first": "coffee@coffee@oscar",
+   "last": "coffee@coffee@oscar",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "peggy peggy",
+   "first": "peggy peggy",
+   "last": "peggy peggy",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "spring",
+   "first": "spring",
+   "last": "spring",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Plane_issue_tokyo",
+   "first": "Plane_issue_tokyo",
+   "last": "Plane_issue_tokyo",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Peggy@frontend@project@guitar",
+   "first": "Peggy@frontend@project@guitar",
+   "last": "Peggy@frontend@project@guitar",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "batteryjudycoffee",
+   "first": "batteryjudycoffee",
+   "last": "batteryjudycoffee",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "guitar-trent2900",
+   "first": "guitar-trent2900",
+   "last": "guitar-trent2900",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Postgres.walter.dave.company2483",
+   "first": "Postgres.walter.dave.company2483",
+   "last": "Postgres.walter.dave.company2483",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "databasejudyheidibob259",
+   "first": "databasejudyheidibob259",
+   "last": "databasejudyheidibob259",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "peggy plane database",
+   "first": "peggy plane database",
+   "last": "peggy plane database",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "victor client module guitar",
+   "first": "victor client module guitar",
+   "last": "victor client module guitar",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Frontendlondonpeggy918",
+   "first": "Frontendlondonpeggy918",
+   "last": "Frontendlondonpeggy918",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "peggywinterberlinhorse2081*",
+   "first": "peggywinterberlinhorse2081*",
+   "last": "peggywinterberlinhorse2081*",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "spring trent staple alice!!",
+   "first": "spring trent staple alice!!",
+   "last": "spring trent staple alice!!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Guitarmodule2505",
+   "first": "Guitarmodule2505",
+   "last": "Guitarmodule2505",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "workspace plane client postgres",
+   "first": "workspace plane client postgres",
+   "last": "workspace plane client postgres",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "frankclientautumn",
+   "first": "frankclientautumn",
+   "last": "frankclientautumn",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "dave",
+   "first": "dave",
+   "last": "dave",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "bob backend postgres battery",
+   "first": "bob backend postgres battery",
+   "last": "bob backend postgres battery",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "bob-ivan-dave-coffee1739",
+   "first": "bob-ivan-dave-coffee1739",
+   "last": "bob-ivan-dave-coffee1739",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "winter.peggy2460",
+   "first": "winter.peggy2460",
+   "last": "winter.peggy2460",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Carol-postgres-dave1226",
+   "first": "Carol-postgres-dave1226",
+   "last": "Carol-postgres-dave1226",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Horse@tokyo@redis@coffee911&",
+   "first": "Horse@tokyo@redis@coffee911&",
+   "last": "Horse@tokyo@redis@coffee911&",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Berlin",
+   "first": "Berlin",
+   "last": "Berlin",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "client947",
+   "first": "client947",
+   "last": "client947",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "walter client?",
+   "first": "walter client?",
+   "last": "walter client?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "staple@mallory@winter2594",
+   "first": "staple@mallory@winter2594",
+   "last": "staple@mallory@winter2594",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "judy",
+   "first": "judy",
+   "last": "judy",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Frontend-guitar-ivan",
+   "first": "Frontend-guitar-ivan",
+   "last": "Frontend-guitar-ivan",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Frontendfrank?",
+   "first": "Frontendfrank?",
+   "last": "Frontendfrank?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "judy paris redis1830",
+   "first": "judy paris redis1830",
+   "last": "judy paris redis1830",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Summer.plane.server",
+   "first": "Summer.plane.server",
+   "last": "Summer.plane.server",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "tokyo1197",
+   "first": "tokyo1197",
+   "last": "tokyo1197",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "client.victor",
+   "first": "client.victor",
+   "last": "client.victor",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Backend oscar1539",
+   "first": "Backend oscar1539",
+   "last": "Backend oscar1539",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Database-bob-bob601",
+   "first": "Database-bob-bob601",
+   "last": "Database-bob-bob601",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "frank client judy*",
+   "first": "frank client judy*",
+   "last": "frank client judy*",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "database#",
+   "first": "database#",
+   "last": "database#",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Staple@module@frontend",
+   "first": "Staple@module@frontend",
+   "last": "Staple@module@frontend",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Coffee project autumn1278$",
+   "first": "Coffee project autumn1278$",
+   "last": "Coffee project autumn1278$",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "paris",
+   "first": "paris",
+   "last": "paris",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "berlin_module_walter_battery2716",
+   "first": "berlin_module_walter_battery2716",
+   "last": "berlin_module_walter_battery2716",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "frontend heidi bob?",
+   "first": "frontend heidi bob?",
+   "last": "frontend heidi bob?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "London-carol-guitar!",
+   "first": "London-carol-guitar!",
+   "last": "London-carol-guitar!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Winter-database-spring-walter*",
+   "first": "Winter-database-spring-walter*",
+   "last": "Winter-database-spring-walter*",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "guitar.client",
+   "first": "guitar.client",
+   "last": "guitar.client",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "ivan@summer197&",
+   "first": "ivan@summer197&",
+   "last": "ivan@summer197&",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "heidi_battery_berlin_grace",
+   "first": "heidi_battery_berlin_grace",
+   "last": "heidi_battery_berlin_grace",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "guitar2999",
+   "first": "guitar2999",
+   "last": "guitar2999",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "autumn29",
+   "first": "autumn29",
+   "last": "autumn29",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Moduleplane2809?",
+   "first": "Moduleplane2809?",
+   "last": "Moduleplane2809?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Autumn frontend",
+   "first": "Autumn frontend",
+   "last": "Autumn frontend",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "carol684",
+   "first": "carol684",
+   "last": "carol684",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "alicelondon&",
+   "first": "alicelondon&",
+   "last": "alicelondon&",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "dave carol frontend backend2257",
+   "first": "dave carol frontend backend2257",
+   "last": "dave carol frontend backend2257",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ivan",
+   "first": "ivan",
+   "last": "ivan",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "tokyo",
+   "first": "tokyo",
+   "last": "tokyo",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "databaseprojectredisclient",
+   "first": "databaseprojectredisclient",
+   "last": "databaseprojectredisclient",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "dave2252",
+   "first": "dave2252",
+   "last": "dave2252",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Coffee server2713",
+   "first": "Coffee server2713",
+   "last": "Coffee server2713",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "alice-heidi-bob1569",
+   "first": "alice-heidi-bob1569",
+   "last": "alice-heidi-bob1569",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "backend",
+   "first": "backend",
+   "last": "backend",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "company-london2558",
+   "first": "company-london2558",
+   "last": "company-london2558",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "bob@tokyo@backend@summer2897",
+   "first": "bob@tokyo@backend@summer2897",
+   "last": "bob@tokyo@backend@summer2897",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "trentpostgreswinter",
+   "first": "trentpostgreswinter",
+   "last": "trentpostgreswinter",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Coffee.ivan.frontend.cycle",
+   "first": "Coffee.ivan.frontend.cycle",
+   "last": "Coffee.ivan.frontend.cycle",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "gracebob",
+   "first": "gracebob",
+   "last": "gracebob",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "frank-heidi",
+   "first": "frank-heidi",
+   "last": "frank-heidi",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Postgres",
+   "first": "Postgres",
+   "last": "Postgres",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Module.client.judy.winter2653",
+   "first": "Module.client.judy.winter2653",
+   "last": "Module.client.judy.winter2653",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "spring-guitar",
+   "first": "spring-guitar",
+   "last": "spring-guitar",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Coffeepostgresoscar1193",
+   "first": "Coffeepostgresoscar1193",
+   "last": "Coffeepostgresoscar1193",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "judy-frontend-postgres&",
+   "first": "judy-frontend-postgres&",
+   "last": "judy-frontend-postgres&",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Peggy.trent",
+   "first": "Peggy.trent",
+   "last": "Peggy.trent",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "issue2789",
+   "first": "issue2789",
+   "last": "issue2789",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "plane_cycle1791",
+   "first": "plane_cycle1791",
+   "last": "plane_cycle1791",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "paris-battery-company1660?",
+   "first": "paris-battery-company1660?",
+   "last": "paris-battery-company1660?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "company@bob",
+   "first": "company@bob",
+   "last": "company@bob",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Trent-cycle",
+   "first": "Trent-cycle",
+   "last": "Trent-cycle",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Database@battery@oscar@eve985!",
+   "first": "Database@battery@oscar@eve985!",
+   "last": "Database@battery@oscar@eve985!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Redis2100$",
+   "first": "Redis2100$",
+   "last": "Redis2100$",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Mallory2132",
+   "first": "Mallory2132",
+   "last": "Mallory2132",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Project2478",
+   "first": "Project2478",
+   "last": "Project2478",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "cycle frank",
+   "first": "cycle frank",
+   "last": "cycle frank",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "grace@guitar@client@spring334",
+   "first": "grace@guitar@client@spring334",
+   "last": "grace@guitar@client@spring334",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "plane_oscar&",
+   "first": "plane_oscar&",
+   "last": "plane_oscar&",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "carol_autumn_redis2695$",
+   "first": "carol_autumn_redis2695$",
+   "last": "carol_autumn_redis2695$",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "horse-mallory-autumn",
+   "first": "horse-mallory-autumn",
+   "last": "horse-mallory-autumn",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "battery_workspace_tokyo_trent",
+   "first": "battery_workspace_tokyo_trent",
+   "last": "battery_workspace_tokyo_trent",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "oscar_tokyo_london2956",
+   "first": "oscar_tokyo_london2956",
+   "last": "oscar_tokyo_london2956",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "wintercompanydavecompany?",
+   "first": "wintercompanydavecompany?",
+   "last": "wintercompanydavecompany?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "berlin1267",
+   "first": "berlin1267",
+   "last": "berlin1267",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Correct london london carol",
+   "first": "Correct london london carol",
+   "last": "Correct london london carol",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "cycle backend eve",
+   "first": "cycle backend eve",
+   "last": "cycle backend eve",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "eve judy module issue",
+   "first": "eve judy module issue",
+   "last": "eve judy module issue",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Modulecorrectprojectautumn2903",
+   "first": "Modulecorrectprojectautumn2903",
+   "last": "Modulecorrectprojectautumn2903",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "battery mallory grace battery",
+   "first": "battery mallory grace battery",
+   "last": "battery mallory grace battery",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "frontend-peggy",
+   "first": "frontend-peggy",
+   "last": "frontend-peggy",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "heidi@issue@frontend@staple184",
+   "first": "heidi@issue@frontend@staple184",
+   "last": "heidi@issue@frontend@staple184",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "issuesummerworkspaceproject?",
+   "first": "issuesummerworkspaceproject?",
+   "last": "issuesummerworkspaceproject?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "judy_eve_frontend1048",
+   "first": "judy_eve_frontend1048",
+   "last": "judy_eve_frontend1048",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "client_judy&",
+   "first": "client_judy&",
+   "last": "client_judy&",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "company2527",
+   "first": "company2527",
+   "last": "company2527",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "clientlondon1341",
+   "first": "clientlondon1341",
+   "last": "clientlondon1341",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "winter-battery",
+   "first": "winter-battery",
+   "last": "winter-battery",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Horse heidi",
+   "first": "Horse heidi",
+   "last": "Horse heidi",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "Horse2107!",
+   "first": "Horse2107!",
+   "last": "Horse2107!",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "issue backend postgres949",
+   "first": "issue backend postgres949",
+   "last": "issue backend postgres949",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Springcoffeeworkspace",
+   "first": "Springcoffeeworkspace",
+   "last": "Springcoffeeworkspace",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "dave postgres bob2646&",
+   "first": "dave postgres bob2646&",
+   "last": "dave postgres bob2646&",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "summer carol plane company",
+   "first": "summer carol plane company",
+   "last": "summer carol plane company",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Heidiworkspace",
+   "first": "Heidiworkspace",
+   "last": "Heidiworkspace",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "heidi cycle2922",
+   "first": "heidi cycle2922",
+   "last": "heidi cycle2922",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "peggy319&",
+   "first": "peggy319&",
+   "last": "peggy319&",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "guitar",
+   "first": "guitar",
+   "last": "guitar",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Battery@bob@workspace@coffee&",
+   "first": "Battery@bob@workspace@coffee&",
+   "last": "Battery@bob@workspace@coffee&",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "judy-project-winter",
+   "first": "judy-project-winter",
+   "last": "judy-project-winter",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "grace",
+   "first": "grace",
+   "last": "grace",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "Grace_frank_cycle2282",
+   "first": "Grace_frank_cycle2282",
+   "last": "Grace_frank_cycle2282",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "frontend@dave2054",
+   "first": "frontend@dave2054",
+   "last": "frontend@dave2054",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "spring staple eve company1759",
+   "first": "spring staple eve company1759",
+   "last": "spring staple eve company1759",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Workspace!!",
+   "first": "Workspace!!",
+   "last": "Workspace!!",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Database.guitar.database.london1908",
+   "first": "Database.guitar.database.london1908",
+   "last": "Database.guitar.database.london1908",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "bob1517?",
+   "first": "bob1517?",
+   "last": "bob1517?",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "Frontend.ivan.plane",
+   "first": "Frontend.ivan.plane",
+   "last": "Frontend.ivan.plane",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "paris@paris@database@guitar642",
+   "first": "paris@paris@database@guitar642",
+   "last": "paris@paris@database@guitar642",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "carol_guitar_redis_trent1707",
+   "first": "carol_guitar_redis_trent1707",
+   "last": "carol_guitar_redis_trent1707",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "summer-bob1493",
+   "first": "summer-bob1493",
+   "last": "summer-bob1493",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "issue alice server server",
+   "first": "issue alice server server",
+   "last": "issue alice server server",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Eve2020",
+   "first": "Eve2020",
+   "last": "Eve2020",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "Database2782",
+   "first": "Database2782",
+   "last": "Database2782",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "spring*",
+   "first": "spring*",
+   "last": "spring*",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "walter cycle",
+   "first": "walter cycle",
+   "last": "walter cycle",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "project_cycle_cycle_company1923",
+   "first": "project_cycle_cycle_company1923",
+   "last": "project_cycle_cycle_company1923",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "module.tokyo2112",
+   "first": "module.tokyo2112",
+   "last": "module.tokyo2112",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "dave module1986",
+   "first": "dave module1986",
+   "last": "dave module1986",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Client spring issue",
+   "first": "Client spring issue",
+   "last": "Client spring issue",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Bobserverbackendberlin!!",
+   "first": "Bobserverbackendberlin!!",
+   "last": "Bobserverbackendberlin!!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "berlinpostgresbackendcoffee",
+   "first": "berlinpostgresbackendcoffee",
+   "last": "berlinpostgresbackendcoffee",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "London_server_judy_server&",
+   "first": "London_server_judy_server&",
+   "last": "London_server_judy_server&",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "clientspringparisredis",
+   "first": "clientspringparisredis",
+   "last": "clientspringparisredis",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  }
+ ]
+}
