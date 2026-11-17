@@ -50,7 +50,7 @@ pub mod signing;
 pub mod user;
 
 pub use api_key::{ApiKeyError, ApiToken, INVALID_API_TOKEN};
-pub use csrf::CsrfState;
+pub use csrf::{CsrfSlot, CsrfState};
 pub use error::AuthError;
 pub use json::Json;
 pub use login::{LoginFlags, base_host, login, logout, user_login};

@@ -21,12 +21,16 @@
 //!    (grep for `user_logged_in` under `plane/` finds no `@receiver`), but
 //!    Django's is always connected.
 //!
+//! `plane/authentication/adapter/base.py:229-247` writes the *other* login
+//! columns (`last_login_time`, `last_login_ip`, `last_login_uagent`,
+//! `last_login_medium`) in its own `save_user_data`.
+//!
 //! Plane's `user_login` (`plane/authentication/utils/login.py:13-27`) calls
 //! `login()`, optionally sets the admin expiry, writes `device_info =
 //! {"user_agent", "ip_address", "domain"}` and calls `session.save()`
 //! explicitly, so a row always exists even when the middleware would not save.
 
-use chrono::{SubsecRound, Utc};
+use chrono::SubsecRound;
 use deadpool_postgres::Client;
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;

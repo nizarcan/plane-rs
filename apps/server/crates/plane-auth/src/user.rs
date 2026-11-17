@@ -145,7 +145,9 @@ impl AuthUser {
     /// Django's `request.user` is the whole `ModelBackend.get_user` row, so the
     /// session loader keeps it too (see [`SessionUser`]) and derives this
     /// projection from it by field name rather than by column index.
-    pub(crate) fn from_model_row(row: &UserRow) -> Self {
+    /// The public projection of a full `users` row, for a handler that logs in
+    /// a user it loaded outside the session path (`/auth/change-password/`).
+    pub fn from_model_row(row: &UserRow) -> Self {
         Self {
             id: row.id,
             password: row.password.clone(),

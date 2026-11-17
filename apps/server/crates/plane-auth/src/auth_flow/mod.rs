@@ -34,7 +34,7 @@ pub mod tasks;
 
 pub use adapter::{
     AdapterContext, AdapterError, AuthCallback, AuthProvider, CompletedLogin, InviteOutcome,
-    PostUserAuthWorkflow, ProfileState, complete_login_or_signup, create_profile,
+    PostUserAuthWorkflow, ProfileState, complete_login_or_signup,
     process_workspace_project_invitations, profile_for_user, sanitize_email, save_user_data,
     signup_allowed, validate_password,
 };

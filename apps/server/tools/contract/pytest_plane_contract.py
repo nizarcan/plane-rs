@@ -376,6 +376,48 @@ STORAGE_MOCK_TARGETS: tuple[tuple[str, str], ...] = (
     ("plane.authentication.adapter.base", "S3Storage"),
 )
 
+# The auth contract tests that patch a symbol inside Django's process:
+# `user_activation_email` is a Celery task the adapter calls (the test asserts
+# the call) and `omnimatch` is zxcvbn's matcher (the test asserts the scored
+# window's length). A Rust process runs its own code and is not reachable by
+# `unittest.mock`.
+AUTH_MOCK_TARGETS: tuple[tuple[str, str], ...] = (
+    ("plane.authentication.adapter.base", "user_activation_email"),
+    ("zxcvbn.matching", "omnimatch"),
+)
+
+# `patch.object(AuthenticationThrottle, "rate", "2/minute")` assigns a plain
+# string, not a `Mock`, so it is detected by comparing the class attribute with
+# the value its module read from the runner's environment at import time.
+AUTH_PATCHED_RATES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "plane.authentication.rate_limit",
+        "AuthenticationThrottle",
+        "rate",
+        "AUTHENTICATION_RATE_LIMIT",
+    ),
+)
+
+# Tests that assert an exception is raised *inside* Django's process. They wrap
+# the client call in `try/except` (or `pytest.raises`) and accept either a 4xx
+# response or the exception itself; Django's test client re-raises it, while a
+# separate Rust process can only answer with the 500 page the exception produces
+# over HTTP. The two magic-generate tests are the auth case: an empty or invalid
+# address raises `ValidationError` from `views/app/magic.py:52-53`, outside the
+# view's `except AuthenticationException`, and DRF's handler re-raises it.
+IN_PROCESS_EXCEPTION_TESTS: tuple[tuple[str, str], ...] = (
+    (
+        "test_authentication.py::TestMagicLinkGenerate::test_without_data",
+        "asserts the empty-email `ValidationError` propagates in-process "
+        "(`views/app/magic.py:52-53`)",
+    ),
+    (
+        "test_authentication.py::TestMagicLinkGenerate::test_email_validity",
+        "asserts the invalid-email `ValidationError` propagates in-process "
+        "(`views/app/magic.py:52-53`)",
+    ),
+)
+
 
 def _local_mock_reason() -> str | None:
     """A `unittest.mock` replacement that only an in-process Django view can satisfy.
@@ -387,58 +429,63 @@ def _local_mock_reason() -> str | None:
     request is served by Django and reported, rather than failing on an
     assertion about an object Rust does not use.
 
-    The check looks at the effect (the module attribute is a `Mock`) rather than
-    `unittest.mock._patch._active_patches`: the context-manager form of
-    `patch` does not register there.
+    The auth routes have the same shape of test: `user_activation_email.delay`
+    is mocked (the test asserts the mock was called), `zxcvbn.matching.omnimatch`
+    is wrapped (the test asserts the argument length) and
+    `AuthenticationThrottle.rate` is patched to a small rate so a test does not
+    have to fire ten requests
+    (`plane/tests/contract/app/test_authentication.py::TestAuthenticationThrottle`).
+    Django reads the class attribute per request; `plane-api` reads
+    `AUTHENTICATION_RATE_LIMIT` once at startup, so a patch in this process
+    cannot reach it. The differential scenario
+    `scenarios/write/auth-magic-throttle.yaml` covers the behaviour on Rust
+    instead.
 
-    The same reasoning covers the auth throttle's rate: `test_authentication.py`
-    lowers `AuthenticationThrottle.rate` with `patch.object` so a test does not
-    have to fire ten requests (`plane/tests/contract/app/
-    test_authentication.py::TestAuthenticationThrottle`). Django reads the class
-    attribute per request; `plane-api` reads `AUTHENTICATION_RATE_LIMIT` once at
-    startup, so a patch in this process cannot reach it. The differential
-    scenario `scenarios/write/auth-magic-throttle.yaml` covers the behaviour on
-    Rust instead.
+    The check looks at the effect (the module attribute is a `Mock`, or the class
+    attribute differs from the value the module read at import time) rather than
+    `unittest.mock._patch._active_patches`: the context-manager form of `patch`
+    does not register there.
     """
-    for module_name, attribute in STORAGE_MOCK_TARGETS:
+    for module_name, attribute in STORAGE_MOCK_TARGETS + AUTH_MOCK_TARGETS:
         module = sys.modules.get(module_name)
         if module is None:
             continue
-        if isinstance(getattr(module, attribute, None), unittest.mock.Mock):
+        value = getattr(module, attribute, None)
+        if isinstance(value, unittest.mock.Mock):
             return (
                 f"asserts on an in-process `{module_name}.{attribute}` mock; "
                 "served by Django"
             )
-    return _patched_throttle_rate_reason()
+    for module_name, class_name, attribute, env_name in AUTH_PATCHED_RATES:
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        cls = getattr(module, class_name, None)
+        if cls is None:
+            continue
+        expected = os.environ.get(env_name, "10/minute")
+        current = getattr(cls, attribute, None)
+        if current != expected:
+            return (
+                f"patches `{module_name}.{class_name}.{attribute}` to {current!r} per test; "
+                f"the Rust process read {expected!r} at startup — served by Django"
+            )
+    return _in_process_exception_reason()
 
 
-# The `AuthenticationThrottle.rate` value before any test patched it, captured
-# on the first request (the module is imported by then; every patch is scoped to
-# one test and restores it).
-_ORIGINAL_THROTTLE_RATE: str | None = None
+def _in_process_exception_reason() -> str | None:
+    """Whether this test expects an exception to propagate inside Django.
 
-
-def _patched_throttle_rate_reason() -> str | None:
-    """Whether this test replaced `AuthenticationThrottle.rate` in-process."""
-    global _ORIGINAL_THROTTLE_RATE
-    module = sys.modules.get("plane.authentication.rate_limit")
-    if module is None:
+    `DjangoTestClient` re-raises a view's uncaught exception; a request answered
+    by `plane-api` can only return the 500 page that exception produces. See
+    [`IN_PROCESS_EXCEPTION_TESTS`].
+    """
+    if STATE.current is None:
         return None
-    cls = getattr(module, "AuthenticationThrottle", None)
-    if cls is None:
-        return None
-    rate = getattr(cls, "rate", None)
-    if not isinstance(rate, str):
-        return None
-    if _ORIGINAL_THROTTLE_RATE is None:
-        _ORIGINAL_THROTTLE_RATE = rate
-        return None
-    if rate != _ORIGINAL_THROTTLE_RATE:
-        return (
-            "patches `AuthenticationThrottle.rate` in-process; plane-api reads "
-            f"AUTHENTICATION_RATE_LIMIT at startup (this process uses {rate!r}, "
-            f"the original is {_ORIGINAL_THROTTLE_RATE!r}); served by Django"
-        )
+    nodeid = STATE.current.nodeid
+    for suffix, why in IN_PROCESS_EXCEPTION_TESTS:
+        if nodeid.endswith(suffix):
+            return f"{why}; served by Django"
     return None
 
 

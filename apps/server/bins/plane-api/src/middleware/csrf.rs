@@ -29,7 +29,8 @@
 //! time, so upstream edits are picked up on rebuild instead of drifting.
 
 use axum::http::Method;
-use plane_auth::csrf::{self, CsrfState, REASON_BAD_ORIGIN, REASON_BAD_REFERER};
+use plane_auth::CsrfSlot;
+use plane_auth::csrf::{self, REASON_BAD_ORIGIN, REASON_BAD_REFERER};
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
 use plane_core::error::TEXT_HTML;
@@ -43,15 +44,16 @@ const CSRF_FAILURE_TEMPLATE: &str =
 
 /// `CsrfViewMiddleware.process_request`: adopt a valid `csrftoken` cookie or
 /// replace a malformed one (`csrf.py:400-414`).
-pub fn request(settings: &Settings, ctx: &RequestContext, csrf_state: &mut CsrfState) {
-    csrf_state.process_request(settings, ctx);
+pub async fn request(settings: &Settings, ctx: &RequestContext, csrf: &CsrfSlot) {
+    csrf.lock().await.process_request(settings, ctx);
 }
 
 /// `CsrfViewMiddleware.process_response`: write the `csrftoken` cookie when
 /// `get_token`/`rotate_token` asked for it, and patch `Vary: Cookie`
 /// (`csrf.py:505-520`, `253-269`).
-pub fn response(settings: &Settings, csrf_state: &mut CsrfState, mut resp: Resp) -> Resp {
-    if let Some(cookie) = csrf_state.response_cookie(settings) {
+pub async fn response(settings: &Settings, csrf: &CsrfSlot, mut resp: Resp) -> Resp {
+    let mut state = csrf.lock().await;
+    if let Some(cookie) = state.response_cookie(settings) {
         resp.append_header("Set-Cookie", cookie);
         resp.patch_vary("Cookie");
     }
@@ -502,17 +504,17 @@ mod tests {
         assert!(CSRF_FAILURE_TEMPLATE.contains("CSRF Verification Failed"));
     }
 
-    #[test]
-    fn the_response_writes_the_cookie_and_varies() {
+    #[tokio::test]
+    async fn the_response_writes_the_cookie_and_varies() {
         let settings = settings(Some("http://127.0.0.1:18080"), "");
-        let mut state = CsrfState::default();
-        let token = state.get_token();
+        let slot = CsrfSlot::default();
+        let token = slot.lock().await.get_token();
         assert_eq!(token.len(), 64);
-        let response = response(&settings, &mut state, Resp::empty(200, "application/json"));
+        let response = response(&settings, &slot, Resp::empty(200, "application/json")).await;
         let cookie = response.header("set-cookie").expect("cookie");
         assert!(cookie.starts_with("csrftoken="));
         assert!(cookie.contains("HttpOnly"));
         assert_eq!(response.header("vary"), Some("Cookie"));
-        assert!(!state.needs_update);
+        assert!(!slot.lock().await.needs_update);
     }
 }

@@ -9,7 +9,7 @@ use std::pin::Pin;
 
 use chrono_tz::Tz;
 use http::{HeaderMap, Method};
-use plane_auth::{RequestUser, SessionSlot};
+use plane_auth::{CsrfSlot, RequestUser, SessionSlot};
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
 use plane_core::error::{APPLICATION_JSON, TEXT_HTML};
@@ -62,6 +62,13 @@ pub struct ViewCtx<'a> {
     /// phase needs it after the handler returns and the dispatcher's future
     /// stays `Send`.
     pub session: &'a SessionSlot,
+    /// `request.META["CSRF_COOKIE"]`, the same state `CsrfViewMiddleware`
+    /// adopts at layer 5 and writes at response time. `/auth/get-csrf-token/`
+    /// calls `get_token` here and `login()` calls `rotate_token`; the cookie is
+    /// then written once, by the middleware.
+    ///
+    /// `None` only in a process built without the middleware (tests).
+    pub csrf: Option<&'a CsrfSlot>,
     /// `view.action` for a ViewSet, `None` for an APIView.
     pub action: Option<&'a str>,
     /// The dotted view path (`routes.json`).
@@ -161,6 +168,21 @@ impl<'a> ViewCtx<'a> {
     /// store directly. Most handlers only need the middleware's effects.
     pub fn session(&self) -> &'a SessionSlot {
         self.session
+    }
+
+    /// `request.META["CSRF_COOKIE"]`, for `get_token` and `login()`.
+    ///
+    /// # Errors
+    ///
+    /// [`ViewError::Unknown`] in a process without the CSRF middleware; Django
+    /// always has the state, so silently minting a cookie would be a behaviour
+    /// change.
+    pub fn csrf(&self) -> Result<&'a CsrfSlot, ViewError> {
+        self.csrf.ok_or_else(|| {
+            ViewError::Unknown(
+                "the process has no CSRF middleware state; get_token would fail".to_string(),
+            )
+        })
     }
 
     /// `request.user`.

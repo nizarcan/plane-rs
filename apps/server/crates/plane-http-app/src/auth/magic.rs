@@ -44,7 +44,8 @@
 //!   `AuthenticationThrottle` **before** the handler reads the body; the
 //!   rejection is a 302 carrying `RATE_LIMIT_EXCEEDED`, not a 429. `plane-drf`
 //!   records the decorator in `routes.json` but does not apply it to plain
-//!   views, so this module runs it explicitly (see [`decorator_throttle`]).
+//!   views, so this module runs it explicitly (see
+//!   [`crate::auth::support::throttle_redirect`]).
 //! * `login()` assigns `request.user`, so Django's request log names the new
 //!   user. A handler cannot write `RequestContext::user` (the dispatcher owns
 //!   it), so the log line keeps `user_id` empty on these routes. It is the one
@@ -55,44 +56,26 @@
 
 use deadpool_postgres::Client;
 use http::Method;
+use plane_auth::LoginFlags;
 use plane_auth::auth_flow::{
     AdapterContext, AdapterError, AuthCallback, AuthErrorCode, AuthFlowError, MagicCodeFlags,
-    MagicCodeProvider, MagicLinkConfiguration, PostUserAuthWorkflow, RedirectionPath,
-    complete_login_or_signup, get_safe_redirect_url, magic_link, magic_link_configuration,
-    profile_for_user, require_setup, settings_allowed_hosts, signup_enabled, space_redirect_url,
-    validate_email, view_base_host,
+    MagicCodeProvider, MagicLinkConfiguration, PostUserAuthWorkflow, complete_login_or_signup,
+    magic_link, magic_link_configuration, profile_for_user, require_setup, signup_enabled,
+    validate_email,
 };
-use plane_auth::{AuthUser, CsrfState, LoginFlags, user_login};
-use plane_core::error::{APPLICATION_JSON, TEXT_HTML};
-use plane_core::py;
+use plane_core::error::APPLICATION_JSON;
 use plane_db::models::user::User;
 use plane_drf::error::ViewError;
-use plane_drf::parsers::{self, Data};
+use plane_drf::parsers::Data;
 use plane_drf::registry::{Registry, RegistryError};
-use plane_drf::request::QueryDict;
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::{Message, task_name};
 use plane_jobs::queue::Job;
 use plane_serde::pyjson::Value as PyValue;
 use plane_serde::{Dialect, to_vec};
-use plane_throttle::{StaticUser, ThrottleClass, ThrottleOutcome, ThrottleRequest};
 
-use crate::auth::queries;
+use crate::auth::support;
 use crate::common::jobs;
-
-/// `HttpResponseRedirect`'s content type (`django/http/response.py:190-205`):
-/// status 302, an empty body, `text/html; charset=utf-8`.
-const HTML_UTF8: &str = TEXT_HTML;
-
-/// `HttpResponseRedirect.DEFAULT_STATUS` (`django/http/response.py:190`).
-const REDIRECT_STATUS: u16 = 302;
-
-/// The DRF parser classes `request.POST` corresponds to: Django parses only the
-/// two form media types (`django/http/request.py:335-359`).
-const FORM_PARSERS: [&str; 2] = [
-    "rest_framework.parsers.MultiPartParser",
-    "rest_framework.parsers.FormParser",
-];
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -250,24 +233,25 @@ fn space_sign_up<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse,
 
 async fn redirect_flow_impl(ctx: &ViewCtx<'_>, flow: Flow) -> Result<ViewResponse, ViewError> {
     // `request.POST`: layer 5's CSRF check already parsed the same body.
-    let post = request_post(ctx)?;
+    let post = support::post_params(ctx)?;
     // `request.POST.get("code", "").strip()`,
     // `request.POST.get("email", "").strip().lower()` and
     // `request.POST.get("next_path")` (`:68-70`, `:140-142`, …).
     let code = python_strip(post.get_or("code", "")).to_string();
     let email = python_strip(post.get_or("email", "")).to_lowercase();
     let next_path = post.get("next_path").map(str::to_string);
+    let flags = flow.login_flags();
 
     // `@throttle_auth_redirect(...)` wraps the handler (`rate_limit.py:77-93`),
     // so it runs before any of the reads below.
-    if let Some(response) = decorator_throttle(ctx, flow, next_path.as_deref()).await? {
+    if let Some(response) = support::throttle_redirect(ctx, next_path.as_deref(), flags).await? {
         return Ok(response);
     }
 
     if code.is_empty() || email.is_empty() {
-        return error_redirect(
+        return support::redirect_error(
             ctx,
-            flow,
+            flags,
             next_path.as_deref(),
             &AuthFlowError::new(flow.missing_code_error()),
         );
@@ -278,27 +262,27 @@ async fn redirect_flow_impl(ctx: &ViewCtx<'_>, flow: Flow) -> Result<ViewRespons
     let client = ctx.database().await?;
     let exists = user_exists(client, &email).await?;
     if !flow.is_signup() && !exists {
-        return error_redirect(
+        return support::redirect_error(
             ctx,
-            flow,
+            flags,
             next_path.as_deref(),
             &AuthFlowError::new(AuthErrorCode::UserDoesNotExist),
         );
     }
     if flow.is_signup() && exists {
-        return error_redirect(
+        return support::redirect_error(
             ctx,
-            flow,
+            flags,
             next_path.as_deref(),
             &AuthFlowError::new(AuthErrorCode::UserAlreadyExist),
         );
     }
 
     // The `try:` block (`:101-133`, `:171-200`, `:99-119`, `:158-177`).
-    let user = match authenticate(ctx, client, flow, &email, &code).await {
+    let mut user = match authenticate(ctx, client, flow, &email, &code).await {
         Ok(user) => user,
         Err(AdapterError::Auth(error)) => {
-            return error_redirect(ctx, flow, next_path.as_deref(), &error);
+            return support::redirect_error(ctx, flags, next_path.as_deref(), &error);
         }
         Err(AdapterError::Internal(message)) => return Err(ViewError::Unknown(message)),
     };
@@ -309,15 +293,19 @@ async fn redirect_flow_impl(ctx: &ViewCtx<'_>, flow: Flow) -> Result<ViewRespons
         Some(
             profile_for_user(client, &user)
                 .await
-                .map_err(internal_error)?,
+                .map_err(support::internal_error)?,
         )
     } else {
         None
     };
 
-    let csrf_cookie = login(ctx, client, flow, &user).await?;
+    // `user_login(...)`: the session and CSRF handles are the middleware's, so
+    // `login()`'s `rotate_token` makes layer 5 write the one `csrftoken` cookie
+    // (`django/contrib/auth/__init__.py:217`, `csrf.py:505-517`), appending it
+    // before the session layer's cookie exactly as Django's phases 5 then 3 do.
+    support::user_login(ctx, client, &mut user, flags).await?;
 
-    let url = if flow.is_app() {
+    if flow.is_app() {
         // `path = str(next_path) if next_path else str(get_redirection_path(user))`
         // (`:117`, `:182-185`), except for the autoset+onboarded branch.
         let path = if let Some(profile) = profile
@@ -328,28 +316,15 @@ async fn redirect_flow_impl(ctx: &ViewCtx<'_>, flow: Flow) -> Result<ViewRespons
         } else {
             match next_path.as_deref().filter(|value| !value.is_empty()) {
                 Some(next) => next.to_string(),
-                None => redirection_path(client, &user).await?,
+                None => support::redirection_path(client, &user).await?,
             }
         };
-        let base = flow_base_host(ctx, flow)?;
-        safe_redirect(ctx, &base, Some(&path), &[])?
-    } else {
-        // `next_path = validate_next_path(next_path)`;
-        // `url = f"{base_host(...).rstrip('/')}{next_path}"` and the
-        // `url_has_allowed_host_and_scheme` fallback (`space/magic.py:105-110`).
-        let base = flow_base_host(ctx, flow)?;
-        let hosts = settings_allowed_hosts(ctx.settings).map_err(|error| py_value_error(&error))?;
-        space_redirect_url(&base, next_path.as_deref(), &hosts)
-            .map_err(|error| py_value_error(&error))?
-    };
-
-    // `login()` rotated the CSRF secret, so layer 5 writes a new `csrftoken`
-    // cookie (`django/contrib/auth/__init__.py:217`, `csrf.py:505-517`).
-    let mut response = redirect_response(&url);
-    if let Some(cookie) = csrf_cookie {
-        response = response.with_header("Set-Cookie", cookie);
+        return support::app_success_redirect(ctx, flags, Some(&path));
     }
-    Ok(response)
+    // `next_path = validate_next_path(next_path)`;
+    // `url = f"{base_host(...).rstrip('/')}{next_path}"` and the
+    // `url_has_allowed_host_and_scheme` fallback (`space/magic.py:105-110`).
+    support::space_success_redirect(ctx, flags, next_path.as_deref())
 }
 
 // ---------------------------------------------------------------------------
@@ -403,226 +378,9 @@ async fn authenticate(
     Ok(completed.user)
 }
 
-/// `get_redirection_path(user)` (`authentication/utils/redirection_path.py:8-47`).
-///
-/// Every variant is a **bare** value; the caller passes it through
-/// `validate_next_path`, which drops it. The string is what the Python `path`
-/// variable holds, so the caller's behaviour matches even though the redirect
-/// does not carry it.
-async fn redirection_path(client: &Client, user: &User) -> Result<String, ViewError> {
-    // `profile, _ = Profile.objects.get_or_create(user=user)` (`:11`).
-    let profile = profile_for_user(client, user)
-        .await
-        .map_err(internal_error)?;
-    if !profile.is_onboarded {
-        return Ok(RedirectionPath::Onboarding.slug().to_string());
-    }
-    if let Some(workspace_id) = profile.last_workspace_id {
-        // `.exists()` then `.first()` on the same queryset (`:17-32`); one
-        // `LIMIT 1` answers both.
-        let statement = queries::AUTH_LAST_WORKSPACE_SLUG.prepare(client).await?;
-        if let Some(row) = client
-            .query_opt(&statement, &[&workspace_id, &user.id])
-            .await?
-        {
-            return Ok(row.get(0));
-        }
-    }
-    let statement = queries::AUTH_MEMBER_WORKSPACE_SLUG.prepare(client).await?;
-    if let Some(row) = client.query_opt(&statement, &[&user.id]).await? {
-        return Ok(row.get(0));
-    }
-    let email = user.email.clone().unwrap_or_default();
-    let statement = queries::AUTH_PENDING_INVITE_EXISTS.prepare(client).await?;
-    let row = client.query_one(&statement, &[&email]).await?;
-    if row.get::<_, bool>(0) {
-        return Ok(RedirectionPath::Invitations.slug().to_string());
-    }
-    Ok(RedirectionPath::CreateWorkspace.slug().to_string())
-}
-
-/// `plane/authentication/utils/login.py:13-27` `user_login(request, user, …)`.
-///
-/// Returns the CSRF cookie the login rotation asked layer 5 to write; the
-/// handler appends it so the response's header order is `Location`,
-/// `Set-Cookie: csrftoken`, `Set-Cookie: session-id` — the order Django's
-/// response phases 5 then 3 produce.
-async fn login(
-    ctx: &ViewCtx<'_>,
-    client: &Client,
-    flow: Flow,
-    user: &User,
-) -> Result<Option<String>, ViewError> {
-    let auth_user = auth_user(user);
-    let mut csrf = CsrfState::default();
-    // `login()` writes `request.user = user`. `ViewCtx::ctx` is shared, so the
-    // write goes to a clone whose only reader is `user_login`'s own
-    // `device_info`/`base_host` (see the module note about the log line).
-    let mut request = ctx.ctx.clone();
-    let mut session = ctx.session().lock().await;
-    user_login(
-        client,
-        ctx.settings,
-        &mut request,
-        &mut session,
-        &mut csrf,
-        &auth_user,
-        flow.login_flags(),
-    )
-    .await?;
-    drop(session);
-    Ok(csrf.response_cookie(ctx.settings))
-}
-
-/// The `users` row as the session layer needs it (`AuthUser`, `user.rs:56-77`).
-fn auth_user(user: &User) -> AuthUser {
-    AuthUser {
-        id: user.id,
-        email: user.email.clone().unwrap_or_default(),
-        username: user.username.clone(),
-        display_name: user.display_name.clone(),
-        first_name: user.first_name.clone(),
-        last_name: user.last_name.clone(),
-        user_timezone: user.user_timezone.clone(),
-        is_active: user.is_active,
-        is_superuser: user.is_superuser,
-        is_staff: user.is_staff,
-        is_bot: user.is_bot,
-        is_email_verified: user.is_email_verified,
-        password: user.password.clone(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Redirects
-// ---------------------------------------------------------------------------
-
-/// `get_safe_redirect_url(base_host(request, …), next_path, params)` with
-/// `get_allowed_hosts()` (`path_validator.py:157-201`).
-fn safe_redirect(
-    ctx: &ViewCtx<'_>,
-    base: &str,
-    next_path: Option<&str>,
-    params: &[(String, String)],
-) -> Result<String, ViewError> {
-    let hosts = settings_allowed_hosts(ctx.settings).map_err(|error| py_value_error(&error))?;
-    get_safe_redirect_url(base, next_path, params, &hosts).map_err(|error| py_value_error(&error))
-}
-
-/// The `except AuthenticationException` branch of the four views: a 302 to the
-/// base with the error dict in the query string.
-fn error_redirect(
-    ctx: &ViewCtx<'_>,
-    flow: Flow,
-    next_path: Option<&str>,
-    error: &AuthFlowError,
-) -> Result<ViewResponse, ViewError> {
-    let base = flow_base_host(ctx, flow)?;
-    let url = safe_redirect(ctx, &base, next_path, &error.redirect_params())?;
-    Ok(redirect_response(&url))
-}
-
-/// `base_host(request=request, is_app=…/is_space=…)` from
-/// `plane/authentication/utils/host.py:16-63`.
-///
-/// The app branch can answer `None` (no `WEB_URL`/`APP_BASE_URL`), which Python
-/// then hands to `get_safe_redirect_url` or `rstrip("/")` — an
-/// `AttributeError`, i.e. the 500 page.
-fn flow_base_host(ctx: &ViewCtx<'_>, flow: Flow) -> Result<String, ViewError> {
-    match view_base_host(ctx.settings, flow.login_flags()) {
-        Ok(Some(base)) => Ok(base),
-        Ok(None) => Err(ViewError::Unknown(
-            "AttributeError: 'NoneType' object has no attribute 'rstrip'".to_string(),
-        )),
-        Err(error) => Err(ViewError::Unknown(error.to_string())),
-    }
-}
-
-/// `HttpResponseRedirect(url)` (`django/http/response.py:190-205`): Django runs
-/// `iri_to_uri` over the whole URL before writing `Location`.
-fn redirect_response(url: &str) -> ViewResponse {
-    ViewResponse::raw(REDIRECT_STATUS, HTML_UTF8, Vec::new())
-        .with_header("Location", py::iri_to_uri(url))
-}
-
-/// `@throttle_auth_redirect(is_app=…, is_space=…)`
-/// (`plane/authentication/rate_limit.py:77-93`): `AuthenticationThrottle`
-/// checked by hand, then a redirect carrying `RATE_LIMIT_EXCEEDED`.
-///
-/// The throttle is keyed on the client IP for every caller
-/// (`rate_limit.py:32-34`), so the anonymous user is the right identity: this
-/// handler has not read the session.
-async fn decorator_throttle(
-    ctx: &ViewCtx<'_>,
-    flow: Flow,
-    next_path: Option<&str>,
-) -> Result<Option<ViewResponse>, ViewError> {
-    let redis = redis(ctx)?;
-    let user = StaticUser::anonymous();
-    let remote = ctx.ctx.remote_addr();
-    let request = ThrottleRequest {
-        settings: &ctx.settings.throttling,
-        user: &user,
-        headers: ctx.headers(),
-        remote_addr: remote.as_deref(),
-        asset_id: None,
-        scope_override: None,
-    };
-    match plane_throttle::check_throttles(
-        redis,
-        &[ThrottleClass::Authentication],
-        &request,
-        plane_throttle::now(),
-    )
-    .await?
-    {
-        ThrottleOutcome::Allowed { .. } => Ok(None),
-        ThrottleOutcome::Throttled(_) => Ok(Some(error_redirect(
-            ctx,
-            flow,
-            next_path,
-            &AuthFlowError::new(AuthErrorCode::RateLimitExceeded),
-        )?)),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Request parsing
 // ---------------------------------------------------------------------------
-
-/// `request.POST` for a POST whose `Content-Type` is a form media type; an
-/// empty `QueryDict` otherwise (`django/http/request.py:335-369`).
-fn request_post(ctx: &ViewCtx<'_>) -> Result<QueryDict, ViewError> {
-    if *ctx.method() != Method::POST {
-        return Ok(QueryDict::default());
-    }
-    let media_type = ctx
-        .headers()
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("")
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    if !matches!(
-        media_type.as_str(),
-        "multipart/form-data" | "application/x-www-form-urlencoded"
-    ) {
-        return Ok(QueryDict::default());
-    }
-    let classes: Vec<String> = FORM_PARSERS
-        .iter()
-        .map(|class| (*class).to_string())
-        .collect();
-    match parsers::parse(ctx.ctx, &classes)? {
-        Data::Form(query) => Ok(query),
-        // Unreachable: a form media type always selects one of the two form
-        // parsers. An empty dict keeps the signature total.
-        Data::Json(_) => Ok(QueryDict::default()),
-    }
-}
 
 /// `request.data.get("email", "").strip().lower()` on 359/362 (`:51`).
 ///
@@ -716,21 +474,6 @@ fn auth_error_response(error: AdapterError) -> Result<ViewResponse, ViewError> {
         )),
         AdapterError::Internal(message) => Err(ViewError::Unknown(message)),
     }
-}
-
-/// An `AdapterError` where only the 500 outcome is reachable.
-fn internal_error(error: AdapterError) -> ViewError {
-    match error {
-        AdapterError::Internal(message) => ViewError::Unknown(message),
-        AdapterError::Auth(error) => {
-            ViewError::Unknown(format!("AuthenticationException: {}", error.message()))
-        }
-    }
-}
-
-/// A `plane-net`/`urlparse` `ValueError`, which Python does not catch here.
-fn py_value_error(error: &plane_auth::auth_flow::PyValueError) -> ViewError {
-    ViewError::Unknown(format!("ValueError: {}", error.message()))
 }
 
 /// `redis_instance()` (`plane/settings/redis.py:8-16`): the raw, unprefixed

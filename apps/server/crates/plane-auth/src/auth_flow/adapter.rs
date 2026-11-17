@@ -929,13 +929,6 @@ async fn insert_notification_preference(
 
 /// `Profile.objects.create(user=user)` with the model defaults
 /// (`plane/db/models/user.py:200-268`).
-///
-/// Public because the OAuth callback's `get_redirection_path` runs the same
-/// `get_or_create` (`utils/redirection_path.py:10`).
-pub async fn create_profile(client: &Client, user: &User) -> Result<(), AdapterError> {
-    insert_profile(client, user).await
-}
-
 async fn insert_profile(client: &Client, user: &User) -> Result<(), AdapterError> {
     let timestamp = now();
     let statement = crate::queries::INSERT_PROFILE.prepare(client).await?;
@@ -1043,6 +1036,22 @@ const PRODUCT_TOUR: &str =
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_profile_defaults_are_the_model_literals() {
+        assert_eq!(
+            PROFILE_ONBOARDING_STEP,
+            r#"{"profile_complete": false, "workspace_create": false, "workspace_invite": false, "workspace_join": false}"#
+        );
+        assert_eq!(
+            MOBILE_ONBOARDING_STEP,
+            r#"{"profile_complete": false, "workspace_create": false, "workspace_join": false}"#
+        );
+        assert_eq!(
+            PRODUCT_TOUR,
+            r#"{"work_items": false, "cycles": false, "modules": false, "intake": false, "pages": false}"#
+        );
+    }
 
     #[test]
     fn sanitize_email_lowercases_and_strips() {

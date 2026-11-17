@@ -129,6 +129,44 @@ pub struct CsrfState {
     pub needs_update: bool,
 }
 
+/// `request.META["CSRF_COOKIE"]` behind a shared handle.
+///
+/// `plane-drf`'s [`SessionSlot`](crate::session::SessionSlot) equivalent for
+/// the CSRF secret: the pipeline's `CsrfViewMiddleware` request phase fills it,
+/// a handler that calls `get_token` (route 358) or `login`/`user_login`
+/// (`rotate_token`) updates it through the same handle, and the response phase
+/// writes the cookie from it. Without the shared handle a handler could only
+/// forge a second cookie, which would not unmask to the middleware's secret.
+///
+/// The mutex is `tokio`'s because `user_login` holds the guard across the
+/// session awaits; the state itself is tiny and contention is a single request.
+#[derive(Debug)]
+pub struct CsrfSlot {
+    state: tokio::sync::Mutex<CsrfState>,
+}
+
+impl CsrfSlot {
+    /// Wrap the middleware's state. The pipeline calls this once per request.
+    #[must_use]
+    pub fn new(state: CsrfState) -> Self {
+        Self {
+            state: tokio::sync::Mutex::new(state),
+        }
+    }
+
+    /// Lock the state. Every operation on it is short; the response phase waits
+    /// for a handler that is still logging in.
+    pub async fn lock(&self) -> tokio::sync::MutexGuard<'_, CsrfState> {
+        self.state.lock().await
+    }
+}
+
+impl Default for CsrfSlot {
+    fn default() -> Self {
+        Self::new(CsrfState::default())
+    }
+}
+
 impl CsrfState {
     /// `CsrfViewMiddleware.process_request` (`csrf.py:400-414`):
     ///

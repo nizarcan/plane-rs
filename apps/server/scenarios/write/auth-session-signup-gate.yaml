@@ -1,0 +1,119 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth session set A — the signup gate (`adapter/base.py:99-117`):
+#
+#   POST  /auth/sign-up/              (353)  app: callback runs the invite join
+#   POST  /auth/spaces/sign-up/       (355)  space: no callback, no join
+#
+# The fixture sets `ENABLE_SIGNUP=0`, so a sign-up is allowed only for an
+# address with a `workspace_member_invites` row. The gate's `exists()` is an
+# exact email match: the view lower-cases the input first, so a stored
+# `Mixed@Example.com` invitation does not admit `mixed@example.com`.
+#
+# The app sign-up for an accepted invitation then runs
+# `process_workspace_project_invitations` (`workspace_project_join.py:15-74`):
+# a `workspace_members` row (role from the invite), a soft delete of the
+# invitation (`deleted_at`, H04), and the per-workspace cache invalidation. The
+# space sign-up performs none of it — its accepted invitation stays live.
+
+name: write-auth-session-signup-gate
+template_db: plane_tpl
+redis_db: [3, 4]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-session-signup-gate-fixture.sql"
+  invite_password: Invite-Signup-2026-Str0ng!
+  space_invite_password: Space-Invite-2026-Str0ng!
+  fixture_password: Auth-Fixture-Passw0rd-2026!
+password_vars:
+  - fixture_password
+  - invite_password
+  - space_invite_password
+steps:
+  - name: gate-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: gate
+    expect_status: 200
+
+  - name: gate-space-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: gate-space
+    expect_status: 200
+
+  - name: gate-signin-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: gate-signin
+    expect_status: 200
+
+  - name: gate-space-signin-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: gate-space-signin
+    expect_status: 200
+
+  # No invitation: SIGNUP_DISABLED.
+  - name: sign-up-not-invited
+    method: POST
+    path: /auth/sign-up/
+    jar: gate
+    form:
+      email: stranger@example.com
+      password: "{{invite_password}}"
+    expect_status: 302
+
+  # The stored invitation is `Mixed@Example.com`; the view lower-cases the
+  # input, so the exact lookup misses.
+  - name: sign-up-invite-case-mismatch
+    method: POST
+    path: /auth/sign-up/
+    jar: gate
+    form:
+      email: Mixed@Example.com
+      password: "{{invite_password}}"
+    expect_status: 302
+
+  # An invited address: allowed despite ENABLE_SIGNUP=0, then the app callback
+  # joins the workspace and soft-deletes the invitation.
+  - name: sign-up-invited
+    method: POST
+    path: /auth/sign-up/
+    jar: gate
+    form:
+      email: invited@example.com
+      password: "{{invite_password}}"
+    expect_status: 302
+
+  - name: sign-in-invited
+    method: POST
+    path: /auth/sign-in/
+    jar: gate-signin
+    form:
+      email: invited@example.com
+      password: "{{invite_password}}"
+    expect_status: 302
+
+  # The space sign-up of an accepted invitation creates no membership and
+  # leaves the invitation live.
+  - name: space-sign-up-invited
+    method: POST
+    path: /auth/spaces/sign-up/
+    jar: gate-space
+    form:
+      email: invited-space@example.com
+      password: "{{space_invite_password}}"
+    expect_status: 302
+
+  - name: space-sign-in-invited
+    method: POST
+    path: /auth/spaces/sign-in/
+    jar: gate-space-signin
+    form:
+      email: invited-space@example.com
+      password: "{{space_invite_password}}"
+    expect_status: 302
