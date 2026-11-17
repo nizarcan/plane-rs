@@ -75,3 +75,46 @@ VALUES
    '08e2fc88-18a5-4758-87ec-5437bc0cf4bb',
    '7045c0d6-5260-494d-a205-4cfbaab24fea',
    'Legacy Points', '', 'categories', FALSE);
+
+-- ---------------------------------------------------------------------------
+-- Estimate points with issues (estimates set B, routes 48/49)
+-- ---------------------------------------------------------------------------
+-- 49 DELETE fans out one `issue_activity` per issue that references the point
+-- being deleted. `plane_fix_tpl` points every fourth alpha issue at
+-- `alpha:points:3` only (`tools/fixtures/build.py:1294`), so every other point
+-- has an empty fan-out and the `new_estimate_id` branch — whose whole point is
+-- the `issues.update` — is unreachable. These three UPDATEs give three other
+-- points a small, deliberately mixed set:
+--
+--   alpha:points:2   (3beb8a9d…)  seq 10        one plain issue
+--   alpha:points:5   (99b0d577…)  seq 6, 7, 105 seq 6 is a **triage** issue,
+--                                               seq 105 is **archived**
+--                                               (`build.py:1423`), plus the
+--                                               project's **draft** row — three
+--                                               of the four shapes `Issue.objects`
+--                                               keeps and `Issue.issue_objects`
+--                                               would drop (PROGRESS "plan
+--                                               corrections from the estimates P0")
+--   alpha:points:8   (5fffb776…)  seq 8, 11     a foreign `new_estimate_id`
+--
+-- Everything else keeps pointing at `alpha:points:3` (49 live rows), which the
+-- scenario deletes twice: the second delete is the "writes before the 404"
+-- case, because a delete *without* `new_estimate_id` does not touch the issues.
+--
+-- `created_at` is untouched: `Issue.Meta.ordering = ("-created_at",)` decides
+-- the message order, and the fixture's timestamps are distinct per row.
+UPDATE issues
+   SET estimate_point_id = '3beb8a9d-9567-4023-aa9c-1efc92199bb9'
+ WHERE project_id = 'b0063033-54f9-49d8-b5f3-6b7a1551c6a6'
+   AND sequence_id = 10;
+
+UPDATE issues
+   SET estimate_point_id = '99b0d577-7472-49fa-be44-06801dc03c26'
+ WHERE (project_id = 'b0063033-54f9-49d8-b5f3-6b7a1551c6a6'
+        AND sequence_id IN (6, 7, 105))
+    OR id = 'e069169e-25e6-4db6-a049-8e1141ca95d2';
+
+UPDATE issues
+   SET estimate_point_id = '5fffb776-488a-4b4b-a464-dd38b27e28a1'
+ WHERE project_id = 'b0063033-54f9-49d8-b5f3-6b7a1551c6a6'
+   AND sequence_id IN (8, 11);

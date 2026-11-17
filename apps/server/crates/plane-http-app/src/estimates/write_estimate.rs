@@ -706,8 +706,10 @@ fn python_len(value: &Json) -> Result<usize, ViewError> {
     }
 }
 
-/// Python truthiness, for `if request.data.get("estimate"):`.
-fn truthy(value: &Json) -> bool {
+/// Python truthiness, for `if request.data.get("estimate"):` and — shared with
+/// set B — the estimate-point create guard and 49 DELETE's `if
+/// new_estimate_id:`.
+pub(crate) fn truthy(value: &Json) -> bool {
     match value {
         Json::Null => false,
         Json::Bool(value) => *value,
@@ -741,7 +743,9 @@ fn json_type(value: &Json) -> &'static str {
 
 /// Django's `CharField.to_python`: `None` stays `None`, a string stays as it
 /// is, every other JSON value is Python `str(value)`.
-fn char_prep(value: &Json) -> Option<String> {
+///
+/// Shared with set B (48's raw `value`, 49 DELETE's `str(new_estimate_id)`).
+pub(crate) fn char_prep(value: &Json) -> Option<String> {
     match value {
         Json::Null => None,
         Json::Str(text) => Some(text.as_str().unwrap_or_default().to_owned()),
@@ -751,7 +755,9 @@ fn char_prep(value: &Json) -> Option<String> {
 
 /// Django's `IntegerField.get_prep_value` (Python `int()`), then the column's
 /// `int4` range. `None` is SQL NULL (a NOT NULL violation at the INSERT).
-fn int_prep(value: &Json) -> Result<Option<i32>, ViewError> {
+///
+/// Shared with set B: 48's raw `key` goes through the same preparation.
+pub(crate) fn int_prep(value: &Json) -> Result<Option<i32>, ViewError> {
     match value {
         Json::Null => Ok(None),
         Json::Bool(value) => Ok(Some(i32::from(*value))),
@@ -780,7 +786,10 @@ fn int_prep(value: &Json) -> Result<Option<i32>, ViewError> {
 
 /// Python `int(str)`: ASCII whitespace around an optional sign, `_` allowed
 /// between digits. Anything else is the `ValueError` Django re-raises.
-fn python_int(text: &str) -> Result<i64, ViewError> {
+///
+/// Shared with set B for a *form* body's raw `key`, which `QueryDict` hands
+/// over as a string.
+pub(crate) fn python_int(text: &str) -> Result<i64, ViewError> {
     let text = text.trim();
     let (negative, digits) = match text.as_bytes().first() {
         Some(b'-') => (true, &text[1..]),
@@ -819,7 +828,7 @@ fn int_error() -> ViewError {
     ViewError::Unknown("ValueError: invalid literal for int()".to_owned())
 }
 
-fn int_out_of_range() -> ViewError {
+pub(crate) fn int_out_of_range() -> ViewError {
     ViewError::Unknown("DataError: integer out of range".to_owned())
 }
 
