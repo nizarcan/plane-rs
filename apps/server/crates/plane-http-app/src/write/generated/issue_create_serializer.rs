@@ -601,7 +601,7 @@ pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s
-        .primary_key_field_live(client, "state_id", true, "states")
+        .primary_key_field(client, "state_id", true, "states")
         .await?;
     let _ = s
         .primary_key_field_live(client, "parent_id", true, "issues")
