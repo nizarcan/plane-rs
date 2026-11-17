@@ -19,10 +19,12 @@
 //! | [`request`] | `request.build_absolute_uri()`: the page-cache key and DRF's `FileField` |
 //! | [`asset_url`] | `FileAsset.asset_url` and the `avatar_url` / `logo_url` / `cover_image_url` properties |
 //! | [`fernet`] | `decrypt_data`: the Fernet token in an encrypted `instance_configurations` row |
+//! | [`instance_config`] | `get_configuration_value`: the database value that overrides an environment variable |
 
 pub mod asset_url;
 pub mod cache;
 pub mod fernet;
+pub mod instance_config;
 pub mod jobs;
 pub mod lookup;
 pub mod queries;

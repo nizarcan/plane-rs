@@ -1,0 +1,1469 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Workspace core set A — routes 186, 187, 199, 200 and 138:
+#
+#   POST   /api/workspaces/                                  186 create
+#   PUT    /api/workspaces/{slug}/                           187 update
+#   PATCH  /api/workspaces/{slug}/                           187 partial_update
+#   DELETE /api/workspaces/{slug}/                           187 destroy
+#   POST   /api/workspaces/{slug}/workspace-themes/          199 create
+#   PATCH  /api/workspaces/{slug}/workspace-themes/{pk}/     200 partial_update
+#   DELETE /api/workspaces/{slug}/workspace-themes/{pk}/     200 destroy
+#   DELETE /api/workspaces/{slug}/project-identifiers/       138 delete
+#
+# Covers:
+#
+#   * 186's three raw checks in the Python's order (`base.py:101-120`): missing
+#     name/slug, `len > 80/48`, `contains_url`, then the serializer. A
+#     non-mapping body and a non-string `name` are the family 500; a symbol-only
+#     name, a bad timezone and a bad `logo_asset` are serializer errors.
+#   * the slug validator order: the model's restricted list, then DRF's
+#     `UniqueValidator` (live rows only), then max length, then SlugField's
+#     regex. A duplicate live slug is 400; the soft-deleted `fix-deleted`
+#     workspace keeps its slug in the unique index, so reusing it is the 409
+#     branch with a **bare string** body.
+#   * the two INSERTs and the seed publish: `workspaces` then
+#     `workspace_members` (role 20, `company_role` from the raw body, the model's
+#     prop defaults), the count, then `workspace_seed` — no transaction, so the
+#     workspace-less `logo_asset` step leaves the created rows behind on its 404.
+#   * 187 PATCH and PUT (both real updates; the serializer is `partial=False`
+#     for PUT, so name and slug are required), the 16-key response with the
+#     annotated `total_members` and no `role`, the read-only `deleted_at`, and
+#     the `logo_asset` asset ref behind `logo_url`.
+#   * 187 DELETE: `profiles.last_workspace_id` → NULL, the H03 soft delete, the
+#     cascade publish and H05's `__<epoch>` slug rewrite. The fixture's
+#     40-character slug overflows `varchar(48)` **after** the delete, so the
+#     response is a 500 with the row already gone.
+#   * theme CRUD: create/dup-name (family 400)/other workspace, `deleted_at` and
+#     `created_by` writable on a create and a PATCH, the nested-workspace 404 for
+#     a theme of another workspace, and a member (not only an admin) acting.
+#   * 138: the `Project.objects` guard (a live project blocks, a soft-deleted one
+#     does not, an archived one does), `strip().upper()`, the H04 delete that
+#     writes only `deleted_at`, and the raw-body 500s.
+#   * permissions: 186 is open to any authenticated caller (a user with no
+#     workspace creates one); 187's write verbs are admin-only through
+#     `WorkSpaceBasePermission`, and a member of a soft-deleted workspace reaches
+#     the family 404 at `get_object`; 199/200 accept ADMIN **or** MEMBER; guests,
+#     non-members, anonymous callers and a foreign Origin are refused.
+#
+# Fixture: the shared `workspace-core-fixture.sql`. Sessions are the rich
+# fixture's; `no_workspace` has no membership at all, which is what the create
+# steps use so the scenario's own workspaces stay separate from `fix-workspace`.
+
+name: write-workspaces-core
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/workspace-core-fixture.sql"
+  ws: "fix-workspace"
+  ws_second: "fix-second"
+  ws_deleted: "fix-deleted"
+  ws_nologo: "fix-nologo"
+  ws_long: "fix-long-slug-abcdefghijklmnopqrstuvwxyz"
+  theme_second: "e0000000-0000-4000-8000-000000000040"
+  theme_retired: "e0000000-0000-4000-8000-000000000041"
+  workspace_logo_asset: "e704fbad-88e7-4a04-ad34-ee44588b924e"
+  description_asset_0: "666a24d5-adf9-4b02-8c5c-ce1440ac11e9"
+  orphan_asset: "e0000000-0000-4000-8000-000000000070"
+  missing_uuid: "77777777-7777-4777-8777-777777777777"
+  name_81: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  slug_49: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  slug_48: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  slug_49_invalid: "bad slug bad slug bad slug bad slug bad slug bad slug"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_no_workspace: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+
+steps:
+  # ---------------------------------------------------------------------------
+  # 186 POST /api/workspaces/ — the early checks, in the Python's order
+  # ---------------------------------------------------------------------------
+  - name: wsc-01-create-empty
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: {}
+    expect_status: 400
+
+  - name: wsc-02-create-name-only
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: { name: "Only Name" }
+    expect_status: 400
+
+  - name: wsc-03-create-slug-only
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: { slug: "only-slug" }
+    expect_status: 400
+
+  # `not name` is Python truthiness: `""` is the same 400 as an absent key.
+  - name: wsc-04-create-name-blank
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: { name: "", slug: "blank-name" }
+    expect_status: 400
+
+  - name: wsc-05-create-name-too-long
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "{{name_81}}"
+      slug: "long-name"
+    expect_status: 400
+
+  - name: wsc-06-create-slug-too-long
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Long Slug"
+      slug: "{{slug_49}}"
+    expect_status: 400
+
+  - name: wsc-07-create-name-url
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "see https://example.com/team"
+      slug: "url-name"
+    expect_status: 400
+
+  # The early `contains_url` shadows `validate_name`'s "Name must not contain
+  # URLs"; this one reaches the serializer's symbol-only branch.
+  - name: wsc-08-create-name-symbols
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "-_________-"
+      slug: "symbol-name"
+    expect_status: 400
+
+  # `slug_validator` (the model's restricted list) runs before MaxLength and the
+  # regex; `validate_slug` would repeat it but never runs.
+  - name: wsc-09-create-slug-restricted
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Restricted"
+      slug: "api"
+    expect_status: 400
+
+  - name: wsc-10-create-slug-invalid
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Invalid Slug"
+      slug: "bad slug"
+    expect_status: 400
+
+  - name: wsc-11-create-slug-taken-live
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Taken Live"
+      slug: "{{ws}}"
+    expect_status: 400
+
+  # The fixture's `fix-deleted` keeps its slug (`Workspace.objects` hides the
+  # row from `UniqueValidator`, the unique index does not), so the INSERT is the
+  # `except IntegrityError` 409 with the bare-string body.
+  - name: wsc-12-create-slug-taken-deleted
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Taken Deleted"
+      slug: "{{ws_deleted}}"
+    expect_status: 409
+
+  - name: wsc-13-create-timezone-invalid
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Bad Timezone"
+      slug: "bad-timezone"
+      timezone: "Nowhere/Nope"
+    expect_status: 400
+
+  - name: wsc-14-create-logo-asset-unknown
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Bad Asset"
+      slug: "bad-asset"
+      logo_asset: "{{missing_uuid}}"
+    expect_status: 400
+
+  # `request.data` is a list: `.get` is an AttributeError, the family 500.
+  - name: wsc-15-create-body-list
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+      Content-Type: "application/json"
+    body: "[]"
+    expect_status: 500
+
+  - name: wsc-16-create-body-null
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+      Content-Type: "application/json"
+    body: "null"
+    expect_status: 500
+
+  # A truthy non-string name passes `not name` and then `len(5)` is a TypeError.
+  - name: wsc-17-create-name-number
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: { name: 5, slug: "number-name" }
+    expect_status: 500
+
+  # ...and a list has a length but no `.split("\n")` inside `contains_url`.
+  - name: wsc-18-create-name-list
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: ["a"]
+      slug: "list-name"
+    expect_status: 500
+
+  - name: wsc-19-create-anonymous
+    method: POST
+    path: /api/workspaces/
+    headers:
+      Host: plane-fixture.test
+    json:
+      name: "Anonymous"
+      slug: "anonymous-ws"
+    expect_status: 401
+
+  - name: wsc-20-create-foreign-origin
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    origin: "http://evil.example"
+    json:
+      name: "Foreign Origin"
+      slug: "foreign-origin"
+    expect_status: 403
+
+  # `WorkSpaceBasePermission` allows any authenticated caller to create, so a
+  # guest of another workspace gets one too.
+  - name: wsc-21-create-as-guest
+    method: POST
+    path: /api/workspaces/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "Guest Workspace"
+      slug: "wsc-guest-ws"
+    expect_status: 201
+
+  - name: wsc-22-create-minimal
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Minimal Workspace"
+      slug: "wsc-minimal"
+    capture:
+      - name: minimal_slug
+        source: json
+        pointer: /slug
+    expect_status: 201
+
+  # A whole form body: every value is a string, and the `''` rules differ.
+  - name: wsc-23-create-form
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    form:
+      name: "Form Workspace"
+      slug: "wsc-form"
+      organization_size: "1-10"
+    expect_status: 201
+
+  # Every writable field, a static logo asset and `company_role` (which is not a
+  # serializer field: it goes straight to the membership row).
+  - name: wsc-24-create-full
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Full Workspace"
+      slug: "wsc-full"
+      logo: "https://images.example.test/logos/full.png"
+      organization_size: "11-50"
+      timezone: "Asia/Tokyo"
+      background_color: "#123456"
+      logo_asset: "{{workspace_logo_asset}}"
+      company_role: "Founder"
+    capture:
+      - name: full_slug
+        source: json
+        pointer: /slug
+    expect_status: 201
+
+  # `company_role: 42` goes through `TextField.get_prep_value`, i.e. `str()`.
+  - name: wsc-25-create-company-role-int
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Numeric Company Role"
+      slug: "wsc-company-role"
+      company_role: 42
+    expect_status: 201
+
+  # A 48-character slug passes both the view's raw `len` check and the
+  # serializer's MaxLength; one more character is the early 400 (wsc-06).
+  - name: wsc-25b-create-slug-48
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Slug Boundary"
+      slug: "{{slug_48}}"
+    expect_status: 201
+
+  # A non-static asset: `logo_url` reads the asset's own workspace slug and
+  # project, so the response carries a description URL.
+  - name: wsc-26-create-logo-description-asset
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Description Logo"
+      slug: "wsc-description-logo"
+      logo_asset: "{{description_asset_0}}"
+    expect_status: 201
+
+  # ...and an asset with `workspace_id NULL`: `self.workspace.slug` raises
+  # `AttributeError` while the response renders, which DRF's `get_attribute`
+  # turns into `SkipField` — the 201 body has **no `logo_url` key at all** and
+  # the created rows stand.
+  - name: wsc-27-create-logo-orphan-asset
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Orphan Logo"
+      slug: "wsc-orphan-logo"
+      logo_asset: "{{orphan_asset}}"
+    expect_status: 201
+
+  # The created rows are readable: retrieve renders the annotated
+  # `total_members`, and the member list shows the membership row's
+  # `company_role`.
+  - name: wsc-28-retrieve-created
+    method: GET
+    path: "/api/workspaces/{{minimal_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+
+  - name: wsc-29-members-created
+    method: GET
+    path: "/api/workspaces/{{minimal_slug}}/members/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+
+  - name: wsc-30-members-full
+    method: GET
+    path: "/api/workspaces/{{full_slug}}/members/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+
+  # A non-member reads nothing: the queryset filters the caller's membership.
+  - name: wsc-31-retrieve-as-outsider
+    method: GET
+    path: "/api/workspaces/{{minimal_slug}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # ---------------------------------------------------------------------------
+  # 187 PATCH — validation, on the fixture workspace
+  # ---------------------------------------------------------------------------
+  - name: wsc-32-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Fixture Workspace Renamed" }
+    expect_status: 200
+
+  # Every writable field at once, `logo_asset` included.
+  - name: wsc-33-patch-full
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Fixture Workspace"
+      logo: "https://images.example.test/logos/fixture.png"
+      organization_size: "51-100"
+      timezone: "America/New_York"
+      background_color: "#abcdef"
+      logo_asset: "{{workspace_logo_asset}}"
+    expect_status: 200
+
+  # `deleted_at`, `created_by`, `owner` and `id` are read-only: ignored.
+  - name: wsc-34-patch-read-only-fields
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      deleted_at: "2020-01-01T00:00:00Z"
+      created_by: "{{missing_uuid}}"
+      owner: "{{missing_uuid}}"
+      id: "{{missing_uuid}}"
+    expect_status: 200
+
+  - name: wsc-35-patch-name-too-long
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "{{name_81}}" }
+    expect_status: 400
+
+  - name: wsc-36-patch-name-symbols
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "---___---" }
+    expect_status: 400
+
+  # On a PATCH the early `contains_url` is gone, so `validate_name` answers.
+  - name: wsc-37-patch-name-url
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "visit www.example.com" }
+    expect_status: 400
+
+  - name: wsc-38-patch-slug-restricted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { slug: "settings" }
+    expect_status: 400
+
+  - name: wsc-39-patch-slug-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { slug: "not a slug!" }
+    expect_status: 400
+
+  - name: wsc-40-patch-slug-too-long
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { slug: "{{slug_49}}" }
+    expect_status: 400
+
+  # Two validators fail at once: `run_validators` reports every one of them, in
+  # the field's validator order — MaxLength before SlugField's regex
+  # (`rest_framework/fields.py:500-512`, `serializer.rs::slug_field`).
+  - name: wsc-40b-patch-slug-long-and-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { slug: "{{slug_49_invalid}}" }
+    expect_status: 400
+
+  # A live duplicate is DRF's `UniqueValidator`, not the 409; no 409 exists on
+  # PATCH at all.
+  - name: wsc-41-patch-slug-taken
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { slug: "{{ws_second}}" }
+    expect_status: 400
+
+  # The instance is excluded from the uniqueness check, so its own slug passes.
+  - name: wsc-42-patch-slug-own
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { slug: "{{ws}}" }
+    expect_status: 200
+
+  - name: wsc-43-patch-timezone-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { timezone: "Mars/Olympus" }
+    expect_status: 400
+
+  # A blank required-ish CharField error. `timezone`, not `background_color`:
+  # the latter is a name-keyed normalisation rule, so its error **array** would
+  # trip the placeholder shape check.
+  - name: wsc-44-patch-timezone-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { timezone: "" }
+    expect_status: 400
+
+  - name: wsc-45-patch-logo-asset-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { logo_asset: "{{missing_uuid}}" }
+    expect_status: 400
+
+  # The asset ref is re-read when the FK changes: a description asset renders
+  # the description URL, exactly like the create path.
+  - name: wsc-45b-patch-logo-description-asset
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { logo_asset: "{{description_asset_0}}" }
+    expect_status: 200
+
+  # ...and an asset with no workspace omits `logo_url` (SkipField) from the 200
+  # body, after the UPDATE.
+  - name: wsc-45c-patch-logo-orphan-asset
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { logo_asset: "{{orphan_asset}}" }
+    expect_status: 200
+
+  # `logo_asset: null` clears the FK, so `logo_url` falls back to `logo`.
+  - name: wsc-46-patch-logo-asset-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { logo_asset: null }
+    expect_status: 200
+
+  # An empty body still rewrites `updated_at`/`updated_by` (a full save).
+  - name: wsc-47-patch-empty-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 200
+
+  - name: wsc-48-patch-form-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form: { name: "Form Renamed" }
+    expect_status: 200
+
+  # A form `name=` is the html-input empty string. `partial=True` does not change
+  # `required`, and `name` is required, so `''` is kept and fails `blank` — the
+  # same 400 PUT would give (`rest_framework/fields.py:403-418`).
+  - name: wsc-49-patch-form-name-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form: { name: "", organization_size: "" }
+    expect_status: 400
+
+  # ---------------------------------------------------------------------------
+  # 187 PATCH — permissions
+  # ---------------------------------------------------------------------------
+  - name: wsc-50-patch-as-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { name: "Member Rename" }
+    expect_status: 403
+
+  - name: wsc-51-patch-as-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { name: "Guest Rename" }
+    expect_status: 403
+
+  - name: wsc-52-patch-as-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { name: "Outsider Rename" }
+    expect_status: 403
+
+  - name: wsc-53-patch-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    headers:
+      Host: plane-fixture.test
+    json: { name: "Anonymous Rename" }
+    expect_status: 401
+
+  - name: wsc-54-patch-foreign-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json: { name: "Origin Rename" }
+    expect_status: 403
+
+  # The class permission filters `WorkspaceMember.objects`, so the admin of a
+  # soft-deleted workspace passes it and `get_object` is the family 404.
+  - name: wsc-55-patch-soft-deleted-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Deleted Rename" }
+    expect_status: 404
+
+  # A workspace that does not exist at all is the permission class's 403: the
+  # role check runs before the lookup.
+  - name: wsc-56-patch-missing-workspace
+    method: PATCH
+    path: "/api/workspaces/no-such-workspace/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Missing Rename" }
+    expect_status: 403
+
+  # ---------------------------------------------------------------------------
+  # 187 PUT — the same handler with `partial=False`
+  # ---------------------------------------------------------------------------
+  - name: wsc-57-put-missing-slug
+    method: PUT
+    path: "/api/workspaces/{{minimal_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: { name: "Minimal Workspace PUT" }
+    expect_status: 400
+
+  - name: wsc-58-put-empty
+    method: PUT
+    path: "/api/workspaces/{{minimal_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: {}
+    expect_status: 400
+
+  - name: wsc-59-put-full
+    method: PUT
+    path: "/api/workspaces/{{minimal_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Minimal Workspace PUT"
+      slug: "wsc-minimal-put"
+      organization_size: "1-10"
+      timezone: "Europe/Berlin"
+    capture:
+      - name: put_slug
+        source: json
+        pointer: /slug
+    expect_status: 200
+
+  # `partial=False` still leaves absent optional fields alone (DRF only writes
+  # `validated_data`); this PUT keeps the timezone and organization size.
+  - name: wsc-60-put-name-slug
+    method: PUT
+    path: "/api/workspaces/{{put_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Minimal Workspace Again"
+      slug: "wsc-minimal-put"
+    expect_status: 200
+
+  - name: wsc-61-put-as-member
+    method: PUT
+    path: "/api/workspaces/{{ws}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      name: "Member PUT"
+      slug: "{{ws}}"
+    expect_status: 403
+
+  # ---------------------------------------------------------------------------
+  # 199 POST workspace-themes
+  # ---------------------------------------------------------------------------
+  - name: wsc-62-theme-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Scenario Theme"
+      colors:
+        background: "#0B1220"
+        accent: "#2563EB"
+    capture:
+      - name: theme_created
+        source: db
+        table: workspace_themes
+        column: id
+    expect_status: 201
+
+  # `workspace` and `actor` are read-only; `created_by`/`updated_by` are
+  # writable but H01 overwrites both on a create.
+  - name: wsc-63-theme-create-read-only
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Read Only Body"
+      workspace: "{{missing_uuid}}"
+      actor: "{{missing_uuid}}"
+      created_by: "{{user_member_id}}"
+      updated_by: "{{user_member_id}}"
+    expect_status: 201
+
+  # `deleted_at` **is** writable on this serializer.
+  - name: wsc-64-theme-create-deleted-at
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Born Deleted"
+      deleted_at: "2020-01-01T00:00:00Z"
+    expect_status: 201
+
+  - name: wsc-65-theme-create-colors-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "String Colours"
+      colors: "#fff"
+    expect_status: 201
+
+  # `workspace` is read-only, so DRF cannot see `unique_together`: the INSERT is
+  # an IntegrityError → the family 400.
+  - name: wsc-66-theme-create-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Scenario Theme" }
+    expect_status: 400
+
+  # The same name in another workspace is fine (admin is an admin of
+  # `fix-nologo` too).
+  - name: wsc-67-theme-create-other-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_nologo}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Scenario Theme" }
+    expect_status: 201
+
+  - name: wsc-68-theme-create-missing-name
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { colors: {} }
+    expect_status: 400
+
+  - name: wsc-69-theme-create-colors-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Null Colours"
+      colors: null
+    expect_status: 400
+
+  # A member may create and delete themes: `WorkSpaceAdminPermission` is
+  # ADMIN **or** MEMBER.
+  - name: wsc-70-theme-create-as-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { name: "Member Theme" }
+    capture:
+      - name: theme_member
+        source: db
+        table: workspace_themes
+        column: id
+    expect_status: 201
+
+  - name: wsc-71-theme-create-as-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { name: "Guest Theme" }
+    expect_status: 403
+
+  # `create` re-reads the workspace with `Workspace.objects.get`.
+  - name: wsc-72-theme-create-soft-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Deleted Theme" }
+    expect_status: 404
+
+  # ---------------------------------------------------------------------------
+  # 200 PATCH workspace-themes/{pk}
+  # ---------------------------------------------------------------------------
+  - name: wsc-73-theme-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Scenario Theme Renamed" }
+    expect_status: 200
+
+  - name: wsc-74-theme-patch-colors
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      colors:
+        background: "#111827"
+    expect_status: 200
+
+  # `created_by` is writable on an update: the body value is written and only
+  # `updated_by` is replaced by H01.
+  - name: wsc-75-theme-patch-created-by
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      created_by: "{{user_member_id}}"
+    expect_status: 200
+
+  - name: wsc-76-theme-patch-read-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      workspace: "{{missing_uuid}}"
+      actor: "{{missing_uuid}}"
+    expect_status: 200
+
+  - name: wsc-77-theme-patch-duplicate-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Read Only Body" }
+    expect_status: 400
+
+  - name: wsc-78-theme-patch-name-too-long
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    expect_status: 400
+
+  # A theme of another workspace, addressed through this one.
+  - name: wsc-79-theme-patch-foreign
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_second}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Foreign Theme" }
+    expect_status: 404
+
+  - name: wsc-80-theme-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Missing Theme" }
+    expect_status: 404
+
+  # A non-UUID segment is a 404 before the handler (the URL converter).
+  - name: wsc-81-theme-patch-bad-uuid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "Bad UUID" }
+    expect_status: 404
+
+  - name: wsc-82-theme-patch-as-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { name: "Guest Theme Rename" }
+    expect_status: 403
+
+  - name: wsc-83-theme-patch-as-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { name: "Outsider Theme Rename" }
+    expect_status: 403
+
+  - name: wsc-84-theme-patch-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    headers:
+      Host: plane-fixture.test
+    json: { name: "Anonymous Theme Rename" }
+    expect_status: 401
+
+  # ---------------------------------------------------------------------------
+  # 200 DELETE workspace-themes/{pk}
+  # ---------------------------------------------------------------------------
+  # A member deletes a theme: `WorkSpaceAdminPermission` allows it.
+  - name: wsc-85-theme-delete-as-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wsc-86-theme-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # The fixture's `Retired Theme` is already soft-deleted.
+  - name: wsc-87-theme-delete-retired
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_retired}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # A `deleted_at` in a PATCH soft-deletes the row through `update()`, after
+  # which the delete is a 404.
+  - name: wsc-88-theme-patch-deleted-at
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Scenario Theme Renamed"
+      deleted_at: "2026-01-02T00:00:00Z"
+    expect_status: 200
+
+  - name: wsc-89-theme-delete-soft-deleted
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/workspace-themes/{{theme_created}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wsc-90-theme-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/workspace-themes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # ---------------------------------------------------------------------------
+  # 138 DELETE project-identifiers
+  # ---------------------------------------------------------------------------
+  - name: wsc-91-identifier-no-name
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: wsc-92-identifier-blank-name
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "   " }
+    expect_status: 400
+
+  # A live project's identifier cannot be deleted.
+  - name: wsc-93-identifier-live-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "ALP" }
+    expect_status: 400
+
+  # `strip().upper()` runs before the lookup, so lower case and spaces match.
+  - name: wsc-94-identifier-normalised
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "  alp  " }
+    expect_status: 400
+
+  # The project is archived but live: still refused.
+  - name: wsc-95-identifier-archived-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "GAM" }
+    expect_status: 400
+
+  # `Project.objects` hides the soft-deleted `delta` project, so DEL goes: H04
+  # writes only `deleted_at`.
+  - name: wsc-96-identifier-deleted-project
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "DEL" }
+    expect_status: 204
+
+  - name: wsc-97-identifier-read-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/project-identifiers/?name=DEL"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  - name: wsc-98-identifier-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "DEL" }
+    expect_status: 204
+
+  - name: wsc-99-identifier-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "ZZZ" }
+    expect_status: 204
+
+  # A member (not admin) may delete an identifier: `allow_permission` names
+  # ADMIN and MEMBER.
+  - name: wsc-100-identifier-as-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form: { name: "zzz" }
+    expect_status: 204
+
+  - name: wsc-101-identifier-as-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { name: "DEL" }
+    expect_status: 403
+
+  - name: wsc-102-identifier-as-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { name: "DEL" }
+    expect_status: 403
+
+  # The admin is not a member of `fix-second`.
+  - name: wsc-103-identifier-other-workspace
+    method: DELETE
+    path: "/api/workspaces/{{ws_second}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "THE" }
+    expect_status: 403
+
+  - name: wsc-104-identifier-anonymous
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    headers:
+      Host: plane-fixture.test
+    json: { name: "DEL" }
+    expect_status: 401
+
+  # `request.data.get("name")` on a null/array/number body is an AttributeError
+  # or a `None.strip()`: the family 500.
+  - name: wsc-105-identifier-name-null
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: null }
+    expect_status: 500
+
+  - name: wsc-106-identifier-name-number
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: 12 }
+    expect_status: 500
+
+  - name: wsc-107-identifier-body-list
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/project-identifiers/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "[]"
+    expect_status: 500
+
+  # ---------------------------------------------------------------------------
+  # 187 DELETE — H03, the cascade publish, then H05's slug rewrite
+  # ---------------------------------------------------------------------------
+  # The 40-character slug (`slug__<epoch>` is 52 > varchar(48)) fails the slug
+  # UPDATE **after** the soft delete and the task publish: a 500, 204 no more.
+  - name: wsc-108-delete-long-slug
+    method: DELETE
+    path: "/api/workspaces/{{ws_long}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # The row is gone even though the request failed.
+  - name: wsc-109-retrieve-long-slug
+    method: GET
+    path: "/api/workspaces/{{ws_long}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wsc-110-delete-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wsc-111-delete-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: wsc-112-delete-happy
+    method: DELETE
+    path: "/api/workspaces/{{full_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    expect_status: 204
+
+  - name: wsc-113-retrieve-deleted
+    method: GET
+    path: "/api/workspaces/{{full_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    expect_status: 404
+
+  - name: wsc-114-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{full_slug}}/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    expect_status: 403

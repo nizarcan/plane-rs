@@ -84,6 +84,14 @@ shapes:
   hex_colour:
     pattern: '^#[0-9a-fA-F]{6}$'
     why: "get_random_color picks six characters from string.hexdigits, so the case is mixed (plane/utils/color.py:9)"
+  # `Workspace.delete` rewrites the slug to f"{slug}__{int(deleted_at.timestamp())}"
+  # (plane/db/models/workspace.py:170-174). The DB diff carries the value twice —
+  # the stored slug ("before") and the rewritten one ("after") — so the shape
+  # accepts both forms; that the two values differ is still compared, because a
+  # skipped rewrite would reuse the "before" placeholder.
+  deleted_workspace_slug:
+    pattern: '^[a-zA-Z0-9_-]+?(__-?[0-9]{1,12})?$'
+    why: "Workspace.delete appends __<epoch> after the soft delete (plane/db/models/workspace.py:156-176); the epoch is the request instant"
   # django/contrib/auth/hashers.py:313-350: PBKDF2PasswordHasher with a
   # 22-character salt (salt_entropy 128 bits / log2(62)) and a standard-base64
   # SHA-256 digest. "!" + 40 characters is Django's unusable-password marker.
@@ -584,6 +592,20 @@ volatile_db_columns:
     placeholder: colour
     shape: hex_colour
     why: "random default colour, mixed case (plane/db/models/workspace.py:139, plane/utils/color.py:9)"
+  # 187's DELETE rewrites the slug with `int(deleted_at.timestamp())`
+  # (`plane/db/models/workspace.py:170-174`). Two targets delete at different
+  # instants, so the suffix differs; the shape still proves the `__<epoch>`
+  # form and the request path proves the base. Scoped to the delete request:
+  # every other `workspaces.slug` in a diff is a request value and stays
+  # compared literally (a create's random slug is caught by the unique check
+  # instead, which is the point of writing one).
+  - table: workspaces
+    column: slug
+    mode: placeholder_if_new
+    placeholder: deleted-workspace-slug
+    shape: deleted_workspace_slug
+    request: "DELETE /api/workspaces/*/"
+    why: "Workspace.delete appends __<int(deleted_at.timestamp())> (plane/db/models/workspace.py:156-176); the epoch is the request instant"
   # 188 mints one JWT per requested e-mail (`plane/app/views/workspace/invite.py:90-99`),
   # so the inserted row's token differs between the two targets. The glob covers
   # create and the users-me join (190) alike; the latter only soft-deletes

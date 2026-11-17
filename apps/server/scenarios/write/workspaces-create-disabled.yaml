@@ -1,0 +1,79 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# 186's `DISABLE_WORKSPACE_CREATION` gate (`plane/app/views/workspace/base.py:84-97`),
+# database branch: `SKIP_ENV_VAR` is at its default `1`, so
+# `get_configuration_value` reads `instance_configurations` and the fixture row
+# says `"1"`. The gate runs **before** `request.data` is parsed and before the
+# serializer, so even a malformed body is the 403 — and it is the only check
+# between the authentication and the workspace.
+#
+# Fixture: `workspaces-create-config-fixture.sql`.
+
+name: write-workspaces-create-disabled
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/workspaces-create-config-fixture.sql"
+  session_no_workspace: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  - name: wscd-01-create-disabled
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json:
+      name: "Not Allowed"
+      slug: "not-allowed"
+    expect_status: 403
+
+  # The gate precedes the raw body checks: an empty object is still the 403.
+  - name: wscd-02-create-disabled-empty-body
+    method: POST
+    path: /api/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: {}
+    expect_status: 403
+
+  # ...and the serializer: an invalid slug never gets that far.
+  - name: wscd-03-create-disabled-bad-slug
+    method: POST
+    path: /api/workspaces/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Bad Slug"
+      slug: "not a slug"
+    expect_status: 403
+
+  # An anonymous caller is the 401 from authentication, before the gate.
+  - name: wscd-04-create-anonymous
+    method: POST
+    path: /api/workspaces/
+    headers:
+      Host: plane-fixture.test
+    json:
+      name: "Anonymous"
+      slug: "anonymous-ws"
+    expect_status: 401
+
+  # No workspace was created: the caller's own workspace list is still empty.
+  - name: wscd-05-list-own-workspaces
+    method: GET
+    path: /api/users/me/workspaces/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"

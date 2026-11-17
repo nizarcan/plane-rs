@@ -54,9 +54,12 @@ use crate::write;
 
 /// `plane/db/models/workspace.py:22` (`get_default_props`), which unlike the
 /// project model's copy also carries `display_properties`.
-const WORKSPACE_DEFAULT_PROPS: &str = r#"{"filters": {"priority": null, "state": null, "state_group": null, "assignees": null, "created_by": null, "labels": null, "start_date": null, "target_date": null, "subscriber": null}, "display_filters": {"group_by": null, "order_by": "-created_at", "type": null, "sub_issue": true, "show_empty_groups": true, "layout": "list", "calendar_date_range": ""}, "display_properties": {"assignee": true, "attachment_count": true, "created_on": true, "due_date": true, "estimate": true, "key": true, "labels": true, "link": true, "priority": true, "start_date": true, "state": true, "sub_issue_count": true, "updated_on": true}}"#;
+///
+/// `pub(crate)` because workspace-core set A's `POST /api/workspaces/` binds the
+/// same defaults for the creator's membership row (`workspaces/write.rs`).
+pub(crate) const WORKSPACE_DEFAULT_PROPS: &str = r#"{"filters": {"priority": null, "state": null, "state_group": null, "assignees": null, "created_by": null, "labels": null, "start_date": null, "target_date": null, "subscriber": null}, "display_filters": {"group_by": null, "order_by": "-created_at", "type": null, "sub_issue": true, "show_empty_groups": true, "layout": "list", "calendar_date_range": ""}, "display_properties": {"assignee": true, "attachment_count": true, "created_on": true, "due_date": true, "estimate": true, "key": true, "labels": true, "link": true, "priority": true, "start_date": true, "state": true, "sub_issue_count": true, "updated_on": true}}"#;
 /// `plane/db/models/workspace.py:110` (`get_issue_props`).
-const ISSUE_PROPS: &str =
+pub(crate) const WORKSPACE_ISSUE_PROPS: &str =
     r#"{"subscribed": true, "assigned": true, "created": true, "all_issues": true}"#;
 
 /// A one-key `{"message": …}` body.
@@ -432,7 +435,7 @@ pub fn join<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
                             &invite.workspace_id,
                             &JsonText::new(WORKSPACE_DEFAULT_PROPS),
                             &JsonText::new(WORKSPACE_DEFAULT_PROPS),
-                            &JsonText::new(ISSUE_PROPS),
+                            &JsonText::new(WORKSPACE_ISSUE_PROPS),
                         ],
                     )
                     .await

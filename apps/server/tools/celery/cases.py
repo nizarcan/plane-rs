@@ -724,11 +724,16 @@ CASES: list[dict[str, Any]] = [
         ],
     },
     # -- workspace_seed_task.workspace_seed
+    # `workspace_seed.delay(serializer.data["id"])`: `WorkSpaceSerializer.id` is
+    # `PrimaryKeyRelatedField(read_only=True)` without a queryset, so
+    # `to_representation` returns `value.pk` — a **UUID object**, which kombu
+    # encodes with its `__type__` extension and `saferepr` prints as
+    # `UUID('…')` (rest_framework/relations.py:300-310).
     {
         "case": "workspace_seed",
         "call_site": "plane/app/views/workspace/base.py:138",
         "task": "plane.bgtasks.workspace_seed_task.workspace_seed",
-        "args": [str(WORKSPACE)],
+        "args": [WORKSPACE],
     },
     # -- Beat-only, no-argument tasks
     {

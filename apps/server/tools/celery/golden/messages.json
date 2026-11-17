@@ -2287,7 +2287,7 @@
         ],
         "root_id": "00000000-0000-4000-8000-000000000052",
         "parent_id": null,
-        "argsrepr": "('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60',)",
+        "argsrepr": "(UUID('6a1b6f0e-0f9a-4b62-9a39-1b2c3d4e5f60'),)",
         "kwargsrepr": "{}",
         "origin": "gen4242@celery-golden",
         "ignore_result": false,
@@ -2295,8 +2295,8 @@
         "stamped_headers": null,
         "stamps": {}
       },
-      "body_b64": "W1siNmExYjZmMGUtMGY5YS00YjYyLTlhMzktMWIyYzNkNGU1ZjYwIl0sIHt9LCB7ImNhbGxiYWNrcyI6IG51bGwsICJlcnJiYWNrcyI6IG51bGwsICJjaGFpbiI6IG51bGwsICJjaG9yZCI6IG51bGx9XQ==",
-      "body_bytes": 115
+      "body_b64": "W1t7Il9fdHlwZV9fIjogInV1aWQiLCAiX192YWx1ZV9fIjogeyJoZXgiOiAiNmExYjZmMGUwZjlhNGI2MjlhMzkxYjJjM2Q0ZTVmNjAifX1dLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0=",
+      "body_bytes": 155
     },
     {
       "case": "delete_api_logs",

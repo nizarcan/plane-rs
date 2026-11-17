@@ -69,8 +69,11 @@ pub mod queries;
 pub mod quick_link;
 pub mod recent_visit;
 pub mod rows;
+pub mod theme_write;
 pub mod user;
 pub mod user_preference;
+pub mod write;
+pub mod write_a_queries;
 pub mod write_favorite;
 pub mod write_favorite_queries;
 pub mod write_queries;
@@ -82,6 +85,8 @@ pub mod write_queries;
 /// rather than fall back to a 501 nobody notices.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     base::register(registry)?;
+    theme_write::register(registry)?;
+    write::register(registry)?;
     invite::register(registry)?;
     member::register(registry)?;
     favorite::register(registry)?;
