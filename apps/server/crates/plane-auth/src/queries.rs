@@ -224,6 +224,247 @@ plane_query! {
     []
 }
 
+plane_query! {
+    /// `User.objects.filter(email=email).first()` in the auth adapter
+    /// (`plane/authentication/adapter/base.py:355`) and the login views. The
+    /// full 40-column row, because `save_user_data`, H30 and the returned
+    /// `request.user` are the model instance.
+    LOAD_USER_FULL_BY_EMAIL = "auth_load_user_full_by_email",
+    "SELECT password, last_login, id, username, mobile_number, email, display_name, \
+     first_name, last_name, avatar, avatar_asset_id, cover_image, cover_image_asset_id, \
+     date_joined, created_at, updated_at, last_location, created_location, is_superuser, \
+     is_managed, is_password_expired, is_active, is_staff, is_email_verified, \
+     is_password_autoset, is_password_reset_required, token, last_active, last_login_time, \
+     last_logout_time, last_login_ip, last_logout_ip, last_login_medium, last_login_uagent, \
+     token_updated_at, is_bot, bot_type, user_timezone, is_email_valid, masked_at \
+     FROM users \
+     WHERE email = $1 \
+     LIMIT 1",
+    [
+        ("password", Varchar),
+        ("last_login", Timestamptz),
+        ("id", Uuid),
+        ("username", Varchar),
+        ("mobile_number", Varchar),
+        ("email", Varchar),
+        ("display_name", Varchar),
+        ("first_name", Varchar),
+        ("last_name", Varchar),
+        ("avatar", Text),
+        ("avatar_asset_id", Uuid),
+        ("cover_image", Varchar),
+        ("cover_image_asset_id", Uuid),
+        ("date_joined", Timestamptz),
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("last_location", Varchar),
+        ("created_location", Varchar),
+        ("is_superuser", Bool),
+        ("is_managed", Bool),
+        ("is_password_expired", Bool),
+        ("is_active", Bool),
+        ("is_staff", Bool),
+        ("is_email_verified", Bool),
+        ("is_password_autoset", Bool),
+        ("is_password_reset_required", Bool),
+        ("token", Varchar),
+        ("last_active", Timestamptz),
+        ("last_login_time", Timestamptz),
+        ("last_logout_time", Timestamptz),
+        ("last_login_ip", Varchar),
+        ("last_logout_ip", Varchar),
+        ("last_login_medium", Varchar),
+        ("last_login_uagent", Text),
+        ("token_updated_at", Timestamptz),
+        ("is_bot", Bool),
+        ("bot_type", Varchar),
+        ("user_timezone", Varchar),
+        ("is_email_valid", Bool),
+        ("masked_at", Timestamptz),
+    ]
+}
+
+plane_query! {
+    /// `User(email=…, username=…)` + `Model.save()`: Django's `INSERT` lists
+    /// every concrete column, with `auto_now_add`/`auto_now`/defaults already
+    /// evaluated in Python (`django/db/models/base.py:925-1008`). Bind order
+    /// matches the column order of `LOAD_USER_FULL_BY_EMAIL`.
+    INSERT_USER = "auth_insert_user",
+    "INSERT INTO users (\
+     password, last_login, id, username, mobile_number, email, display_name, \
+     first_name, last_name, avatar, avatar_asset_id, cover_image, cover_image_asset_id, \
+     date_joined, created_at, updated_at, last_location, created_location, is_superuser, \
+     is_managed, is_password_expired, is_active, is_staff, is_email_verified, \
+     is_password_autoset, is_password_reset_required, token, last_active, last_login_time, \
+     last_logout_time, last_login_ip, last_logout_ip, last_login_medium, last_login_uagent, \
+     token_updated_at, is_bot, bot_type, user_timezone, is_email_valid, masked_at) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, \
+     $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, \
+     $33, $34, $35, $36, $37, $38, $39, $40)",
+    []
+}
+
+plane_query! {
+    /// `Adapter.save_user_data` (`adapter/base.py:231-251`) + H30 + `auto_now`:
+    /// only the columns the method and the hook change are written. Django's
+    /// full `save()` rewrites every column with its unchanged value, which is
+    /// not observable; the audit column `updated_at` moves.
+    UPDATE_USER_LOGIN = "auth_update_user_login",
+    "UPDATE users SET \
+     email = $1, display_name = $2, is_staff = $3, token = $4, token_updated_at = $5, \
+     avatar = $6, avatar_asset_id = $7, last_active = $8, last_login_time = $9, \
+     last_login_medium = $10, last_login_ip = $11, last_login_uagent = $12, \
+     is_active = $13, updated_at = $14 \
+     WHERE id = $15",
+    []
+}
+
+plane_query! {
+    /// `sync_user_data`'s trailing `user.save()` (`adapter/base.py:303-304`),
+    /// before `save_user_data` runs its own full save. The columns the sync
+    /// assigns plus H30 and `auto_now`.
+    UPDATE_USER_SYNC = "auth_update_user_sync",
+    "UPDATE users SET \
+     email = $1, display_name = $2, is_staff = $3, token = $4, token_updated_at = $5, \
+     first_name = $6, last_name = $7, avatar = $8, avatar_asset_id = $9, updated_at = $10 \
+     WHERE id = $11",
+    []
+}
+
+plane_query! {
+    /// `WorkspaceMemberInvite.objects.filter(email=email).exists()` in
+    /// `__check_signup` (`adapter/base.py:108`): exact email, and the default
+    /// manager hides soft-deleted invites. This is an **unconditional** check,
+    /// even when `ENABLE_SIGNUP` is `"1"`.
+    INVITE_EXISTS_FOR_EMAIL = "auth_invite_exists_for_email",
+    "SELECT EXISTS (SELECT 1 FROM workspace_member_invites \
+     WHERE email = $1 AND deleted_at IS NULL) AS \"exists\"",
+    [("exists", Bool)]
+}
+
+plane_query! {
+    /// `Profile.objects.create(user=user)` (`adapter/base.py:397`): every
+    /// column with its model default. `background_color` is random and
+    /// normalised by the harness (`scenarios/normalize.yaml`).
+    INSERT_PROFILE = "auth_insert_profile",
+    "INSERT INTO profiles (\
+     id, created_at, updated_at, user_id, theme, is_app_rail_docked, is_tour_completed, \
+     onboarding_step, use_case, role, is_onboarded, last_workspace_id, \
+     billing_address_country, billing_address, has_billing_address, company_name, \
+     notification_view_mode, is_smooth_cursor_enabled, is_mobile_onboarded, \
+     mobile_onboarding_step, mobile_timezone_auto_set, language, start_of_the_week, \
+     goals, background_color, is_navigation_tour_completed, has_marketing_email_consent, \
+     is_subscribed_to_changelog, product_tour) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, \
+     $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)",
+    []
+}
+
+plane_query! {
+    /// H31: `create_user_notification` (`plane/db/models/user.py:298-312`), a
+    /// `post_save` receiver on `User` that creates one row when
+    /// `created and not instance.is_bot`.
+    INSERT_USER_NOTIFICATION_PREFERENCE = "auth_insert_user_notification_preference",
+    "INSERT INTO user_notification_preferences (\
+     id, created_at, updated_at, created_by_id, updated_by_id, deleted_at, user_id, \
+     workspace_id, project_id, property_change, state_change, comment, mention, \
+     issue_completed) \
+     VALUES ($1, $2, $3, NULL, NULL, NULL, $4, NULL, NULL, $5, $6, $7, $8, $9)",
+    []
+}
+
+plane_query! {
+    /// `WorkspaceMemberInvite.objects.filter(email=…, accepted=True)`
+    /// (`workspace_project_join.py:18`), with the workspace slug the cache
+    /// invalidation loop reads through the FK (`:34`).
+    ///
+    /// `Meta.ordering = ("-created_at",)`, so the insert order is newest first.
+    WORKSPACE_INVITES_FOR_EMAIL = "auth_workspace_invites_for_email",
+    "SELECT wmi.id, wmi.workspace_id, wmi.role, w.slug \
+     FROM workspace_member_invites wmi \
+     JOIN workspaces w ON w.id = wmi.workspace_id \
+     WHERE wmi.email = $1 AND wmi.accepted AND wmi.deleted_at IS NULL \
+     ORDER BY wmi.created_at DESC",
+    [
+        ("id", Uuid),
+        ("workspace_id", Uuid),
+        ("role", Int2),
+        ("slug", Varchar),
+    ]
+}
+
+plane_query! {
+    /// `ProjectMemberInvite.objects.filter(email=…, accepted=True)`
+    /// (`workspace_project_join.py:41`), `Meta.ordering = ("-created_at",)`.
+    PROJECT_INVITES_FOR_EMAIL = "auth_project_invites_for_email",
+    "SELECT id, workspace_id, project_id, role, created_by_id \
+     FROM project_member_invites \
+     WHERE email = $1 AND accepted AND deleted_at IS NULL \
+     ORDER BY created_at DESC",
+    [
+        ("id", Uuid),
+        ("workspace_id", Uuid),
+        ("project_id", Uuid),
+        ("role", Int2),
+        ("created_by_id", Uuid),
+    ]
+}
+
+plane_query! {
+    /// `WorkspaceMember.objects.bulk_create([...], ignore_conflicts=True)`
+    /// (`workspace_project_join.py:21-29,44-52`). `TimeAuditModel`'s
+    /// `auto_now_add`/`auto_now` are evaluated per instance by `pre_save`, even
+    /// in a bulk insert (`django/db/models/query.py:1809-1826`), and the JSON
+    /// columns keep their model defaults.
+    INSERT_WORKSPACE_MEMBER = "auth_insert_workspace_member",
+    "INSERT INTO workspace_members (\
+     id, created_at, updated_at, created_by_id, updated_by_id, deleted_at, workspace_id, \
+     member_id, role, company_role, view_props, default_props, issue_props, is_active, \
+     getting_started_checklist, tips, explored_features) \
+     VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6, $7, NULL, $8, $9, $10, TRUE, '{}', '{}', '{}') \
+     ON CONFLICT DO NOTHING",
+    []
+}
+
+plane_query! {
+    /// `ProjectMember.objects.bulk_create([...], ignore_conflicts=True)`
+    /// (`workspace_project_join.py:55-65`).
+    ///
+    /// **Upstream bug, ported as-is:** the list omits `project_id`, which is
+    /// `NOT NULL` (`ProjectBaseModel.project`, `project.py:231`), and
+    /// `bulk_create` bypasses `ProjectBaseModel.save`'s
+    /// `self.workspace = self.project.workspace`. Any accepted project invite
+    /// therefore raises `IntegrityError` and the signup/login is a 500, after
+    /// the workspace memberships above have already been committed.
+    INSERT_PROJECT_MEMBER = "auth_insert_project_member",
+    "INSERT INTO project_members (\
+     id, created_at, updated_at, created_by_id, updated_by_id, deleted_at, project_id, \
+     workspace_id, member_id, comment, role, view_props, default_props, preferences, \
+     sort_order, is_active) \
+     VALUES ($1, $2, $3, $4, NULL, NULL, NULL, $5, $6, NULL, $7, $8, $9, $10, 65535, TRUE) \
+     ON CONFLICT DO NOTHING",
+    []
+}
+
+plane_query! {
+    /// `workspace_member_invites.delete()` on a `SoftDeletionQuerySet`
+    /// (`plane/db/mixins.py:33-38`): `update(deleted_at=now())`, no
+    /// `updated_at` movement.
+    SOFT_DELETE_WORKSPACE_INVITES = "auth_soft_delete_workspace_invites",
+    "UPDATE workspace_member_invites SET deleted_at = $2 \
+     WHERE email = $1 AND accepted AND deleted_at IS NULL",
+    []
+}
+
+plane_query! {
+    /// `project_member_invites.delete()` on a `SoftDeletionQuerySet`
+    /// (`plane/db/mixins.py:33-38`).
+    SOFT_DELETE_PROJECT_INVITES = "auth_soft_delete_project_invites",
+    "UPDATE project_member_invites SET deleted_at = $2 \
+     WHERE email = $1 AND accepted AND deleted_at IS NULL",
+    []
+}
+
 /// Every catalogued statement, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &LOAD_SESSION_BY_KEY,
@@ -234,6 +475,19 @@ pub static ALL_QUERIES: &[&Query] = &[
     &DELETE_SESSIONS_FOR_USER,
     &LOAD_USER_BY_ID,
     &LOAD_USER_BY_EMAIL,
+    &LOAD_USER_FULL_BY_EMAIL,
+    &INSERT_USER,
+    &UPDATE_USER_LOGIN,
+    &UPDATE_USER_SYNC,
+    &INVITE_EXISTS_FOR_EMAIL,
+    &INSERT_PROFILE,
+    &INSERT_USER_NOTIFICATION_PREFERENCE,
+    &WORKSPACE_INVITES_FOR_EMAIL,
+    &PROJECT_INVITES_FOR_EMAIL,
+    &INSERT_WORKSPACE_MEMBER,
+    &INSERT_PROJECT_MEMBER,
+    &SOFT_DELETE_WORKSPACE_INVITES,
+    &SOFT_DELETE_PROJECT_INVITES,
     &LOAD_API_TOKEN,
     &TOUCH_API_TOKEN,
     &UPDATE_USER_PASSWORD,

@@ -33,6 +33,7 @@
 //! | H25 | `UserFavorite.save` (`plane/db/models/favorite.py:52-72`) | [`favorite::before_insert`] |
 //! | H26 | `Page.save` (`plane/db/models/page.py:70-77`) | [`page::before_save`] |
 //! | H30 | `User.save` (`plane/db/models/user.py:169-187`) | [`user::before_save`] |
+//! | H31 | `User` post_save (`plane/db/models/user.py:298-312`) | [`user::after_insert`] |
 //! | H32 | `ProjectMember.save` (`plane/db/models/project.py:276-293`) | [`project_member::before_insert`] |
 //!
 //! Every other row of `MODEL_HOOKS.md` is `not-ported`; a domain ports its own

@@ -296,6 +296,7 @@ impl Runtime {
                 request,
                 method,
                 session,
+                state,
                 self.redis.as_ref(),
                 self.celery.as_ref(),
             )
@@ -543,6 +544,7 @@ impl Runtime {
             pools,
             settings,
             ctx: request.ctx,
+            plain: None,
             redis: self.redis.as_ref(),
             publisher: self.celery.as_ref(),
         };
@@ -562,6 +564,7 @@ impl Runtime {
         request: &mut ViewRequest<'_>,
         method: Method,
         session: &SessionSlot,
+        state: &mut RunState,
         redis: Option<&plane_cache::Redis>,
         publisher: Option<&plane_jobs::celery::CeleryPublisher>,
     ) -> Result<DrfResponse, ViewError> {
@@ -582,11 +585,13 @@ impl Runtime {
                 route.allow.as_deref().unwrap_or_default(),
             ));
         };
-        // A plain view's `request.user` is the lazy Django object, not DRF's
-        // authenticators; the pipeline has not resolved it before this point.
-        // Phase 6 (the `/auth/` routes) needs a lazy handle here; the probe
-        // handler does not read it.
+        // A plain view's `request.user` is Django's lazy object, not DRF's
+        // authenticators: it is evaluated on first access (one hash-verified
+        // SELECT for a signed-in session) and the connection is opened on the
+        // first query. `ctx.user` stays `Anonymous` so a handler that never
+        // reads `request.user` behaves exactly as before this change.
         let anonymous = RequestUser::Anonymous;
+        let plain = crate::view::PlainViewState::new();
         let ctx = ViewCtx {
             request,
             user: &anonymous,
@@ -598,10 +603,16 @@ impl Runtime {
             pools,
             settings,
             ctx: request.ctx,
+            plain: Some(&plain),
             redis,
             publisher,
         };
-        Ok(DrfResponse::render(handler(&ctx).await?)?)
+        let response = DrfResponse::render(handler(&ctx).await?)?;
+        if let Some(user) = plain.evaluated_user() {
+            let user = user.clone();
+            state.django_user = Some(user);
+        }
+        Ok(response)
     }
 
     /// `APIView.options` -> `SimpleMetadata().determine_metadata`.

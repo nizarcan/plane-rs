@@ -21,9 +21,16 @@ getrandom.workspace = true
 http.workspace = true
 md-5.workspace = true
 percent-encoding.workspace = true
+plane-cache = { path = "../plane-cache" }
 plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
+plane-jobs = { path = "../plane-jobs" }
+# `pyurl`: CPython's `urlsplit`/`urlparse`/`urljoin`, already golden-tested by
+# that crate. The auth redirects cannot use `url`'s RFC parser: Django's
+# safety check depends on CPython's quirks (bracketed hosts, NFKC netlocs).
+plane-net = { path = "../plane-net" }
 plane-serde = { path = "../plane-serde" }
+regex.workspace = true
 scrypt.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -33,6 +40,10 @@ tokio = { workspace = true, features = ["rt", "sync"] }
 tokio-postgres.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+# `is_password_strong`: see `auth_flow/password.rs`. The crate is used only for
+# windows it is proven to score identically (≤ 100 characters); longer windows
+# return the not-ported error until the Python matchers are ported.
+zxcvbn = { version = "3.1.1", default-features = false }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

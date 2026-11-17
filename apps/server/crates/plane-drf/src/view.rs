@@ -74,6 +74,13 @@ pub struct ViewCtx<'a> {
     pub settings: &'a Settings,
     /// The raw `RequestContext` (path, headers, body, `REMOTE_ADDR`).
     pub ctx: &'a RequestContext,
+    /// `request.user`'s lazy state for a plain `django.views.View`; `None` on
+    /// a DRF route, whose authenticators already resolved [`ViewCtx::user`].
+    ///
+    /// Read it through [`ViewCtx::request_user`], not the field: Django's
+    /// `SimpleLazyObject` evaluates once, on first access, and marks the
+    /// session accessed.
+    pub plain: Option<&'a PlainViewState>,
     /// `django.core.cache.cache`: the process-wide django-redis handle, built
     /// once from `Settings` and shared with the throttles (both use the same
     /// cache alias in Django). The connection itself is opened on first use.
@@ -84,11 +91,123 @@ pub struct ViewCtx<'a> {
     pub publisher: Option<&'a plane_jobs::celery::CeleryPublisher>,
 }
 
+/// The two lazy handles a plain Django view has and a DRF view does not:
+/// `request.user` (`AuthenticationMiddleware`'s `SimpleLazyObject`) and the
+/// request's database connection (opened on the first query).
+///
+/// One per plain request, created by `run_plain`; a DRF request passes `None`.
+#[derive(Debug, Default)]
+pub struct PlainViewState {
+    user: tokio::sync::OnceCell<RequestUser>,
+    client: tokio::sync::OnceCell<deadpool_postgres::Client>,
+}
+
+impl PlainViewState {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `request.user`, evaluating `django.contrib.auth.get_user` once.
+    ///
+    /// The first access reads the session (`session.accessed = True`) and, for
+    /// a signed-in session, makes the one hash-verified `SELECT`; every later
+    /// access returns the same object, exactly as `SimpleLazyObject` does.
+    pub async fn request_user(
+        &self,
+        session: &SessionSlot,
+        settings: &Settings,
+        client: &deadpool_postgres::Client,
+    ) -> Result<&RequestUser, ViewError> {
+        self.user
+            .get_or_try_init(|| async {
+                let mut store = session.lock().await;
+                plane_auth::get_user(client, settings, &mut store)
+                    .await
+                    .map_err(ViewError::from)
+            })
+            .await
+    }
+
+    /// The user the handler evaluated, if it did (the request logger needs the
+    /// distinction between "lazy" and "anonymous").
+    #[must_use]
+    pub fn evaluated_user(&self) -> Option<&RequestUser> {
+        self.user.get()
+    }
+
+    /// The request's connection, opened on first use with the same
+    /// read/write routing rule a DRF route uses.
+    pub async fn client(
+        &self,
+        pools: &DbPools,
+        method: &Method,
+        use_read_replica: bool,
+    ) -> Result<&deadpool_postgres::Client, ViewError> {
+        self.client
+            .get_or_try_init(|| async {
+                pools
+                    .read_pool(method, use_read_replica)
+                    .get()
+                    .await
+                    .map_err(|error| ViewError::Unknown(error.to_string()))
+            })
+            .await
+    }
+}
+
 impl<'a> ViewCtx<'a> {
     /// `request.session`, for a handler that signs the caller out or reads the
     /// store directly. Most handlers only need the middleware's effects.
     pub fn session(&self) -> &'a SessionSlot {
         self.session
+    }
+
+    /// `request.user`.
+    ///
+    /// On a DRF route this is the authenticator's answer. On a plain view it
+    /// evaluates the lazy object on first access: an empty session is
+    /// `AnonymousUser` without a query, and a signed-in session gets one
+    /// hash-verified `SELECT` (`django/contrib/auth/__init__.py:294-330`).
+    ///
+    /// # Errors
+    ///
+    /// A database failure, or a session payload that is not a UUID (Django's
+    /// `ValidationError`, a 500).
+    pub async fn request_user(&self) -> Result<&'a RequestUser, ViewError> {
+        if let Some(plain) = self.plain {
+            let client = self.database().await?;
+            return plain
+                .request_user(self.session, self.settings, client)
+                .await;
+        }
+        Ok(self.user)
+    }
+
+    /// `django.db.connection` for this request: a DRF handler gets the
+    /// runtime's checked-out client, a plain view opens one on first use.
+    ///
+    /// # Errors
+    ///
+    /// A pool failure, or a plain view with no [`PlainViewState`].
+    pub async fn database(&self) -> Result<&'a deadpool_postgres::Client, ViewError> {
+        if let Some(client) = self.db {
+            return Ok(client);
+        }
+        match self.plain {
+            Some(plain) => {
+                plain
+                    .client(
+                        self.pools,
+                        &self.request.method,
+                        self.request.route.use_read_replica,
+                    )
+                    .await
+            }
+            None => Err(ViewError::Unknown(
+                "no database connection for this request".to_string(),
+            )),
+        }
     }
 
     /// `django.core.cache.cache`, as the Django client (`:1:` keys, the raw-int

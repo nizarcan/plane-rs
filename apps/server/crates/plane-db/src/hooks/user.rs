@@ -147,6 +147,62 @@ pub fn before_save(
     })
 }
 
+/// H31 — `create_user_notification` (`plane/db/models/user.py:298-312`,
+/// MODEL_HOOKS.md:2161).
+///
+/// ```python
+/// @receiver(post_save, sender=User)
+/// def create_user_notification(sender, instance, created, **kwargs):
+///     if created and not instance.is_bot:
+///         UserNotificationPreference.objects.create(
+///             user=instance,
+///             property_change=True,
+///             state_change=True,
+///             comment=True,
+///             mention=True,
+///             issue_completed=True,
+///         )
+/// ```
+///
+/// A `post_save` receiver runs **inside** `Model.save`'s caller, after the
+/// `INSERT`, and opens its own statement (autocommit unless the caller is in
+/// `transaction.atomic()`). A user created outside a transaction therefore
+/// exists even when the preference insert fails; this hook only answers
+/// whether to insert, so the caller controls the boundary exactly as Django
+/// does.
+///
+/// `created` is Django's `_state.adding` at save time: every full save of an
+/// existing row passes `false`, so a `User.save()` on an update does not
+/// create a second row, and `User.objects.create()`/`User(...).save()` passes
+/// `true`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotificationPreferenceDefaults {
+    pub property_change: bool,
+    pub state_change: bool,
+    pub comment: bool,
+    pub mention: bool,
+    pub issue_completed: bool,
+}
+
+/// The five `True` arguments (`user.py:304-310`).
+pub const NOTIFICATION_PREFERENCE_DEFAULTS: NotificationPreferenceDefaults =
+    NotificationPreferenceDefaults {
+        property_change: true,
+        state_change: true,
+        comment: true,
+        mention: true,
+        issue_completed: true,
+    };
+
+/// H31: the `UserNotificationPreference` row to insert after a user insert.
+///
+/// `None` when the receiver does not run: an update (`created == false`) or a
+/// bot (`is_bot == true`).
+#[must_use]
+pub fn after_insert(created: bool, is_bot: bool) -> Option<NotificationPreferenceDefaults> {
+    (created && !is_bot).then_some(NOTIFICATION_PREFERENCE_DEFAULTS)
+}
+
 /// CPython's `str.strip()` for the character classes `str.isspace()` accepts.
 ///
 /// `char::is_whitespace` is the Unicode `White_Space` property; CPython also
@@ -290,6 +346,23 @@ mod tests {
                 .email,
             "\u{200b}a@b"
         );
+    }
+
+    #[test]
+    fn h31_creates_a_preference_only_for_a_new_non_bot() {
+        assert_eq!(
+            after_insert(true, false),
+            Some(NOTIFICATION_PREFERENCE_DEFAULTS)
+        );
+        assert_eq!(after_insert(true, true), None);
+        assert_eq!(after_insert(false, false), None);
+        // Every preference is on (`user.py:304-310`).
+        let defaults = NOTIFICATION_PREFERENCE_DEFAULTS;
+        assert!(defaults.property_change);
+        assert!(defaults.state_change);
+        assert!(defaults.comment);
+        assert!(defaults.mention);
+        assert!(defaults.issue_completed);
     }
 
     #[test]

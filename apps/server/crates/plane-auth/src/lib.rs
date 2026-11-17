@@ -26,6 +26,8 @@
 //! (`plane_db::schema_check::verify`).
 
 pub mod api_key;
+/// The `/auth/` flows' shared pieces (plan `AUTH_FLOWS.md` §2a-§2d, §2f, §2g).
+pub mod auth_flow;
 pub mod cookies;
 pub mod csrf;
 pub mod error;
