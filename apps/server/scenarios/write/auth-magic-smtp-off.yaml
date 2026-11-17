@@ -1,0 +1,84 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# `MIC` — no: this file covers the magic-link provider without an SMTP host.
+#
+# `MagicCodeProvider.__init__` reads `(EMAIL_HOST, ENABLE_MAGIC_LINK_LOGIN)` and
+# rejects an empty host with `SMTP_NOT_CONFIGURED` **before** the login switch
+# and before any Redis access (`provider/credentials/magic_code.py:57-79`). Both
+# generate routes answer 400 and both verify routes redirect with the same code.
+#
+# The verify paths pass `key=f"magic_{email}"` to the provider
+# (`views/app/magic.py:102`, `views/space/magic.py:100`), so their `email`
+# parameter is `magic_<email>` — not the bare address the generate paths send.
+# That difference is pinned here.
+
+name: write-auth-magic-smtp-off
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-magic-fixture-smtp-off.sql"
+  csrf_secret: abcdefghijklmnopqrstuvwxyz012345
+  member_email: "fix.member@example.com"
+
+steps:
+  - name: smtp-off-generate
+    method: POST
+    path: /auth/magic-generate/
+    jar: smtp01
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{member_email}}" }
+    expect_status: 400
+
+  - name: smtp-off-space-generate
+    method: POST
+    path: /auth/spaces/magic-generate/
+    jar: smtp02
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{member_email}}" }
+    expect_status: 400
+
+  - name: smtp-off-signin
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: smtp03
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "{{member_email}}"
+      code: "123456"
+      next_path: "/workspaces"
+    expect_status: 302
+
+  - name: smtp-off-signup
+    method: POST
+    path: /auth/magic-sign-up/
+    jar: smtp04
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "smtp-off-new@example.com"
+      code: "123456"
+    expect_status: 302
+
+  - name: smtp-off-space-signin
+    method: POST
+    path: /auth/spaces/magic-sign-in/
+    jar: smtp05
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "{{member_email}}"
+      code: "123456"
+    expect_status: 302

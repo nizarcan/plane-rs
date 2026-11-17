@@ -1,0 +1,70 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The magic-link provider with SMTP configured and `ENABLE_MAGIC_LINK_LOGIN`
+# switched off.
+#
+# The template seeds that key as `'0'` (`plane/utils/instance_config_variables/
+# core.py:22-23`) even though every read site's fallback is `"1"`, so the
+# out-of-the-box state of a fresh install is "magic links disabled" while the
+# code default is "enabled" (`ENV.md` §5). The provider's second gate
+# (`magic_code.py:74-79`) answers `MAGIC_LINK_LOGIN_DISABLED`, a 400 on the
+# generate routes and a redirect on the verify ones — with the `magic_` key as
+# the `email` parameter, because the verify paths build the provider with
+# `key=f"magic_{email}"`.
+
+name: write-auth-magic-disabled
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-magic-fixture-magic-disabled.sql"
+  csrf_secret: abcdefghijklmnopqrstuvwxyz012345
+  member_email: "fix.member@example.com"
+
+steps:
+  - name: disabled-generate
+    method: POST
+    path: /auth/magic-generate/
+    jar: disabled01
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{member_email}}" }
+    expect_status: 400
+
+  - name: disabled-space-generate
+    method: POST
+    path: /auth/spaces/magic-generate/
+    jar: disabled02
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{member_email}}" }
+    expect_status: 400
+
+  - name: disabled-signin
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: disabled03
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "{{member_email}}"
+      code: "123456"
+    expect_status: 302
+
+  - name: disabled-signup
+    method: POST
+    path: /auth/magic-sign-up/
+    jar: disabled04
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "disabled-new@example.com"
+      code: "123456"
+    expect_status: 302

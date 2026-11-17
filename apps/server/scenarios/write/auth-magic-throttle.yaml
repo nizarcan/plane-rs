@@ -1,0 +1,127 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# `AuthenticationThrottle` on the magic-link routes.
+#
+# Two different mechanisms share one class:
+#
+#   * the four plain views run it through `@throttle_auth_redirect`, which
+#     checks it by hand and answers a **302** carrying `RATE_LIMIT_EXCEEDED`
+#     (`plane/authentication/rate_limit.py:62-95`);
+#   * the two generate APIViews list it in `throttle_classes`, so DRF's
+#     `check_throttles` runs it inside `initial()` and Plane's exception handler
+#     answers the **429** body `{"error_code": 5900, "error_message":
+#     "RATE_LIMIT_EXCEEDED"}` (`adapter/exception.py:26-34`).
+#
+# Both key on the client IP (`rate_limit.py:32-34`) and share the same
+# `throttle_authentication_<ident>` cache entry, so the plain views' history is
+# what makes the generate call below trip. The limit is lowered through
+# `target_env` — the value is read once at startup on the Rust side and at
+# import time on Django's — because the real 10/minute would take ten steps.
+#
+# `Retry-After` on the 429 is `math.ceil(wait)`, i.e. 60 while less than a
+# second has passed since the last recorded request; the two targets answer
+# within milliseconds of each other, so both round to 60.
+#
+# The contract suite's two `test_magic_*_throttled` tests lower
+# `AuthenticationThrottle.rate` with `patch.object` inside the test process.
+# That cannot reach an out-of-process target (the runner serves those requests
+# from Django and records the limitation), so this scenario is where the Rust
+# side proves the behaviour.
+
+name: write-auth-magic-throttle
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "2/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-magic-fixture.sql"
+  csrf_secret: abcdefghijklmnopqrstuvwxyz012345
+  member_email: "fix.member@example.com"
+
+steps:
+  # The first two requests spend the 2/minute budget. Both fail with the
+  # missing-code redirect, which proves the throttle sits *after* nothing and
+  # *before* the body handling only on the rejection step below.
+  - name: throttle-01-signin-allowed
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: thrott01
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "throttle@example.com"
+      code: ""
+    expect_status: 302
+
+  - name: throttle-02-signin-allowed
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: thrott02
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "throttle@example.com"
+      code: ""
+    expect_status: 302
+
+  # The decorator's rejection: a redirect to the app error page, with the
+  # `next_path` the body carried and the rate-limit parameters.
+  - name: throttle-03-signin-rejected
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: thrott03
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "throttle@example.com"
+      code: "123456"
+      next_path: "/workspaces"
+    expect_status: 302
+
+  # Same scope, same IP: the sign-up view is rejected too, before its own body
+  # checks.
+  - name: throttle-04-signup-rejected
+    method: POST
+    path: /auth/magic-sign-up/
+    jar: thrott04
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "throttle-new@example.com"
+      code: "123456"
+    expect_status: 302
+
+  # And on the space base.
+  - name: throttle-05-space-signin-rejected
+    method: POST
+    path: /auth/spaces/magic-sign-in/
+    jar: thrott05
+    headers:
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form:
+      email: "{{member_email}}"
+      code: "123456"
+    expect_status: 302
+
+  # The DRF view's 429: same class, same key, so the history the plain views
+  # recorded refuses this request inside `initial()`.
+  - name: throttle-06-generate-rejected
+    method: POST
+    path: /auth/magic-generate/
+    jar: thrott06
+    headers:
+      Host: plane-fixture.test
+    json: { email: "throttle-generate@example.com" }
+    expect_status: 429

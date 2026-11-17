@@ -540,6 +540,19 @@ volatile_text_patterns:
     placeholder: email-code
     request: "POST /api/users/me/email/generate-code/"
     why: "the e-mail-change code is secrets.randbelow(900000) + 100000 (plane/app/views/user/base.py:170); it is random in the Celery task argument and in the pickled {\"token\": …} cache value, and no JSON key of its own is stable enough for a name rule"
+  # The magic-link code is the same generator (`secrets.randbelow(900000) +
+  # 100000`, magic_code.py:87) and appears in the Celery `magic_link` argument
+  # and in the raw Redis record `{"current_attempt": 0, …}`. Both routes share
+  # one provider, so the pattern is scoped to the two requests rather than to
+  # a key: nothing else in their responses is six digits.
+  - pattern: '\b[0-9]{6}\b'
+    placeholder: magic-code
+    request: "POST /auth/magic-generate/"
+    why: "the magic-link code is secrets.randbelow(900000) + 100000 (authentication/provider/credentials/magic_code.py:87); it reaches the client only through the Celery argument and the Redis value, never the 200 body"
+  - pattern: '\b[0-9]{6}\b'
+    placeholder: magic-code
+    request: "POST /auth/spaces/magic-generate/"
+    why: "the space magic-generate view is the same provider (space/magic.py:53-57), so the code is random in the same two side effects"
 
 volatile_db_columns:
   - table: sessions

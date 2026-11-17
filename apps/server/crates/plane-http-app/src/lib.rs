@@ -42,6 +42,7 @@
 pub mod ai;
 pub mod analytics;
 pub mod assets;
+pub mod auth;
 pub mod common;
 pub mod cycles;
 pub mod estimates;
@@ -98,6 +99,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     stickies::register(registry)?;
     webhooks::register(registry)?;
     ai::register(registry)?;
+    auth::register(registry)?;
     Ok(())
 }
 

@@ -1,0 +1,196 @@
+{
+  "entries": [
+    {
+      "key": "magic_fix.member@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.member@example.com\", \"token\": \"111111\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.member@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.member2@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.member2@example.com\", \"token\": \"111112\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.member2@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.guest@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.guest@example.com\", \"token\": \"111113\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.guest@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.guest2@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.guest2@example.com\", \"token\": \"111114\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.guest2@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.admin@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.admin@example.com\", \"token\": \"111115\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.admin@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.kolkata@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.kolkata@example.com\", \"token\": \"111116\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.kolkata@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.onboarded@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.onboarded@example.com\", \"token\": \"111117\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.onboarded@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.invitee@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.invitee@example.com\", \"token\": \"111118\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.invitee@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.inactive@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.inactive@example.com\", \"token\": \"111119\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.inactive@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.bot@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.bot@example.com\", \"token\": \"111120\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.bot@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.berlin@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.berlin@example.com\", \"token\": \"111121\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.berlin@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.lonely@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"fix.lonely@example.com\", \"token\": \"111122\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_fix.lonely@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_new-hire@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"new-hire@example.com\", \"token\": \"111123\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_new-hire@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_space-new@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"space-new@example.com\", \"token\": \"111124\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_space-new@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_magic-project@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"magic-project@example.com\", \"token\": \"111125\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_magic-project@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_magic-provisioned@example.com",
+      "value": "{\"current_attempt\": 0, \"email\": \"magic-provisioned@example.com\", \"token\": \"111126\"}",
+      "timeout": 600,
+      "encoding": "raw"
+    },
+    {
+      "key": "magic_magic-provisioned@example.com:issued",
+      "value": 1,
+      "timeout": 600,
+      "encoding": "raw"
+    }
+  ]
+}

@@ -371,6 +371,37 @@ plane_query! {
 }
 
 plane_query! {
+    /// `Profile.objects.get_or_create(user=user)`'s read half
+    /// (`authentication/views/app/magic.py:109`,
+    /// `authentication/utils/redirection_path.py:11`).
+    ///
+    /// `Profile` is `TimeAuditModel`, **not** `SoftDeleteModel`
+    /// (`plane/db/models/user.py:200`), so there is no `deleted_at` filter, and
+    /// `user_id` is unique (`OneToOneField`), so `get()` returns at most one row.
+    /// Only the three columns the callers read are selected.
+    LOAD_PROFILE_FOR_USER = "auth_load_profile_for_user",
+    "SELECT is_onboarded, last_workspace_id FROM profiles WHERE user_id = $1",
+    [("is_onboarded", Bool), ("last_workspace_id", Uuid)]
+}
+
+plane_query! {
+    /// `django.contrib.auth.models.update_last_login`, the `user_logged_in`
+    /// receiver `AuthConfig.ready()` connects
+    /// (`django/contrib/auth/apps.py:26-28`, `models.py:18-22`):
+    ///
+    /// ```python
+    /// user.last_login = timezone.now()
+    /// user.save(update_fields=["last_login"])
+    /// ```
+    ///
+    /// `update_fields` keeps `auto_now`'s `updated_at` out of the statement:
+    /// Django writes only `last_login`.
+    UPDATE_USER_LAST_LOGIN = "auth_update_user_last_login",
+    "UPDATE users SET last_login = $1 WHERE id = $2",
+    []
+}
+
+plane_query! {
     /// H31: `create_user_notification` (`plane/db/models/user.py:298-312`), a
     /// `post_save` receiver on `User` that creates one row when
     /// `created and not instance.is_bot`.
@@ -642,9 +673,11 @@ pub static ALL_QUERIES: &[&Query] = &[
     &INSERT_USER,
     &UPDATE_USER_LOGIN,
     &UPDATE_USER_SYNC,
+    &UPDATE_USER_LAST_LOGIN,
     &INVITE_EXISTS_FOR_EMAIL,
     &USER_EXISTS_BY_EMAIL,
     &INSERT_PROFILE,
+    &LOAD_PROFILE_FOR_USER,
     &INSERT_USER_NOTIFICATION_PREFERENCE,
     &WORKSPACE_INVITES_FOR_EMAIL,
     &PROJECT_INVITES_FOR_EMAIL,

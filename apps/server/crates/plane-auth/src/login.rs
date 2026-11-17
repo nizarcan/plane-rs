@@ -13,14 +13,13 @@
 //! 3. write `_auth_user_id`, `_auth_user_backend` and `_auth_user_hash`;
 //! 4. `rotate_token(request)` — a new CSRF secret, written by the CSRF
 //!    middleware's response phase;
-//! 5. send `user_logged_in`.
-//!
-//! Step 5 has **no receiver in Plane**: `django.contrib.auth.models.update_last_login`
-//! is not connected anywhere in `plane/` (grep for `user_logged_in` finds no
-//! `@receiver`). `last_login` is therefore *not* updated by logging in;
-//! `plane/authentication/adapter/base.py:229-247` writes `last_login_time`,
-//! `last_login_ip`, `last_login_uagent` and `last_login_medium` in its own
-//! `save_user_data`, which is a Phase 6 concern.
+//! 5. send `user_logged_in`, whose only receiver is Django's own
+//!    `update_last_login` (`django/contrib/auth/apps.py:26-28`), which writes
+//!    `users.last_login = timezone.now()` with
+//!    `save(update_fields=["last_login"])` — one UPDATE that leaves
+//!    `updated_at` untouched. Plane does not connect a receiver of its own
+//!    (grep for `user_logged_in` under `plane/` finds no `@receiver`), but
+//!    Django's is always connected.
 //!
 //! Plane's `user_login` (`plane/authentication/utils/login.py:13-27`) calls
 //! `login()`, optionally sets the admin expiry, writes `device_info =
@@ -172,7 +171,16 @@ pub async fn login(
     ctx.user = Some(plane_core::ids::UserId(user.id));
     // `rotate_token(request)`.
     csrf.rotate();
-    // `user_logged_in.send(...)`: no receiver in Plane (see module docs).
+    // `user_logged_in.send(...)`: Django's `AuthConfig.ready()` connects
+    // `update_last_login`, which writes `last_login` with
+    // `save(update_fields=["last_login"])` (`django/contrib/auth/apps.py:26-28`,
+    // `models.py:18-22`). `update_fields` leaves `updated_at` alone.
+    let statement = client
+        .prepare_cached(crate::queries::UPDATE_USER_LAST_LOGIN.sql)
+        .await?;
+    client
+        .execute(&statement, &[&plane_core::clock::now(), &user.id])
+        .await?;
     Ok(())
 }
 

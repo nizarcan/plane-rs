@@ -1,0 +1,425 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Magic-link sign-in and sign-up (set B): routes 360/361 (app) and 363/364
+# (space). The codes are seeded, not generated: `capture` has no Redis source,
+# so `auth-magic-signin-fixture.redis.json` writes a known `magic_<email>` and
+# `magic_<email>:issued` into both targets' own Redis database before the
+# baseline snapshot. Those keys are `redis_instance()` keys — no `:1:` prefix,
+# no pickle — which is why the entries carry `"encoding": "raw"`.
+#
+# Covers, in Step order:
+#
+#   * the `MAGIC_SIGN_*_EMAIL_CODE_REQUIRED` gate and its redirect parameters
+#     (app and space base URLs differ by `/spaces/`);
+#   * `User.objects.filter(email=…)` before the provider: `USER_DOES_NOT_EXIST`
+#     on sign-in, `USER_ALREADY_EXIST` on sign-up, both exact-match;
+#   * the verify state machine: `:verify_attempts` counted **before** the
+#     comparison, the invalid-code answer, the `MAX_VERIFY_ATTEMPTS = 5`
+#     exhaustion (which deletes the token and the counter, so even the right
+#     code then reports `EXPIRED_MAGIC_CODE`);
+#   * `user_login`: the session row (+ `session-id` and a rotated `csrftoken`
+#     cookie), `last_login_*`/`token` on the user row, `device_info`;
+#   * `complete_login_or_signup`'s rejections: `USER_ACCOUNT_DEACTIVATED`,
+#     `BOT_USER_LOGIN_FORBIDDEN`;
+#   * the app-only `post_user_auth_workflow` invite join (the space views pass
+#     no callback): `fix.invitee` signs in and the accepted invite becomes a
+#     `workspace_members` row plus a soft-deleted invite;
+#   * a provisioned account (`is_active = FALSE`, `last_logout_time = NULL`)
+#     is reactivated, gets its profile row created by `get_or_create` and
+#     publishes `user_activation_email`;
+#   * sign-up: the user/profile/notification-preference rows, the invite join,
+#     and the upstream 500 when an accepted *project* invite is also present
+#     (`ProjectMember` is built without `project_id`, which is NOT NULL);
+#   * the redirect wiring: a valid `next_path` is interpolated unencoded, a
+#     bare slug (`onboarding`) is dropped by `validate_next_path`, the app
+#     autoset+onboarded branch is `/?next_path=/`, and the space success URL is
+#     `base_host().rstrip("/") + path` (so no path means `/spaces`).
+#
+# The CSRF cookie/token pair is a fixed scenario value: `/auth/get-csrf-token/`
+# belongs to set A, so this scenario cannot ask the server for one. Django
+# accepts any 32-character secret in `X-CSRFToken` that equals the cookie
+# (csrf.py:130-157).
+#
+# `AUTHENTICATION_RATE_LIMIT` is raised because these routes run
+# `AuthenticationThrottle`, and 27 steps from one address would otherwise trip
+# the default `10/minute`; the decorator's own rejection (a 302 with
+# `RATE_LIMIT_EXCEEDED`) is covered by a separate check, not by this file.
+
+name: write-auth-magic-signin
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-magic-fixture.sql"
+  fixture_redis: "{repo}/apps/server/scenarios/write/auth-magic-signin-fixture.redis.json"
+  csrf_secret: abcdefghijklmnopqrstuvwxyz012345
+  member_email: "fix.member@example.com"
+  member2_email: "fix.member2@example.com"
+  guest_email: "fix.guest@example.com"
+  guest2_email: "fix.guest2@example.com"
+  admin_email: "fix.admin@example.com"
+  kolkata_email: "fix.kolkata@example.com"
+  onboarded_email: "fix.onboarded@example.com"
+  invitee_email: "fix.invitee@example.com"
+  inactive_email: "fix.inactive@example.com"
+  bot_email: "fix.bot@example.com"
+  berlin_email: "fix.berlin@example.com"
+  lonely_email: "fix.lonely@example.com"
+  new_hire_email: "new-hire@example.com"
+  space_new_email: "space-new@example.com"
+  project_invite_email: "magic-project@example.com"
+  provisioned_email: "magic-provisioned@example.com"
+
+steps:
+  # --- 360: the guards before the provider ----------------------------------
+  - name: signin-01-missing-both
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin01
+    headers: &csrf
+      Host: plane-fixture.test
+      Cookie: "csrftoken={{csrf_secret}}"
+      X-CSRFToken: "{{csrf_secret}}"
+    form: {}
+    expect_status: 302
+
+  - name: signin-02-missing-code
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin02
+    headers: *csrf
+    form:
+      email: "{{member_email}}"
+    expect_status: 302
+
+  - name: signin-03-unknown-user
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin03
+    headers: *csrf
+    form:
+      email: "nobody@example.com"
+      code: "111111"
+    expect_status: 302
+
+  # --- 360: success, with and without next_path -----------------------------
+  - name: signin-04-success
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin04
+    headers: *csrf
+    form:
+      email: "{{member_email}}"
+      code: "111111"
+    expect_status: 302
+    capture:
+      - name: member_session
+        source: cookie
+        cookie: session-id
+
+  - name: signin-05-next-path
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin05
+    headers: *csrf
+    form:
+      email: "{{member2_email}}"
+      code: "111112"
+      next_path: "/workspaces"
+    expect_status: 302
+
+  # `onboarding` has no leading slash, so `validate_next_path` drops it and the
+  # redirect is the bare base URL (`path_validator.py:132-133`).
+  - name: signin-06-bare-next-path
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin06
+    headers: *csrf
+    form:
+      email: "{{berlin_email}}"
+      code: "111121"
+      next_path: "onboarding"
+    expect_status: 302
+
+  # The e-mail is lower-cased before the lookup and the key, so an upper-case
+  # address still finds the seeded `magic_<lower-case>` record.
+  - name: signin-07-uppercase-email
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin07
+    headers: *csrf
+    form:
+      email: "FIX.LONELY@example.com"
+      code: "111122"
+    expect_status: 302
+
+  # `user.is_password_autoset and profile.is_onboarded` → `path = "/"`
+  # (`views/app/magic.py:112-114`).
+  - name: signin-08-autoset-onboarded
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin08
+    headers: *csrf
+    form:
+      email: "{{onboarded_email}}"
+      code: "111117"
+    expect_status: 302
+
+  # --- 360: wrong code and the attempt counter ------------------------------
+  - name: signin-09-wrong-code
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin09
+    headers: *csrf
+    form:
+      email: "{{guest_email}}"
+      code: "999999"
+    expect_status: 302
+
+  - name: signin-10-wrong-code-again
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin10
+    headers: *csrf
+    form:
+      email: "{{guest_email}}"
+      code: "999999"
+    expect_status: 302
+
+  # --- 360: exhaustion after five attempts ----------------------------------
+  # Attempts 1-4 answer INVALID_MAGIC_CODE_SIGN_IN; the fifth recomputes
+  # `exhausted` and answers EMAIL_CODE_ATTEMPT_EXHAUSTED_SIGN_IN, deleting the
+  # token and the counter but not `:issued` (magic_code.py:173-180).
+  - name: signin-11-exhaust-1
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin11
+    headers: *csrf
+    form:
+      email: "{{guest2_email}}"
+      code: "999999"
+    expect_status: 302
+
+  - name: signin-12-exhaust-2
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin12
+    headers: *csrf
+    form:
+      email: "{{guest2_email}}"
+      code: "999999"
+    expect_status: 302
+
+  - name: signin-13-exhaust-3
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin13
+    headers: *csrf
+    form:
+      email: "{{guest2_email}}"
+      code: "999999"
+    expect_status: 302
+
+  - name: signin-14-exhaust-4
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin14
+    headers: *csrf
+    form:
+      email: "{{guest2_email}}"
+      code: "999999"
+    expect_status: 302
+
+  - name: signin-15-exhaust-5
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin15
+    headers: *csrf
+    form:
+      email: "{{guest2_email}}"
+      code: "999999"
+    expect_status: 302
+
+  # The token is gone, so even the seeded code now reports EXPIRED.
+  - name: signin-16-after-exhaustion
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin16
+    headers: *csrf
+    form:
+      email: "{{guest2_email}}"
+      code: "111114"
+    expect_status: 302
+
+  # --- 360: the adapter's account gates -------------------------------------
+  - name: signin-17-deactivated
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin17
+    headers: *csrf
+    form:
+      email: "{{inactive_email}}"
+      code: "111119"
+    expect_status: 302
+
+  - name: signin-18-bot
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin18
+    headers: *csrf
+    form:
+      email: "{{bot_email}}"
+      code: "111120"
+    expect_status: 302
+
+  # --- 360: the app-only invite join ----------------------------------------
+  # `post_user_auth_workflow` accepts the invitee's `fix-workspace` invite: one
+  # `workspace_members` insert and a soft delete of the invite
+  # (`workspace_project_join.py:15-74`).
+  - name: signin-19-invite-join
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin19
+    headers: *csrf
+    form:
+      email: "{{invitee_email}}"
+      code: "111118"
+    expect_status: 302
+
+  # A provisioned account (inactive, never deactivated) is allowed through: it
+  # is reactivated, `Profile.objects.get_or_create` inserts the missing row and
+  # `user_activation_email` is published.
+  - name: signin-20-provisioned-reactivation
+    method: POST
+    path: /auth/magic-sign-in/
+    jar: signin20
+    headers: *csrf
+    form:
+      email: "{{provisioned_email}}"
+      code: "111126"
+    expect_status: 302
+
+  # --- 361: sign-up ---------------------------------------------------------
+  - name: signup-01-missing-both
+    method: POST
+    path: /auth/magic-sign-up/
+    jar: signup01
+    headers: *csrf
+    form: {}
+    expect_status: 302
+
+  - name: signup-02-existing-user
+    method: POST
+    path: /auth/magic-sign-up/
+    jar: signup02
+    headers: *csrf
+    form:
+      email: "{{member_email}}"
+      code: "111111"
+    expect_status: 302
+
+  # A new account: `users`, `profiles`, `user_notification_preferences`, the
+  # accepted workspace invite and its soft delete.
+  - name: signup-03-success-with-invite
+    method: POST
+    path: /auth/magic-sign-up/
+    jar: signup03
+    headers: *csrf
+    form:
+      email: "{{new_hire_email}}"
+      code: "111123"
+    expect_status: 302
+
+  # --- 363: the space views -------------------------------------------------
+  # No `next_path`: `base_host().rstrip("/")` drops the trailing slash.
+  - name: space-signin-01-success
+    method: POST
+    path: /auth/spaces/magic-sign-in/
+    jar: space01
+    headers: *csrf
+    form:
+      email: "{{admin_email}}"
+      code: "111115"
+    expect_status: 302
+
+  - name: space-signin-02-next-path
+    method: POST
+    path: /auth/spaces/magic-sign-in/
+    jar: space02
+    headers: *csrf
+    form:
+      email: "{{kolkata_email}}"
+      code: "111116"
+      next_path: "/my-workspace/"
+    expect_status: 302
+
+  - name: space-signin-03-missing
+    method: POST
+    path: /auth/spaces/magic-sign-in/
+    jar: space03
+    headers: *csrf
+    form: {}
+    expect_status: 302
+
+  - name: space-signin-04-unknown-user
+    method: POST
+    path: /auth/spaces/magic-sign-in/
+    jar: space04
+    headers: *csrf
+    form:
+      email: "nobody@example.com"
+      code: "111111"
+    expect_status: 302
+
+  # The verify counter is keyed by the address, not the surface: this is the
+  # third wrong code for `fix.guest`, after the two app steps.
+  - name: space-signin-05-wrong-code
+    method: POST
+    path: /auth/spaces/magic-sign-in/
+    jar: space05
+    headers: *csrf
+    form:
+      email: "{{guest_email}}"
+      code: "999999"
+    expect_status: 302
+
+  # --- 364: the space sign-up ----------------------------------------------
+  - name: space-signup-01-success
+    method: POST
+    path: /auth/spaces/magic-sign-up/
+    jar: space06
+    headers: *csrf
+    form:
+      email: "{{space_new_email}}"
+      code: "111124"
+      next_path: "/deep/path"
+    expect_status: 302
+
+  - name: space-signup-02-existing-user
+    method: POST
+    path: /auth/spaces/magic-sign-up/
+    jar: space07
+    headers: *csrf
+    form:
+      email: "{{member_email}}"
+      code: "111111"
+    expect_status: 302
+
+  # --- the accepted *project* invite: the upstream 500 ---------------------
+  # `process_workspace_project_invitations` inserts the workspace membership,
+  # then builds a `ProjectMember` without `project_id` (NOT NULL) and the
+  # request is a 500 after the membership was committed
+  # (`workspace_project_join.py:43-65`). Last, because it leaves rows.
+  - name: signup-04-project-invite-500
+    method: POST
+    path: /auth/magic-sign-up/
+    jar: signup04
+    headers: *csrf
+    form:
+      email: "{{project_invite_email}}"
+      code: "111125"
+    expect_status: 500
