@@ -267,6 +267,11 @@ fn catalogs() -> Vec<Catalog> {
             queries: plane_http_app::webhooks::queries::ALL_QUERIES,
         },
         Catalog {
+            domain: "webhooks_write",
+            source: "webhooks/write_queries.rs",
+            queries: plane_http_app::webhooks::write_queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "ai",
             source: "ai/queries.rs",
             queries: plane_http_app::ai::queries::ALL_QUERIES,

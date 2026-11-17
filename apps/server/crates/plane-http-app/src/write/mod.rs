@@ -69,6 +69,7 @@ pub use fields::{CharOptions, Detail, IntegerOptions};
 /// The H01 audit columns (`plane/db/models/base.py:23-45`).
 pub use plane_db::hooks::audit::Audit;
 pub use serializer::{PrimaryKeyListOptions, Serializer, Validated, ValidationErrors, Value};
+pub use url::{UrlOptions, UrlValidator};
 
 use chrono::{DateTime, SubsecRound, Utc};
 use deadpool_postgres::Client;

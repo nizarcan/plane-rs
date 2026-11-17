@@ -121,7 +121,7 @@ pub const FIELDS: &[FieldSpec] = &[
             name: "element",
             source: "element",
             python_class: "URLField",
-            kind: FieldKind::Char,
+            kind: FieldKind::Url,
             required: true,
             write_only: false,
             allow_null: false,

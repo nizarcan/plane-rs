@@ -21,9 +21,12 @@
 //! `validate_schema` is likewise redundant with `URLField` but is kept because
 //! both produce different error messages.
 //!
-//! `_validate_webhook_url`'s message is wrapped by DRF as
-//! `{"url": ["Invalid or disallowed webhook URL."]}`; the strings below are what
-//! ends up inside that list.
+//! `_validate_webhook_url` is called from `create`/`update`, i.e. inside
+//! `serializer.save()`, so its `ValidationError({"url": …})` is *not* wrapped
+//! by DRF's `as_serializer_error`: the response body is
+//! `{"url": "Invalid or disallowed webhook URL."}` with a bare string, not a
+//! one-element list (`plane/app/serializers/webhook.py:35-55`). The strings
+//! below are what ends up in that value.
 
 use crate::dns::Resolver;
 use crate::pyurl::{self, PyUrlError};
