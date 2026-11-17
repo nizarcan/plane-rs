@@ -191,8 +191,11 @@ pub fn char(raw: Raw<'_>, options: &CharOptions) -> Result<String, Detail> {
 }
 
 /// `BooleanField.to_internal_value` (`rest_framework/fields.py:695-720`):
-/// `True`/`"True"`/`"true"`/`"1"`/`1` are true, `False`/`"False"`/`"false"`/
-/// `"0"`/`0` false, anything else `Must be a valid boolean.`.
+/// `TRUE_VALUES` is `{"t","y","yes","true","on","1",1,True}`, `FALSE_VALUES`
+/// is `{"f","n","no","false","off","0",0,0.0,False}` and the input string is
+/// lower-cased before the membership test (`_lower_if_str`). CPython's set
+/// membership makes `1.0` true (`1.0 == 1`) and `0.0` false; every other
+/// number, string, list and dict is `Must be a valid boolean.`.
 pub fn boolean(raw: Raw<'_>) -> Result<bool, Detail> {
     let invalid = || Detail::new("Must be a valid boolean.", "invalid");
     match raw {
@@ -202,6 +205,15 @@ pub fn boolean(raw: Raw<'_>) -> Result<bool, Detail> {
             Some(0) => Ok(false),
             _ => Err(invalid()),
         },
+        Raw::Json(Json::Float(value)) => {
+            if *value == 1.0 {
+                Ok(true)
+            } else if *value == 0.0 {
+                Ok(false)
+            } else {
+                Err(invalid())
+            }
+        }
         Raw::Json(Json::Str(value)) => {
             let text = value.as_str().ok_or_else(invalid)?;
             boolean_text(text).ok_or_else(invalid)
@@ -212,9 +224,9 @@ pub fn boolean(raw: Raw<'_>) -> Result<bool, Detail> {
 }
 
 fn boolean_text(text: &str) -> Option<bool> {
-    match text {
-        "True" | "true" | "1" => Some(true),
-        "False" | "false" | "0" => Some(false),
+    match text.to_lowercase().as_str() {
+        "t" | "y" | "yes" | "true" | "on" | "1" => Some(true),
+        "f" | "n" | "no" | "false" | "off" | "0" => Some(false),
         _ => None,
     }
 }
@@ -882,9 +894,18 @@ mod tests {
         for (text, expected) in [
             ("true", true),
             ("True", true),
+            ("TRUE", true),
+            ("t", true),
+            ("y", true),
+            ("yes", true),
+            ("on", true),
             ("1", true),
             ("false", false),
             ("False", false),
+            ("f", false),
+            ("n", false),
+            ("no", false),
+            ("off", false),
             ("0", false),
         ] {
             let value = parse(&format!("\"{text}\""));
@@ -892,12 +913,19 @@ mod tests {
         }
         let value = parse("1");
         assert!(boolean(Raw::Json(&value)).expect("int 1"));
+        // `1.0`/`0.0` are set members in CPython (`1.0 == 1`).
+        let value = parse("1.0");
+        assert!(boolean(Raw::Json(&value)).expect("float 1.0"));
+        let value = parse("0.0");
+        assert!(!boolean(Raw::Json(&value)).expect("float 0.0"));
         let value = parse("2");
         assert_eq!(
             boolean(Raw::Json(&value)).expect_err("2"),
             Detail::new("Must be a valid boolean.", "invalid")
         );
-        let value = parse("\"yes\"");
+        let value = parse("2.5");
+        assert!(boolean(Raw::Json(&value)).is_err());
+        let value = parse("\" maybe\"");
         assert!(boolean(Raw::Json(&value)).is_err());
         assert_eq!(
             boolean(Raw::Text("nope")).expect_err("text"),

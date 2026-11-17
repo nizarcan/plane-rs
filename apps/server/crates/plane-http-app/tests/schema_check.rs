@@ -242,6 +242,16 @@ fn catalogs() -> Vec<Catalog> {
             queries: plane_http_app::notifications::queries::ALL_QUERIES,
         },
         Catalog {
+            domain: "notifications_write",
+            source: "notifications/write_queries.rs",
+            queries: plane_http_app::notifications::write_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "notifications_write_bulk",
+            source: "notifications/write_bulk_queries.rs",
+            queries: plane_http_app::notifications::write_bulk_queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "search",
             source: "search/queries.rs",
             queries: plane_http_app::search::queries::ALL_QUERIES,

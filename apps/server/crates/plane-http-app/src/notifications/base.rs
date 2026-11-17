@@ -45,19 +45,14 @@
 
 use chrono::{DateTime, Utc};
 use plane_core::error::APPLICATION_JSON;
-use plane_db::models::notification::Notification;
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_query::paginator::{MAX_LIMIT, PageQuery};
 use plane_query::sql::{Frag, Join, Select, Value};
-use plane_serializers::FieldValue;
-use plane_serializers::generated::app_notification::NotificationSerializer;
-use plane_serializers::generated::app_user::UserLiteSerializer;
 use uuid::Uuid;
 
-use super::render::guard_only;
-use crate::intake::asset;
+use super::render::{guard_only, render_rows};
 use crate::issues::lists::list_common::{client, kwarg_text, map_query_error, user_id};
 
 /// Register `list` and the guard-refused `retrieve`.
@@ -467,123 +462,6 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
             }
         }
     })
-}
-
-/// `render_rows`: decode the notification and `triggered_by` columns, resolve
-/// the avatar assets for the whole page, then render `NotificationSerializer`.
-fn render_rows(
-    rows: &[tokio_postgres::Row],
-    timezone: &chrono_tz::Tz,
-) -> Result<Vec<Vec<u8>>, ViewError> {
-    let context = plane_serializers::RenderCtx::new(timezone, None, &[]);
-
-    let mut rendered = Vec::with_capacity(rows.len());
-    for row in rows {
-        let notification = Notification::from_row(row, 0)?;
-        let triggered_by = decode_triggered_by(row)?;
-        let triggered_by_serializer = triggered_by.as_ref().map(|user| user.lite());
-        let serializer = NotificationSerializer {
-            id: notification.id,
-            triggered_by_details: triggered_by_serializer.as_ref(),
-            // All three annotations exist: the two `EXISTS`s and the `CASE`.
-            is_inbox_issue: FieldValue::value(row.get(21)),
-            is_intake_issue: FieldValue::value(row.get(22)),
-            is_mentioned_notification: FieldValue::value(row.get(23)),
-            created_at: notification.created_at,
-            updated_at: notification.updated_at,
-            deleted_at: notification.deleted_at,
-            data: notification
-                .data
-                .as_ref()
-                .map(plane_serializers::PgJson::from),
-            entity_identifier: notification.entity_identifier,
-            entity_name: &notification.entity_name,
-            title: &notification.title,
-            message: notification
-                .message
-                .as_ref()
-                .map(plane_serializers::PgJson::from),
-            message_html: &notification.message_html,
-            message_stripped: notification.message_stripped.as_deref(),
-            sender: &notification.sender,
-            read_at: notification.read_at,
-            snoozed_till: notification.snoozed_till,
-            archived_at: notification.archived_at,
-            created_by: notification.created_by_id,
-            updated_by: notification.updated_by_id,
-            workspace: notification.workspace_id,
-            project: notification.project_id,
-            triggered_by: notification.triggered_by_id,
-            receiver: notification.receiver_id,
-        };
-        rendered.push(plane_serializers::render(&serializer, &context)?);
-    }
-    Ok(rendered)
-}
-
-/// The owned form of `UserLiteSerializer`'s input.
-struct TriggeredBy {
-    id: Uuid,
-    first_name: String,
-    last_name: String,
-    avatar: String,
-    avatar_url: Option<String>,
-    is_bot: bool,
-    display_name: String,
-}
-
-impl TriggeredBy {
-    fn lite(&self) -> UserLiteSerializer<'_> {
-        UserLiteSerializer {
-            id: self.id,
-            first_name: &self.first_name,
-            last_name: &self.last_name,
-            avatar: &self.avatar,
-            avatar_url: self.avatar_url.as_deref(),
-            is_bot: self.is_bot,
-            display_name: &self.display_name,
-        }
-    }
-}
-
-fn decode_triggered_by(row: &tokio_postgres::Row) -> Result<Option<TriggeredBy>, ViewError> {
-    let Some(id) = row.get::<_, Option<Uuid>>(24) else {
-        // `triggered_by_details` is a nested serializer whose source is null:
-        // DRF writes `null` (`rest_framework/serializers.py:499-521`).
-        return Ok(None);
-    };
-    let avatar: String = row.get(27);
-    let avatar_asset_id: Option<Uuid> = row.get(28);
-    let avatar_url = match avatar_asset_id {
-        Some(asset_id) => {
-            let row_id: Option<Uuid> = row.get(31);
-            if row_id.is_none() {
-                // The FK points at a row the base manager cannot see: Django
-                // raises `RelatedObjectDoesNotExist` (a 500).
-                return Err(ViewError::Unknown(format!(
-                    "the file asset {asset_id} referenced by this row does not exist"
-                )));
-            }
-            asset::asset_url(
-                asset_id,
-                row.get(32),
-                row.get(33),
-                row.get(34),
-                row.get::<_, Option<String>>(35).as_deref(),
-            )
-        }
-        None if !avatar.is_empty() => Some(avatar.clone()),
-        None => None,
-    };
-    Ok(Some(TriggeredBy {
-        id,
-        first_name: row.get(25),
-        last_name: row.get(26),
-        avatar,
-        avatar_url,
-        is_bot: row.get(29),
-        display_name: row.get(30),
-    }))
 }
 
 /// The paginated envelope for an empty (`none()`) queryset.

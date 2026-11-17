@@ -1,0 +1,574 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Mark-all-read (121) and notification-preference (122) write scenario:
+#
+#   POST  /api/workspaces/{slug}/users/notifications/mark-all-read/   (121)
+#   PATCH /api/users/me/notification-preferences/                     (122)
+#
+# Covers, for 121:
+#
+#   * `request.data.get("snoozed"|"archived", False)` for Python **truthiness**
+#     — JSON `false` takes the `else`, the form string `"false"` takes the `if`
+#     (`base.py:251,257`) — and the two snooze predicates (`snoozed=true` widens
+#     to `IS NOT NULL`, so a future snooze matches both);
+#   * `type` as `==` against `watching`/`assigned`/`created` (`base.py:263-286`):
+#     the three subqueries, `subscribed`/`all` matching no branch, and the guest
+#     `.none()` for `type=created` (`base.py:278-281`);
+#   * the manager's `deleted_at` predicate and the URL slug (the same receiver's
+#     `fix-second` row is not scanned through `fix-workspace`);
+#   * `read_at` **only** (no `updated_at`, no `updated_by`) per id in scan order,
+#     in batches of 100 (`base.py:288-292`);
+#   * the body is read before any query: `[1]` is the `AttributeError` 500 and
+#     `{not json` the parser's 400;
+#   * the permission 403s (non-member, inactive membership) and the answer
+#     `{"message": "Successful"}`.
+#
+# Covers, for 122:
+#
+#   * the five boolean preferences as the whole body, with DRF's BooleanField
+#     spellings (`"yes"`, `"off"`, `"t"`, `1`), the `invalid`/`null` messages, a
+#     form body, a form empty value (skipped), and the read-only fields being
+#     ignored;
+#   * `objects.get(user=…)`'s three cardinalities: one row (admin, 200), two
+#     rows (member, `MultipleObjectsReturned` → 500) and none (bot, 404) — the
+#     lookup runs before the body, so `{not json` on the member is 500 and on
+#     the bot 404;
+#   * the full `save()`: H01's `updated_by`/`updated_at` even for an empty body.
+#
+# Rows this scenario needs beyond `plane_fix_tpl` are seeded by
+# `notifications-fixture.sql` (shared with `write/notifications.yaml`): the
+# extra unread/snoozed/archived notifications, the `member` subscription to
+# `issue_alpha`, and `member2`'s inactive workspace membership.
+
+name: write-notification-preferences
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/notifications-fixture.sql"
+  ws: "fix-workspace"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  ws_id: "a91c3d80-5ed0-40f3-92a8-a28c015f4388"
+  notification_snoozed_issue: "8737b1da-063f-4fff-a0f4-d933d1d04842"
+  notification_unread_guest: "53cd8f4e-8f5f-42e4-91c3-f536e35b97fc"
+  notification_past_snooze: "b8000000-0000-4000-8000-000000000004"
+  notification_archived_unread: "b8000000-0000-4000-8000-000000000005"
+  notification_json_false: "b8000000-0000-4000-8000-000000000010"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_bot: "1ba415d760144c84bafed7b8e721aed3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- 121: type branches ------------------------------------------------
+  # `issue_alpha` is assigned to `member` and (by the fixture) subscribed too;
+  # ALPHA-030 is assigned only, ALPHA-003 subscribed only.
+  - name: nm-01-type-watching
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      type: "watching"
+    expect_status: 200
+
+  - name: nm-02-type-assigned
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      type: "assigned"
+    expect_status: 200
+
+  # `type=created` for a member: `Issue.objects.filter(created_by=member)` is
+  # empty in the fixture, so the subquery matches nothing (not `.none()`).
+  - name: nm-03-type-created-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      type: "created"
+    expect_status: 200
+
+  # A guest gets `Notification.objects.none()`: the guest's own unread row
+  # stays unread.
+  - name: nm-04-type-created-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      type: "created"
+    expect_status: 200
+
+  # Every issue in the fixture is created by the admin, so this branch marks
+  # the admin's unread issue notification.
+  - name: nm-05-type-created-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      type: "created"
+    expect_status: 200
+
+  # `list`'s `subscribed` type is not a 121 branch: no filter is applied.
+  - name: nm-06-type-subscribed
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      type: "subscribed"
+    expect_status: 200
+
+  # `"all"` is the default and matches no branch either.
+  - name: nm-06b-type-all
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      type: "all"
+    expect_status: 200
+
+  # Everything unread that is neither snoozed nor archived (the default body).
+  - name: nm-07-default-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 200
+
+  # `snoozed=true` is `< now OR IS NOT NULL`: the future and the past snoozes.
+  - name: nm-08-snoozed-true
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed: true
+    expect_status: 200
+
+  - name: nm-09-snoozed-true-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed: true
+    expect_status: 200
+
+  # The unread archived row: `archived=true` is `archived_at IS NOT NULL`.
+  - name: nm-10-archived-true
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      archived: true
+    expect_status: 200
+
+  # --- 121: the truthiness of the form body -------------------------------
+  # A **past** snooze is the one row the two branches disagree on: the `else`
+  # (`>= now OR IS NULL`) excludes it, the `if` (`< now OR IS NOT NULL`)
+  # includes it. Reset it so both bodies are observable.
+  - name: nm-11-reset-past-snooze
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_past_snooze}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # JSON `false` takes the `else`: the past-snoozed row is *not* marked.
+  - name: nm-12-json-snoozed-false
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed: false
+    expect_status: 200
+
+  - name: nm-13-reset-past-snooze-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_past_snooze}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # The form string `"false"` is truthy, so the `if snoozed:` branch runs and
+  # the past-snoozed row is marked.
+  - name: nm-14-form-snoozed-false
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form:
+      snoozed: "false"
+    expect_status: 200
+
+  # A future snooze is `>= now` as well as `IS NOT NULL`, so JSON `false` marks
+  # it too (the plan's "a future snooze matches both").
+  - name: nm-15-reset-future-snooze
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_json_false}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: nm-16-json-snoozed-false-future
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed: false
+    expect_status: 200
+
+  # The same distinction for `archived`: reset the archived row, then the form
+  # string `"false"` takes the `archived_at IS NOT NULL` branch.
+  - name: nm-17-reset-archived
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_archived_unread}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: nm-18-form-archived-false
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form:
+      archived: "false"
+    expect_status: 200
+
+  # A guest's own row: the default body marks it (role GUEST is allowed).
+  - name: nm-19-guest-default
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 200
+
+  - name: nm-20-guest-snoozed-true
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      snoozed: true
+    expect_status: 200
+
+  # The body is read first: a list body is the `AttributeError` 500…
+  - name: nm-21-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: [1]
+    expect_status: 500
+
+  # …and a malformed one the parser's 400 (no lookup precedes it).
+  - name: nm-22-malformed-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 400
+
+  - name: nm-23-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: {}
+    expect_status: 403
+
+  - name: nm-24-inactive-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/mark-all-read/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    json: {}
+    expect_status: 403
+
+  - name: nm-25-missing-workspace
+    method: POST
+    path: "/api/workspaces/no-such-workspace/users/notifications/mark-all-read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 403
+
+  # --- 122: preferences ----------------------------------------------------
+  - name: np-01-admin-partial
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      mention: false
+    expect_status: 200
+
+  - name: np-02-admin-all
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      property_change: false
+      state_change: false
+      comment: false
+      mention: true
+      issue_completed: false
+    expect_status: 200
+
+  # Every read-only key is ignored; `issue_completed` is the only write.
+  - name: np-03-admin-readonly-ignored
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      user: "{{member_id}}"
+      workspace: "{{ws_id}}"
+      project: "{{ws_id}}"
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      deleted_at: "2026-01-01T00:00:00Z"
+      issue_completed: true
+    expect_status: 200
+
+  # DRF's BooleanField spellings (`TRUE_VALUES`/`FALSE_VALUES`).
+  - name: np-04-admin-spellings
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      mention: "yes"
+      comment: "off"
+      property_change: "t"
+      state_change: 1
+      issue_completed: 0
+    expect_status: 200
+
+  # A form body: `""` is DRF's empty (skipped), the others are strings.
+  - name: np-05-admin-form
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      mention: "false"
+      state_change: ""
+      comment: "true"
+    expect_status: 200
+
+  - name: np-06-admin-invalid-boolean
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      mention: "maybe"
+    expect_status: 400
+
+  - name: np-07-admin-null
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      mention: null
+    expect_status: 400
+
+  # Every field fails: the errors are in `self.fields` order.
+  - name: np-08-admin-two-errors
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      state_change: "x"
+      issue_completed: null
+    expect_status: 400
+
+  # A list body is DRF's `non_field_errors`.
+  - name: np-09-admin-list-body
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: [1]
+    expect_status: 400
+
+  # No validated field, but `save()` still runs: H01's `updated_by`/`updated_at`
+  # move.
+  - name: np-10-admin-empty-body
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 200
+
+  # The lookup is first: malformed body, valid pk → 400.
+  - name: np-11-admin-malformed
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 400
+
+  # `member` has two preference rows: `MultipleObjectsReturned` → 500 …
+  - name: np-12-member-two-rows
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      mention: true
+    expect_status: 500
+
+  # … before the body is touched, so a malformed one is still 500.
+  - name: np-13-member-malformed
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 500
+
+  # The bot has no preference row: 404 before the body is touched.
+  - name: np-14-bot-no-row
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: bot
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_bot}}"
+    json:
+      mention: true
+    expect_status: 404
+
+  - name: np-15-bot-malformed
+    method: PATCH
+    path: "/api/users/me/notification-preferences/"
+    jar: bot
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_bot}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 404
+
+  - name: np-16-get-admin
+    method: GET
+    path: "/api/users/me/notification-preferences/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  - name: np-17-get-guest
+    method: GET
+    path: "/api/users/me/notification-preferences/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"

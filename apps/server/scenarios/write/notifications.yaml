@@ -1,0 +1,505 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Notification actions (set A) write scenario:
+#
+#   PATCH   /api/workspaces/{slug}/users/notifications/{pk}/           (117)
+#   DELETE  the same route answers the guard's 405                     (117)
+#   POST    /api/workspaces/{slug}/users/notifications/{pk}/read/      (118)
+#   DELETE  the same route answers `mark_unread`                       (118)
+#   POST    /api/workspaces/{slug}/users/notifications/{pk}/archive/   (119)
+#   DELETE  the same route answers `unarchive`                         (119)
+#
+# Covers:
+#
+#   * `Notification.objects.get(workspace__slug=slug, pk=pk,
+#     receiver=request.user)`: the manager's `deleted_at` predicate (404), the
+#     slug join (the same receiver's `fix-second` row 404s through
+#     `fix-workspace` and answers through `fix-second`), another user's row
+#     (404), a missing pk (404), and the permission decorator's 403 for a
+#     non-member and for an inactive membership;
+#   * the 22-key plain-instance body (the three list annotations are absent),
+#     `triggered_by_details: null` for a `triggered_by_id IS NULL` row, and the
+#     H01 columns (`updated_by` becomes the caller, `updated_at` moves) on a
+#     full `save()`;
+#   * 117's rebuilt `{"snoozed_till": …}` body: the form `""` is an invalid
+#     datetime (not DRF's html-input "empty → None"), a form value the last
+#     duplicate wins, a non-mapping JSON body is the `AttributeError` 500, and
+#     `read_at`/`archived_at`/`deleted_at`/`title` in the body are ignored;
+#   * 117/118/119 parse the body after the lookup: `{not json` on a missing pk
+#     is 404, on an existing pk 400; 118/119 never read the body at all (an
+#     unparseable one still succeeds);
+#   * the guard's 405 on 117 DELETE (it is registered precisely so the
+#     `BaseViewSet` guard is reachable).
+#
+# Rows no route can create (a `triggered_by_id IS NULL` row, a soft-deleted
+# row, a `ws2` row for the same receiver, a past `snoozed_till`, an unread
+# archived row) are seeded by `notifications-fixture.sql`.
+
+name: write-notifications
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/notifications-fixture.sql"
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  notification_unread_issue: "0631cd8e-504f-49c9-8d59-76947fbf68df"
+  notification_read_issue: "20d754fb-753d-4268-ad4d-2b598d2ac8c8"
+  notification_archived_issue: "ce24b44c-7ab9-4e4f-a9ae-7fe8e986a990"
+  notification_snoozed_issue: "8737b1da-063f-4fff-a0f4-d933d1d04842"
+  notification_unread_comment: "b431644e-f48e-4e62-942b-c4959ed802a7"
+  notification_unread_admin: "7d5fd6ea-0f43-4c26-a69c-d098ab513aff"
+  notification_unread_guest: "53cd8f4e-8f5f-42e4-91c3-f536e35b97fc"
+  notification_null_trigger: "b8000000-0000-4000-8000-000000000001"
+  notification_soft_deleted: "b8000000-0000-4000-8000-000000000002"
+  notification_ws2: "b8000000-0000-4000-8000-000000000003"
+  notification_past_snooze: "b8000000-0000-4000-8000-000000000004"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # --- 117 PATCH -----------------------------------------------------------
+  # The body's only writable key; the response is the 22-key plain instance.
+  - name: nw-01-patch-snooze
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: "2027-03-01T09:30:00Z"
+    expect_status: 200
+
+  # `null` clears the snooze (the field is `allow_null`).
+  - name: nw-02-patch-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: null
+    expect_status: 200
+
+  # Every other key is ignored: the rebuilt dict has one key. `archived_at` on
+  # the response stays the stored value and `deleted_at`/`read_at`/`title` are
+  # not written.
+  - name: nw-03-patch-ignores-other-keys
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_archived_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      read_at: "2026-01-01T00:00:00Z"
+      archived_at: null
+      deleted_at: null
+      title: "not written"
+      entity_name: "not written"
+    expect_status: 200
+
+  # An absent `snoozed_till` is `None`: the row's NULL is rewritten.
+  - name: nw-04-patch-absent-snooze
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_read_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      title: "ignored"
+    expect_status: 200
+
+  - name: nw-05-patch-invalid-datetime
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: "not-a-date"
+    expect_status: 400
+
+  # A form value is a plain string in the rebuilt dict, so `""` is an invalid
+  # datetime instead of DRF's html-input "empty → None".
+  - name: nw-06-patch-form-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form:
+      snoozed_till: ""
+    expect_status: 400
+
+  - name: nw-07-patch-form-valid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form:
+      snoozed_till: "2027-02-01T00:00:00+00:00"
+    expect_status: 200
+
+  # `request.data.get` on a list has no attribute `get`: the family 500.
+  - name: nw-08-patch-list-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: [1]
+    expect_status: 500
+
+  # The lookup runs first: a malformed body on a missing pk is the 404.
+  - name: nw-09-patch-missing-malformed
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{missing}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 404
+
+  # A repeated form key: `QueryDict.get` returns the last value, which the
+  # rebuilt dict keeps (`base.py:160-161`).
+  - name: nw-09b-patch-form-duplicate
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Content-Type: application/x-www-form-urlencoded
+    body: "snoozed_till=2027-01-01T00%3A00%3A00Z&snoozed_till=2027-02-01T00%3A00%3A00Z"
+    expect_status: 200
+
+  # …and on an existing pk it is the parser's 400.
+  - name: nw-10-patch-existing-malformed
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 400
+
+  # The manager's `deleted_at` predicate.
+  - name: nw-11-patch-soft-deleted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_soft_deleted}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: null
+    expect_status: 404
+
+  # The same receiver's row in another workspace: scoped away by the URL slug…
+  - name: nw-12-patch-other-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_ws2}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: null
+    expect_status: 404
+
+  # …and reachable through its own slug.
+  - name: nw-13-patch-own-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws2}}/users/notifications/{{notification_ws2}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: "2027-04-01T00:00:00Z"
+    expect_status: 200
+
+  # A past `snoozed_till` is writable like any other.
+  - name: nw-14-patch-past-snooze
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_past_snooze}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: null
+    expect_status: 200
+
+  # `triggered_by_details` is `null` for a NULL FK.
+  - name: nw-15-patch-null-trigger
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_null_trigger}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: "2027-05-01T00:00:00Z"
+    expect_status: 200
+
+  # The workspace permission runs before the lookup: a non-member is 403 even
+  # for a pk that exists.
+  - name: nw-16-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      snoozed_till: null
+    expect_status: 403
+
+  # An inactive workspace membership (`workspace_members.is_active`) is 403
+  # even though the user authenticates.
+  - name: nw-17-patch-inactive-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    json:
+      snoozed_till: null
+    expect_status: 403
+
+  # `receiver=request.user`: another member's row is a 404, not a 403.
+  - name: nw-18-patch-other-receiver
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      snoozed_till: null
+    expect_status: 404
+
+  - name: nw-19-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{missing}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      snoozed_till: null
+    expect_status: 404
+
+  # GUEST is in the allowed roles.
+  - name: nw-20-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_guest}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      snoozed_till: "2027-06-01T00:00:00Z"
+    expect_status: 200
+
+  # `destroy` is DRF's mixin under the bare `IsAuthenticated` permission, which
+  # `BaseViewSet.initial` refuses: the guard's 405, not the pipeline's 501.
+  - name: nw-21-delete-guard
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 405
+
+  # --- 118 POST/DELETE read ------------------------------------------------
+  - name: nw-22-mark-read
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: nw-23-mark-unread
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # Already read: the timestamp is rewritten.
+  - name: nw-24-mark-read-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_read_issue}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: nw-25-mark-read-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{missing}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: nw-26-mark-read-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_soft_deleted}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: nw-27-mark-read-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/read/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: nw-28-mark-read-other-receiver
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_issue}}/read/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The body is never read: an unparseable one still succeeds.
+  - name: nw-29-mark-read-unparseable-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_comment}}/read/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Content-Type: application/json
+    body: "{not json"
+    expect_status: 200
+
+  - name: nw-30-mark-unread-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_admin}}/read/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- 119 POST/DELETE archive ---------------------------------------------
+  - name: nw-31-archive
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_comment}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: nw-32-unarchive
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_comment}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # Already archived: the timestamp is rewritten.
+  - name: nw-33-archive-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_archived_issue}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: nw-34-archive-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{missing}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: nw-35-archive-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_soft_deleted}}/archive/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: nw-36-archive-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_snoozed_issue}}/archive/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: nw-37-unarchive-other-receiver
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_archived_issue}}/archive/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: nw-38-unarchive-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/users/notifications/{{notification_unread_guest}}/archive/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 200
+
+  # The writes landed: the list view (already Rust) shows them.
+  - name: nw-39-list-after
+    method: GET
+    path: "/api/workspaces/{{ws}}/users/notifications/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
