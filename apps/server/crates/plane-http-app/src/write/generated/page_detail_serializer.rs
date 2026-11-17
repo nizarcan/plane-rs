@@ -457,7 +457,9 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
             },
         )
         .await?;
-    let _ = s.primary_key_field(client, "parent", true, "pages").await?;
+    let _ = s
+        .primary_key_field_live(client, "parent", true, "pages")
+        .await?;
     let _ = s.bool_field("is_locked");
     let _ = s.date_field("archived_at", true, &["iso-8601"]);
     let _ = s
@@ -470,7 +472,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     let _ = s.json_field("logo_props", false);
     let _ = s.uuid_list_field("label_ids");
     let _ = s.uuid_list_field("project_ids");
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "description_html",
         CharOptions {
             allow_null: false,

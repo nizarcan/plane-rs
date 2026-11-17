@@ -232,24 +232,51 @@ async fn render_favorites(
     let serializers: Vec<UserFavoriteSerializer<'_>> = decoded
         .iter()
         .zip(entities.iter())
-        .map(|(favorite, entity)| UserFavoriteSerializer {
-            id: favorite.id,
-            entity_type: &favorite.entity_type,
-            entity_identifier: favorite.entity_identifier,
-            entity_data: match entity {
-                Some(entity) => DrfValue::nested(entity),
-                None => DrfValue::Null,
-            },
-            name: favorite.name.as_deref(),
-            is_folder: favorite.is_folder,
-            sequence: favorite.sequence,
-            parent: favorite.parent_id,
-            workspace_id: favorite.workspace_id,
-            project_id: favorite.project_id,
-        })
+        .map(|(favorite, entity)| favorite_serializer(favorite, entity.as_ref()))
         .collect();
     let body = plane_serializers::render_list(&serializers, &render_ctx)?;
     Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
+}
+
+/// `UserFavoriteSerializer(instance).data` for one row — the POST and PATCH
+/// response (`plane/app/views/workspace/favorite.py:54,73,86`).
+///
+/// `serializer.data` renders from the **in-memory** instance and `entity_data`
+/// re-runs `get_entity_data` with the row's own `user_id`/`project_id`/
+/// `workspace_id`, so a PATCH that changed nothing still costs the gate query.
+pub(super) async fn render_one(
+    ctx: &ViewCtx<'_>,
+    favorite: &UserFavorite,
+) -> Result<ViewResponse, ViewError> {
+    let client = client(ctx)?;
+    let timezone = rows::timezone(ctx);
+    let entity = entity_data(client, favorite, favorite.user_id).await?;
+    let serializer = favorite_serializer(favorite, entity.as_ref());
+    let body = plane_serializers::render(&serializer, &rows::plain_ctx(&timezone))?;
+    Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
+}
+
+/// `UserFavoriteSerializer`'s ten fields, in declaration order
+/// (`plane/app/serializers/favorite.py:102-119`).
+fn favorite_serializer<'a>(
+    favorite: &'a UserFavorite,
+    entity: Option<&'a EntityData>,
+) -> UserFavoriteSerializer<'a> {
+    UserFavoriteSerializer {
+        id: favorite.id,
+        entity_type: &favorite.entity_type,
+        entity_identifier: favorite.entity_identifier,
+        entity_data: match entity {
+            Some(entity) => DrfValue::nested(entity),
+            None => DrfValue::Null,
+        },
+        name: favorite.name.as_deref(),
+        is_folder: favorite.is_folder,
+        sequence: favorite.sequence,
+        parent: favorite.parent_id,
+        workspace_id: favorite.workspace_id,
+        project_id: favorite.project_id,
+    }
 }
 
 /// `get_favorite_entities`'s workspace-view branch

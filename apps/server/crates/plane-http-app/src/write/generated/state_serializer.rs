@@ -197,7 +197,7 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "name",
         CharOptions {
             allow_null: false,
@@ -209,7 +209,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     if s.missing_required("name") {
         s.push_error("name", Detail::required());
     }
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "color",
         CharOptions {
             allow_null: false,

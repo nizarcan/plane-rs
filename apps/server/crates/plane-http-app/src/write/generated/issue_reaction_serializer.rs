@@ -148,7 +148,7 @@ pub const READ_ONLY_FIELDS: &[ReadOnlySpec] = &[
 pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "reaction",
         CharOptions {
             allow_null: false,

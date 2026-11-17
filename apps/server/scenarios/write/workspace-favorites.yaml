@@ -1,0 +1,1347 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Favourites write scenario — routes 212 and 213:
+#
+#   POST   /api/workspaces/{slug}/user-favorites/
+#   PATCH  /api/workspaces/{slug}/user-favorites/            → signature 500
+#   DELETE /api/workspaces/{slug}/user-favorites/            → signature 500
+#   POST   /api/workspaces/{slug}/user-favorites/{favorite_id}/ → signature 500
+#   PATCH  /api/workspaces/{slug}/user-favorites/{favorite_id}/
+#   DELETE /api/workspaces/{slug}/user-favorites/{favorite_id}/
+#
+# Covers `WorkspaceFavoriteEndpoint.post`/`.patch`/`.delete`
+# (`plane/app/views/workspace/favorite.py:38-93`):
+#
+#   * POST's early return (`:44-55`): a truthy raw `entity_identifier` returns
+#     the stored row (200) and ignores every other key — including `parent`, so
+#     the fixture's child row (`favorite_project` under `favorite_folder`) comes
+#     back as-is. `folder` with no identifier is never deduped (NULLs are
+#     distinct).
+#   * the entity gate (`:61-67`, `serializers/favorite.py:70-99`) per type:
+#     cycle/module/issue (project + active member + unarchived project), project
+#     (`id=project_id`), page (live `project_pages` link, `owned_by|access=0`),
+#     view with a project (`owned_by|access=1`), workspace view (active
+#     `WorkspaceMember`, `project__isnull`); `folder`/unknown types have no gate.
+#     `issue` **is** gated but renders `entity_data: null` (the map has
+#     `(Issue, None)`); `intake` is not in the map at all.
+#   * H25's `MAX(sequence)` is workspace-global and runs on the **resolved**
+#     workspace (`db/models/favorite.py:52-65`): a `project_id` from another
+#     workspace writes the row there. A body `sequence` survives only when the
+#     aggregate is NULL — `fix-nologo` has no favourites, `fix-workspace` does.
+#   * the duplicate 400 body `{"error": "Favorite already exists"}` (`:75-76`),
+#     reachable because the partial unique index has no workspace column: the
+#     early-return lookup filters on the URL workspace, the INSERT does not.
+#   * PATCH's rebuilt body (`:82`): only `name`, `sequence`, `parent`, in that
+#     order, from `request.data[key]` — a plain dict, so a form body gets JSON
+#     semantics (`sequence=` is a 400, not a skip). A JSON/form `parent: ""`
+#     clears the parent (DRF 3.18 `RelatedField.run_validation`); a
+#     soft-deleted parent is `Invalid pk … object does not exist.`.
+#     `entity_type`/`entity_identifier`/`project_id`/`is_folder`/`workspace_id`
+#     cannot be patched; a scalar body is the family 500, a list body a 200
+#     no-op unless it contains one of the three keys.
+#   * DELETE's lookup then `delete(soft=False)` (`:91-92`): Django's deletion
+#     collector over the self-referential `parent` CASCADE. The fixture tree on
+#     `d2…0001` has a live member child, a soft-deleted child and a grandchild
+#     under each, plus (after the PATCH steps) the member's `fix-second` row as
+#     a direct child — all of them go, across users and workspaces. The body is
+#     never parsed: a malformed DELETE body is still 204.
+#   * the three signature 500s, reachable only after `allow_permission`:
+#     212 PATCH/DELETE (missing `favorite_id`) and 213 POST (unexpected
+#     `favorite_id`). A guest is 403, an anonymous caller 401.
+#   * a soft-deleted workspace (`fix-deleted`): POST 404s at
+#     `Workspace.objects.get`, PATCH/DELETE work through the `workspace__slug`
+#     join, which has no `workspaces.deleted_at` predicate.
+#
+# Fixture: `workspace-favorites-fixture.sql`. Sessions are the rich fixture's.
+
+name: write-workspace-favorites
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/workspace-favorites-fixture.sql"
+  ws: "fix-workspace"
+  ws_second: "fix-second"
+  ws_deleted: "fix-deleted"
+  ws_nologo: "fix-nologo"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  cycle_alpha_past: "e6f4b40f-2492-4a1e-97f1-d84204ff65c1"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  module_alpha_backlog: "c36df15d-45cc-4e0d-84cf-a2aed3cb5b37"
+  view_alpha_started: "626adef8-5e34-4a77-ab26-6bdeceb2afc0"
+  view_ws_public: "0e5e15ac-d652-4232-ac25-ac2dd1ead1c5"
+  page_project: "a0eb70c7-531a-4fb1-bd48-6c746066c310"
+  page_child: "18f82377-df31-4ca7-9600-a0ac60def218"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  intake_alpha: "826885ac-00cd-47cd-b54a-77a52004021c"
+  favorite_folder: "9110f4c5-226c-4ee5-9866-ba7c3043cfa7"
+  favorite_member_cycle: "a0d89cc9-80cb-495d-8f6e-8a1769933238"
+  favorite_member_view: "4ecb0f4c-cfae-4df7-9554-8894c7a23ae7"
+  seed_cascade_folder: "d2000000-0000-4000-8000-000000000001"
+  seed_soft_deleted_parent: "d2000000-0000-4000-8000-000000000010"
+  seed_second_folder: "d2000000-0000-4000-8000-000000000020"
+  seed_second_row: "d2000000-0000-4000-8000-000000000021"
+  seed_second_private_view: "d1000000-0000-4000-8000-000000000001"
+  seed_second_private_ws_view: "d1000000-0000-4000-8000-000000000002"
+  seed_foreign_identifier: "d3000000-0000-4000-8000-000000000040"
+  seed_deleted_workspace_row: "d2000000-0000-4000-8000-000000000030"
+  random_entity: "55555555-5555-4555-8555-555555555555"
+  folder_entity: "57575757-5757-4575-8575-575757575757"
+  cross_workspace_entity: "d3000000-0000-4000-8000-000000000050"
+  missing_favorite: "66666666-6666-4666-8666-666666666666"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- 212 POST: the early return, H25 and the gate -----------------------
+  - name: wsf-01-post-folder
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      is_folder: true
+      name: "Scenario Folder"
+    capture:
+      - name: fav_folder
+        source: json
+        pointer: /id
+    expect_status: 200
+
+  # No `entity_identifier`: the early return is skipped and the row is created
+  # with a NULL identifier, which no unique index can collide with.
+  - name: wsf-02-post-folder-no-identifier-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "Patch Target"
+    capture:
+      - name: fav_patch
+        source: json
+        pointer: /id
+    expect_status: 200
+
+  - name: wsf-03-post-cycle
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "cycle"
+      entity_identifier: "{{cycle_alpha_current}}"
+      project_id: "{{project_alpha}}"
+    capture:
+      - name: fav_cycle
+        source: json
+        pointer: /id
+    expect_status: 200
+
+  # The repeat is the early return: the same row, no INSERT, no H25.
+  - name: wsf-04-post-cycle-repeat
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "cycle"
+      entity_identifier: "{{cycle_alpha_current}}"
+      project_id: "{{project_alpha}}"
+      name: "ignored by the early return"
+      sequence: 12.5
+    expect_status: 200
+
+  - name: wsf-05-post-module
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "module"
+      entity_identifier: "{{module_alpha_backlog}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 200
+
+  - name: wsf-06-post-view
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "view"
+      entity_identifier: "{{view_alpha_started}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 200
+
+  # A workspace view (no project): the gate's `WorkspaceMember` branch.
+  - name: wsf-07-post-workspace-view
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "view"
+      entity_identifier: "{{view_ws_public}}"
+      project_id: null
+    expect_status: 200
+
+  - name: wsf-08-post-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "page"
+      entity_identifier: "{{page_project}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 200
+
+  - name: wsf-09-post-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "project"
+      entity_identifier: "{{project_beta}}"
+      project_id: "{{project_beta}}"
+    expect_status: 200
+
+  # `issue` is gated (the admin is an Alpha member) but `entity_data` is null:
+  # the map is `(Issue, None)`. The fixture's own issue favourite is
+  # soft-deleted, so the early return misses and a live row is written.
+  - name: wsf-10-post-issue
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "issue"
+      entity_identifier: "{{issue_alpha}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 200
+
+  # `intake` is not in `get_entity_model_and_serializer`'s map: no gate at all.
+  - name: wsf-11-post-intake
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "intake"
+      entity_identifier: "{{intake_alpha}}"
+    expect_status: 200
+
+  - name: wsf-12-post-unknown-type
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "widget"
+      entity_identifier: "{{random_entity}}"
+    expect_status: 200
+
+  # `folder` with an identifier still has no gate.
+  - name: wsf-13-post-folder-identified
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      entity_identifier: "{{folder_entity}}"
+      name: "Identified Folder"
+    expect_status: 200
+
+  # `parent` is any live `UserFavorite`, in another workspace too.
+  - name: wsf-14-post-cross-workspace-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "Child Of Second Workspace"
+      parent: "{{seed_second_folder}}"
+    expect_status: 200
+
+  # ...and another user's row.
+  - name: wsf-15-post-cross-user-parent
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "Child Of Member Row"
+      parent: "{{seed_second_row}}"
+    expect_status: 200
+
+  # `UserFavorite.objects` filters `deleted_at`, so the parent lookup misses.
+  - name: wsf-16-post-parent-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      parent: "{{seed_soft_deleted_parent}}"
+    expect_status: 400
+
+  # DRF 3.18's `RelatedField.run_validation` coerces `''` to `None`.
+  - name: wsf-17-post-parent-empty-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "Empty String Parent"
+      parent: ""
+    expect_status: 200
+
+  - name: wsf-18-post-parent-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "Null Parent"
+      parent: null
+    expect_status: 200
+
+  # --- serializer errors ---------------------------------------------------
+  - name: wsf-19-post-entity-type-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "no type"
+    expect_status: 400
+
+  - name: wsf-20-post-entity-type-blank
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: ""
+    expect_status: 400
+
+  # Empty form values are DRF's html-input branch: `entity_type` is required, so
+  # `''` is kept and fails `blank` (`rest_framework/fields.py:405-420`).
+  - name: wsf-20b-post-entity-type-blank-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      entity_type: ""
+    expect_status: 400
+
+  # A whole form create: `entity_identifier=` is `allow_null`, so `''` means
+  # NULL, and `parent=` clears the parent.
+  - name: wsf-20c-post-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      entity_type: "folder"
+      name: "Form Folder"
+      entity_identifier: ""
+      parent: ""
+      is_folder: "true"
+    expect_status: 200
+
+  - name: wsf-21-post-entity-type-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: ["cycle"]
+    expect_status: 400
+
+  - name: wsf-22-post-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    expect_status: 400
+
+  - name: wsf-23-post-sequence-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      sequence: null
+    expect_status: 400
+
+  - name: wsf-24-post-is-folder-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      is_folder: null
+    expect_status: 400
+
+  # --- the entity gate's 404s ----------------------------------------------
+  # `pk=None` → `id IS NULL` → `DoesNotExist`.
+  - name: wsf-25-post-issue-no-identifier
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "issue"
+      project_id: "{{project_alpha}}"
+    expect_status: 404
+
+  - name: wsf-26-post-cycle-unknown-identifier
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "cycle"
+      entity_identifier: "{{missing_favorite}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 404
+
+  # The cycle's project is Alpha (`in_project`), not Beta. The identifier is
+  # one the admin has not favourited, so the early return does not mask the
+  # gate.
+  - name: wsf-27-post-cycle-other-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "cycle"
+      entity_identifier: "{{cycle_alpha_past}}"
+      project_id: "{{project_beta}}"
+    expect_status: 404
+
+  # The project is in another workspace and the caller is not a member of it.
+  - name: wsf-28-post-cycle-foreign-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "cycle"
+      entity_identifier: "{{cycle_alpha_past}}"
+      project_id: "{{project_theta}}"
+    expect_status: 404
+
+  - name: wsf-29-post-project-not-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "project"
+      entity_identifier: "{{project_theta}}"
+      project_id: "{{project_theta}}"
+    expect_status: 404
+
+  # `in_project` for `project` is `Q(id=project_id)`, so both ids must agree.
+  - name: wsf-30-post-project-id-mismatch
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "project"
+      entity_identifier: "{{project_zeta}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 404
+
+  # A page favourite without a project: the page branch's `project_pages` join
+  # filters `project_id IS NULL` and the member subquery cannot match.
+  - name: wsf-31-post-page-without-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "page"
+      entity_identifier: "{{page_child}}"
+    expect_status: 404
+
+  # The member's private Alpha view: `owned_by` misses and `access=1` is not 0.
+  - name: wsf-32-post-private-view
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "view"
+      entity_identifier: "{{seed_second_private_view}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 404
+
+  # ...and the same shape as a workspace view.
+  - name: wsf-33-post-private-workspace-view
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "view"
+      entity_identifier: "{{seed_second_private_ws_view}}"
+      project_id: null
+    expect_status: 404
+
+  # The member's private Alpha page (`access=1`, owned by the admin) through the
+  # member's session: `owned_by` misses and `access=0` fails.
+  - name: wsf-34-post-private-page
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "page"
+      entity_identifier: "{{page_child}}"
+      project_id: "{{project_alpha}}"
+    expect_status: 404
+
+  # --- the early return and Django's coercion ------------------------------
+  # The fixture's project-alpha favourite is a child of `favorite_folder`;
+  # the early return returns it unchanged (parent included) and ignores the
+  # body's `name`/`is_folder`.
+  - name: wsf-35-post-early-return-child
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "project"
+      entity_identifier: "{{project_alpha}}"
+      project_id: "{{project_alpha}}"
+      name: "ignored"
+      is_folder: true
+    expect_status: 200
+
+  # A scalar / list / null body has no `.get`: the family 500.
+  - name: wsf-36-post-body-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "[]"
+    expect_status: 500
+
+  - name: wsf-37-post-body-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "\"x\""
+    expect_status: 500
+
+  - name: wsf-38-post-body-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "null"
+    expect_status: 500
+
+  # The early return goes through Django's `UUIDField`, not DRF's.
+  - name: wsf-39-post-entity-identifier-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      entity_identifier: "abc"
+    expect_status: 400
+
+  # ...which is `uuid.UUID(int=…)` for an integer; DRF's `UUIDField` agrees.
+  - name: wsf-40-post-entity-identifier-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      entity_identifier: 5
+      name: "Integer Identifier"
+    expect_status: 200
+
+  # --- `project_id` is raw -------------------------------------------------
+  - name: wsf-41-post-project-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      project_id: "not-a-uuid"
+    expect_status: 400
+
+  - name: wsf-42-post-project-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      project_id: "{{missing_favorite}}"
+    expect_status: 404
+
+  # `WorkspaceBaseModel.save` re-homes the row to Theta's workspace, and H25
+  # aggregates over `fix-second`, not the URL workspace.
+  - name: wsf-43-post-cross-workspace-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      entity_identifier: "{{cross_workspace_entity}}"
+      project_id: "{{project_theta}}"
+      name: "Written Into Second Workspace"
+    expect_status: 200
+
+  # The early return looked in the URL workspace and missed; the unique index
+  # has no workspace column, so the second INSERT is the duplicate 400.
+  - name: wsf-44-post-cross-workspace-project-repeat
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      entity_identifier: "{{cross_workspace_entity}}"
+      project_id: "{{project_theta}}"
+      name: "Duplicate"
+    expect_status: 400
+
+  # The seeded live row in `fix-second` with the same `(type, identifier, user)`.
+  - name: wsf-45-post-seeded-foreign-duplicate
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "folder"
+      entity_identifier: "{{seed_foreign_identifier}}"
+      project_id: "{{project_theta}}"
+    expect_status: 400
+
+  # --- permissions ---------------------------------------------------------
+  - name: wsf-46-post-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      entity_type: "folder"
+    expect_status: 403
+
+  - name: wsf-47-post-non-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      entity_type: "folder"
+    expect_status: 403
+
+  - name: wsf-48-post-deleted-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: deleted
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    json:
+      entity_type: "folder"
+    expect_status: 403
+
+  - name: wsf-49-post-soft-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+    expect_status: 404
+
+  - name: wsf-50-post-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    headers:
+      Host: plane-fixture.test
+    json:
+      entity_type: "folder"
+    expect_status: 401
+
+  - name: wsf-51-post-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json:
+      entity_type: "folder"
+    expect_status: 403
+
+  # --- H25's requested sequence in an empty workspace ----------------------
+  - name: wsf-52-post-nologo-requested-sequence
+    method: POST
+    path: "/api/workspaces/{{ws_nologo}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "No Logo First"
+      sequence: 1234.5
+    expect_status: 200
+
+  # ...and once the workspace has a live favourite, the aggregate wins.
+  - name: wsf-53-post-nologo-aggregate-sequence
+    method: POST
+    path: "/api/workspaces/{{ws_nologo}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+      name: "No Logo Second"
+      sequence: 9999
+    expect_status: 200
+
+  # --- 213 PATCH -----------------------------------------------------------
+  - name: wsf-54-patch-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Renamed Folder"
+    expect_status: 200
+
+  # PATCH writes the value verbatim: no H25 on an update.
+  - name: wsf-55-patch-sequence
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      sequence: 42.5
+    expect_status: 200
+
+  - name: wsf-56-patch-parent
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "{{seed_cascade_folder}}"
+    expect_status: 200
+
+  # A cross-workspace, cross-user parent.
+  - name: wsf-57-patch-parent-cross-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "{{seed_second_row}}"
+    expect_status: 200
+
+  - name: wsf-58-patch-parent-empty-string
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: ""
+    expect_status: 200
+
+  # The same clear through a form body: the rebuilt dict holds the string `""`.
+  - name: wsf-58b-patch-form-parent-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      parent: ""
+    expect_status: 200
+
+  # Nothing checks that the parent is a different row: a self-parent is a 200.
+  - name: wsf-58c-patch-self-parent
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "{{fav_patch}}"
+    expect_status: 200
+
+  - name: wsf-59-patch-parent-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: null
+    expect_status: 200
+
+  - name: wsf-60-patch-parent-soft-deleted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "{{seed_soft_deleted_parent}}"
+    expect_status: 400
+
+  - name: wsf-61-patch-parent-malformed
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      parent: "abc"
+    expect_status: 400
+
+  - name: wsf-62-patch-sequence-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      sequence: null
+    expect_status: 400
+
+  # `is_folder` is not one of the three keys: ignored.
+  - name: wsf-63-patch-unwritable-keys
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      is_folder: true
+      entity_type: "cycle"
+      project_id: "{{project_beta}}"
+    expect_status: 200
+
+  # An empty body still rewrites `updated_by`/`updated_at` (full save, H01).
+  - name: wsf-64-patch-empty-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 200
+
+  # A form body is rebuilt into a plain dict, so `sequence=` is a number error
+  # (not the skipped field a QueryDict would give).
+  - name: wsf-65-patch-form
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      name: "form name"
+      sequence: "12.5"
+    expect_status: 200
+
+  - name: wsf-66-patch-form-sequence-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      sequence: ""
+    expect_status: 400
+
+  - name: wsf-67-patch-list-body-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "[\"name\"]"
+    expect_status: 500
+
+  - name: wsf-68-patch-list-body-other
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "[\"x\"]"
+    expect_status: 200
+
+  - name: wsf-69-patch-int-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "3"
+    expect_status: 500
+
+  - name: wsf-70-patch-null-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "null"
+    expect_status: 500
+
+  # The lookup is per user: the member's fixture row is not the admin's.
+  - name: wsf-71-patch-other-users-favourite
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{favorite_member_cycle}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "not mine"
+    expect_status: 404
+
+  - name: wsf-72-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{missing_favorite}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "missing"
+    expect_status: 404
+
+  - name: wsf-73-patch-bad-uuid-path
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "x"
+    expect_status: 404
+
+  # The `workspace__slug` join has no `deleted_at` predicate: a member of a
+  # soft-deleted workspace can patch there, while POST 404s.
+  - name: wsf-74-patch-soft-deleted-workspace
+    method: PATCH
+    path: "/api/workspaces/{{ws_deleted}}/user-favorites/{{seed_deleted_workspace_row}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Renamed In Deleted Workspace"
+    expect_status: 200
+
+  # The same cross-workspace parent from the other side: a `fix-second` row
+  # parented under a `fix-workspace` favourite.
+  - name: wsf-75-patch-second-workspace-parent
+    method: PATCH
+    path: "/api/workspaces/{{ws_second}}/user-favorites/{{seed_second_row}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      parent: "{{seed_cascade_folder}}"
+    expect_status: 200
+
+  - name: wsf-76-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "x"
+    expect_status: 403
+
+  - name: wsf-77-patch-non-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      name: "x"
+    expect_status: 403
+
+  # --- the signature 500s --------------------------------------------------
+  - name: wsf-78-patch-212
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "x"
+    expect_status: 500
+
+  - name: wsf-79-delete-212
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: wsf-80-post-213
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "folder"
+    expect_status: 500
+
+  # The 500 is behind `allow_permission`.
+  - name: wsf-81-patch-212-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      name: "x"
+    expect_status: 403
+
+  - name: wsf-82-post-213-non-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      entity_type: "folder"
+    expect_status: 403
+
+  - name: wsf-83-delete-212-anonymous
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # `PUT` has no method: both sides answer 405 with the same `Allow` header.
+  - name: wsf-84-put
+    method: PUT
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "x"
+    expect_status: 405
+
+  # --- 213 DELETE ----------------------------------------------------------
+  # Django's deletion collector: the folder, the member's live child, the
+  # soft-deleted child, a grandchild under each, and the member's `fix-second`
+  # row parented under it at wsf-75.
+  - name: wsf-85-delete-cascade
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{seed_cascade_folder}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wsf-86-delete-cascade-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{seed_cascade_folder}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `delete(soft=False)` never reads the body.
+  - name: wsf-87-delete-with-malformed-body
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "not json"
+    expect_status: 204
+
+  - name: wsf-88-delete-deleted-favourite
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_patch}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wsf-89-delete-created-folder
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_folder}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wsf-90-delete-created-folder-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_folder}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The member's own `fix-workspace` row, as the admin: not the admin's row.
+  - name: wsf-91-delete-other-users-favourite
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_cycle}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wsf-92-delete-cycle
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{fav_cycle}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # The fixture row in the soft-deleted workspace.
+  - name: wsf-93-delete-soft-deleted-workspace
+    method: DELETE
+    path: "/api/workspaces/{{ws_deleted}}/user-favorites/{{seed_deleted_workspace_row}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wsf-94-delete-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/{{favorite_member_view}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wsf-95-delete-bad-uuid-path
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/user-favorites/not-a-uuid/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # --- the lists afterwards ------------------------------------------------
+  - name: wsf-96-list-admin
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  - name: wsf-97-list-member
+    method: GET
+    path: "/api/workspaces/{{ws}}/user-favorites/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"

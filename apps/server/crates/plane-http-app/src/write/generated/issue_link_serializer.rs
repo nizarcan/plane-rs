@@ -179,7 +179,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
             max_length: Some(255),
         },
     );
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "url",
         CharOptions {
             allow_null: false,

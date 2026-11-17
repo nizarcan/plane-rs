@@ -1969,6 +1969,7 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.intake.IntakeSerializer",
     "plane.app.serializers.intake.IntakeIssueSerializer",
     "plane.app.serializers.notification.UserNotificationPreferenceSerializer",
+    "plane.app.serializers.favorite.UserFavoriteSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is
@@ -2170,6 +2171,13 @@ def write_field_record(field: Any, cls: type) -> OrderedDict[str, Any]:
             model = getattr(getattr(field.child_relation, "queryset", None), "model", None)
         record["related_model"] = model_label(model)
         record["related_table"] = model._meta.db_table if model is not None else None
+        # A related model that carries `deleted_at` is read through a
+        # `SoftDeletionManager` queryset, so the generated lookup needs
+        # `AND deleted_at IS NULL` (`UserFavorite.parent` is the only one).
+        record["related_soft_delete"] = bool(
+            model is not None
+            and any(model_field.name == "deleted_at" for model_field in model._meta.get_fields())
+        )
 
     if isinstance(field, drf_fields.ListField):
         record["child"] = write_field_record(field.child, cls)
@@ -2310,8 +2318,12 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
         kind = field["kind"]
         if kind == "char":
             has_statement = True
+            # A required `CharField` keeps a form `''` and fails `blank`
+            # (`rest_framework/fields.py:405-420`); the optional ones treat it
+            # as empty.
+            helper = "char_field_required" if field["required"] else "char_field"
             lines.append(
-                "    let _ = s.char_field("
+                f"    let _ = s.{helper}("
                 f"{name}, CharOptions {{ allow_null: {bool_literal(field['allow_null'])}, "
                 f"allow_blank: {bool_literal(field['allow_blank'])}, "
                 f"trim_whitespace: {bool_literal(field['trim_whitespace'])}, "
@@ -2394,11 +2406,22 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
                 f"{bool_literal(field['allow_empty'])}, "
                 f"{rust_string(field['related_table'])}).await?;"
             )
+        elif kind == "uuid":
+            has_statement = True
+            lines.append(
+                f"    let _ = s.field({name}, {bool_literal(field['allow_null'])}, "
+                f"fields::uuid_field);"
+            )
         elif kind == "primary_key" and field.get("related_table"):
             has_statement = True
             uses_client = True
+            helper = (
+                "primary_key_field_live"
+                if field.get("related_soft_delete")
+                else "primary_key_field"
+            )
             lines.append(
-                f"    let _ = s.primary_key_field(client, {name}, "
+                f"    let _ = s.{helper}(client, {name}, "
                 f"{bool_literal(field['allow_null'])}, {rust_string(field['related_table'])}).await?;"
             )
         else:
@@ -2462,6 +2485,9 @@ def write_validate_imports(fields: list[dict[str, Any]]) -> list[str]:
         names.append("Detail")
     if any(field["kind"] == "integer" for field in fields):
         names.append("IntegerOptions")
+    if any(field["kind"] == "uuid" for field in fields):
+        # `fields::uuid_field` for a plain DRF `UUIDField`.
+        names.append("fields")
     if any(
         field["kind"] == "list"
         and (field.get("child") or {}).get("kind") == "primary_key"

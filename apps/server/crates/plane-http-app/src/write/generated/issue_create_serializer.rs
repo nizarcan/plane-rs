@@ -601,10 +601,10 @@ pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s
-        .primary_key_field(client, "state_id", true, "states")
+        .primary_key_field_live(client, "state_id", true, "states")
         .await?;
     let _ = s
-        .primary_key_field(client, "parent_id", true, "issues")
+        .primary_key_field_live(client, "parent_id", true, "issues")
         .await?;
     let _ = s
         .primary_key_list_field(
@@ -640,7 +640,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
             max_value: Some(12),
         },
     );
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "name",
         CharOptions {
             allow_null: false,
@@ -700,14 +700,16 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
         },
     );
     let _ = s
-        .primary_key_field(client, "parent", true, "issues")
-        .await?;
-    let _ = s.primary_key_field(client, "state", true, "states").await?;
-    let _ = s
-        .primary_key_field(client, "estimate_point", true, "estimate_points")
+        .primary_key_field_live(client, "parent", true, "issues")
         .await?;
     let _ = s
-        .primary_key_field(client, "type", true, "issue_types")
+        .primary_key_field_live(client, "state", true, "states")
+        .await?;
+    let _ = s
+        .primary_key_field_live(client, "estimate_point", true, "estimate_points")
+        .await?;
+    let _ = s
+        .primary_key_field_live(client, "type", true, "issue_types")
         .await?;
     Ok(())
 }

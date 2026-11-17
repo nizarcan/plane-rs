@@ -1147,7 +1147,9 @@ pub fn favorite_create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRes
         };
         let workspace_id: Uuid = row.try_get(1).map_err(ViewError::from)?;
 
-        let sequence = hooks::favorite::before_insert(client, workspace_id)
+        // `CycleFavoriteViewSet.create` never sends a `sequence`: H25's
+        // aggregate decides, else the model default.
+        let sequence = hooks::favorite::before_insert(client, workspace_id, None)
             .await
             .map_err(ViewError::from)?;
         let now = write::now();

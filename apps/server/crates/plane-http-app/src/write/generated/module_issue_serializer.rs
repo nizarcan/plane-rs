@@ -143,7 +143,7 @@ pub const EXTRA_KWARGS: &[ExtraKwarg] = &[];
 pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), ViewError> {
     let _ = s.datetime_field("deleted_at", true);
     let _ = s
-        .primary_key_field(client, "issue", false, "issues")
+        .primary_key_field_live(client, "issue", false, "issues")
         .await?;
     if s.missing_required("issue") {
         s.push_error("issue", Detail::required());

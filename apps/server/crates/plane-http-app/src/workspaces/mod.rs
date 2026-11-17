@@ -48,7 +48,9 @@
 //! `GET /home-preferences/{key}/` resolve to methods whose signatures lack the
 //! extra kwarg, so DRF raises `TypeError` and the family handler answers
 //! `500 {"error": "Something went wrong please try again later"}`. They are
-//! ported as they are, with the bug named in the handler.
+//! ported as they are, with the bug named in the handler. The write verbs have
+//! three more of the same kind: 212 `PATCH`/`DELETE` and 213 `POST`
+//! ([`write_favorite`]).
 //!
 //! `GET /api/workspaces/` never reaches its handler: `allow_permission` reads
 //! `kwargs["slug"]` on a route without a `slug`
@@ -69,6 +71,8 @@ pub mod recent_visit;
 pub mod rows;
 pub mod user;
 pub mod user_preference;
+pub mod write_favorite;
+pub mod write_favorite_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -80,6 +84,7 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     invite::register(registry)?;
     member::register(registry)?;
     favorite::register(registry)?;
+    write_favorite::register(registry)?;
     quick_link::register(registry)?;
     home::register(registry)?;
     recent_visit::register(registry)?;

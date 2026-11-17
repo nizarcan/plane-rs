@@ -436,7 +436,9 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
             },
         )
         .await?;
-    let _ = s.primary_key_field(client, "parent", true, "pages").await?;
+    let _ = s
+        .primary_key_field_live(client, "parent", true, "pages")
+        .await?;
     let _ = s.bool_field("is_locked");
     let _ = s.date_field("archived_at", true, &["iso-8601"]);
     let _ = s

@@ -295,7 +295,7 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
     let _ = s.uuid_list_field("module_ids");
     let _ = s.uuid_list_field("label_ids");
     let _ = s.uuid_list_field("assignee_ids");
-    let _ = s.char_field(
+    let _ = s.char_field_required(
         "description_html",
         CharOptions {
             allow_null: false,
