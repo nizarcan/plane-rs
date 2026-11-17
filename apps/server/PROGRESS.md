@@ -1136,7 +1136,18 @@ independent; each domain's sets start after its own P0. At most three builds run
   971 passed, 15 failed (the known Django-only magic-link tests). Also kept: both
   deactivation "only admin" guards are dead code.
 
-Running: estimates A (46/47, done, merging).
+- Estimates A (merged `e0f576a010`, flipped with this entry): 46 `rust(GET,POST)`, 47
+  `rust(GET,PATCH,DELETE)`. `write/estimates.yaml` 131/131 in both directions; no
+  contract test reaches estimates. 1002 tests. Upstream quirks kept:
+  - 46 inserts the estimate before validating its points (a 400 leaves a row);
+  - a missing `estimate_points` is "No data provided" while `[]` is a 200;
+  - point rows come from the raw body (`key: "3.0"` passes DRF, then 500s in `int()`);
+  - 47 PATCH's `bulk_update` silently truncates `value` to 255 chars, while create
+    rejects it;
+  - 47 DELETE leaves `projects.estimate_id` and the points live.
+
+Running: (none). Queued: estimates B, assets A/B/C, analytics A/B/C, `users/me` A/B,
+workspace-core P0.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
