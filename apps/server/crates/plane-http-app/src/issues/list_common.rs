@@ -117,11 +117,13 @@ pub fn json_response(body: Json) -> Result<ViewResponse, ViewError> {
 ///
 /// Django 5.2 uses `datetime.fromisoformat` first and falls back to
 /// `parse_datetime`; both accept a bare date, a `T` or space separator, an
-/// optional fraction and an optional `Z`/`±HH:MM` offset. A naive value is
-/// made aware in the **active** timezone (`TimezoneMixin` activated the user's
-/// profile timezone), a value with an offset is converted to UTC. Anything else
-/// is Django's `ValidationError`, i.e. the family handler's 400.
-pub fn parse_django_datetime(raw: &str, timezone: Tz) -> Result<DateTime<Utc>, ViewError> {
+/// optional fraction and an optional `Z`/`±HH:MM` offset. A value with an offset
+/// is converted to UTC; a **naive** one is made aware by `get_prep_value` with
+/// `timezone.get_default_timezone()` — `settings.TIME_ZONE` (`"UTC"`), not the
+/// activated user timezone (`__init__.py:1660-1678`, the `RuntimeWarning`
+/// branch). So a naive bound is UTC regardless of the caller. Anything else is
+/// Django's `ValidationError`, i.e. the family handler's 400.
+pub fn parse_django_datetime(raw: &str) -> Result<DateTime<Utc>, ViewError> {
     let text = raw.trim();
     if text.is_empty() {
         return Err(ViewError::Validation);
@@ -148,18 +150,12 @@ pub fn parse_django_datetime(raw: &str, timezone: Tz) -> Result<DateTime<Utc>, V
     ];
     for format in naive_formats {
         if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(text, format) {
-            return match chrono::TimeZone::from_local_datetime(&timezone, &naive).earliest() {
-                Some(value) => Ok(value.with_timezone(&Utc)),
-                None => Err(ViewError::Validation),
-            };
+            return Ok(DateTime::from_naive_utc_and_offset(naive, Utc));
         }
     }
     if let Ok(date) = chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d") {
         let naive = date.and_hms_opt(0, 0, 0).ok_or(ViewError::Validation)?;
-        return match chrono::TimeZone::from_local_datetime(&timezone, &naive).earliest() {
-            Some(value) => Ok(value.with_timezone(&Utc)),
-            None => Err(ViewError::Validation),
-        };
+        return Ok(DateTime::from_naive_utc_and_offset(naive, Utc));
     }
     Err(ViewError::Validation)
 }
@@ -600,5 +596,31 @@ mod tests {
     #[test]
     fn an_upstream_failure_has_no_response() {
         assert!(query_error_response(&QueryError::unsupported("KeyError")).is_none());
+    }
+
+    /// `updated_at__gt` with a naive value: Django's `get_prep_value` attaches
+    /// `settings.TIME_ZONE` (`UTC`), not the caller's timezone
+    /// (`django/db/models/fields/__init__.py:1660-1678`).
+    #[test]
+    fn a_naive_updated_at_bound_is_utc() {
+        assert_eq!(
+            parse_django_datetime("2026-11-17T20:00:00")
+                .expect("naive datetime")
+                .to_rfc3339(),
+            "2026-11-17T20:00:00+00:00"
+        );
+        assert_eq!(
+            parse_django_datetime("2026-11-17")
+                .expect("bare date")
+                .to_rfc3339(),
+            "2026-11-17T00:00:00+00:00"
+        );
+        // An explicit offset still wins, and is normalised to UTC.
+        assert_eq!(
+            parse_django_datetime("2026-11-18T01:30:00+05:30")
+                .expect("aware datetime")
+                .to_rfc3339(),
+            "2026-11-17T20:00:00+00:00"
+        );
     }
 }

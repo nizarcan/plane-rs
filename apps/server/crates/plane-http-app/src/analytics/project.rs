@@ -51,11 +51,10 @@ pub fn advance_analytics<'a>(
         let slug = ctx.kwarg("slug").ok_or(ViewError::Key)?;
         let project_id =
             lookup::uuid_kwarg("project_id", ctx.kwarg("project_id").ok_or(ViewError::Key)?)?;
-        let timezone = user_timezone(ctx);
         let member_id = jobs::user_id(ctx)?;
         let client = client(ctx)?;
         let now = Utc::now();
-        let filters = analytics_filters(ctx, "analytics", timezone, now)?;
+        let filters = analytics_filters(ctx, "analytics", now)?;
         let (cycle_id, module_id) = cycle_or_module(ctx)?;
 
         let base = || work_items_base(project_id, cycle_id, module_id, slug, member_id, &filters);
@@ -93,13 +92,12 @@ pub fn advance_analytics_stats<'a>(
         let slug = ctx.kwarg("slug").ok_or(ViewError::Key)?;
         let project_id =
             lookup::uuid_kwarg("project_id", ctx.kwarg("project_id").ok_or(ViewError::Key)?)?;
-        let timezone = user_timezone(ctx);
         let member_id = jobs::user_id(ctx)?;
         let client = client(ctx)?;
         let now = Utc::now();
         // `initialize_workspace(slug, type="chart")` — but the stats method it
         // calls never reads `chart_period_range`.
-        let filters = analytics_filters(ctx, "chart", timezone, now)?;
+        let filters = analytics_filters(ctx, "chart", now)?;
         if ctx.query().get_or("type", "work-items") != "work-items" {
             return Ok(message_body(400, "Invalid type"));
         }
@@ -151,7 +149,7 @@ pub fn advance_analytics_chart<'a>(
         let member_id = jobs::user_id(ctx)?;
         let client = client(ctx)?;
         let now = Utc::now();
-        let filters = analytics_filters(ctx, "chart", timezone, now)?;
+        let filters = analytics_filters(ctx, "chart", now)?;
         let kind = ctx.query().get_or("type", "projects");
         let group_by = ctx
             .query()
