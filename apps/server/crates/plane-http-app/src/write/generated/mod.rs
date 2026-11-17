@@ -100,3 +100,4 @@ pub mod project_serializer;
 pub mod project_user_property_serializer;
 pub mod state_serializer;
 pub mod sticky_serializer;
+pub mod user_notification_preference_serializer;
