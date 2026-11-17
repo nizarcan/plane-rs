@@ -67,6 +67,11 @@ fn catalogs() -> Vec<Catalog> {
             queries: plane_http_app::assets::queries::ALL_QUERIES,
         },
         Catalog {
+            domain: "assets_write",
+            source: "assets/write_queries.rs",
+            queries: plane_http_app::assets::write_queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "workspaces",
             source: "workspaces/queries.rs",
             queries: plane_http_app::workspaces::queries::ALL_QUERIES,

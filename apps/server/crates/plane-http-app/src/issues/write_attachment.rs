@@ -27,29 +27,9 @@ use plane_storage::{PresignPost, RequestInfo};
 use uuid::Uuid;
 
 use crate::assets::support;
+use crate::assets::write_queries;
 use crate::common::{asset_url::file_asset_url, client, jobs, lookup};
 use crate::write;
-
-const FILE_ASSET_INSERT: &str = "INSERT INTO file_assets (created_at, updated_at, id, attributes, \
-     asset, created_by_id, updated_by_id, workspace_id, is_deleted, deleted_at, is_archived, \
-     comment_id, entity_type, external_id, external_source, is_uploaded, issue_id, page_id, \
-     project_id, size, storage_metadata, user_id, draft_issue_id, entity_identifier) VALUES \
-     ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, \
-     $20, $21, $22, $23, $24)";
-
-const FILE_ASSET_UPDATE: &str = "UPDATE file_assets SET created_at = $1, updated_at = $2, \
-     attributes = $3, asset = $4, created_by_id = $5, updated_by_id = $6, workspace_id = $7, \
-     is_deleted = $8, deleted_at = $9, is_archived = $10, comment_id = $11, entity_type = $12, \
-     external_id = $13, external_source = $14, is_uploaded = $15, issue_id = $16, page_id = $17, \
-     project_id = $18, size = $19, storage_metadata = $20, user_id = $21, draft_issue_id = $22, \
-     entity_identifier = $23 WHERE id = $24";
-
-const FILE_ASSET_BY_PK: &str = "SELECT created_at, updated_at, created_by_id, updated_by_id, \
-     deleted_at, id, attributes, asset, user_id, workspace_id, draft_issue_id, project_id, \
-     issue_id, comment_id, page_id, entity_type, entity_identifier, is_deleted, is_archived, \
-     external_id, external_source, size, is_uploaded, storage_metadata FROM file_assets \
-     WHERE id = $1 AND workspace_id = $2 AND project_id = $3 AND issue_id = $4 \
-     AND deleted_at IS NULL";
 
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
@@ -147,7 +127,7 @@ pub fn v2_post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
                     .field("error", "You are not allowed to view this issue"),
             );
         }
-        let name = sanitize_filename(
+        let name = support::sanitize_filename(
             ctx.data()
                 .ok()
                 .and_then(|data| data.get("name"))
@@ -195,7 +175,7 @@ pub fn v2_post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
             .await?
             .ok_or(ViewError::ObjectDoesNotExist)?;
 
-        let name = sanitize_filename(&name).unwrap_or_else(|| "unnamed".to_owned());
+        let name = support::sanitize_filename(&name).unwrap_or_else(|| "unnamed".to_owned());
         let asset_key = format!("{}/{}-{}", workspace.id, Uuid::new_v4().simple(), name);
         let size_limit = size.min(ctx.settings.limits.file_size_limit);
         let attributes = JsonText::new(format!(
@@ -346,23 +326,8 @@ fn upload_response(
     let rendered = plane_serializers::render(&serializer, &RenderCtx::full(&timezone))?;
     let attachment = plane_serde::pyjson::loads(&rendered, "utf-8")
         .map_err(|error| ViewError::Unknown(error.to_string()))?;
-    let mut fields = PyDict::new();
-    for (key, value) in &post.fields {
-        fields.insert(
-            PyStr::from(key.as_str()),
-            value
-                .as_ref()
-                .map_or(Json::Null, |value| Json::Str(PyStr::from(value.as_str()))),
-        );
-    }
-    let mut upload = PyDict::new();
-    upload.insert(
-        PyStr::from("url"),
-        Json::Str(PyStr::from(post.url.as_str())),
-    );
-    upload.insert(PyStr::from("fields"), Json::Dict(fields));
     let mut body = PyDict::new();
-    body.insert(PyStr::from("upload_data"), Json::Dict(upload));
+    body.insert(PyStr::from("upload_data"), support::upload_data(post));
     body.insert(
         PyStr::from("asset_id"),
         Json::Str(PyStr::from(asset.id.to_string())),
@@ -481,9 +446,12 @@ fn invalid_file_type() -> Result<ViewResponse, ViewError> {
 // ---------------------------------------------------------------------------
 
 async fn insert_asset(client: &Client, asset: &FileAsset) -> Result<(), ViewError> {
+    let statement = client
+        .prepare_cached(write_queries::FILE_ASSET_INSERT.sql)
+        .await?;
     client
         .execute(
-            FILE_ASSET_INSERT,
+            &statement,
             &[
                 &asset.created_at,
                 &asset.updated_at,
@@ -516,9 +484,12 @@ async fn insert_asset(client: &Client, asset: &FileAsset) -> Result<(), ViewErro
 }
 
 async fn update_asset(client: &Client, asset: &FileAsset) -> Result<(), ViewError> {
+    let statement = client
+        .prepare_cached(write_queries::FILE_ASSET_UPDATE.sql)
+        .await?;
     client
         .execute(
-            FILE_ASSET_UPDATE,
+            &statement,
             &[
                 &asset.created_at,
                 &asset.updated_at,
@@ -560,7 +531,7 @@ async fn load_asset(
 ) -> Result<Option<FileAsset>, ViewError> {
     let row = client
         .query_opt(
-            FILE_ASSET_BY_PK,
+            write_queries::FILE_ASSET_BY_PK.sql,
             &[&id, &workspace_id, &project_id, &issue_id],
         )
         .await?;
@@ -615,20 +586,6 @@ fn multipart_file(ctx: &ViewCtx<'_>, field: &str) -> Option<MultipartFile> {
         });
     }
     None
-}
-
-fn sanitize_filename(filename: &str) -> Option<String> {
-    let mut cleaned: String = filename
-        .chars()
-        .filter(|character| !character.is_ascii_control())
-        .collect();
-    cleaned = cleaned.replace('\\', "/");
-    cleaned = cleaned.rsplit('/').next().unwrap_or("").to_owned();
-    cleaned = cleaned.replace("..", "");
-    cleaned = cleaned.trim().to_owned();
-    cleaned = cleaned.trim_start_matches('.').to_owned();
-    cleaned = cleaned.trim().to_owned();
-    (!cleaned.is_empty()).then_some(cleaned)
 }
 
 const ATTACHMENT_MIME_TYPES: &[&str] = &[
