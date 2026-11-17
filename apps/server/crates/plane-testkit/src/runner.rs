@@ -417,6 +417,21 @@ async fn run_inner(
         }
     }
 
+    // A Redis fixture is seeded into each target's own Redis database, after
+    // any SQL fixture and before the Redis baseline below, so its entries are
+    // part of the baseline rather than a step diff.
+    if let Some(path) = scenario.fixture_redis() {
+        let entries = crate::fixture_redis::load(&path)?;
+        for (label, index) in [("A", a_redis_db), ("B", b_redis_db)] {
+            redis.apply_fixture(index, &entries).await?;
+            println!(
+                "fixture_redis: applied {} entries from {} to target {label} (redis db {index})",
+                entries.len(),
+                path.display()
+            );
+        }
+    }
+
     let (catalog_a, catalog_b) = tokio::try_join!(
         db_admin.load_catalog(&a_db, &rules.db_schemas, &rules.db_exclude_tables),
         db_admin.load_catalog(&b_db, &rules.db_schemas, &rules.db_exclude_tables),
@@ -1771,6 +1786,8 @@ mod tests {
     #[test]
     fn content_length_is_user_controlled() {
         let rules = NormalizeRules {
+            volatile_json_paths: Vec::new(),
+            volatile_text_patterns: Vec::new(),
             unordered_json_paths: Vec::new(),
             ignore_headers: vec!["content-length".to_string(), "date".to_string()],
             shapes: BTreeMap::new(),

@@ -196,6 +196,86 @@ impl Redis {
         Ok(())
     }
 
+    /// `SET key value NX`, the command `DefaultClient.set(..., nx=True)`
+    /// issues without a timeout (`django_redis/client/default.py:270-283`).
+    /// Returns whether the key was written (`SET NX` replies `nil` when the
+    /// key already exists).
+    pub async fn set_bytes_nx(&self, full_key: &str, value: &[u8]) -> Result<bool, Error> {
+        let mut connection = self.connection().await?;
+        let reply: Option<String> = redis::cmd("SET")
+            .arg(full_key)
+            .arg(value)
+            .arg("NX")
+            .query_async(&mut connection)
+            .await?;
+        Ok(reply.is_some())
+    }
+
+    /// `SET key value NX PX <milliseconds>`: `cache.add(key, value, timeout)`
+    /// (`django_redis/client/default.py:240-283`).
+    pub async fn set_bytes_nx_px(
+        &self,
+        full_key: &str,
+        value: &[u8],
+        milliseconds: i64,
+    ) -> Result<bool, Error> {
+        let mut connection = self.connection().await?;
+        let reply: Option<String> = redis::cmd("SET")
+            .arg(full_key)
+            .arg(value)
+            .arg("NX")
+            .arg("PX")
+            .arg(milliseconds)
+            .query_async(&mut connection)
+            .await?;
+        Ok(reply.is_some())
+    }
+
+    /// `EXISTS key`, used by `add`'s non-positive-timeout branch and by
+    /// `incr`'s error path (`django_redis/client/default.py:257-268`).
+    pub async fn exists(&self, full_key: &str) -> Result<bool, Error> {
+        let mut connection = self.connection().await?;
+        let count: i64 = redis::cmd("EXISTS")
+            .arg(full_key)
+            .query_async(&mut connection)
+            .await?;
+        Ok(count > 0)
+    }
+
+    /// `DefaultClient._incr`'s Lua script (`default.py:685-696`): `INCRBY`
+    /// only when the key exists, atomically. `None` means the key was gone
+    /// (the script returned `false`), which Python turns into a `ValueError`.
+    ///
+    /// `INCRBY` preserves the key's TTL, which is why django-redis does not
+    /// touch it: the window starts at the first `add` and every increment
+    /// keeps the same expiry.
+    pub async fn incr_by_present(&self, full_key: &str, delta: i64) -> Result<Option<i64>, Error> {
+        const SCRIPT: &str = "local exists = redis.call('EXISTS', KEYS[1])\n\
+                              if (exists == 1) then\n\
+                                return redis.call('INCRBY', KEYS[1], ARGV[1])\n\
+                              else return false end";
+        let mut connection = self.connection().await?;
+        let value: Option<i64> = redis::cmd("EVAL")
+            .arg(SCRIPT)
+            .arg(1)
+            .arg(full_key)
+            .arg(delta)
+            .query_async(&mut connection)
+            .await?;
+        Ok(value)
+    }
+
+    /// `TTL key` in seconds, as django-redis's `ttl()` reads it: `-1` means
+    /// no expiry and `-2` a missing key (`default.py:755-780`).
+    pub async fn ttl_seconds(&self, full_key: &str) -> Result<i64, Error> {
+        let mut connection = self.connection().await?;
+        let ttl: i64 = redis::cmd("TTL")
+            .arg(full_key)
+            .query_async(&mut connection)
+            .await?;
+        Ok(ttl)
+    }
+
     /// `DEL key`. Returns whether a key was removed.
     pub async fn del(&self, full_key: &str) -> Result<bool, Error> {
         let mut connection = self.connection().await?;

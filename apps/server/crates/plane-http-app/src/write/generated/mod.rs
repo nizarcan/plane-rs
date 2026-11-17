@@ -71,6 +71,7 @@ pub struct ExtraKwarg {
     pub value: &'static str,
 }
 
+pub mod a_p_i_token_serializer;
 pub mod comment_reaction_serializer;
 pub mod cycle_user_properties_serializer;
 pub mod cycle_write_serializer;
@@ -97,6 +98,7 @@ pub mod module_write_serializer;
 pub mod page_binary_update_serializer;
 pub mod page_detail_serializer;
 pub mod page_serializer;
+pub mod profile_serializer;
 pub mod project_member_serializer;
 pub mod project_serializer;
 pub mod project_user_property_serializer;
@@ -104,4 +106,5 @@ pub mod state_serializer;
 pub mod sticky_serializer;
 pub mod user_favorite_serializer;
 pub mod user_notification_preference_serializer;
+pub mod user_serializer;
 pub mod webhook_serializer;

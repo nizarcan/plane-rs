@@ -1,0 +1,1201 @@
+{
+ "python": "3.12.13",
+ "django": "5.2.17",
+ "cases": [
+  {
+   "input": "",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "a@b.co",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "a@b.c",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "a@b.co.uk",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user.name+tag@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "USER@EXAMPLE.COM",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@Example.Com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@example",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@localhost",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@LOCALHOST",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@localhost.",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@example..com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@-example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example-.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@exa_mple.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.c0m",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@example.toolongtld",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@xn--bcher-kva.example",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@bücher.example",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@пример.рф",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@例子.测试",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "\"\"@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "\" \"@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "\"a b\"@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "\"a\\\"b\"@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "\"a\\ b\"@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": ".user@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user.@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "us..er@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com ",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": " user@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user @example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@ example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@example.com\n",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com\t",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[127.0.0.1]",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@[127.0.0.256]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[::1]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[::ffff:127.0.0.1]",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@[2001:db8::1]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[2001:db8::0001]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[0001::]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[1:2:3:4:5:6:7:8]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[1:2:3:4:5:6:7:8:9]",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[:::1]",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[1::2::3]",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[fe80::1%25eth0]",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[ABCDEF::]",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[abc.def]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[1.2.3.4.5]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[01.2.3.4]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[1.2.3.04]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[255.255.255.255]",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@[0.0.0.0]",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@[999.1.1.1]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[1:2:3:4:5:6:1.2.3.4]",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@[1:2:3:4:5:6:7:1.2.3.4]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@sub.domain.example.co.uk",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@-.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a-.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.b-.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.-b.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@a.b.c-.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.b.c.d.e.f.g.h",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.b.c.d.e.f.g.123",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.b.c.d.e.f.g.1a",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.b.c.d.e.f.g.a1",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.b.c.d.e.f.g.a-1",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@a.b.c.d.e.f.g.-a1",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "!#$%&'*+-/=?^_`{|}~@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "a,b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a:b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a;b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a(b)@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a[b]@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a\\b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a\"b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a<b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a>b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a b@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a\tb@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a\nb@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com.",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com..",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com-",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@exa mple.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com/path",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com?q=1",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com#x",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[1:2:3:4:5:6:7:8]:25",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[::]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[:::]",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[1::]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[1:2:3:4:5:6:7::]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[::1:2:3:4:5:6:7]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[12345::]",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "user@[1234::]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[0:0:0:0:0:0:0:0]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@[::ffff:1.2.3.4]",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@[::ffff:01.2.3.4]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[::ffff:1.2.3.4.5]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[::ffff:999.2.3.4]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[::ffff:1.2.3.04]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@[1:2:3:4:5:6:7:8].example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@Ünïcode.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@日本語.com",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@ελληνικά.com",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@ру́сский.com",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@עברית.com",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@العربية.com",
+   "valid": true,
+   "contains_url": false
+  },
+  {
+   "input": "user@exémple.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@ex\u0000mple.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@ex mple.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@ex😀mple.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "us😀er@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@İ.example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@ſ.example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@K.example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@ﬀ.example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "ſ@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "İ@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@ς.example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@Σ.example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "user@Ω.example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "hello",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "hello world",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "visit https://example.com now",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "visit http://example.com/path?q=1#frag",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "HTTPS://EXAMPLE.COM",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "ftp://example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "xhttp://example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "https://",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "http:// example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.Example.COM",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.example.com/path",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "www..com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "www.a",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.a.",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.a.b",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.-example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.example-.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.exa_mple.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "EXAMPLE.COM",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "sub.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "example.toolongtld",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "example.c",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "example.co",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "example.com.",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "example.com,",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "foo.example.com/bar",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "1.2.3.4",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "255.255.255.255",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "256.1.1.1",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "999.999.999.999",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "01.2.3.4",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "1.2.3.4.5",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "1.2.3.4:8080",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "::1",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "http://[::1]",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "http://127.0.0.1:8080/x",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a.b.c.d.e.f",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "a.b.c.d.e.f.g.h.i",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "a.b.c.d.e.f.gg",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a-1.b-2.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a--b.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a..b.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": ".a.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a.com.",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "text https://example.com text www.foo.bar 1.2.3.4",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa https://example.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa https://example.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa https://example.com",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nhttps://example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "https://example.com\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "https://example.com\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "ü example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "é.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "straße.de",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "http://例え.テスト",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.bücher.de",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.例子.测试",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "see https://例子.测试/x",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "email user@example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "user@example.com",
+   "valid": true,
+   "contains_url": true
+  },
+  {
+   "input": "a.b",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "a.bc",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "a.123",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "a.12",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "12.34.56.78",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "1.2.3.4.",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "http://user:pass@example.com/x",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "https://example.com/<script>",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "//example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "example.com:443",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "localhost",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "localhost:8000",
+   "valid": false,
+   "contains_url": false
+  },
+  {
+   "input": "http://localhost:8000",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.localhost",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "text with a newline\nwww.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "line one\r\nwww.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "line one\rwww.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "line one www.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "line one\u000bwww.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "line one www.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.example.com.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "ſ.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "K.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "İ.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.ſ.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "www.K.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "ς.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "https://ſ.example.com",
+   "valid": false,
+   "contains_url": true
+  },
+  {
+   "input": "https://İ.example.com",
+   "valid": false,
+   "contains_url": true
+  }
+ ]
+}

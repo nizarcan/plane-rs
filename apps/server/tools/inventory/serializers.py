@@ -1971,6 +1971,11 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.notification.UserNotificationPreferenceSerializer",
     "plane.app.serializers.webhook.WebhookSerializer",
     "plane.app.serializers.favorite.UserFavoriteSerializer",
+    # users/me writes: `UserEndpoint.partial_update`, `ProfileEndpoint.patch`
+    # and `ApiTokenEndpoint.post`/`patch` (`plans/USERS_ME.md` §2f).
+    "plane.app.serializers.user.UserSerializer",
+    "plane.app.serializers.user.ProfileSerializer",
+    "plane.app.serializers.api.APITokenSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is

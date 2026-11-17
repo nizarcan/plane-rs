@@ -65,6 +65,16 @@ plane_query! {
 }
 
 plane_query! {
+    /// `Session.objects.filter(user_id=request.user.id).delete()`
+    /// (`plane/app/views/user/base.py:342`). `sessions.user_id` is a
+    /// `varchar(50)` (`plane/db/models/session.py:45-51`), so Django binds
+    /// `str(uuid)` — the lower-case dashed form.
+    DELETE_SESSIONS_FOR_USER = "auth_delete_sessions_for_user",
+    "DELETE FROM sessions WHERE user_id = $1",
+    []
+}
+
+plane_query! {
     /// `ModelBackend.get_user` (`django/contrib/auth/backends.py:229-235`) and
     /// `get_by_natural_key` for the email lookup. `users` does not use
     /// `BaseModel`, so there is no `deleted_at` column.
@@ -221,6 +231,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &INSERT_SESSION,
     &UPDATE_SESSION,
     &DELETE_SESSION,
+    &DELETE_SESSIONS_FOR_USER,
     &LOAD_USER_BY_ID,
     &LOAD_USER_BY_EMAIL,
     &LOAD_API_TOKEN,

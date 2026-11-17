@@ -44,7 +44,9 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::celery::CeleryMessage;
-use crate::config::{NormalizeRules, RuleCheck, RuleMode, UnorderedMode, UnorderedPathRule};
+use crate::config::{
+    JsonPathRule, NormalizeRules, RuleCheck, RuleMode, UnorderedMode, UnorderedPathRule,
+};
 use crate::cookies::{ParsedCookie, canonical_set_cookie, parse_set_cookie};
 use crate::csrf;
 use crate::db::DbDiff;
@@ -210,6 +212,46 @@ impl UnorderedRule {
     }
 }
 
+/// A `volatile_json_paths` rule after validation: a document path (the same
+/// grammar as [`UnorderedRule`]) plus the value rule to apply there.
+#[derive(Debug, Clone)]
+struct JsonPathNormalizer {
+    path: Vec<String>,
+    rule: Rule,
+}
+
+impl JsonPathNormalizer {
+    fn from_spec(spec: &JsonPathRule) -> Self {
+        Self {
+            path: json_path_tokens(&spec.path),
+            rule: Rule::from_spec(&spec.spec()),
+        }
+    }
+
+    fn applies(&self, document_path: &str, request: Option<&str>) -> bool {
+        if !self.rule.matches_request(request) {
+            return false;
+        }
+        let tokens = json_path_tokens(document_path);
+        tokens_match(&self.path, &tokens)
+    }
+}
+
+/// A `volatile_text_patterns` rule after validation.
+#[derive(Debug, Clone)]
+struct TextPatternNormalizer {
+    regex: regex::Regex,
+    placeholder: String,
+    request: String,
+    why: String,
+}
+
+impl TextPatternNormalizer {
+    fn applies(&self, request: Option<&str>) -> bool {
+        request.is_some_and(|request| glob_matches(&self.request, request))
+    }
+}
+
 /// Split a JSON path into components: `$.results[3].label_ids` becomes
 /// `["results", "*", "label_ids"]`. Array indices are `*` components, because a
 /// glob cannot name the index it means.
@@ -325,6 +367,11 @@ pub struct TargetNormalizer {
     remembered_timestamps: HashSet<i64>,
     /// Float timestamps (throttle histories) seen in an earlier step.
     remembered_floats: HashSet<u64>,
+    /// Raw values a `volatile_text_patterns` rule placeholdered. They are
+    /// shorter than the general "delimited token" threshold (the e-mail code is
+    /// six digits), so [`TargetNormalizer::substitute_known`] must not skip
+    /// them when they reappear at a later step under a different request.
+    text_pattern_values: HashSet<String>,
     window: Option<(DateTime<Utc>, DateTime<Utc>)>,
     applied: BTreeMap<String, String>,
     cookies: HashMap<String, Rule>,
@@ -334,6 +381,10 @@ pub struct TargetNormalizer {
     db_columns: HashMap<String, Rule>,
     /// `unordered_json_paths` after validation.
     unordered: Vec<UnorderedRule>,
+    /// `volatile_json_paths` after validation.
+    json_paths: Vec<JsonPathNormalizer>,
+    /// `volatile_text_patterns` after validation.
+    text_patterns: Vec<TextPatternNormalizer>,
     /// `METHOD path?query` of the request being normalised, for the rules that
     /// are scoped to an endpoint.
     request: Option<String>,
@@ -386,9 +437,27 @@ impl TargetNormalizer {
             .iter()
             .map(UnorderedRule::from_spec)
             .collect();
+        let json_paths: Vec<JsonPathNormalizer> = rules
+            .volatile_json_paths
+            .iter()
+            .map(JsonPathNormalizer::from_spec)
+            .collect();
+        let text_patterns: Vec<TextPatternNormalizer> = rules
+            .volatile_text_patterns
+            .iter()
+            .map(|rule| TextPatternNormalizer {
+                regex: regex::Regex::new(&rule.pattern)
+                    .expect("NormalizeRules::validate compiled every pattern"),
+                placeholder: rule.placeholder.clone(),
+                request: rule.request.clone(),
+                why: rule.why.clone(),
+            })
+            .collect();
         Self {
             shapes: rules.compile_shapes().into_iter().collect(),
             unordered,
+            json_paths,
+            text_patterns,
             request: None,
             rules,
             base_url: config.base_url,
@@ -400,6 +469,7 @@ impl TargetNormalizer {
             counters: HashMap::new(),
             remembered_timestamps: HashSet::new(),
             remembered_floats: HashSet::new(),
+            text_pattern_values: HashSet::new(),
             window: None,
             applied: BTreeMap::new(),
             cookies,
@@ -462,8 +532,9 @@ impl TargetNormalizer {
     /// Rewrite a single string, replacing this target's base URL, generated
     /// UUIDs and in-window timestamps.
     pub fn normalize_text(&mut self, text: &str) -> String {
-        let mut result = self.replace_base_url(text);
-        if result != text {
+        let patterned = self.apply_text_patterns(text);
+        let mut result = self.replace_base_url(&patterned);
+        if result != patterned {
             self.record("target-base-url", BASE_URL_WHY);
         }
         if uuid_regex().is_match(&result) {
@@ -545,6 +616,42 @@ impl TargetNormalizer {
         self.substitute_known(&result)
     }
 
+    /// `volatile_text_patterns`: rewrite every occurrence of a request-scoped
+    /// regex with one placeholder per raw value. The rules exist for random
+    /// values that have no JSON key of their own (the six-digit e-mail code
+    /// appears inside Celery `argsrepr`s and pickled cache strings).
+    fn apply_text_patterns(&mut self, text: &str) -> String {
+        if self.text_patterns.is_empty() {
+            return text.to_string();
+        }
+        let request = self.request.clone();
+        let rules: Vec<TextPatternNormalizer> = self
+            .text_patterns
+            .iter()
+            .filter(|rule| rule.applies(request.as_deref()))
+            .cloned()
+            .collect();
+        let mut result = text.to_string();
+        for rule in rules {
+            if !rule.regex.is_match(&result) {
+                continue;
+            }
+            let mut out = String::with_capacity(result.len());
+            let mut last = 0;
+            for matched in rule.regex.find_iter(&result) {
+                out.push_str(&result[last..matched.start()]);
+                let raw = matched.as_str().to_string();
+                self.text_pattern_values.insert(raw.clone());
+                let placeholder = self.placeholder_for(&rule.placeholder, &raw, &rule.why);
+                out.push_str(&placeholder);
+                last = matched.end();
+            }
+            out.push_str(&result[last..]);
+            result = out;
+        }
+        result
+    }
+
     /// Replace raw values that already have a placeholder, on token
     /// boundaries. This is what makes the placeholder map universal: a value
     /// seen first in a cookie is the same placeholder when it resurfaces in a
@@ -559,7 +666,11 @@ impl TargetNormalizer {
         values.sort_by_key(|(raw, _)| std::cmp::Reverse(raw.len()));
         let mut out = text.to_string();
         for (raw, placeholder) in values {
-            if raw.len() < 8 {
+            // Short values are only substituted when a text-pattern rule
+            // placeholdered them: a bare six-digit code is safe to replace
+            // once the scenario's own rule identified it, while arbitrary
+            // short tokens would rewrite unrelated strings.
+            if raw.len() < 8 && !self.text_pattern_values.contains(raw) {
                 continue;
             }
             out = replace_delimited(&out, raw, placeholder);
@@ -755,13 +866,19 @@ impl TargetNormalizer {
                         continue;
                     };
                     let child = format!("{path}.{key}");
-                    match self
+                    let request = self.request.clone();
+                    let path_rule = self
+                        .json_paths
+                        .iter()
+                        .find(|rule| rule.applies(&child, request.as_deref()))
+                        .cloned();
+                    let named_rule = self
                         .json_keys
                         .get(&key)
                         .cloned()
-                        .filter(|rule| rule.matches_request(self.request.as_deref()))
-                    {
-                        Some(rule) => {
+                        .filter(|rule| rule.matches_request(request.as_deref()));
+                    match (path_rule.map(|rule| rule.rule), named_rule) {
+                        (Some(rule), _) | (None, Some(rule)) => {
                             let label = format!("json:{key}");
                             let before = slot.clone();
                             self.apply_rule(&rule, slot, &label, &child);
@@ -769,7 +886,7 @@ impl TargetNormalizer {
                                 self.record(&label, &rule.why);
                             }
                         }
-                        None => self.normalize_json(slot, &child),
+                        (None, None) => self.normalize_json(slot, &child),
                     }
                 }
             }
@@ -934,6 +1051,9 @@ impl TargetNormalizer {
                 self.apply_placeholder(rule, value, label, path);
             }
             RuleMode::PlaceholderIfNew => self.apply_placeholder_if_new(rule, value, label, path),
+            RuleMode::PlaceholderIfShape => {
+                self.apply_placeholder_if_shape(rule, value, label, path);
+            }
             RuleMode::RelativeTime => {
                 if let Value::String(text) = value
                     && let Some(relative) = self.relative_timestamp(text)
@@ -1010,6 +1130,41 @@ impl TargetNormalizer {
             // A fixture literal is compared as it is; the shape only gates the
             // *generated* values this rule exists to recognise (the fixture's
             // anchors are human-readable, not `uuid4().hex`).
+            return;
+        }
+        self.apply_placeholder(rule, value, label, path);
+    }
+
+    /// `placeholder_if_shape`: placeholder a generated value, leave anything
+    /// that does not match the shape literal (so an explicit request value is
+    /// still compared). Only a non-string is a violation, as when a rule names
+    /// a field the other side sends as a number.
+    fn apply_placeholder_if_shape(
+        &mut self,
+        rule: &Rule,
+        value: &mut Value,
+        label: &str,
+        path: &str,
+    ) {
+        let Some(text) = value.as_str() else {
+            if value.is_null() {
+                return;
+            }
+            self.violations.push(Violation::new(
+                "shape",
+                path,
+                format!(
+                    "expected a string for rule {label}, got {}",
+                    value_type(value)
+                ),
+            ));
+            return;
+        };
+        let matches = match rule.shape.as_deref().and_then(|name| self.shapes.get(name)) {
+            Some(shape) => shape.is_match(text),
+            None => true,
+        };
+        if !matches {
             return;
         }
         self.apply_placeholder(rule, value, label, path);
@@ -1339,7 +1494,8 @@ impl TargetNormalizer {
                 Some(rule) => out.push_str(match rule.mode {
                     RuleMode::Placeholder
                     | RuleMode::PlaceholderIfNonEmpty
-                    | RuleMode::PlaceholderIfNew => "<volatile>",
+                    | RuleMode::PlaceholderIfNew
+                    | RuleMode::PlaceholderIfShape => "<volatile>",
                     RuleMode::Password => "<password>",
                     RuleMode::SessionPayload => "<session>",
                     RuleMode::RelativeTime => "<relative>",
@@ -1834,7 +1990,7 @@ fn page_cache_ttl_bucket(ttl_ms: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DbRule, NamedRule, RuleMode, ShapeRule};
+    use crate::config::{DbRule, NamedRule, RuleMode, ShapeRule, TextPatternRule};
 
     fn shape(pattern: &str) -> ShapeRule {
         ShapeRule {
@@ -1877,6 +2033,8 @@ mod tests {
         shapes.insert("hex64".to_string(), shape(r"^[0-9a-f]{64}$"));
         Arc::new(NormalizeRules {
             unordered_json_paths: Vec::new(),
+            volatile_json_paths: Vec::new(),
+            volatile_text_patterns: Vec::new(),
             ignore_headers: default_ignore_headers_for_tests(),
             shapes,
             volatile_cookies: vec![named(
@@ -1964,6 +2122,109 @@ mod tests {
             .parse::<DateTime<Utc>>()
             .expect("time");
         normalizer.start_step(at, at);
+    }
+
+    #[test]
+    fn a_path_scoped_json_rule_beats_the_name_keyed_one_only_at_its_path() {
+        let mut rules = (*rules()).clone();
+        let mut shapes = rules.shapes.clone();
+        shapes.insert(
+            "plane_api_token".to_string(),
+            shape(r"^plane_api_[0-9a-f]{32}$"),
+        );
+        rules.shapes = shapes;
+        rules.volatile_json_paths = vec![JsonPathRule {
+            path: "$.token".to_string(),
+            why: "created API token".to_string(),
+            mode: RuleMode::Placeholder,
+            placeholder: Some("api-token".to_string()),
+            shape: Some("plane_api_token".to_string()),
+            check: None,
+            request: Some("POST /api/users/api-tokens/".to_string()),
+        }];
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(rules),
+            base_url: String::new(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        start(&mut normalizer);
+
+        // On the scoped request the path rule wins.
+        normalizer.set_request("POST /api/users/api-tokens/");
+        let body = serde_json::to_vec(&json!({
+            "token": "plane_api_0123456789abcdef0123456789abcdef",
+            "other": {"token": "a".repeat(64)},
+        }))
+        .expect("json");
+        let normalized = normalizer.normalize_body(&body, true);
+        let value = match normalized.value {
+            BodyValue::Json(value) => value,
+            other => panic!("expected json, got {other:?}"),
+        };
+        assert_eq!(value["token"], json!("<api-token:1>"));
+        // A nested `token` on the same step is not the created token: the
+        // path rule's exact path does not match it, and the name rule still
+        // applies (64 hex).
+        assert_eq!(value["other"]["token"], json!("<token:1>"));
+
+        // Another request keeps the name-keyed rule.
+        normalizer.set_request("POST /api/users/me/");
+        let body = serde_json::to_vec(&json!({"token": "b".repeat(64)})).expect("json");
+        let normalized = normalizer.normalize_body(&body, true);
+        let value = match normalized.value {
+            BodyValue::Json(value) => value,
+            other => panic!("expected json, got {other:?}"),
+        };
+        assert_eq!(value["token"], json!("<token:2>"));
+    }
+
+    #[test]
+    fn a_text_pattern_rule_rewrites_the_six_digit_code_only_for_its_request() {
+        let mut rules = (*rules()).clone();
+        rules.volatile_text_patterns = vec![TextPatternRule {
+            pattern: r"\b[0-9]{6}\b".to_string(),
+            placeholder: "email-code".to_string(),
+            why: "random six-digit e-mail code".to_string(),
+            request: "POST /api/users/me/email/generate-code/".to_string(),
+        }];
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(rules),
+            base_url: String::new(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        start(&mut normalizer);
+
+        normalizer.set_request("POST /api/users/me/email/generate-code/");
+        // A Celery argsrepr and the pickled cache value both pass through
+        // `normalize_text`; one placeholder is shared between them.
+        assert_eq!(
+            normalizer.normalize_text("('new@example.com', '123456')"),
+            "('new@example.com', '<email-code:1>')"
+        );
+        assert_eq!(
+            normalizer.normalize_text("{\"token\": \"123456\"}"),
+            "{\"token\": \"<email-code:1>\"}"
+        );
+
+        // A later step re-observes the same code (a Redis value's TTL change
+        // re-reports it); the known value keeps its placeholder even though
+        // the rule is scoped to another request...
+        normalizer.set_request("POST /api/users/me/email/");
+        assert_eq!(
+            normalizer.normalize_text("('new@example.com', '123456')"),
+            "('new@example.com', '<email-code:1>')"
+        );
+        // ...while a different six-digit value on that request stays literal.
+        assert_eq!(
+            normalizer.normalize_text("('new@example.com', '999999')"),
+            "('new@example.com', '999999')"
+        );
     }
 
     #[test]

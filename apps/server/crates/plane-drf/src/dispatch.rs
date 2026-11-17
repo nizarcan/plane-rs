@@ -31,7 +31,7 @@ use std::str::FromStr;
 
 use chrono_tz::Tz;
 use http::Method;
-use plane_auth::{RequestUser, SessionStore};
+use plane_auth::{RequestUser, SessionSlot};
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
 use plane_core::error::{APPLICATION_JSON, ApiError, TEXT_HTML};
@@ -82,7 +82,11 @@ pub struct DispatchRequest<'a> {
     pub kwargs: Vec<(&'a str, &'a str)>,
     pub ctx: &'a RequestContext,
     /// `request.session` (owned by the pipeline's `SessionMiddleware` state).
-    pub session: &'a mut SessionStore,
+    ///
+    /// A shared handle, not `&mut`: the middleware's response phase needs the
+    /// same store after the handler ran (Django's `request.session`), and a
+    /// handler may `logout()` it.
+    pub session: &'a SessionSlot,
     /// The middleware's `request.user`, when something already evaluated it.
     pub preloaded_user: Option<RequestUser>,
 }
@@ -273,7 +277,7 @@ impl Runtime {
         registered: &RegisteredView,
         request: &mut ViewRequest<'_>,
         conn: &mut Conn<'_>,
-        session: &mut SessionStore,
+        session: &SessionSlot,
         preloaded_user: Option<RequestUser>,
         state: &mut RunState,
     ) -> Result<DrfResponse, ViewError> {
@@ -284,17 +288,22 @@ impl Runtime {
         // handled CSRF, and `View.dispatch` is only method selection plus the
         // handler (`django/views/generic/base.py:134-162`).
         if !route.family.is_drf() {
-            return Self::run_plain(
+            let response = Self::run_plain(
                 settings,
                 pools,
                 route,
                 registered,
                 request,
                 method,
+                session,
                 self.redis.as_ref(),
                 self.celery.as_ref(),
             )
-            .await;
+            .await?;
+            // A plain Django view can call `logout()` too (`/auth/sign-out/`,
+            // Phase 6); the user half belongs to the dispatcher, not the view.
+            apply_logout(session, state);
+            return Ok(response);
         }
 
         // ---- initial(): content negotiation -------------------------------
@@ -320,7 +329,7 @@ impl Runtime {
                         state.replaced = true;
                         state.user = Some(RequestUser::Anonymous);
                     }
-                    state.session_accessed = authenticator.session_accessed();
+                    state.session_accessed = authenticator.session_accessed().await;
                     return Err(error);
                 }
             };
@@ -509,6 +518,7 @@ impl Runtime {
         let ctx = ViewCtx {
             request,
             user: &auth.user,
+            session,
             action,
             view: &route.view,
             timezone: timezone.as_ref(),
@@ -520,6 +530,7 @@ impl Runtime {
             publisher: self.celery.as_ref(),
         };
         let response = handler(&ctx).await?;
+        apply_logout(session, state);
         Ok(DrfResponse::render(response)?)
     }
 
@@ -533,6 +544,7 @@ impl Runtime {
         registered: &RegisteredView,
         request: &mut ViewRequest<'_>,
         method: Method,
+        session: &SessionSlot,
         redis: Option<&plane_cache::Redis>,
         publisher: Option<&plane_jobs::celery::CeleryPublisher>,
     ) -> Result<DrfResponse, ViewError> {
@@ -561,6 +573,7 @@ impl Runtime {
         let ctx = ViewCtx {
             request,
             user: &anonymous,
+            session,
             action: None,
             view: &route.view,
             timezone: None,
@@ -686,6 +699,20 @@ struct RunState {
     replaced: bool,
     session_accessed: bool,
     rate_limit: Option<RateLimitHeaders>,
+}
+
+/// `django.contrib.auth.logout`'s user half
+/// (`django/contrib/auth/__init__.py:243-258`): after `session.flush()`,
+/// `request.user = AnonymousUser`. A handler reaches the store through
+/// [`crate::view::ViewCtx::session`], so the dispatcher applies the half it
+/// owns when the handler is done — before `finalize_response` and the request
+/// logger, exactly when Django's `logout()` runs.
+fn apply_logout(session: &SessionSlot, state: &mut RunState) {
+    if session.logged_out() {
+        state.replaced = true;
+        state.user = Some(RequestUser::Anonymous);
+        state.django_user = Some(RequestUser::Anonymous);
+    }
 }
 
 /// Render an [`ApiError`] the way DRF plus Plane's handler do.

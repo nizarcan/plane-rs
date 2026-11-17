@@ -132,22 +132,27 @@ async fn login(
     };
 
     // Refresh the user the session resolves to: `login()` sets `request.user`.
-    auth.set_user(RequestUser::from_user(user.clone()), ctx);
-    user_login(
-        client,
-        &state.settings,
-        ctx,
-        &mut auth.session,
-        &mut auth.csrf,
-        &user,
-        LoginFlags {
-            is_app: true,
-            is_admin: false,
-            is_space: false,
-        },
-    )
-    .await?;
-    auth.set_user(RequestUser::from_user(user.clone()), ctx);
+    auth.set_user(RequestUser::from_user(user.clone()), ctx)
+        .await;
+    {
+        let mut session = auth.session.lock().await;
+        user_login(
+            client,
+            &state.settings,
+            ctx,
+            &mut session,
+            &mut auth.csrf,
+            &user,
+            LoginFlags {
+                is_app: true,
+                is_admin: false,
+                is_space: false,
+            },
+        )
+        .await?;
+    }
+    auth.set_user(RequestUser::from_user(user.clone()), ctx)
+        .await;
     let body = Object::new().field("user_id", user.id.to_string());
     json(200, &body)
 }

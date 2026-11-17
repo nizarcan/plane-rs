@@ -9,7 +9,7 @@ use std::pin::Pin;
 
 use chrono_tz::Tz;
 use http::{HeaderMap, Method};
-use plane_auth::RequestUser;
+use plane_auth::{RequestUser, SessionSlot};
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
 use plane_core::error::{APPLICATION_JSON, TEXT_HTML};
@@ -52,6 +52,16 @@ pub struct ViewCtx<'a> {
     pub request: &'a ViewRequest<'a>,
     /// `request.user`, after DRF's authenticators.
     pub user: &'a RequestUser,
+    /// `request.session`: the same store the middleware built at layer 3 and
+    /// will save at response time. A handler that signs a user out calls
+    /// [`SessionSlot::flush`]; the middleware then deletes the cookie and adds
+    /// `Vary: Cookie`, exactly as Django's `logout()` + `SessionMiddleware`
+    /// do.
+    ///
+    /// Shared (`&SessionSlot`, not `&mut SessionStore`) because the response
+    /// phase needs it after the handler returns and the dispatcher's future
+    /// stays `Send`.
+    pub session: &'a SessionSlot,
     /// `view.action` for a ViewSet, `None` for an APIView.
     pub action: Option<&'a str>,
     /// The dotted view path (`routes.json`).
@@ -75,6 +85,12 @@ pub struct ViewCtx<'a> {
 }
 
 impl<'a> ViewCtx<'a> {
+    /// `request.session`, for a handler that signs the caller out or reads the
+    /// store directly. Most handlers only need the middleware's effects.
+    pub fn session(&self) -> &'a SessionSlot {
+        self.session
+    }
+
     /// `django.core.cache.cache`, as the Django client (`:1:` keys, the raw-int
     /// value rule, protocol-4 pickles).
     ///

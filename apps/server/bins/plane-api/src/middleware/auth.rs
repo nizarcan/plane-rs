@@ -23,7 +23,7 @@
 //! [`AuthContext::resolve`] from its authentication step.
 
 use deadpool_postgres::Client;
-use plane_auth::{AuthError, CsrfState, RequestUser, SessionStore, get_user};
+use plane_auth::{AuthError, CsrfState, RequestUser, SessionSlot, get_user};
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
 
@@ -81,7 +81,10 @@ impl RequestDb {
 
 /// `request.session`, the CSRF cookie state and `request.user`.
 pub struct AuthContext {
-    pub session: SessionStore,
+    /// The store behind a shared handle: the DRF runtime hands the same slot
+    /// to handlers, so `logout()` inside a view and the response phase see one
+    /// `SessionStore`, exactly as `request.session` does in Django.
+    pub session: SessionSlot,
     pub csrf: CsrfState,
     pub user: RequestUser,
     /// The lazy user has been evaluated (or [`AuthContext::resolve`] ran).
@@ -98,7 +101,7 @@ impl AuthContext {
         let name = cookie_name(settings, &ctx.path);
         let key = ctx.cookie(name).map(str::to_string);
         Self {
-            session: SessionStore::new(key),
+            session: SessionSlot::from_cookie(key),
             csrf: CsrfState::default(),
             user: RequestUser::Anonymous,
             resolved: false,
@@ -119,23 +122,27 @@ impl AuthContext {
         if self.resolved {
             return Ok(());
         }
-        if self.session.session_key().is_none() {
-            self.session.load_without_database();
-            self.user = RequestUser::Anonymous;
+        // No cookie means no database round trip, exactly like Django: the
+        // store is marked loaded without touching a connection.
+        let keyless = self.session.session_key().await.is_none();
+        self.user = if keyless {
+            self.session.lock().await.load_without_database();
+            RequestUser::Anonymous
         } else {
             let client = db.client(state).await?;
-            self.user = get_user(client, &state.settings, &mut self.session).await?;
-        }
+            let mut session = self.session.lock().await;
+            get_user(client, &state.settings, &mut session).await?
+        };
         self.resolved = true;
-        self.sync(ctx);
+        self.sync(ctx).await;
         Ok(())
     }
 
     /// Copy the store's flags onto the request context so the response layers
     /// (and the request log) see what Django's `request.session.accessed` and
     /// `request.user` would show.
-    pub fn sync(&self, ctx: &mut RequestContext) {
-        if self.session.accessed {
+    pub async fn sync(&self, ctx: &mut RequestContext) {
+        if self.session.accessed().await {
             ctx.session_accessed = true;
         }
         ctx.user = self.user.id().map(plane_core::ids::UserId);
@@ -143,10 +150,10 @@ impl AuthContext {
 
     /// `request.user` after a view assigned one (DRF's `Request.user` setter).
     #[cfg(feature = "test-endpoints")]
-    pub fn set_user(&mut self, user: RequestUser, ctx: &mut RequestContext) {
+    pub async fn set_user(&mut self, user: RequestUser, ctx: &mut RequestContext) {
         self.user = user;
         self.resolved = true;
-        self.sync(ctx);
+        self.sync(ctx).await;
     }
 }
 
@@ -179,18 +186,18 @@ mod tests {
         assert_eq!(cookie_name(&settings, "/api/users/me/"), "session-id");
     }
 
-    #[test]
-    fn no_session_cookie_needs_no_database() {
+    #[tokio::test]
+    async fn no_session_cookie_needs_no_database() {
         let settings = settings();
         let ctx = RequestContext::new(http::Method::GET, "/", "", http::HeaderMap::new(), None);
         let auth = AuthContext::new(&settings, &ctx);
-        assert!(auth.session.session_key().is_none());
-        assert!(!auth.session.is_empty() || auth.session.session_key().is_none());
+        assert!(auth.session.session_key().await.is_none());
+        assert!(!auth.session.is_empty().await || auth.session.session_key().await.is_none());
         assert!(!auth.resolved);
     }
 
-    #[test]
-    fn the_cookie_is_read_from_the_request() {
+    #[tokio::test]
+    async fn the_cookie_is_read_from_the_request() {
         let settings = settings();
         let mut headers = http::HeaderMap::new();
         headers.insert(
@@ -199,7 +206,10 @@ mod tests {
         );
         let ctx = RequestContext::new(http::Method::GET, "/api/users/me/", "", headers, None);
         let auth = AuthContext::new(&settings, &ctx);
-        assert_eq!(auth.session.session_key(), Some("12345678"));
+        assert_eq!(
+            auth.session.session_key().await.as_deref(),
+            Some("12345678")
+        );
 
         let mut headers = http::HeaderMap::new();
         headers.insert(
@@ -208,6 +218,9 @@ mod tests {
         );
         let ctx = RequestContext::new(http::Method::GET, "/api/instances/", "", headers, None);
         let auth = AuthContext::new(&settings, &ctx);
-        assert_eq!(auth.session.session_key(), Some("abcdefgh"));
+        assert_eq!(
+            auth.session.session_key().await.as_deref(),
+            Some("abcdefgh")
+        );
     }
 }

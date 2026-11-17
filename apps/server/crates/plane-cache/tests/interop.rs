@@ -453,3 +453,160 @@ async fn django_and_rust_share_the_cache() {
         "the `multiple=True` specs must delete more than one key, deleted {multiple_deleted}"
     );
 }
+
+/// `cache.add` and `cache.incr` against the real Django cache: the same
+/// boolean/int result, the same raw bytes, and a TTL that is written by `add`
+/// and **not** reset by `incr`.
+#[tokio::test(flavor = "current_thread")]
+async fn django_and_rust_agree_on_add_and_incr() {
+    let Some(url) = test_redis_url() else {
+        return;
+    };
+    let _guard = INTEROP_LOCK.lock().await;
+    let redis = checked_redis(&url);
+    let client = Client::new(&redis);
+
+    // Seeded before each side's run, so both start from identical bytes.
+    let seeds = [
+        ("interop-add-incr/add-existing", json!({"i": "0"}), 300),
+        ("interop-add-incr/add-zero-existing", json!({"i": "0"}), 300),
+        ("interop-add-incr/incr", json!({"i": "7"}), 600),
+        ("interop-add-incr/incr-twice", json!({"i": "7"}), 600),
+        ("interop-add-incr/incr-pickled", json!(true), 600),
+    ];
+    // `op`, key, value, timeout. `timeout: null` is Django's `timeout=None`
+    // (no expiry); `0` is the `nx=True` non-positive branch.
+    let cases = [
+        (
+            "add",
+            "interop-add-incr/add-missing",
+            json!({"i": "0"}),
+            Some(3600),
+        ),
+        (
+            "add",
+            "interop-add-incr/add-existing",
+            json!({"i": "5"}),
+            Some(3600),
+        ),
+        (
+            "add",
+            "interop-add-incr/add-zero-missing",
+            json!({"i": "0"}),
+            Some(0),
+        ),
+        (
+            "add",
+            "interop-add-incr/add-zero-existing",
+            json!({"i": "5"}),
+            Some(0),
+        ),
+        (
+            "add",
+            "interop-add-incr/add-no-timeout",
+            json!({"i": "0"}),
+            None,
+        ),
+        ("incr", "interop-add-incr/incr", json!({"i": "0"}), None),
+        (
+            "incr",
+            "interop-add-incr/incr-twice",
+            json!({"i": "0"}),
+            None,
+        ),
+        (
+            "incr",
+            "interop-add-incr/incr-twice",
+            json!({"i": "0"}),
+            None,
+        ),
+        (
+            "incr",
+            "interop-add-incr/incr-pickled",
+            json!({"i": "0"}),
+            None,
+        ),
+        (
+            "incr",
+            "interop-add-incr/incr-missing",
+            json!({"i": "0"}),
+            None,
+        ),
+    ];
+
+    // Python first: seed, then run every case in order.
+    redis.flush_db().await.expect("flushdb");
+    for (key, tree, timeout) in &seeds {
+        let value = build(tree.clone(), &mut Vec::new());
+        client.set(key, &value, Some(*timeout)).await.expect("seed");
+    }
+    let job = json!({
+        "op": "add_incr",
+        "cases": cases
+            .iter()
+            .map(|(op, key, tree, timeout)| json!({
+                "op": op,
+                "key": key,
+                "tree": tree,
+                "timeout": timeout,
+            }))
+            .collect::<Vec<_>>(),
+    });
+    let expected = python(&url, job, "add-incr");
+    let expected = expected["results"].as_array().expect("results").clone();
+    assert_eq!(expected.len(), cases.len());
+
+    // Rust: the same seed and the same calls.
+    redis.flush_db().await.expect("flushdb");
+    for (key, tree, timeout) in &seeds {
+        let value = build(tree.clone(), &mut Vec::new());
+        client.set(key, &value, Some(*timeout)).await.expect("seed");
+    }
+    for (index, (op, key, tree, timeout)) in cases.iter().enumerate() {
+        let want = &expected[index];
+        assert_eq!(want["key"].as_str(), Some(*key), "python case order");
+        match *op {
+            "add" => {
+                let value = build(tree.clone(), &mut Vec::new());
+                let added = client.add(key, &value, *timeout).await.expect("add");
+                assert_eq!(Some(added), want["result"].as_bool(), "{key}: add result");
+            }
+            "incr" => {
+                let result = client.incr(key, 1).await;
+                match want.get("error").and_then(|error| error.as_str()) {
+                    Some(message) => {
+                        let error = result.expect_err("missing key must be an error");
+                        assert_eq!(error.to_string(), message, "{key}: incr error");
+                    }
+                    None => {
+                        let value = result.expect("incr");
+                        assert_eq!(Some(value), want["value"].as_i64(), "{key}: incr value");
+                    }
+                }
+            }
+            other => panic!("unknown op {other}"),
+        }
+        let full = plane_cache::make_key(key);
+        let raw = client.get_raw(&full).await.expect("raw");
+        let hex = raw.map(|bytes| {
+            use std::fmt::Write as _;
+            let mut out = String::with_capacity(bytes.len() * 2);
+            for byte in bytes {
+                write!(out, "{byte:02x}").expect("hex");
+            }
+            out
+        });
+        assert_eq!(
+            hex.as_deref(),
+            want["hex"].as_str(),
+            "{key}: raw bytes after {}",
+            op
+        );
+        let pttl = client.pttl(&full).await.expect("pttl");
+        let want_pttl = want["pttl_ms"].as_i64().expect("pttl");
+        assert!(
+            (pttl - want_pttl).abs() <= 3_000,
+            "{key}: pttl {pttl} vs python {want_pttl}"
+        );
+    }
+}

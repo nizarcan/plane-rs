@@ -151,6 +151,30 @@ impl RedisAdmin {
         Ok(())
     }
 
+    /// Seed a `fixture_redis` file's entries (`crate::fixture_redis`) into one
+    /// logical database: `SET key value [PX ms]` per entry, in file order.
+    pub async fn apply_fixture(
+        &self,
+        index: i64,
+        entries: &[crate::fixture_redis::Entry],
+    ) -> Result<()> {
+        let mut connection = self.connect(index).await?;
+        for entry in entries {
+            let mut command: Vec<&[u8]> = vec![b"SET", entry.key.as_bytes(), &entry.value];
+            let ttl;
+            if let Some(milliseconds) = entry.ttl_ms {
+                ttl = milliseconds.to_string();
+                command.push(b"PX");
+                command.push(ttl.as_bytes());
+            }
+            let reply = connection.command(&command).await?;
+            if reply.as_status() != Some("OK") {
+                bail!("Redis SET {} on db {index} returned {reply:?}", entry.key);
+            }
+        }
+        Ok(())
+    }
+
     /// Open a dedicated connection used for repeated snapshots of one
     /// logical database.
     pub async fn snapshotter(&self, index: i64) -> Result<RedisSnapshotter> {

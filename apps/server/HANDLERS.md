@@ -685,3 +685,32 @@ DELETE then a GET list (the soft delete must be gone on both sides), and a
 second request. Capture created ids with `capture: {source: json, pointer: /id}`.
 Run Django-vs-Django first, then Django-vs-Rust. The harness compares the DB
 diff after every step, so a missed hook fails the step.
+
+### 8. Sessions, logout and cache counters
+
+Handlers reach the request's session through `ctx.session()`:
+`plane_auth::SessionSlot`, the same `SessionStore` the pipeline built from the
+cookie and will save at response time (Django's `request.session`). It is a
+`tokio::sync::Mutex` handle because the response phase needs the store after
+the handler returns; `ctx.session().lock().await` is the escape hatch for
+anything the convenience methods do not cover.
+
+| Python | Rust |
+| --- | --- |
+| `django.contrib.auth.logout(request)` | `ctx.session().flush(client).await` (+ `ctx.request.ctx.user` is replaced by the dispatcher, and the middleware deletes the cookie and adds `Vary: Cookie`) |
+| `Session.objects.filter(user_id=…).delete()` | `plane_auth::delete_all_for_user(client, user_id).await` |
+| `request.session.session_key` | `ctx.session().session_key().await` |
+| `request.session.modified = True` | `ctx.session().lock().await.modified = true` (or `set`/`pop`) |
+
+`flush` calls `SessionStore::flush` (clear + delete row + no key), exactly
+`logout()`. Do not set the user yourself: the dispatcher reads the slot's
+`logged_out` flag and applies `request.user = AnonymousUser` after the handler,
+the same order Django uses (before `finalize_response` and the request logger).
+
+`cache.add(key, value, timeout)` and `cache.incr(key)` are on
+`plane_cache::Client` with django-redis's semantics: `add` is `SET … NX PX`
+(non-positive timeout only reports presence, never deletes), `incr` is the
+existing Lua `EXISTS`+`INCRBY` and **keeps** the key's TTL, and a missing key is
+`Error::MissingKey` (Python's `ValueError`). Use `write::email::validate_email`
+and `write::email::contains_url` rather than the DRF fields for
+`UserEndpoint._validate_new_email` and `UserSerializer.validate_*_name`.

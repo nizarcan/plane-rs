@@ -47,6 +47,17 @@ pub enum Error {
     #[error("cache value has an unexpected shape: {0}")]
     Shape(String),
 
+    /// `cache.incr(key)` on a key that does not exist:
+    /// django-redis's `ValueError("Key '<repr(full key)>' not found")`
+    /// (`django_redis/client/default.py:697-699`). Note the *double* quoting:
+    /// Python's `repr` already adds quotes, and the message wraps it in one
+    /// more pair, so a normal key reads `Key '':1:k'' not found`.
+    #[error("Key '{key}' not found")]
+    MissingKey {
+        /// `repr()` of the full (`:1:`-prefixed) Redis key.
+        key: String,
+    },
+
     /// The cached value could not be rendered as JSON.
     #[error("render: {0}")]
     Render(#[from] plane_serde::Error),

@@ -31,6 +31,7 @@ plane-query = { path = "../plane-query" }
 plane-serde = { path = "../plane-serde" }
 plane-serializers = { path = "../plane-serializers" }
 plane-storage = { path = "../plane-storage" }
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

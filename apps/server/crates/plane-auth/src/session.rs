@@ -26,9 +26,12 @@
 //! | `user_id` | `session_data["_auth_user_id"]` (a `CharField`, not an FK) |
 //! | `device_info` | `session_data["device_info"]` when it is a dict, else `NULL` |
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use chrono::{DateTime, TimeDelta, Utc};
 use deadpool_postgres::Client;
 use plane_core::config::Settings;
+use uuid::Uuid;
 
 use crate::cookies::http_date;
 use crate::error::AuthError;
@@ -572,6 +575,101 @@ impl SessionStore {
     }
 }
 
+/// A shared handle to the request's [`SessionStore`].
+///
+/// Django keeps one `SessionStore` on `request.session`, and both the view and
+/// `SessionMiddleware.process_response` use it. Rust's pipeline owns the store
+/// in the middleware state, so a handler can only reach it through a handle it
+/// shares with that state. `tokio::sync::Mutex` (not `std`) because the guard
+/// is held across the database calls `load`/`save`/`flush` make, and the
+/// dispatch future must stay `Send`.
+///
+/// The store is tiny and every operation on it is short, so contention is
+/// "the handler flushed while the response phase wanted the flags" — a single
+/// request, never two.
+#[derive(Debug)]
+pub struct SessionSlot {
+    store: tokio::sync::Mutex<SessionStore>,
+    /// `django.contrib.auth.logout` also replaces `request.user` with
+    /// `AnonymousUser` (`django/contrib/auth/__init__.py:243-258`). The slot
+    /// records that the store was flushed so the dispatcher can apply the user
+    /// half; the store itself has no user.
+    logged_out: AtomicBool,
+}
+
+impl SessionSlot {
+    /// Wrap a store. The middleware calls this once per request.
+    pub fn new(store: SessionStore) -> Self {
+        Self {
+            store: tokio::sync::Mutex::new(store),
+            logged_out: AtomicBool::new(false),
+        }
+    }
+
+    /// Build the layer-3 store from the cookie value for the path.
+    pub fn from_cookie(session_key: Option<String>) -> Self {
+        Self::new(SessionStore::new(session_key))
+    }
+
+    /// Lock the store. Callers must not hold the guard longer than the work
+    /// they need it for; the response phase waits for it.
+    pub async fn lock(&self) -> tokio::sync::MutexGuard<'_, SessionStore> {
+        self.store.lock().await
+    }
+
+    /// `request.session.session_key`.
+    pub async fn session_key(&self) -> Option<String> {
+        self.lock().await.session_key().map(str::to_string)
+    }
+
+    /// `request.session.accessed`.
+    pub async fn accessed(&self) -> bool {
+        self.lock().await.accessed
+    }
+
+    /// `request.session.modified`.
+    pub async fn modified(&self) -> bool {
+        self.lock().await.modified
+    }
+
+    /// `request.session.is_empty()`.
+    pub async fn is_empty(&self) -> bool {
+        self.lock().await.is_empty()
+    }
+
+    /// `django.contrib.auth.logout`'s storage half
+    /// (`django/contrib/auth/__init__.py:243-258`): `request.session.flush()`,
+    /// i.e. `clear()` + `delete()` + `key = None`
+    /// (`django/contrib/sessions/backends/base.py:408-417`).
+    ///
+    /// The response phase then deletes the cookie and adds `Vary: Cookie`
+    /// (`plane/authentication/middleware/session.py:53-66`), because the
+    /// store is empty and the request carried a cookie.
+    pub async fn flush(&self, client: &Client) -> Result<(), AuthError> {
+        self.lock().await.flush(client).await?;
+        self.logged_out.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Whether [`SessionSlot::flush`] ran (Django's `logout()`).
+    pub fn logged_out(&self) -> bool {
+        self.logged_out.load(Ordering::SeqCst)
+    }
+}
+
+/// `Session.objects.filter(user_id=…).delete()` (`plane/app/views/user/base.py:342`):
+/// the deactivation path drops **every** session row the user has, including
+/// the one serving the request.
+///
+/// `user_id` is a UUID but the column is `varchar(50)`: Django compares
+/// `user_id = str(uuid)`, so the bind is the lower-case dashed text.
+pub async fn delete_all_for_user(client: &Client, user_id: Uuid) -> Result<u64, AuthError> {
+    let statement = client
+        .prepare_cached(queries::DELETE_SESSIONS_FOR_USER.sql)
+        .await?;
+    Ok(client.execute(&statement, &[&user_id.to_string()]).await?)
+}
+
 /// One `sessions` row, exactly the columns Django writes.
 #[derive(Debug)]
 struct SessionRow {
@@ -782,5 +880,34 @@ mod tests {
         assert_eq!(python_delta_seconds(TimeDelta::milliseconds(-500)), -1.0);
         assert_eq!(python_delta_seconds(TimeDelta::milliseconds(-1500)), -2.0);
         assert_eq!(python_delta_seconds(TimeDelta::milliseconds(1500)), 1.0);
+    }
+
+    /// The slot is the one store the handler and the response phase share:
+    /// a mutation behind the handle is visible to the next lock, and only
+    /// `flush()` marks Django's `logout()`.
+    #[tokio::test]
+    async fn a_session_slot_shares_one_store() {
+        let key = "a".repeat(128);
+        let slot = SessionSlot::from_cookie(Some(key.clone()));
+        assert_eq!(slot.session_key().await.as_deref(), Some(key.as_str()));
+        assert!(!slot.accessed().await);
+        assert!(!slot.logged_out());
+        {
+            let mut store = slot.lock().await;
+            store.accessed = true;
+            store.modified = true;
+        }
+        assert!(slot.accessed().await);
+        assert!(slot.modified().await);
+        assert!(!slot.logged_out());
+        // `flush` needs a database for the DELETE; clearing it without one is
+        // `SessionStore::flush`'s storage-free half, which is what makes the
+        // store empty and the middleware delete the cookie.
+        let mut store = slot.lock().await;
+        store.clear();
+        store.key = None;
+        drop(store);
+        assert!(slot.is_empty().await);
+        assert!(!slot.logged_out());
     }
 }
