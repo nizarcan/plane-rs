@@ -10,6 +10,7 @@
 //! | `GET /api/workspaces/{slug}/webhooks/` | `WebhookEndpoint.get` (no `pk`) | `base.py:43-62` |
 //! | `GET /api/workspaces/{slug}/webhooks/{pk}/` | `WebhookEndpoint.get` (with `pk`) | `base.py:63-79` |
 //! | `GET /api/workspaces/{slug}/webhook-logs/{webhook_id}/` | `WebhookLogsEndpoint.get` | `base.py:125-129` |
+//! | `PATCH/DELETE /api/workspaces/{slug}/webhooks/{pk}/` | `WebhookEndpoint.patch`/`.delete` | [`super::write_patch`] |
 //!
 //! One query per request. Both `WebhookEndpoint` branches serialize with a
 //! **fixed** `fields=` tuple (`base.py:45-57,64-75`), so `?fields=` and
@@ -39,11 +40,16 @@ use crate::common::lookup;
 use crate::common::{client, render_list};
 use crate::webhooks::queries;
 use crate::webhooks::render::WebhookTen;
+use crate::webhooks::write_patch;
 
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.webhook.base.WebhookEndpoint")?
-        .method(Method::GET, get)?;
+        .method(Method::GET, get)?
+        // Set B: `PATCH`/`DELETE …/webhooks/{pk}/`, and the kwarg `TypeError`
+        // (family 500) both verbs answer on `…/webhooks/` itself.
+        .method(Method::PATCH, write_patch::patch)?
+        .method(Method::DELETE, write_patch::delete)?;
     registry
         .api_view("plane.app.views.webhook.base.WebhookLogsEndpoint")?
         .method(Method::GET, get_logs)?;

@@ -73,12 +73,9 @@ impl WebhookTen {
         })
     }
 
-    /// The PATCH shape: the row as the save left it.
-    // No route calls this yet: set B's PATCH renders after its save.
-    #[allow(
-        dead_code,
-        reason = "used by the PATCH handler in set B; the test below pins it"
-    )]
+    /// The PATCH shape: the row as the save left it
+    /// (`WebhookEndpoint.patch` renders `serializer.data` from the in-memory
+    /// instance, never a re-read).
     pub(super) fn from_model(model: &Webhook) -> Self {
         Self {
             id: model.id,

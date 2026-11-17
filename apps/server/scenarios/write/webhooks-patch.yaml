@@ -1,0 +1,584 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Phase 5: the webhook PATCH/DELETE routes (set B of `plans/WEBHOOKS.md`):
+#
+#   PATCH  /api/workspaces/{slug}/webhooks/{pk}/   (229)
+#   DELETE /api/workspaces/{slug}/webhooks/{pk}/   (229)
+#   PATCH  /api/workspaces/{slug}/webhooks/        (228, the kwarg 500)
+#   DELETE /api/workspaces/{slug}/webhooks/        (228, the kwarg 500)
+#
+# Covers, in the order the view runs:
+#
+#   * the lookup first, then the body: a malformed JSON body on a missing pk is
+#     the 404, on a live pk the parser's 400; a soft-deleted pk, another
+#     workspace's pk and an unknown pk are all the family 404;
+#   * partial validation: the ten-key `fields=` tuple does not restrict
+#     validation, so `version`/`is_internal` are writable but absent from the
+#     response, and `id`/`workspace`/`secret_key`/`deleted_at` in the body are
+#     read-only and ignored (writing `deleted_at` would otherwise delete the
+#     row);
+#   * the writable `created_by` FK: another user, `null`, and a missing user id
+#     (DRF's `does_not_exist` list, not a FK error);
+#   * every URL message shape: the two declared validators (`ftp://localhost`
+#     gives both, `HTTP://x` only Django's `URLValidator`), the blank and null
+#     messages, and the save-time `_validate_webhook_url` bare string for a
+#     loopback target that passed the field chain (`localhost:8000`,
+#     `127.0.0.1:1`). The domain message is unreachable offline; `WEBHOOK_ALLOWED_IPS`
+#     is never set, which is what keeps the loopback steps rejecting;
+#   * the live-row partial unique index: PATCH to a live row's URL is the PATCH
+#     family 400 (`The payload is not valid`, no try/except), PATCH to a URL only
+#     a soft-deleted row holds is a 200, and PATCH to the row's own URL is a 200;
+#   * a 1025-character URL passes the declared field (no `max_length`) and
+#     overflows `varchar(1024)` on the UPDATE: a `DataError`, i.e. the family 500;
+#   * DELETE: the soft delete plus its list/detail follow-up, DELETE twice, and
+#     a malformed JSON body on DELETE (never parsed) still deleting;
+#   * the 228 signature 500 for an admin and the permission 403 for a member
+#     (the decorator runs before the handler), MEMBER/GUEST 403 on a real pk,
+#     and a foreign `Origin` 403 on both verbs;
+#   * a second workspace: its admin can PATCH its own row, and the
+#     `fix-workspace` admin cannot reach it (the lookup filters the slug).
+#
+# Ids: the three `plane_fix_tpl` webhooks plus the three rows
+# `webhooks-fixture.sql` seeds (a soft-deleted twin, a `fix-second` row and a
+# row with a NULL `created_by_id`) — see that file's header.
+
+name: write-webhooks-patch
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+  # The three fixture URLs and every accepted URL below are on this host, so
+  # the save-time SSRF check returns before DNS. Never add WEBHOOK_ALLOWED_IPS:
+  # it would make the loopback steps succeed.
+  WEBHOOK_ALLOWED_HOSTS: "hooks.example.test"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/webhooks-fixture.sql"
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  ws2_id: "7045c0d6-5260-494d-a205-4cfbaab24fea"
+  webhook_active: "f8cfd225-6f45-442e-a86f-ec8317215958"
+  webhook_inactive: "b3167eff-f419-4108-8ed1-ed025c0a9d16"
+  webhook_internal: "9cffbfd4-5436-4466-b63c-771c4d2291d4"
+  webhook_soft_deleted: "b9000000-0000-4000-8000-000000000001"
+  webhook_ws2: "b9000000-0000-4000-8000-000000000002"
+  webhook_orphan: "b9000000-0000-4000-8000-000000000003"
+  unknown_webhook: "33333333-3333-4333-8333-333333333333"
+  unknown_user: "55555555-5555-4555-8555-555555555555"
+  user_member: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  # The fixture's "nonmember" is an ADMIN of `fix-second`.
+  session_ws2_admin: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- PATCH: the partial field set ----------------------------------------
+  - name: write-webhooks-01-patch-is-active
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    json:
+      is_active: false
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The partial unique index allows the row's own URL, so this is a no-op
+  # UPDATE (only `updated_at`/`updated_by` move).
+  - name: write-webhooks-02-patch-url-same
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    json:
+      url: "https://hooks.example.test/active"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `id`, `workspace`, `secret_key` and `deleted_at` are read-only: the row must
+  # keep all four. `version` is writable but outside the ten-key body, so only
+  # the DB diff shows it.
+  - name: write-webhooks-03-patch-read-only-and-hidden
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_internal}}/"
+    json:
+      id: "99999999-9999-4999-8999-999999999999"
+      workspace: "{{ws2_id}}"
+      secret_key: "plane_wh_ffffffffffffffffffffffffffffffff"
+      deleted_at: "2026-01-01T00:00:00Z"
+      version: "v2"
+      is_internal: false
+      project: false
+      issue_comment: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # An empty body is DRF's `{}`: valid, nothing assigned, the save still runs.
+  - name: write-webhooks-04-patch-empty-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Unknown keys are ignored by the serializer, not rejected.
+  - name: write-webhooks-05-patch-unknown-keys
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    json:
+      nope: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- PATCH: the writable created_by FK -----------------------------------
+  - name: write-webhooks-06-patch-created-by
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    json:
+      created_by: "{{user_member}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: write-webhooks-07-patch-created-by-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    json:
+      created_by: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `PrimaryKeyRelatedField(queryset=User.objects.all())` → the serializer's
+  # `does_not_exist` list, before any SQL runs against `webhooks`.
+  - name: write-webhooks-08-patch-created-by-missing-user
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    json:
+      created_by: "{{unknown_user}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- PATCH: every URL message shape --------------------------------------
+  # field validators: `["Invalid schema…", "Local URLs are not allowed."]`
+  - name: write-webhooks-09-patch-url-schema-and-domain
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: "ftp://localhost"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # field validators: `["Invalid schema…", "Enter a valid URL."]`
+  - name: write-webhooks-10-patch-url-schema-and-validator
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: "not a url"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `urlparse` lowercases the scheme, so only Django's `URLValidator` fires.
+  - name: write-webhooks-11-patch-url-validator-only
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: "HTTP://x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-12-patch-url-local
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: "http://localhost"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-13-patch-url-blank
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-14-patch-url-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `validate_domain` compares the **netloc**, so the port defeats it and the
+  # save-time SSRF check answers with the bare-string body instead.
+  - name: write-webhooks-15-patch-url-ssrf-localhost-port
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: "http://localhost:8000/x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-16-patch-url-ssrf-loopback
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: "http://127.0.0.1:1/x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # A 1025-character URL passes the declared `URLField` (no `max_length`: the
+  # model's 1024 is not applied) and the allowed host skips DNS, so it reaches
+  # the UPDATE and overflows `varchar(1024)`: a `DataError`, i.e. a family 500
+  # (`plane/app/views/base.py:330-334`).
+  - name: write-webhooks-17-patch-url-too-long
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    json:
+      url: "https://hooks.example.test/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # --- PATCH: the live-row partial unique index ----------------------------
+  # The inactive row takes the URL the live active row holds: PATCH has no
+  # `try/except IntegrityError`, so this is the family 400, not POST's 409.
+  - name: write-webhooks-18-patch-url-live-conflict
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    json:
+      url: "https://hooks.example.test/active"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Free the orphan's URL by soft-deleting it, then take it from another row:
+  # the index only covers `deleted_at IS NULL`, so this is a 200.
+  - name: write-webhooks-19-delete-orphan
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-webhooks-20-patch-url-freed-by-delete
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    json:
+      url: "https://hooks.example.test/orphan"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- PATCH/DELETE: lookup misses and the body order ----------------------
+  - name: write-webhooks-21-patch-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{unknown_webhook}}/"
+    json:
+      is_active: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `Webhook.objects` filters `deleted_at`, so the fixture's soft-deleted twin
+  # is a 404 even though the row exists.
+  - name: write-webhooks-22-patch-soft-deleted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_soft_deleted}}/"
+    json:
+      is_active: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The lookup runs first: a malformed body on a missing pk is the 404 …
+  - name: write-webhooks-23-patch-malformed-json-unknown
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{unknown_webhook}}/"
+    body: '{"is_active": tru'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # … and on a live pk the parser's 400.
+  - name: write-webhooks-24-patch-malformed-json-live
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    body: '{"is_active": tru'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Another workspace's row is a 404 under this slug, for both verbs.
+  - name: write-webhooks-25-patch-ws2-pk
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_ws2}}/"
+    json:
+      is_active: false
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-webhooks-26-delete-ws2-pk
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_ws2}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-webhooks-27-delete-unknown
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{unknown_webhook}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # --- DELETE --------------------------------------------------------------
+  # DELETE never reads the body, so a malformed one still deletes (204).
+  - name: write-webhooks-28-delete-internal-malformed-body
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_internal}}/"
+    body: '{"is_active": tru'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Content-Type: "application/json"
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-webhooks-29-delete-inactive
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: write-webhooks-30-delete-inactive-twice
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-webhooks-31-get-inactive-after-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_inactive}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # Only the active row is left live: the two DELETE targets and the deleted
+  # orphan must be gone.
+  - name: write-webhooks-32-get-list-after-deletes
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- the 228 signature 500 ----------------------------------------------
+  # `webhooks/` has no `pk` kwarg, so Python raises a `TypeError` and the family
+  # handler answers 500 — but only after `allow_permission`, which is why the
+  # member's call below is a 403.
+  - name: write-webhooks-33-patch-228-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      is_active: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-webhooks-34-delete-228-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-webhooks-35-patch-228-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      is_active: true
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: write-webhooks-36-delete-228-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  # --- permission matrix and origin ---------------------------------------
+  - name: write-webhooks-37-patch-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    json:
+      is_active: true
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: write-webhooks-38-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    json:
+      is_active: true
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-webhooks-39-delete-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: write-webhooks-40-delete-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-webhooks-41-patch-wrong-origin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    json:
+      is_active: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: write-webhooks-42-delete-wrong-origin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # --- the second workspace -----------------------------------------------
+  # Its admin can PATCH its own row …
+  - name: write-webhooks-43-patch-ws2-own
+    method: PATCH
+    path: "/api/workspaces/{{ws2}}/webhooks/{{webhook_ws2}}/"
+    json:
+      is_active: false
+    jar: ws2_admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_ws2_admin}}"
+    expect_status: 200
+
+  # … and its list shows the patched row.
+  - name: write-webhooks-44-get-ws2-list
+    method: GET
+    path: "/api/workspaces/{{ws2}}/webhooks/"
+    jar: ws2_admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_ws2_admin}}"
+    expect_status: 200
