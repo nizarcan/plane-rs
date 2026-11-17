@@ -38,14 +38,18 @@
 //!
 //! ## What is ported
 //!
-//! Every `GET` of the group. `POST …/export-analytics/` is **not** ported: it
-//! enqueues `analytic_export_task` and has no read part.
+//! Every `GET` of the group, plus the stored-view writes (routes 1 and 2:
+//! `POST …/analytic-view/` and `PATCH`/`DELETE …/analytic-view/{pk}/`).
+//! `POST …/export-analytics/` is **not** ported: it enqueues
+//! `analytic_export_task` and has no read part.
 //!
 //! ## Side effects
 //!
-//! None of the ported routes writes, invalidates or enqueues: they are pure
-//! reads over `issues`, `projects`, `analytic_views` and the m2m through
-//! tables. That is why no `cache`/`jobs` handle appears here.
+//! The `GET`s write nothing, invalidate nothing and enqueue nothing: they are
+//! pure reads over `issues`, `projects`, `analytic_views` and the m2m through
+//! tables. The stored-view writes are one INSERT / full-row UPDATE, and a
+//! DELETE adds H03's soft delete plus its `soft_delete_related_objects`
+//! cascade message ([`write`]).
 
 use http::Method;
 use plane_drf::registry::{Registry, RegistryError};
@@ -59,6 +63,8 @@ pub mod project;
 pub mod queries;
 pub mod sql;
 pub mod stored;
+pub mod write;
+pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///
@@ -72,7 +78,10 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.analytic.base.AnalyticViewViewset")?
         .action("list", base::list)?
-        .action("retrieve", base::retrieve)?;
+        .action("retrieve", base::retrieve)?
+        .action("create", write::create)?
+        .action("partial_update", write::partial_update)?
+        .action("destroy", write::destroy)?;
     registry
         .api_view("plane.app.views.analytic.base.SavedAnalyticEndpoint")?
         .method(Method::GET, base::saved_analytic)?;
