@@ -12,17 +12,27 @@
 //! | `GET …/advance-analytics-stats/` | `AdvanceAnalyticsStatsEndpoint.get` (`advance.py:124-171`) |
 //! | `GET …/advance-analytics-charts/` | `AdvanceAnalyticsChartEndpoint.get` (`advance.py:174-320`) |
 //!
-//! ## Dates are the caller's, counts are `created_at`
+//! ## The analytics window is UTC; the chart buckets are the caller's
 //!
 //! `get_analytics_date_range` builds **naive** datetimes
-//! (`datetime.combine(today, time.min)`, `date_utils.py:38,45,56,67,82`), and
-//! Django interprets a naive datetime in the active timezone — the caller's
-//! `user_timezone`. The UTC instants therefore depend on the user: for
-//! `Asia/Kolkata` the "last 3 months" window starts at `2026-08-17T18:30Z`.
-//! `RUST_REWRITE.md` "Timezones" is exactly this.
+//! (`datetime.combine(today, time.min)`, `date_utils.py:38,45,56,67,82`) and
+//! `today` is `timezone.now().date()` (`date_utils.py:35`) — the **UTC** date,
+//! because `timezone.now()` is an aware UTC datetime. The naive bounds then go
+//! through `DateTimeField.get_prep_value`, which makes a naive value aware with
+//! `timezone.get_default_timezone()` — `settings.TIME_ZONE` (`"UTC"`,
+//! `plane/settings/common.py:319`), *not* the activated `user_timezone`
+//! (`django/db/models/fields/__init__.py:1660-1678`, the `RuntimeWarning`
+//! branch). The window is therefore UTC midnight to `23:59:59.999999Z`
+//! regardless of the caller: "last 3 months" at `2026-11-17` starts at
+//! `2026-08-19T00:00Z`, even for `Asia/Kolkata` (never `2026-08-18T18:30Z`).
 //!
 //! `get_chart_period_range` returns plain `date`s instead, and
-//! `created_at__date__gte/lte` compiles to `(created_at AT TIME ZONE tz)::date`.
+//! `created_at__date__gte/lte` compiles to `(created_at AT TIME ZONE tz)::date`
+//! with the **current** timezone (`TruncDate`'s `get_tzname`,
+//! `django/db/models/functions/datetime.py:27-38`). That part is per-user and
+//! stays that way, as does `default-analytics`' `completed_at__year`
+//! (`year_lookup_bounds_for_datetime_field` uses `get_current_timezone()`,
+//! `django/db/backends/base/operations.py:638-641`).
 //!
 //! `date_filter=custom` never filters anything: `get_analytics_date_range` is
 //! called with `start_date`/`end_date` left at their `None` defaults
@@ -47,7 +57,6 @@ use uuid::Uuid;
 
 use crate::analytics::base::{count, message_body, rendered, user_timezone};
 use crate::analytics::chart::build_analytics_chart;
-use crate::analytics::default::{local_end, local_start};
 use crate::analytics::sql::{self, QueryBase};
 use crate::common::{client, jobs, lookup};
 
@@ -66,7 +75,6 @@ pub(crate) struct AnalyticsFilters {
 pub(crate) fn analytics_filters(
     ctx: &ViewCtx<'_>,
     kind: &str,
-    timezone: Tz,
     now: DateTime<Utc>,
 ) -> Result<AnalyticsFilters, ViewError> {
     let query = ctx.query();
@@ -82,7 +90,7 @@ pub(crate) fn analytics_filters(
     };
     let date_filter = query.get("date_filter").filter(|value| !value.is_empty());
     let analytics_date_range = if kind == "analytics" {
-        analytics_date_range(date_filter, timezone, now)
+        analytics_date_range(date_filter, now)
     } else {
         None
     };
@@ -99,9 +107,12 @@ pub(crate) fn analytics_filters(
 }
 
 /// `get_analytics_date_range(date_filter)` with `start_date`/`end_date` unset.
+///
+/// The Python builds naive datetimes and filters `created_at` with them;
+/// `DateTimeField.get_prep_value` attaches `settings.TIME_ZONE` (`UTC`), not
+/// the caller's timezone, so the bounds are UTC midnights. See the module docs.
 fn analytics_date_range(
     date_filter: Option<&str>,
-    timezone: Tz,
     now: DateTime<Utc>,
 ) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
     let today = now.date_naive();
@@ -115,7 +126,21 @@ fn analytics_date_range(
         "last_3_months" => (today - chrono::Duration::days(90), today),
         _ => return None,
     };
-    Some((local_start(timezone, start), local_end(timezone, end)))
+    Some((utc_start(start), utc_end(end)))
+}
+
+/// `datetime.combine(day, datetime.min.time())` made aware in `TIME_ZONE`.
+fn utc_start(day: NaiveDate) -> DateTime<Utc> {
+    DateTime::from_naive_utc_and_offset(day.and_hms_opt(0, 0, 0).unwrap_or_default(), Utc)
+}
+
+/// `datetime.combine(day, datetime.max.time())` made aware in `TIME_ZONE`.
+fn utc_end(day: NaiveDate) -> DateTime<Utc> {
+    DateTime::from_naive_utc_and_offset(
+        day.and_hms_micro_opt(23, 59, 59, 999_999)
+            .unwrap_or_default(),
+        Utc,
+    )
 }
 
 /// `get_chart_period_range(date_filter)` (`date_utils.py:90-122`).
@@ -210,7 +235,7 @@ pub fn advance_analytics<'a>(
         let member_id = jobs::user_id(ctx)?;
         let client = client(ctx)?;
         let now = Utc::now();
-        let filters = analytics_filters(ctx, "analytics", timezone, now)?;
+        let filters = analytics_filters(ctx, "analytics", now)?;
         let tab = ctx.query().get_or("tab", "overview");
 
         let body = match tab {
@@ -280,11 +305,10 @@ pub fn advance_analytics_stats<'a>(
 ) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
         let slug = ctx.kwarg("slug").ok_or(ViewError::Key)?;
-        let timezone = user_timezone(ctx);
         let member_id = jobs::user_id(ctx)?;
         let client = client(ctx)?;
         let now = Utc::now();
-        let filters = analytics_filters(ctx, "chart", timezone, now)?;
+        let filters = analytics_filters(ctx, "chart", now)?;
         if ctx.query().get_or("type", "work-items") != "work-items" {
             return Ok(message_body(400, "Invalid type"));
         }
@@ -333,7 +357,7 @@ pub fn advance_analytics_chart<'a>(
         let member_id = jobs::user_id(ctx)?;
         let client = client(ctx)?;
         let now = Utc::now();
-        let filters = analytics_filters(ctx, "chart", timezone, now)?;
+        let filters = analytics_filters(ctx, "chart", now)?;
         let kind = ctx.query().get_or("type", "projects");
         let group_by = ctx
             .query()
@@ -916,7 +940,7 @@ mod tests {
             .unwrap_or_else(|_| Utc::now());
         // `custom` is documented as inert: the view never passes the window.
         assert!(chart_period_range(Some("custom"), now).is_none());
-        assert!(analytics_date_range(Some("custom"), chrono_tz::UTC, now).is_none());
+        assert!(analytics_date_range(Some("custom"), now).is_none());
         assert_eq!(
             chart_period_range(Some("last_3_months"), now),
             Some((
@@ -924,10 +948,45 @@ mod tests {
                 chrono::NaiveDate::from_ymd_opt(2026, 11, 16).unwrap_or_default()
             ))
         );
-        let range = analytics_date_range(Some("yesterday"), chrono_tz::UTC, now)
-            .expect("yesterday is a range");
+        let range = analytics_date_range(Some("yesterday"), now).expect("yesterday is a range");
         assert_eq!(range.0.to_rfc3339(), "2026-11-15T00:00:00+00:00");
         assert_eq!(range.1.to_rfc3339(), "2026-11-15T23:59:59.999999+00:00");
+    }
+
+    /// The window's naive bounds are made aware in `TIME_ZONE` (`UTC`), not in
+    /// the caller's timezone (`django/db/models/fields/__init__.py:1660-1678`).
+    /// At 20:00Z on the 17th it is already the 18th in `Asia/Kolkata`; Django
+    /// still anchors `today` and the window to the UTC date.
+    #[test]
+    fn analytics_windows_are_utc_even_where_the_caller_date_differs() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-17T20:00:00Z")
+            .map(|value| value.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now());
+        let kolkata = now.with_timezone(&chrono_tz::Asia::Kolkata);
+        assert_eq!(kolkata.date_naive().to_string(), "2026-11-18");
+
+        let (gte, lte) =
+            analytics_date_range(Some("last_7_days"), now).expect("last_7_days is a range");
+        assert_eq!(gte.to_rfc3339(), "2026-11-10T00:00:00+00:00");
+        assert_eq!(lte.to_rfc3339(), "2026-11-17T23:59:59.999999+00:00");
+
+        // The reported regression: a work item created `2026-08-18T23:21Z`
+        // sits 39 minutes before the UTC start of `last_3_months` at
+        // `2026-11-17`, so Django excludes it for every caller timezone.
+        let (gte, lte) =
+            analytics_date_range(Some("last_3_months"), now).expect("last_3_months is a range");
+        assert_eq!(gte.to_rfc3339(), "2026-08-19T00:00:00+00:00");
+        assert_eq!(lte.to_rfc3339(), "2026-11-17T23:59:59.999999+00:00");
+        let created = chrono::DateTime::parse_from_rfc3339("2026-08-18T23:21:00Z")
+            .map(|value| value.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now());
+        assert!(!(gte..=lte).contains(&created));
+
+        // `yesterday` is the UTC day before, and the whole day is included.
+        let (gte, lte) =
+            analytics_date_range(Some("yesterday"), now).expect("yesterday is a range");
+        assert_eq!(gte.to_rfc3339(), "2026-11-16T00:00:00+00:00");
+        assert_eq!(lte.to_rfc3339(), "2026-11-16T23:59:59.999999+00:00");
     }
 
     #[test]

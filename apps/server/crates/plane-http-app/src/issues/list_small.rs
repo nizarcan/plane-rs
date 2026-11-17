@@ -202,7 +202,7 @@ fn deleted<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
         let client = client(ctx)?;
         let ids: Vec<Uuid> = match ctx.query().get("updated_at__gt") {
             Some(value) => {
-                let since = parse_django_datetime(value, super::list_common::user_timezone(ctx))?;
+                let since = parse_django_datetime(value)?;
                 let statement = client
                     .prepare_cached(DELETED_ISSUES_SINCE.sql)
                     .await

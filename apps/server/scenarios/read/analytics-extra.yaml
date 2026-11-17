@@ -13,11 +13,19 @@
 # * every accepted `date_filter`, including the `custom` value that filters
 #   nothing because `get_analytics_date_range` never receives the custom
 #   window's start/end (`plane/utils/date_utils.py:75-87`);
-# * the caller's timezone, which moves both the naive-datetime windows
-#   (`advance-analytics`) and the `AT TIME ZONE` date buckets
-#   (`analytics`/`default-analytics`/chart `TruncMonth`): Berlin, Kolkata
-#   (+05:30), New York and Tokyo. The shared fixture has no zone east of
-#   Tokyo, so +13/+14 could not be exercised without rebuilding it;
+# * the caller's timezone, which moves the `AT TIME ZONE` date buckets
+#   (`analytics`/`default-analytics`, chart `TruncMonth` and every
+#   `created_at__date` filter). Berlin, Kolkata (+05:30), New York and Tokyo.
+#   The shared fixture has no zone east of Tokyo, so +13/+14 could not be
+#   exercised without rebuilding it. Note that `advance-analytics`' window is
+#   *not* in this list: its naive bounds are made aware in `TIME_ZONE` (`UTC`)
+#   by `DateTimeField.get_prep_value` (`django/db/models/fields/__init__.py`
+#   `:1660-1678`), so the window itself is identical for every tz session. No
+#   wall-clock-independent boundary step can be added for it: the window is
+#   anchored to `timezone.now().date()` and the `custom` start/end never reach
+#   `get_analytics_date_range`, so a boundary only exists on days when the
+#   fixture's issue timestamps straddle the current UTC start (as
+#   `2026-08-18T23:21:18Z` straddled `last_3_months` on 2026-11-17);
 # * `project`/`project_ids`, `cycle_id`/`module_id` (including both together,
 #   an empty value and an invalid UUID), and the `custom-work-items` chart's
 #   thirteen axis names with and without `group_by`;

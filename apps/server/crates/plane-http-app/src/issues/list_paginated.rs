@@ -68,7 +68,7 @@ fn list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewErro
                 Frag::compare(
                     "issues.updated_at",
                     ">",
-                    Value::Timestamp(parse_django_datetime(value, timezone)?),
+                    Value::Timestamp(parse_django_datetime(value)?),
                 ),
             );
         }
