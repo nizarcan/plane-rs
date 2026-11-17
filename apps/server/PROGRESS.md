@@ -961,7 +961,26 @@ and only `verified` rows are Rust-owned.
   `datetime.fromisoformat`. It accepts `" 2026-11-2"` and rejects the basic format
   `"20261120"`, both of which Django handles the other way. This affects every ported
   datetime field.
-- Running: notifications A+B (117–122).
+### Phase 5: notifications domain (2026-11-17)
+
+- Plan committed (`624c62468f`): no hooks beyond H01, no tasks, no P0; one agent did both
+  sets.
+- Notifications (merged `8e22b1df27`, flipped with this entry): 117
+  `rust(GET,PATCH,DELETE)` (DELETE is the covered 405), 118/119 `rust(POST,DELETE)`, 121
+  `rust(POST)`, 122 `rust(GET,PATCH)`. `write/notifications.yaml` 40/40 and
+  `notification-preferences.yaml` 43/43 in both directions; on the merge, all 27 write
+  scenarios plus `read/notifications*` are clean DvR. 122 PATCH's contract test passes.
+  **The notifications domain is fully on Rust** (116–122).
+- Shared fix: `write::fields::boolean` now matches DRF 3.18's lowercased
+  `TRUE_VALUES`/`FALSE_VALUES` (`t/y/yes/on`, `f/n/no/off`, `1.0/0.0`); before, it
+  accepted only `true/false/1/0`.
+- Upstream quirks kept: 117 forwards only `snoozed_till` (so `read_at`/`archived_at`/
+  `deleted_at` are ignored, despite its docstring); a future `snoozed_till` matches both of
+  121's snooze branches; 121's bulk update writes `read_at` only; 122 for a user with two
+  preference rows is a 500. Plan correction: every fixture issue is created by `admin`,
+  not `member`.
+- Running: the exact `fromisoformat` + Django-fallback date/datetime parser
+  (`rs/iso-parse`).
 
 ## Next three steps
 

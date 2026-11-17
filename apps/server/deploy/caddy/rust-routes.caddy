@@ -393,7 +393,11 @@ handle @plane_rs_intake {
 	expression <<CEL
 		({env.PLANE_RS_GROUP_NOTIFICATIONS} == "" ? "rust" : {env.PLANE_RS_GROUP_NOTIFICATIONS}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/users/notifications/$") || path_regexp(r"^/api/workspaces/[^/]+/users/notifications/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/workspaces/[^/]+/users/notifications/unread/$") || path_regexp(r"^/api/users/me/notification-preferences/$")))
+			(method("GET") && (path_regexp(r"^/api/workspaces/[^/]+/users/notifications/$") || path_regexp(r"^/api/workspaces/[^/]+/users/notifications/unread/$")))
+			|| 			(method("GET", "PATCH", "DELETE") && (path_regexp(r"^/api/workspaces/[^/]+/users/notifications/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("POST", "DELETE") && (path_regexp(r"^/api/workspaces/[^/]+/users/notifications/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/read/$") || path_regexp(r"^/api/workspaces/[^/]+/users/notifications/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/archive/$")))
+			|| 			(method("POST") && (path_regexp(r"^/api/workspaces/[^/]+/users/notifications/mark-all-read/$")))
+			|| 			(method("GET", "PATCH") && (path_regexp(r"^/api/users/me/notification-preferences/$")))
 		)
 	CEL
 }
