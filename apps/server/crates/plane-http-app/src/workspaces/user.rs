@@ -82,13 +82,13 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
 }
 
 /// The `user_id` URL kwarg as a UUID (all five routes take one).
-fn target_user(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
+pub(super) fn target_user(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
     let value = ctx.kwarg("user_id").unwrap_or_default();
     Uuid::parse_str(value).map_err(|_| ViewError::Validation)
 }
 
 /// `request.user.id` for the visibility rules.
-fn caller(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
+pub(super) fn caller(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
     ctx.user
         .id()
         .ok_or_else(|| ViewError::Unknown("an authenticated view without a user".to_string()))
@@ -146,7 +146,7 @@ fn query_error(error: QueryError) -> ViewError {
 }
 
 /// Prepare and run a composed statement.
-async fn run(
+pub(super) async fn run(
     client: &deadpool_postgres::Client,
     select: Select,
 ) -> Result<Vec<tokio_postgres::Row>, ViewError> {
@@ -1064,12 +1064,14 @@ async fn cycle_rows(
 // ---------------------------------------------------------------------------
 
 /// One joined activity row plus the nested serializer inputs.
+///
+/// Shared with [`super::activity_export`], which reads nine of the columns.
 #[derive(Debug)]
-struct ActivityRecord {
-    activity: plane_db::models::issue::IssueActivity,
-    actor: UserRow,
-    issue: plane_db::models::issue::Issue,
-    project: plane_db::models::project::Project,
+pub(super) struct ActivityRecord {
+    pub(super) activity: plane_db::models::issue::IssueActivity,
+    pub(super) actor: UserRow,
+    pub(super) issue: plane_db::models::issue::Issue,
+    pub(super) project: plane_db::models::project::Project,
     project_cover_image_url: Option<String>,
     workspace: plane_db::models::workspace::Workspace,
     workspace_logo_url: Option<String>,
@@ -1079,7 +1081,7 @@ impl ActivityRecord {
     /// Column layout: `issue_activities` (20), the actor (10), the issue (28),
     /// the project (36), the project's cover asset type, the workspace (14) and
     /// its logo asset type.
-    fn from_row(row: &tokio_postgres::Row) -> Result<Self, ViewError> {
+    pub(super) fn from_row(row: &tokio_postgres::Row) -> Result<Self, ViewError> {
         let project = plane_db::models::project::Project::from_row(row, 58)?;
         let project_cover_entity_type: Option<String> = row.try_get(94)?;
         let workspace = plane_db::models::workspace::Workspace::from_row(row, 95)?;
@@ -1151,6 +1153,30 @@ impl DrfSerialize for ActivityView<'_> {
     }
 }
 
+/// The filters `WorkspaceUserActivityEndpoint` (202) and
+/// `ExportWorkspaceUserActivityEndpoint` (203, `workspace/base.py:355-361`)
+/// share.
+///
+/// The two views build the same `IssueActivity` queryset from the same
+/// `_visible_issues_q` helper (`user.py:68-82`) and the same negation of the
+/// excluded fields, but 203 adds a day filter and does **not** drop archived
+/// projects, so the difference is a field rather than a second query.
+pub(super) struct ActivityScope<'a> {
+    pub slug: &'a str,
+    pub user: Uuid,
+    pub target: Uuid,
+    pub projects: &'a [Uuid],
+    /// 202 filters `project__archived_at__isnull=True` (`user.py:419`); 203
+    /// has no such filter, so archived-project activity reaches the CSV.
+    pub live_projects_only: bool,
+    /// 203's `created_at__date=<body date>` (`workspace/base.py:359`). Django's
+    /// `__date` truncates in the **active** timezone (`TimezoneMixin.initial`
+    /// activates `request.user.user_timezone`), so the zone name travels with
+    /// the value.
+    pub created_on: Option<chrono::NaiveDate>,
+    pub timezone: Tz,
+}
+
 /// `WorkspaceUserActivityEndpoint.get` (`user.py:412-435`).
 fn user_activity<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
@@ -1187,7 +1213,15 @@ fn user_activity<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse,
         let page_index = page.cursor.offset;
         let offset = page_index * limit;
 
-        let base = activity_select(slug, user, target, &projects);
+        let base = activity_select(&ActivityScope {
+            slug,
+            user,
+            target,
+            projects: &projects,
+            live_projects_only: true,
+            created_on: None,
+            timezone,
+        });
 
         let mut select = base.clone();
         select.order_by = activity_order(&order, column);
@@ -1317,9 +1351,14 @@ fn activity_order(order: &str, column: &str) -> Vec<Frag> {
     }
 }
 
-/// The shared `SELECT … FROM issue_activities …` of the activity paginator,
-/// with every joined row the serializer reads.
-fn activity_select(slug: &str, user: Uuid, target: Uuid, projects: &[Uuid]) -> Select {
+/// The shared `SELECT … FROM issue_activities …` of the activity paginator and
+/// the activity export, with every joined row the serializer reads.
+///
+/// 203 reuses the full projection (it reads the same `select_related` rows and
+/// only nine of their columns) so the predicate — the `~Q(field__in=…)`
+/// negation with its `IS NOT NULL` pair, `_visible_issues_q` and the
+/// `deleted_at` manager filter — is the one 202's read scenarios already pin.
+pub(super) fn activity_select(scope: &ActivityScope<'_>) -> Select {
     let mut select = Select::new("issue_activities");
     select.joins = vec![
         Join::inner(
@@ -1377,20 +1416,36 @@ fn activity_select(slug: &str, user: Uuid, target: Uuid, projects: &[Uuid]) -> S
             .and(Frag::is_not_null("issue_activities.field"))
             .negate(),
         )
-        .and(visible_issues(user))
-        .and(Frag::is_null("issue_projects.archived_at"))
+        .and(visible_issues(scope.user))
         .and(Frag::compare(
             "issue_activities.actor_id",
             "=",
-            Value::Uuid(target),
+            Value::Uuid(scope.target),
         ))
         .and(Frag::compare(
             "workspaces.slug",
             "=",
-            Value::Text(slug.to_owned()),
+            Value::Text(scope.slug.to_owned()),
         ));
-    if !projects.is_empty() {
-        predicate = predicate.and(Frag::in_uuids("issue_activities.project_id", projects));
+    if scope.live_projects_only {
+        predicate = predicate.and(Frag::is_null("issue_projects.archived_at"));
+    }
+    if let Some(created_on) = scope.created_on {
+        // `created_at__date=<date>`: Django's `TruncDate` is
+        // `(created_at AT TIME ZONE <active zone>)::date`
+        // (`django/db/backends/postgresql/operations.py:120-122`), and the
+        // active zone is the caller's (`TimezoneMixin.initial`).
+        let mut date = Frag::raw("(issue_activities.created_at AT TIME ZONE ");
+        date.push(Frag::bind(Value::Text(scope.timezone.name().to_owned())));
+        date.push_raw(")::date = ");
+        date.push(Frag::bind(Value::Date(created_on)));
+        predicate = predicate.and(date);
+    }
+    if !scope.projects.is_empty() {
+        predicate = predicate.and(Frag::in_uuids(
+            "issue_activities.project_id",
+            scope.projects,
+        ));
     }
     let mut projection: Vec<Frag> = Vec::new();
     for column in [

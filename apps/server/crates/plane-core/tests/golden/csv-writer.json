@@ -1,0 +1,171 @@
+{
+  "generated_by": "apps/server/tools/inventory/csv_corpus.py",
+  "python": "3.12.13",
+  "writer": "csv.writer(delimiter=\",\", quoting=csv.QUOTE_ALL)",
+  "cases": [
+    {
+      "name": "header",
+      "rows": [
+        [
+          "Actor name",
+          "Issue ID",
+          "Project",
+          "Created at",
+          "Updated at",
+          "Action",
+          "Field",
+          "Old value",
+          "New value"
+        ]
+      ],
+      "csv": "\"Actor name\",\"Issue ID\",\"Project\",\"Created at\",\"Updated at\",\"Action\",\"Field\",\"Old value\",\"New value\"\r\n"
+    },
+    {
+      "name": "activity_rows",
+      "rows": [
+        [
+          "Actor name",
+          "Issue ID",
+          "Project",
+          "Created at",
+          "Updated at",
+          "Action",
+          "Field",
+          "Old value",
+          "New value"
+        ],
+        [
+          "Mia Member",
+          "ALP - 1",
+          "Alpha Platform",
+          "2026-01-05 01:00:00+00:00",
+          "2026-01-05 01:00:00+00:00",
+          "issue.activity.created",
+          null,
+          null,
+          null
+        ],
+        [
+          "Ada Admin",
+          "BET - 12",
+          "Beta \"Mobile\", Inc.",
+          "2026-01-05 01:00:00+00:00",
+          "2026-01-05 01:00:00+00:00",
+          "issue.activity.updated",
+          "priority",
+          "a,b",
+          "he said \"hi\""
+        ]
+      ],
+      "csv": "\"Actor name\",\"Issue ID\",\"Project\",\"Created at\",\"Updated at\",\"Action\",\"Field\",\"Old value\",\"New value\"\r\n\"Mia Member\",\"ALP - 1\",\"Alpha Platform\",\"2026-01-05 01:00:00+00:00\",\"2026-01-05 01:00:00+00:00\",\"issue.activity.created\",\"\",\"\",\"\"\r\n\"Ada Admin\",\"BET - 12\",\"Beta \"\"Mobile\"\", Inc.\",\"2026-01-05 01:00:00+00:00\",\"2026-01-05 01:00:00+00:00\",\"issue.activity.updated\",\"priority\",\"a,b\",\"he said \"\"hi\"\"\"\r\n"
+    },
+    {
+      "name": "empty_document",
+      "rows": [],
+      "csv": ""
+    },
+    {
+      "name": "empty_row",
+      "rows": [
+        []
+      ],
+      "csv": "\r\n"
+    },
+    {
+      "name": "csv_quoting",
+      "rows": [
+        [
+          "plain",
+          "",
+          null,
+          "a,b",
+          "he said \"hi\""
+        ],
+        [
+          "a\nb",
+          "a\r\nb",
+          "a\rb",
+          "\"\"\"",
+          ",,,"
+        ],
+        [
+          "trailing,",
+          ",leading",
+          "both,",
+          " space ",
+          "  "
+        ]
+      ],
+      "csv": "\"plain\",\"\",\"\",\"a,b\",\"he said \"\"hi\"\"\"\r\n\"a\nb\",\"a\r\nb\",\"a\rb\",\"\"\"\"\"\"\"\",\",,,\"\r\n\"trailing,\",\",leading\",\"both,\",\" space \",\"  \"\r\n"
+    },
+    {
+      "name": "formula_triggers",
+      "rows": [
+        [
+          "=1+2",
+          "+1",
+          "-1",
+          "@x",
+          "\tx"
+        ],
+        [
+          "\rx",
+          "\nx",
+          "",
+          null,
+          " =1"
+        ],
+        [
+          "'=1",
+          "x=1",
+          "-",
+          "=",
+          "@"
+        ]
+      ],
+      "csv": "\"'=1+2\",\"'+1\",\"'-1\",\"'@x\",\"'\tx\"\r\n\"'\rx\",\"'\nx\",\"\",\"\",\" =1\"\r\n\"'=1\",\"x=1\",\"'-\",\"'=\",\"'@\"\r\n"
+    },
+    {
+      "name": "unicode",
+      "rows": [
+        [
+          "héllo → 世界 🚀",
+          "ß",
+          "İstanbul",
+          "日本語のテキスト"
+        ],
+        [
+          "emoji 👩‍👩‍👧‍👦 family",
+          "nul-ish \\0",
+          "tab\there"
+        ]
+      ],
+      "csv": "\"héllo → 世界 🚀\",\"ß\",\"İstanbul\",\"日本語のテキスト\"\r\n\"emoji 👩‍👩‍👧‍👦 family\",\"nul-ish \\0\",\"tab\there\"\r\n"
+    },
+    {
+      "name": "datetimes",
+      "rows": [
+        [
+          "2026-01-05 01:00:00+00:00",
+          "2026-01-05 01:00:00.123456+00:00",
+          "2026-01-05"
+        ]
+      ],
+      "csv": "\"2026-01-05 01:00:00+00:00\",\"2026-01-05 01:00:00.123456+00:00\",\"2026-01-05\"\r\n"
+    },
+    {
+      "name": "multi_line",
+      "rows": [
+        [
+          "first line\nsecond line",
+          "only\rreturn",
+          "crlf\r\nend"
+        ],
+        [
+          "line with \"quote\"\nand newline"
+        ]
+      ],
+      "csv": "\"first line\nsecond line\",\"only\rreturn\",\"crlf\r\nend\"\r\n\"line with \"\"quote\"\"\nand newline\"\r\n"
+    }
+  ]
+}

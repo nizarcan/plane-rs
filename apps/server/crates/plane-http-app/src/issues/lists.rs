@@ -6,8 +6,9 @@
 //!
 //! This module is the join point for the handlers whose files start with
 //! `list_` (the list/detail read paths) so they can be ported independently of
-//! the sub-resource files. Every handler here answers a `GET`; the write verbs
-//! of the same views stay on Django.
+//! the sub-resource files. Every handler here answers a `GET` except
+//! `list_export`, which also registers the export `POST` that lives in
+//! `super::write_export`.
 //!
 //! The handler files live next to this one and are declared here with
 //! `#[path]`, so `src/issues/mod.rs` only ever gains one `mod lists;` line and

@@ -30,11 +30,13 @@ use uuid::Uuid;
 use super::list_common::{client, kwarg_text, user_id};
 use crate::common::RequestRender;
 
-/// Register `ExportIssuesEndpoint.get`.
+/// Register `ExportIssuesEndpoint`'s two verbs: the history `GET` here and the
+/// export `POST` in [`crate::issues::write_export`].
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.exporter.base.ExportIssuesEndpoint")?
-        .method(Method::GET, get)?;
+        .method(Method::GET, get)?
+        .method(Method::POST, crate::issues::write_export::post)?;
     Ok(())
 }
 
