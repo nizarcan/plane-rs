@@ -63,6 +63,11 @@ pub mod write_attachment;
 pub mod write_draft;
 pub mod write_draft_queries;
 
+// Set B of `plans/ANALYTICS_EXPORTS.md`: `POST export-issues/` (233). The
+// handler is registered next to the route's `GET` in `list_export`.
+pub mod write_export;
+pub mod write_export_queries;
+
 /// Register this group's handlers, in the order they were ported.
 ///
 /// `apps/server/HANDLERS.md` has the step list. Return the first

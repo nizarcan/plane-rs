@@ -1,0 +1,436 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Analytics set B of plans/ANALYTICS_EXPORTS.md §3 — the issue export:
+#
+#   POST /api/workspaces/{slug}/export-issues/     (233)
+#
+# Covers, in the view's statement order (`plane/app/views/exporter/base.py:19-66`):
+#
+#   * permissions: `allow_permission([ADMIN, MEMBER], level="WORKSPACE")` —
+#     a guest and a non-member get the 403, a foreign Origin the CSRF 403 and
+#     an anonymous caller the 401, all before the view body.
+#   * the workspace lookup runs **before** `request.data` is parsed, so an
+#     unparsable body is a 400 only once the workspace exists, and a
+#     soft-deleted workspace (`fix-deleted`, whose membership row still makes
+#     the permission query pass) is the family
+#     `404 {"error": "The required object does not exist."}`.
+#   * `provider in ["csv", "xlsx", "json"]` is a string equality test: a missing
+#     key (`False`), an explicit `null` (`None`), a list (`['csv']`), an int and
+#     a bool all take the 400 `Provider '<str(provider)>' not found.` branch.
+#   * the project fallback (`if not project_ids:`) for a missing key, `[]` and a
+#     form's empty value, with the admin's and a member's different membership
+#     sets (gamma is archived, delta is soft-deleted, theta is another
+#     workspace) and the `-created_at` ordering the message's `project_ids`
+#     carries.
+#   * a `project` list is converted element by element through `UUIDField`
+#     (an int becomes `uuid.UUID(int=…)`, `null` becomes a NULL element), while
+#     a bare string reaches Postgres untouched: a valid UUID is one element and
+#     `"abc"` is the family 500 (`DataError`).
+#   * a form body: `multiple="false"` is the truthy **string** the message
+#     carries, and `project` is the raw form value.
+#   * ten creates in all, so the `token` placeholder proves each is a distinct
+#     `uuid4().hex` value.
+#   * a JSON list body is the `AttributeError` 500 (`list.get`), and `PUT` is
+#     the covered 405.
+#
+# There is deliberately **no** `GET export-issues/` after a create: the token
+# placeholder is a DB-column rule (32 hex), and a later history read would put
+# the same random token through the `token` JSON-key rule, which asserts the
+# 64-hex `api_token` shape (`scenarios/normalize.yaml:350-354`). The two
+# baseline history reads happen before any create instead.
+#
+# Fixture: `export-issues-fixture.sql` on top of `plane_fix_tpl` — one exporter
+# in `fix-second` initiated by that workspace's admin.
+
+name: write-export-issues
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/export-issues-fixture.sql"
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  ws_deleted: "fix-deleted"
+  dummy_one: "11111111-2222-3333-4444-555555555555"
+  dummy_two: "66666666-7777-8888-9999-aaaaaaaaaaaa"
+  dummy_braced: "{11111111-2222-3333-4444-555555555555}"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- the history list, before any create ---------------------------------
+  # The four template exporters of `fix-workspace`, initiated by admin.
+  - name: ei-01-get-list-baseline
+    method: GET
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    query:
+      per_page: "10"
+      cursor: "10:0:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # The seeded row of the second workspace, visible only to its own admin.
+  - name: ei-02-get-list-second
+    method: GET
+    path: "/api/workspaces/{{ws2}}/export-issues/"
+    query:
+      per_page: "10"
+      cursor: "10:0:0"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+
+  # --- permissions ---------------------------------------------------------
+  - name: ei-03-post-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: ei-04-post-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: ei-05-post-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: ei-06-post-unauthenticated
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # --- the workspace lookup, before the body ------------------------------
+  - name: ei-07-post-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The parser runs after the lookup: a malformed body on a live workspace is
+  # the parse error, not a 404.
+  - name: ei-08-post-invalid-json
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    body: "{"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 400
+
+  # --- provider validation -------------------------------------------------
+  - name: ei-09-post-no-provider
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ei-10-post-provider-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ei-11-post-provider-bogus
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "pdf"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ei-12-post-provider-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: ["csv"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ei-13-post-provider-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ei-14-post-provider-true
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- creates: the project fallback --------------------------------------
+  # `project` absent: the caller's live, unarchived projects as ALP/BET/EPS/ZET
+  # (gamma is archived, delta soft-deleted), newest first.
+  - name: ei-15-post-csv-fallback
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `project: []` is falsy too, and `multiple: 0` rides along raw.
+  - name: ei-16-post-json-empty-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "json"
+      project: []
+      multiple: 0
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A member's fallback set is smaller: alpha and beta only (gamma archived,
+  # delta deleted, epsilon/zeta not joined).
+  - name: ei-17-post-csv-member-fallback
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # --- creates: the raw `project` value -----------------------------------
+  # A bare string is an array literal: one element.
+  - name: ei-18-post-xlsx-project-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "xlsx"
+      project: "{{dummy_one}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A bare string *is* the array literal, so it must carry the braces: one
+  # element. (An unbraced UUID is `malformed array literal`, the 500 above.)
+  - name: ei-18b-post-xlsx-project-braced-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "xlsx"
+      project: "{{dummy_braced}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A list is converted element by element.
+  - name: ei-19-post-csv-project-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+      project: ["{{dummy_two}}", "{{dummy_one}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # An int element is `uuid.UUID(int=123)` = …-00000000007b.
+  - name: ei-20-post-csv-project-list-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+      project: [123]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A null element stays NULL inside the array.
+  - name: ei-21-post-csv-project-list-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+      project: [null, "{{dummy_one}}"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A bad *string* reaches Postgres and is a DataError (family 500) with no row.
+  - name: ei-22-post-csv-project-bad-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+      project: "abc"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A non-string scalar is a type error in Postgres, i.e. the same 500.
+  - name: ei-23-post-csv-project-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+      project: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A bad *list element* is `UUIDField.to_python`'s ValidationError → 400.
+  - name: ei-24-post-csv-project-bad-element
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+      project: ["abc"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- form bodies ---------------------------------------------------------
+  # `multiple="false"` is a truthy string in the message; the empty `project`
+  # is falsy and takes the fallback.
+  - name: ei-25-post-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    form:
+      provider: "csv"
+      multiple: "false"
+      project: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: ei-26-post-form-project
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    form:
+      provider: "json"
+      multiple: "1"
+      project: "{{dummy_braced}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- a second token, an unparsable body and the wrong verb --------------
+  - name: ei-27-post-second-token
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "json"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A JSON list body has no `.get`: `AttributeError` → the family 500.
+  - name: ei-28-post-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    body: '["csv"]'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 500
+
+  - name: ei-29-put
+    method: PUT
+    path: "/api/workspaces/{{ws}}/export-issues/"
+    json:
+      provider: "csv"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405

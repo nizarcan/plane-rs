@@ -1,0 +1,589 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Analytics set C of plans/ANALYTICS_EXPORTS.md §3 — the two remaining writes
+# of the `analytics` and `workspaces` groups:
+#
+#   POST /api/workspaces/{slug}/export-analytics/                 (4)
+#   POST /api/workspaces/{slug}/user-activity/{user_id}/export/   (203)
+#
+# Route 4 writes nothing and looks nothing up: `ExportAnalyticsEndpoint.post`
+# (`plane/app/views/analytic/base.py:235-261`) validates two axes, publishes
+# `analytic_export_task` with the **whole parsed body** as `data`, and answers
+# 200 with the caller's e-mail. Covered: a JSON body, a form body (whose `data`
+# is a dict of strings), a repeated form key (last value wins), the four axis
+# error branches, `segment` equality and invalidity, an empty `segment`
+# (falsy, accepted), a JSON list body (the `AttributeError` 500), `PUT` (405)
+# and — the plan's §4 quirk — a member of the **soft-deleted** workspace, which
+# reaches the publish and gets a 200 because the view never looks the workspace
+# up.
+#
+# Route 203 answers a CSV synchronously (`plane/app/views/workspace/base.py:
+# 340-391`). Covered: the `date` requirement (`None`, `""`, `0`, `false` and
+# `[]` are all "Date is required"; `123` and a list are the 500; a bad string
+# is the family 400), the day filter in the **caller's** timezone (a row at
+# 2026-01-04T20:00Z is 2026-01-05 in Asia/Kolkata and not in UTC), the missing
+# `archived_at` filter, `_visible_issues_q` (a project the caller is not a
+# member of), the `~Q(field__in=["comment","vote","reaction","draft"])`
+# negation (which keeps `field IS NULL`), the actor filter, the soft-delete
+# manager predicate, an `issue_id IS NULL` row (excluded by the inner joins),
+# the unvalidated `user_id` (any uuid, no activity, header-only CSV), an
+# ignored `?project=` query parameter and the exact CSV bytes — quoting,
+# `\r\n`, a `None` cell as `""` and the `'` formula prefix.
+#
+# Fixture: `analytics-exports-fixture.sql` on top of `plane_fix_tpl` — eleven
+# fixed-timestamp `issue_activities` rows in `fix-workspace`.
+
+name: write-analytics-exports
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/analytics-exports-fixture.sql"
+  ws: "fix-workspace"
+  ws_deleted: "fix-deleted"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  nobody_id: "00000000-0000-4000-8000-000000000123"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # =====================================================================
+  # Route 4 — POST export-analytics/
+  # =====================================================================
+  - name: ae-01-post-export-analytics
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: ae-02-post-with-segment
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "state_id"
+      y_axis: "estimate"
+      segment: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: ae-03-post-missing-x-axis
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-04-post-missing-y-axis
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-05-post-invalid-x-axis
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "nope"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-06-post-invalid-y-axis
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-07-post-segment-equals-x-axis
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+      segment: "priority"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-08-post-invalid-segment
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+      segment: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # An empty segment is falsy (`if segment and …`), so the export runs.
+  - name: ae-09-post-empty-segment
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+      segment: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A form body: `data` reaches the worker as the `QueryDict` flattened to one
+  # string per key.
+  - name: ae-10-post-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    form:
+      x_axis: "priority"
+      y_axis: "issue_count"
+      segment: "state_id"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A repeated form key keeps its **last** value (`QueryDict.items()`).
+  - name: ae-11-post-form-repeated
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    body: "x_axis=priority&x_axis=state_id&y_axis=issue_count&y_axis=estimate"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/x-www-form-urlencoded"
+    expect_status: 200
+
+  - name: ae-12-post-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    body: '["priority"]'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 500
+
+  - name: ae-13-post-null-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 500
+
+  # No workspace lookup: the permission query's `workspaces` join is
+  # unfiltered, so a member of the soft-deleted workspace publishes a task.
+  - name: ae-14-post-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: ae-15-post-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: ae-16-post-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: ae-17-post-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: ae-18-post-unauthenticated
+    method: POST
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  - name: ae-19-put
+    method: PUT
+    path: "/api/workspaces/{{ws}}/export-analytics/"
+    json:
+      x_axis: "priority"
+      y_axis: "issue_count"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  # =====================================================================
+  # Route 203 — POST user-activity/{user_id}/export/
+  # =====================================================================
+  # Admin (UTC): rows 0001 (field NULL), 0003 (archived gamma) and 0009
+  # (beta). 0004 is epsilon, where *admin* is a member, so it is included too;
+  # 0006 is 2026-01-04 in UTC.
+  - name: ae-20-csv-admin-utc
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Member (Asia/Kolkata): 0004 drops out (member is not an epsilon project
+  # member) and 0006 joins, because 2026-01-04T20:00Z is 2026-01-05 there.
+  - name: ae-21-csv-member-ist
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # The target is the actor filter: admin's own activity is row 0005 only.
+  - name: ae-22-csv-admin-target
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{admin_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Django's `date_re` fallback accepts a one-digit month and day.
+  - name: ae-23-csv-one-digit-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-1-5"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A different day: only that day's row (the day filter is not a range).
+  - name: ae-24-csv-other-day
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-06"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `user_id` is never checked: any uuid with no activity is a valid export.
+  - name: ae-25-csv-unknown-user
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{nobody_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # Query parameters are ignored by 203; `?project=` narrows 202 only.
+  - name: ae-26-csv-ignores-project-param
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    query:
+      project: "{{project_alpha}}"
+      order_by: "updated_at"
+    json:
+      date: "2026-01-05"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A form body: `QueryDict.get` returns the string.
+  - name: ae-27-csv-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    form:
+      date: "2026-01-05"
+      ignored: "x"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The soft-deleted workspace has no activity; the view never looks it up, so
+  # this is a header-only CSV rather than a 404.
+  - name: ae-28-csv-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- the `date` body value ------------------------------------------------
+  - name: ae-29-csv-no-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-30-csv-empty-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-31-csv-null-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-32-csv-zero-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: 0
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-33-csv-false-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: false
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-34-csv-empty-list-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # A truthy non-string is `date.fromisoformat`'s `TypeError` (family 500).
+  - name: ae-35-csv-int-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: 123
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: ae-36-csv-list-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: ["2026-01-05"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # A malformed date string is `DateField.to_python`'s `ValidationError`.
+  - name: ae-37-csv-bad-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "nope"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-38-csv-impossible-date
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-13-01"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: ae-39-csv-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    body: '["2026-01-05"]'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 500
+
+  # --- permissions ---------------------------------------------------------
+  - name: ae-40-csv-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: ae-41-csv-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: ae-42-csv-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: ae-43-csv-unauthenticated
+    method: POST
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  - name: ae-44-csv-put
+    method: PUT
+    path: "/api/workspaces/{{ws}}/user-activity/{{member_id}}/export/"
+    json:
+      date: "2026-01-05"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405

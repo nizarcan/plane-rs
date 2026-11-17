@@ -39,9 +39,9 @@
 //! ## What is ported
 //!
 //! Every `GET` of the group, plus the stored-view writes (routes 1 and 2:
-//! `POST …/analytic-view/` and `PATCH`/`DELETE …/analytic-view/{pk}/`).
-//! `POST …/export-analytics/` is **not** ported: it enqueues
-//! `analytic_export_task` and has no read part.
+//! `POST …/analytic-view/` and `PATCH`/`DELETE …/analytic-view/{pk}/`) and
+//! `POST …/export-analytics/` (route 4, [`export`]), which validates two axes
+//! and publishes `analytic_export_task`.
 //!
 //! ## Side effects
 //!
@@ -58,6 +58,7 @@ pub mod advance;
 pub mod base;
 pub mod chart;
 pub mod default;
+pub mod export;
 pub mod plot;
 pub mod project;
 pub mod queries;
@@ -85,6 +86,9 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.analytic.base.SavedAnalyticEndpoint")?
         .method(Method::GET, base::saved_analytic)?;
+    registry
+        .api_view("plane.app.views.analytic.base.ExportAnalyticsEndpoint")?
+        .method(Method::POST, export::export_analytics)?;
     registry
         .api_view("plane.app.views.analytic.base.DefaultAnalyticsEndpoint")?
         .method(Method::GET, default::default_analytics)?;

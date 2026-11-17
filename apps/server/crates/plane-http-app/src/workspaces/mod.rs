@@ -32,6 +32,7 @@
 //! | File | Python |
 //! | --- | --- |
 //! | [`base`] | `base.py` — slug check, `WorkSpaceViewSet`, `WorkspaceThemeViewSet` |
+//! | [`activity_export`] | `base.py` — `ExportWorkspaceUserActivityEndpoint` (route 203, the synchronous CSV) |
 //! | [`favorite`] | `favorite.py` — favourites and favourite folders |
 //! | [`home`] | `home.py` — home widget preferences |
 //! | [`invite`] | `invite.py` — invitations and the invite landing page |
@@ -60,6 +61,7 @@
 
 use plane_drf::registry::{Registry, RegistryError};
 
+pub mod activity_export;
 pub mod base;
 pub mod favorite;
 pub mod home;
@@ -96,5 +98,9 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     recent_visit::register(registry)?;
     user_preference::register(registry)?;
     user::register(registry)?;
+    // `POST /user-activity/{user_id}/export/` (203), the synchronous CSV.
+    registry
+        .api_view("plane.app.views.workspace.base.ExportWorkspaceUserActivityEndpoint")?
+        .method(http::Method::POST, activity_export::post)?;
     Ok(())
 }
