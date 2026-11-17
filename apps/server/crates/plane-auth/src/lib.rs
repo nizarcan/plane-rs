@@ -31,7 +31,13 @@ pub mod auth_flow;
 pub mod cookies;
 pub mod csrf;
 pub mod error;
+/// `plane/license/utils/encryption.py` — the Fernet scheme for encrypted
+/// `instance_configurations` values (moved from `plane-http-app`, see §2i).
+pub mod fernet;
 pub mod host;
+/// `plane/license/utils/instance_value.py` — `get_configuration_value`
+/// (moved from `plane-http-app`, see §2i).
+pub mod instance_config;
 pub mod json;
 pub mod jwt;
 pub mod login;

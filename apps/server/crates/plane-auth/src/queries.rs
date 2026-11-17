@@ -465,6 +465,53 @@ plane_query! {
     []
 }
 
+plane_query! {
+    /// `Instance.objects.first()` (`plane/authentication/views/*`: the magic,
+    /// email, check and password views gate on it; `license/models/instance.py:44`
+    /// sets `Meta.ordering = ("-created_at",)`).
+    ///
+    /// `Instance` extends `BaseModel` → `AuditModel` → `SoftDeleteModel`, whose
+    /// `objects` is `SoftDeletionManager` (`plane/db/mixins.py:57`), so the
+    /// default manager filters `deleted_at IS NULL`; `first()` adds the model
+    /// ordering and `LIMIT 1` (`django/db/models/query.py:1096`).
+    ///
+    /// Select list and column order: `plane_db::models::Instance::COLUMNS`.
+    LOAD_FIRST_INSTANCE = "auth_load_first_instance",
+    "SELECT created_at, updated_at, created_by_id, updated_by_id, deleted_at, id, \
+     instance_name, whitelist_emails, instance_id, current_version, latest_version, \
+     edition, domain, last_checked_at, namespace, is_telemetry_enabled, \
+     is_support_required, is_setup_done, is_signup_screen_visited, is_verified, \
+     is_test, is_current_version_deprecated \
+     FROM instances \
+     WHERE deleted_at IS NULL \
+     ORDER BY created_at DESC \
+     LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("instance_name", Varchar),
+        ("whitelist_emails", Text),
+        ("instance_id", Varchar),
+        ("current_version", Varchar),
+        ("latest_version", Varchar),
+        ("edition", Varchar),
+        ("domain", Text),
+        ("last_checked_at", Timestamptz),
+        ("namespace", Varchar),
+        ("is_telemetry_enabled", Bool),
+        ("is_support_required", Bool),
+        ("is_setup_done", Bool),
+        ("is_signup_screen_visited", Bool),
+        ("is_verified", Bool),
+        ("is_test", Bool),
+        ("is_current_version_deprecated", Bool),
+    ]
+}
+
 /// Every catalogued statement, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &LOAD_SESSION_BY_KEY,
@@ -491,6 +538,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &LOAD_API_TOKEN,
     &TOUCH_API_TOKEN,
     &UPDATE_USER_PASSWORD,
+    &LOAD_FIRST_INSTANCE,
 ];
 
 #[cfg(test)]

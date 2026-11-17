@@ -38,6 +38,12 @@ pub enum AuthError {
     InvalidPasswordHash(String),
 }
 
+impl From<plane_db::DbError> for AuthError {
+    fn from(error: plane_db::DbError) -> Self {
+        Self::Database(error.to_string())
+    }
+}
+
 impl From<tokio_postgres::Error> for AuthError {
     fn from(error: tokio_postgres::Error) -> Self {
         // `as_db_error` keeps the server message, which is what an operator

@@ -12,6 +12,8 @@
 //! | [`password`] | `authentication/utils/password.py` | signup, change/reset password |
 //! | [`reset_token`] | `django.contrib.auth.tokens` | 380, 382 |
 //! | [`adapter`] | `authentication/adapter/base.py` | email, magic and OAuth providers |
+//! | [`instance`] | `license/models/instance.py`, `license/utils/instance_value.py` | every gated view (§2i) |
+//! | [`tasks`] | `plane/bgtasks/*`, `plane/utils/host.py` | the mail tasks and `current_site` (§2h) |
 //!
 //! The magic-code state (`§2e`) and the OAuth adapter (`§2j`) are P0b and will
 //! live in `auth_flow::magic` / `auth_flow::oauth` once they land; the provider
@@ -21,9 +23,11 @@
 pub mod adapter;
 pub mod email;
 pub mod error;
+pub mod instance;
 pub mod password;
 pub mod redirect;
 pub mod reset_token;
+pub mod tasks;
 
 pub use adapter::{
     AdapterContext, AdapterError, AuthCallback, AuthProvider, CompletedLogin, InviteOutcome,
@@ -32,6 +36,13 @@ pub use adapter::{
 };
 pub use email::validate_email;
 pub use error::{ALL as ALL_AUTH_ERROR_CODES, AuthErrorCode, AuthFlowError};
+pub use instance::{
+    EmailCheckConfiguration, EmailConfiguration, GiteaConfiguration, GithubConfiguration,
+    GitlabConfiguration, GoogleConfiguration, MagicLinkConfiguration, email_check_configuration,
+    email_configuration, email_password_login_enabled, first as first_instance, gitea, github,
+    gitlab, google, is_setup_done, magic_link_configuration, require_setup, signup_enabled,
+    smtp_configured, sync_configuration_key, sync_enabled,
+};
 pub use password::{PasswordStrengthError, is_password_strong};
 pub use redirect::{
     PyValueError, RedirectionPath, allowed_hosts, get_safe_redirect_url, settings_allowed_hosts,
@@ -43,3 +54,4 @@ pub use reset_token::{
     int_to_base36, make_token, make_token_with_timestamp, num_seconds, urlsafe_base64_decode,
     urlsafe_base64_encode,
 };
+pub use tasks::{current_site, forgot_password, magic_link, user_activation_email, view_base_host};
