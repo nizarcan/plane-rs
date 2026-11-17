@@ -9,6 +9,23 @@
 //! | `…/issue-attachments/` POST/DELETE | [`v1_post`] / [`v1_delete`] |
 //! | `/api/assets/v2/…/attachments/` POST/PATCH/DELETE | [`v2_post`] / [`v2_patch`] / [`v2_delete`] |
 //!
+//! Each class serves two URL shapes with one method table, so the verbs that
+//! exist on only one shape are answered on the other by Python's own failures,
+//! *after* `allow_permission` (`routes.json` orders 76–79):
+//!
+//! | Route | Shape | Result |
+//! | --- | --- | --- |
+//! | `…/issue-attachments/` DELETE | collection | `allow_permission(creator=True, model=FileAsset)` reads `kwargs["pk"]` → `KeyError` → 400 `The required key does not exist.` |
+//! | `…/issue-attachments/{pk}/` POST | detail | `post() got an unexpected keyword argument 'pk'` → 500 |
+//! | `…/attachments/` PATCH | collection | `patch() missing … argument: 'pk'` → 500 |
+//! | `…/attachments/` DELETE | collection | the same creator-branch `KeyError` → 400 |
+//! | `…/attachments/{pk}/` POST | detail | `post() got an unexpected keyword argument 'pk'` → 500 |
+//!
+//! The two collection DELETEs never reach a handler: the runtime applies
+//! `@allow_permission` from `routes.json` first, and `plane_permissions`'
+//! `UrlKwargs::require("pk")` is that `KeyError`. The three `TypeError`s are
+//! branches at the top of their handlers, before any body or lookup.
+//!
 //! v1 uploads store the multipart bytes in the asset key but the S3 object is
 //! not written: the harness compares HTTP, DB and Celery, not object bytes.
 //! v1 delete skips the S3 `delete(save=False)` for the same reason; both are
@@ -51,8 +68,19 @@ pub fn register_v2(registry: &mut Registry) -> Result<(), RegistryError> {
 }
 
 /// `IssueAttachmentEndpoint.post` (`attachment.py:28-65`).
+///
+/// The class serves two URL shapes: the collection
+/// (`…/issue-attachments/`) and the detail (`…/issue-attachments/{pk}/`). The
+/// POST handler takes no `pk`, so the detail shape is a `TypeError` → family
+/// 500 *before* the body runs (`attachment.py:38`), after `allow_permission`
+/// has passed — `routes.json` order 77.
 pub fn v1_post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
+        if ctx.kwarg("pk").is_some() {
+            return Err(type_error(
+                "IssueAttachmentEndpoint.post() got an unexpected keyword argument 'pk'",
+            ));
+        }
         let slug = support::kwarg(ctx, "slug")?;
         let project_id = support::uuid_kwarg(ctx, "project_id")?;
         let issue_id = support::uuid_kwarg(ctx, "issue_id")?;
@@ -113,8 +141,18 @@ pub fn v1_delete<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse,
 }
 
 /// `IssueAttachmentV2Endpoint.post` (`attachment.py:99-181`).
+///
+/// The detail shape (`…/attachments/{pk}/`) supplies a `pk` this handler does
+/// not take → `TypeError` → family 500 (`routes.json` order 79), after the
+/// project-level `allow_permission` has passed. The collection shape is the
+/// real upload.
 pub fn v2_post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
+        if ctx.kwarg("pk").is_some() {
+            return Err(type_error(
+                "IssueAttachmentV2Endpoint.post() got an unexpected keyword argument 'pk'",
+            ));
+        }
         let slug = support::kwarg(ctx, "slug")?;
         let project_id = support::uuid_kwarg(ctx, "project_id")?;
         let issue_id = support::uuid_kwarg(ctx, "issue_id")?;
@@ -233,8 +271,17 @@ pub fn v2_post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
 }
 
 /// `IssueAttachmentV2Endpoint.patch` (`attachment.py:243-281`).
+///
+/// PATCH only exists on the detail shape; the collection route
+/// (`…/attachments/`) reaches it with no `pk` → `TypeError` → family 500
+/// (`routes.json` order 78), after the project-level `allow_permission`.
 pub fn v2_patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
+        if ctx.kwarg("pk").is_none() {
+            return Err(type_error(
+                "IssueAttachmentV2Endpoint.patch() missing 1 required positional argument: 'pk'",
+            ));
+        }
         let slug = support::kwarg(ctx, "slug")?;
         let project_id = support::uuid_kwarg(ctx, "project_id")?;
         let issue_id = support::uuid_kwarg(ctx, "issue_id")?;
@@ -439,6 +486,13 @@ fn invalid_file_type() -> Result<ViewResponse, ViewError> {
             .field("error", "Invalid file type.")
             .field("status", false),
     )
+}
+
+/// A `TypeError` the family handler renders as a 500
+/// (`plane/app/views/base.py:330-334`). Reached when a handler is called with
+/// the other URL shape's kwargs, which Python raises before the body runs.
+fn type_error(message: &str) -> ViewError {
+    ViewError::Unknown(message.to_owned())
 }
 
 // ---------------------------------------------------------------------------

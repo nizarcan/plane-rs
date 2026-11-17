@@ -1,0 +1,976 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Assets set C — the user-asset writes, the restore, the duplicate and the five
+# held attachment verbs (`plans/ASSETS.md`):
+#
+#   POST   /api/assets/v2/user-assets/                                    (20)
+#   PATCH  /api/assets/v2/user-assets/                                    → TypeError 500
+#   DELETE /api/assets/v2/user-assets/                                    → TypeError 500
+#   PATCH  /api/assets/v2/user-assets/{asset_id}/                         (21)
+#   DELETE /api/assets/v2/user-assets/{asset_id}/                         (21)
+#   POST   /api/assets/v2/user-assets/{asset_id}/                         → TypeError 500
+#   POST   /api/assets/v2/workspaces/{slug}/restore/{asset_id}/           (22)
+#   POST   /api/assets/v2/workspaces/{slug}/duplicate-assets/{asset_id}/  (28)
+#   DELETE /api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/issue-attachments/  (76) → KeyError 400
+#   POST   …/issue-attachments/{pk}/                                      (77) → TypeError 500
+#   PATCH  /api/assets/v2/…/issues/{issue_id}/attachments/                (78) → TypeError 500
+#   DELETE /api/assets/v2/…/issues/{issue_id}/attachments/                (78) → KeyError 400
+#   POST   /api/assets/v2/…/issues/{issue_id}/attachments/{pk}/           (79) → TypeError 500
+#
+# What the steps prove, in order:
+#
+#   * 20 POST's order: body → `int(size)` (`ValueError`/`TypeError` 500) → the
+#     `USER_AVATAR`/`USER_COVER` allow-list → the MIME list → `min(limit, size)`
+#     → INSERT → presign. The key has no workspace prefix and `asset_url` is
+#     the static route (`v2.py:186,203-210`).
+#   * 21 PATCH's entity save: the user's `avatar_asset_id` is rebound, the
+#     *previous* avatar soft-deleted, and **H30** rewrites `users` — `token`
+#     rotates to two `uuid4().hex` because the fixture's `token_updated_at` is
+#     non-NULL, `token_updated_at`/`updated_at` move to `now`. The two
+#     `/api/users/me…` cache keys are seeded by `assets-user.redis.json`, so the
+#     Redis diff sees the two `DEL`s of every avatar/cover save and delete.
+#   * confirming twice soft-deletes the row it then updates (the self-delete),
+#     and a third attempt is the soft-deletion manager's 404.
+#   * a cover write deletes the previous cover (`assets-fixture.sql` points
+#     `member`'s `cover_image_asset_id` at a `USER_COVER` row) and leaves
+#     `avatar`/`cover_image` at their empty values.
+#   * 21's body is read *after* the entity save: a JSON list is the
+#     `AttributeError` 500 with the user already rewritten.
+#   * `attributes: null` is a NOT NULL violation → the family's 400, after the
+#     task and the entity save.
+#   * 22 restore: `all_objects` finds the soft-deleted fixture row, the second
+#     restore is a 204 too, a MEMBER/GUEST cannot modify an `ISSUE_ATTACHMENT`
+#     (`can_modify_asset`), and a foreign-workspace id is the 404.
+#   * 28 duplicate: the entity-type 400 (no `status` key), the 404s (missing,
+#     unuploaded, foreign-workspace source), the `project_id`/`entity_id`
+#     destinations, the foreign-project 404 and the not-a-project-member 403,
+#     the `is_project_accessible_to` 403, the raw `entity_id` accepted only as a
+#     UUID (400 "Please provide valid detail") or an existing FK (400 "The
+#     payload is not valid"), a `WORKSPACE_LOGO` copy with no `entity_id`
+#     (a NULL workspace, because the `<field>_id` kwarg overrides `workspace=`),
+#     and a draft-description copy with no FK at all.
+#   * the throttle: six calls for one asset id are five 404s and then the 429
+#     (`AssetRateThrottle`, key `throttle_asset_<id>`, 5/minute, shared by every
+#     user; `plane/throttles/asset.py:8-15`). The harness compares the key name
+#     and tolerates the timestamps/TTL.
+#   * the five held verbs: the `kwargs["pk"]` `KeyError` 400 for the two
+#     collection DELETEs (after the creator branch passes the workspace and
+#     project membership checks) and the `TypeError` 500 for the three handlers
+#     called with the other shape's kwargs.
+#
+# S3: the duplicate copies the object synchronously. The fixture stores no
+# bytes, so *both* sides get a `ClientError` (404) from MinIO and swallow it —
+# the steps pin `Host: 127.0.0.1:59000`, because `S3Storage(request=request)`
+# signs for the request's host and `plane-fixture.test` is not reachable from
+# the Django process. S3 objects themselves are never compared. Presigned POST
+# bodies are compared with the `policy`/`x-amz-signature`/`x-amz-date`/
+# `x-amz-credential` placeholders and the request-scoped `key` rule
+# (`scenarios/normalize.yaml:417-422`, D17/D6).
+
+name: write-assets-user
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+  # The `min(limit, size)` clamp is observable in `attributes.size` and the
+  # presigned policy's `content-length-range` (`plane/settings/common.py:389`).
+  FILE_SIZE_LIMIT: "4096"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/assets-fixture.sql"
+  fixture_redis: "{repo}/apps/server/scenarios/write/assets-user.redis.json"
+  ws: "fix-workspace"
+  ws_id: "a91c3d80-5ed0-40f3-92a8-a28c015f4388"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_theta: "08e2fc88-18a5-4758-87ec-5437bc0cf4bb"
+  issue_alpha: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  draft_alpha: "568f87ef-9cd2-4104-b1d5-2b4e4e8ad4c4"
+  user_admin: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  user_member: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  # `assets-fixture.sql` rows.
+  restore_asset: "e0a00000-0000-4000-8000-000000000001"
+  foreign_cover: "e0a00000-0000-4000-8000-00000000000c"
+  theta_asset: "e0a00000-0000-4000-8000-000000000005"
+  pending_attachment: "e0a00000-0000-4000-8000-000000000008"
+  guest_asset: "e0a00000-0000-4000-8000-00000000000b"
+  # The rich fixture's rows.
+  logo_fixture: "e704fbad-88e7-4a04-ad34-ee44588b924e"
+  attachment_fixture: "80bc6632-0e4a-4d3e-9c8f-ec0b9bf351e9"
+  comment_asset: "f5dbcf9e-5373-4f44-a51c-a50b8a0395a5"
+  issue_asset_a: "e0a00000-0000-4000-8000-000000000006"
+  issue_asset_b: "e0a00000-0000-4000-8000-000000000007"
+  missing_asset: "99999999-9999-4999-8999-999999999999"
+  # A dedicated id for the throttle block: the key is per asset id, so no other
+  # step in this file may use it.
+  throttle_asset: "99999999-9999-4999-8999-9999999999aa"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_ws_admin_only: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- 20 POST: the entity-type gate, the MIME list, `int(size)` ------------
+  - name: asc-01-post-avatar
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "  ../avatars/mine.png "
+      type: "image/png"
+      size: 2048
+      entity_type: "USER_AVATAR"
+    capture:
+      - name: avatar_a
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # A cover larger than the limit: `min(FILE_SIZE_LIMIT, size)`.
+  - name: asc-02-post-cover
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "USER_COVER"
+      name: "cover.png"
+      type: "image/webp"
+      size: 100000
+    capture:
+      - name: cover_b
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # Only USER_AVATAR/USER_COVER are allowed here, unlike the workspace routes.
+  - name: asc-03-post-invalid-entity-type
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+    expect_status: 400
+
+  # `request.data.get("entity_type", False)`.
+  - name: asc-04-post-missing-entity-type
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "no-type.png"
+    expect_status: 400
+
+  - name: asc-05-post-entity-type-not-a-string
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: 5
+    expect_status: 400
+
+  # The `type` default is `image/jpeg` and the `size` default is the limit.
+  - name: asc-06-post-avatar-defaults
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+      name: "default.png"
+    capture:
+      - name: avatar_default
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  - name: asc-07-post-invalid-file-type
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+      type: "text/plain"
+    expect_status: 400
+
+  # `int("abc")` → ValueError, before the entity checks.
+  - name: asc-08-post-size-not-a-number
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+      size: "abc"
+    expect_status: 500
+
+  - name: asc-09-post-size-null
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+      size: null
+    expect_status: 500
+
+  # `request.data.get` on a JSON list is an AttributeError → 500.
+  - name: asc-10-post-list-body
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: [1, 2]
+    expect_status: 500
+
+  # The class is `IsAuthenticated` only.
+  - name: asc-11-post-unauthenticated
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    headers:
+      Host: plane-fixture.test
+    json:
+      entity_type: "USER_AVATAR"
+    expect_status: 401
+
+  # The collection shape supplies no `asset_id`.
+  - name: asc-12-patch-collection
+    method: PATCH
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  - name: asc-13-delete-collection
+    method: DELETE
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # --- 21 PATCH: the entity save, H30 and the self-delete -------------------
+  # Confirms `avatar_a`: the metadata task fires (`{}` is falsy), the previous
+  # avatar (`f9d1f1c9…`, the fixture's USER_AVATAR) is soft-deleted, the user is
+  # rewritten with a rotated token, and both `/api/users/me…` keys are deleted.
+  - name: asc-14-patch-confirm-avatar
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{avatar_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  # The detail route only touches the caller's own uploads.
+  - name: asc-15-patch-foreign-asset
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{cover_b}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 404
+
+  # Confirming twice: the entity save soft-deletes the very row it then
+  # updates (`v2.py:218-230`), and the two-column UPDATE stays off `is_deleted`.
+  - name: asc-16-patch-confirm-avatar-again
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{avatar_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 204
+
+  # The soft-deletion manager no longer finds it.
+  - name: asc-17-patch-avatar-after-self-delete
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{avatar_a}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 404
+
+  # A cover: the previous cover from `assets-fixture.sql` is soft-deleted.
+  - name: asc-18-patch-confirm-cover
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{cover_b}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      attributes:
+        name: "cover-renamed.png"
+        type: "image/webp"
+        size: 7
+    expect_status: 204
+
+  - name: asc-19-patch-cover-again
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{cover_b}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 204
+
+  - name: asc-20-delete-cover-after-self-delete
+    method: DELETE
+    path: "/api/assets/v2/user-assets/{{cover_b}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # A second cover, this time deleted while live: the entity *delete* nulls
+  # `cover_image_asset_id` (and rotates the token again) before the row is
+  # soft-deleted.
+  - name: asc-20b-post-cover-for-delete
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "USER_COVER"
+      name: "cover-delete.png"
+      type: "image/png"
+      size: 64
+    capture:
+      - name: cover_c
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # The previous cover (`cover_b`) is already soft-deleted, so the helper's
+  # `filter(...).first()` finds nothing; the FK moves to `cover_c`.
+  - name: asc-20c-patch-confirm-cover-for-delete
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{cover_c}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 204
+
+  - name: asc-20d-delete-cover
+    method: DELETE
+    path: "/api/assets/v2/user-assets/{{cover_c}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # The body is read after the entity save: the user is rewritten (and the
+  # cache keys deleted) even though the request is the family 500.
+  - name: asc-21-patch-list-body-after-entity-save
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{avatar_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: [1, 2]
+    expect_status: 500
+
+  # A DELETE clears the FK on the user (H30 again) and soft-deletes the row.
+  - name: asc-22-delete-avatar
+    method: DELETE
+    path: "/api/assets/v2/user-assets/{{avatar_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: asc-23-delete-avatar-again
+    method: DELETE
+    path: "/api/assets/v2/user-assets/{{avatar_default}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `attributes` has no `null=True`: the NOT NULL violation is the family 400,
+  # after the entity save and the metadata task.
+  - name: asc-24-post-avatar-for-null-attributes
+    method: POST
+    path: "/api/assets/v2/user-assets/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+      name: "null-attrs.png"
+    capture:
+      - name: avatar_null_attrs
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  - name: asc-25-patch-attributes-null
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{avatar_null_attrs}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      attributes: null
+    expect_status: 400
+
+  - name: asc-26-patch-unauthenticated
+    method: PATCH
+    path: "/api/assets/v2/user-assets/{{avatar_null_attrs}}/"
+    headers:
+      Host: plane-fixture.test
+    json: {}
+    expect_status: 401
+
+  # A JSON body on a detail route (`asset_id` is an unexpected kwarg).
+  - name: asc-27-post-detail
+    method: POST
+    path: "/api/assets/v2/user-assets/{{avatar_null_attrs}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+    expect_status: 500
+
+  # --- 22 POST restore ------------------------------------------------------
+  # `all_objects` finds the soft-deleted ISSUE_ATTACHMENT of `assets-fixture.sql`.
+  - name: asc-30-restore-soft-deleted
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/restore/{{restore_asset}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # Restoring a live asset is a no-op 204.
+  - name: asc-31-restore-again
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/restore/{{restore_asset}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  # `can_modify_asset`: an ISSUE_ATTACHMENT needs a project ADMIN; a MEMBER is
+  # denied, and the uploader does not matter here (the fixture's uploader is
+  # `admin`).
+  - name: asc-32-restore-as-member
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/restore/{{restore_asset}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: asc-33-restore-as-guest
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/restore/{{restore_asset}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # The class-level `WorkspaceMemberPermission` refuses first.
+  - name: asc-34-restore-as-nonmember
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/restore/{{restore_asset}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: asc-35-restore-missing
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/restore/{{missing_asset}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The workspace scope is part of the lookup.
+  - name: asc-36-restore-foreign-workspace-asset
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/restore/{{theta_asset}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # --- 28 POST duplicate ----------------------------------------------------
+  # `entity_type` is validated before the workspace lookup.
+  - name: asc-40-duplicate-invalid-entity-type
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{attachment_fixture}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "NOT_A_TYPE"
+      entity_id: "{{issue_alpha}}"
+    expect_status: 400
+
+  - name: asc-41-duplicate-missing-entity-type
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{comment_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_id: "{{issue_alpha}}"
+    expect_status: 400
+
+  # The source must exist, be uploaded and be in *this* workspace.
+  - name: asc-42-duplicate-missing-source
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{missing_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  - name: asc-43-duplicate-unuploaded-source
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{pending_attachment}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  - name: asc-44-duplicate-cross-workspace-source
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{theta_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  # The base case: no `project_id`/`entity_id`, so the copy keeps the source's
+  # project and gets no `issue_id` (the helper maps it to `entity_id`, `None`).
+  - name: asc-45-duplicate-success
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{attachment_fixture}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    capture:
+      - name: duplicated_a
+        source: json
+        pointer: /asset_id
+    expect_status: 200
+
+  # A destination project and an entity id from the body.
+  - name: asc-46-duplicate-with-project-and-issue
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{issue_asset_a}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      project_id: "{{project_beta}}"
+      entity_id: "{{issue_alpha}}"
+    expect_status: 200
+
+  # PROJECT_COVER stores on `entity_id`, which replaces the body's `project_id`.
+  - name: asc-47-duplicate-project-cover
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{logo_fixture}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_id: "{{project_beta}}"
+    expect_status: 200
+
+  # A WORKSPACE_LOGO copy with no `entity_id` writes a NULL `workspace_id`:
+  # a leftover `<field>_id` keyword overrides `workspace=` in `Model.__init__`.
+  - name: asc-48-duplicate-workspace-logo-null
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{comment_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+    expect_status: 200
+
+  - name: asc-49-duplicate-workspace-logo
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{issue_asset_b}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "WORKSPACE_LOGO"
+      entity_id: "{{ws_id}}"
+    expect_status: 200
+
+  # A destination project of another workspace is "Project not found" (404),
+  # checked before the membership (403).
+  - name: asc-50-duplicate-foreign-project
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{guest_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_id: "{{project_theta}}"
+    expect_status: 404
+
+  # A workspace ADMIN who is not an alpha member: the destination check fails.
+  - name: asc-51-duplicate-project-not-a-member
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{logo_fixture}}/"
+    jar: ws_admin_only
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_ws_admin_only}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_id: "{{project_alpha}}"
+    expect_status: 403
+
+  # `is_project_accessible_to` comes first: a project-bound source needs the
+  # caller's project membership.
+  - name: asc-52-duplicate-source-not-accessible
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{attachment_fixture}}/"
+    jar: ws_admin_only
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_ws_admin_only}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 403
+
+  # `assets-fixture.sql`'s PROJECT_COVER sits on ws2's project: a `ws1` member
+  # has no `ProjectMember` row for it, so the source is the 403 before the
+  # destination project is even read.
+  - name: asc-52b-duplicate-foreign-cover-source
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{foreign_cover}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "PROJECT_COVER"
+      entity_id: "{{project_alpha}}"
+    expect_status: 403
+
+  # A truthy but unparsable `project_id` is Django's `UUIDField` ValidationError.
+  - name: asc-53-duplicate-bogus-project-id
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{comment_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+      project_id: "not-a-uuid"
+    expect_status: 400
+
+  # `entity_id` reaches the FK the same way.
+  - name: asc-54-duplicate-bogus-entity-id
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{issue_asset_a}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+      entity_id: "not-a-uuid"
+    expect_status: 400
+
+  # A valid but missing FK is the INSERT's IntegrityError, not a 404.
+  - name: asc-55-duplicate-missing-entity-fk
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{issue_asset_b}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "USER_AVATAR"
+      entity_id: "99999999-9999-4999-8999-999999999998"
+    expect_status: 400
+
+  # `ProjectAssetEndpoint`'s helper knows DRAFT_ISSUE_DESCRIPTION; this one does
+  # not, so the draft id is dropped and the copy has no FK.
+  - name: asc-56-duplicate-draft-description
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{issue_asset_b}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "DRAFT_ISSUE_DESCRIPTION"
+      entity_id: "{{draft_alpha}}"
+    expect_status: 200
+
+  # A guest duplicates a workspace-level source: `is_project_accessible_to`
+  # returns True for an asset without a project.
+  - name: asc-57-duplicate-as-guest
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{logo_fixture}}/"
+    jar: guest
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_guest}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 200
+
+  # A restricted guest only reaches the assets of issues they created, so an
+  # `ISSUE_DESCRIPTION` bound to `admin`'s issue is a 403.
+  - name: asc-58-duplicate-restricted-guest-denied
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{guest_asset}}/"
+    jar: guest
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_guest}}"
+    json:
+      entity_type: "ISSUE_DESCRIPTION"
+    expect_status: 403
+
+  # The workspace decorator runs before everything.
+  - name: asc-59-duplicate-as-nonmember
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{issue_asset_a}}/"
+    jar: nonmember
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 403
+
+  # --- 28's throttle: 5/minute per asset id, shared by every user -----------
+  - name: asc-60-throttle-1
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{throttle_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  - name: asc-61-throttle-2
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{throttle_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  - name: asc-62-throttle-3
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{throttle_asset}}/"
+    jar: member
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  - name: asc-63-throttle-4
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{throttle_asset}}/"
+    jar: member
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_member}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  - name: asc-64-throttle-5
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{throttle_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 404
+
+  # The sixth call in the window: the authentication adapter's 429.
+  - name: asc-65-throttle-6-is-429
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/duplicate-assets/{{throttle_asset}}/"
+    jar: admin
+    headers:
+      Host: 127.0.0.1:59000
+      Cookie: "session-id={{session_admin}}"
+    json:
+      entity_type: "ISSUE_ATTACHMENT"
+    expect_status: 429
+
+  # --- the five held attachment verbs --------------------------------------
+  # 76 DELETE: `allow_permission(..., creator=True, model=FileAsset)` reads
+  # `kwargs["pk"]` on a route that has none → KeyError → 400.
+  - name: asc-70-v1-collection-delete-as-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/issue-attachments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: asc-71-v1-collection-delete-as-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/issue-attachments/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+
+  # The class-level permission refuses a non-member first.
+  - name: asc-72-v1-collection-delete-as-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/issue-attachments/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # 77 POST on the detail shape: `post() got an unexpected keyword argument`.
+  - name: asc-73-v1-detail-post
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/issue-attachments/{{attachment_fixture}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        name: "never-read.png"
+        type: "image/png"
+    expect_status: 500
+
+  # 78 PATCH on the collection shape: `missing … argument: 'pk'`.
+  - name: asc-74-v2-collection-patch
+    method: PATCH
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 500
+
+  # 78 DELETE on the collection shape: the same creator-branch KeyError.
+  - name: asc-75-v2-collection-delete
+    method: DELETE
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # 79 POST on the detail shape.
+  - name: asc-76-v2-detail-post
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/{{attachment_fixture}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "never-read.png"
+      type: "image/png"
+    expect_status: 500

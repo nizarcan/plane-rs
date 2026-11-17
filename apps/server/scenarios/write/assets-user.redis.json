@@ -1,0 +1,24 @@
+{
+  "entries": [
+    {
+      "key": "/api/users/me/:d44ae570-3de4-4413-af08-f686bf5b7235",
+      "value": "seeded-by-the-assets-user-scenario",
+      "timeout": null
+    },
+    {
+      "key": "/api/users/me/settings/:d44ae570-3de4-4413-af08-f686bf5b7235",
+      "value": "seeded-by-the-assets-user-scenario",
+      "timeout": null
+    },
+    {
+      "key": "/api/users/me/:78100240-9cfd-4782-8627-25ab039c6e9a",
+      "value": "seeded-by-the-assets-user-scenario",
+      "timeout": null
+    },
+    {
+      "key": "/api/users/me/settings/:78100240-9cfd-4782-8627-25ab039c6e9a",
+      "value": "seeded-by-the-assets-user-scenario",
+      "timeout": null
+    }
+  ]
+}

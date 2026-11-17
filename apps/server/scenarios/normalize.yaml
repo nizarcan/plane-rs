@@ -107,10 +107,18 @@ shapes:
     why: "deploy board anchor: uuid4().hex (plane/db/models/deploy_board.py:14-15)"
   # FileAsset.asset = f"{workspace.id}/{uuid4().hex}-{sanitize(filename)}"
   # (`plane/db/models/asset.py:20-25`); a fixture key is identical on both
-  # sides, a newly uploaded one is not.
+  # sides, a newly uploaded one is not. Two shapes share the name: the v2
+  # workspace/project uploads prefix the workspace id; a user avatar/cover
+  # upload (route 20) has no workspace at all (`plane/app/views/asset/v2.py:186`).
   asset_key:
+    any_of: [workspace_asset_key, user_asset_key]
+    why: "FileAsset.asset: `get_upload_path` prefixes the workspace id when the instance has one (plane/db/models/asset.py:20-25), and route 20 builds its key inline without one (plane/app/views/asset/v2.py:186)"
+  workspace_asset_key:
     pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{32}-.+$'
     why: "FileAsset.asset: workspace id + uuid4().hex + filename (plane/db/models/asset.py:20-25)"
+  user_asset_key:
+    pattern: '^[0-9a-f]{32}-.+$'
+    why: "a user avatar/cover upload has no workspace prefix: uuid4().hex + '-' + name (plane/app/views/asset/v2.py:186)"
   upload_policy:
     pattern: '^[A-Za-z0-9+/]+=*$'
     why: "base64 policy of a presigned POST (botocore signers.py:723-846)"
