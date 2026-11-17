@@ -1120,7 +1120,23 @@ independent; each domain's sets start after its own P0. At most three builds run
   removed, which brought it back to 34 GB. Briefs now ask for `CARGO_INCREMENTAL=0` on
   full-workspace commands.
 
-Running: `users/me` P0, estimates A (46/47).
+- `users/me` P0 (merged `d1df2ed81c`):
+  - `plane_auth::SessionSlot` (shared `request.session`; `ViewCtx.session` is always
+    present), `delete_all_for_user`, and dispatch applying `logout()`'s AnonymousUser half;
+  - `plane-cache` `add`/`incr` (interop-tested against django-redis);
+  - `write::email::{validate_email, contains_url}` (239-case golden corpus);
+  - the generated User/Profile/APIToken serializer tables (regenerated at merge with the
+    new pk generator);
+  - `users_me/write_queries.rs`;
+  - testkit: `fixture_redis` (pickle protocol 4), `volatile_json_paths`,
+    `volatile_text_patterns`.
+
+  Verified on the merge: 998 tests, testkit 181; schema_check for plane-http-app and
+  plane-auth; **full read + write sweep 72 files, 3811 steps clean**; full contract run
+  971 passed, 15 failed (the known Django-only magic-link tests). Also kept: both
+  deactivation "only admin" guards are dead code.
+
+Running: estimates A (46/47, done, merging).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
