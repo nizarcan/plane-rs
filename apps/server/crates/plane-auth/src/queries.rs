@@ -343,6 +343,16 @@ plane_query! {
 }
 
 plane_query! {
+    /// `User.objects.filter(email=email).exists()` — the variant lookup in
+    /// `MagicCodeProvider._raise_for_email` (`magic_code.py:126`) and the
+    /// exhaustion branch of `initiate` (`:103`). Exact match, like every other
+    /// `users` lookup on this path.
+    USER_EXISTS_BY_EMAIL = "auth_user_exists_by_email",
+    "SELECT EXISTS (SELECT 1 FROM users WHERE email = $1) AS \"exists\"",
+    [("exists", Bool)]
+}
+
+plane_query! {
     /// `Profile.objects.create(user=user)` (`adapter/base.py:397`): every
     /// column with its model default. `background_color` is random and
     /// normalised by the harness (`scenarios/normalize.yaml`).
@@ -512,6 +522,112 @@ plane_query! {
     ]
 }
 
+plane_query! {
+    /// `Account.objects.filter(user=…, provider=…, provider_account_id=…).first()`
+    /// (`authentication/adapter/oauth.py:104-108`). `Meta.ordering =
+    /// ("-created_at",)` decides which row `.first()` returns; `accounts` is
+    /// not soft-deletable, so there is no `deleted_at` filter.
+    ///
+    /// The select list is the generated `plane_db::models::user::Account`
+    /// column order.
+    ACCOUNT_BY_USER_PROVIDER_ID = "auth_account_by_user_provider_id",
+    "SELECT created_at, updated_at, id, user_id, provider_account_id, provider, \
+     access_token, access_token_expired_at, refresh_token, refresh_token_expired_at, \
+     last_connected_at, id_token, metadata \
+     FROM accounts \
+     WHERE user_id = $1 AND provider = $2 AND provider_account_id = $3 \
+     ORDER BY created_at DESC \
+     LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("id", Uuid),
+        ("user_id", Uuid),
+        ("provider_account_id", Varchar),
+        ("provider", Varchar),
+        ("access_token", Text),
+        ("access_token_expired_at", Timestamptz),
+        ("refresh_token", Text),
+        ("refresh_token_expired_at", Timestamptz),
+        ("last_connected_at", Timestamptz),
+        ("id_token", Text),
+        ("metadata", Jsonb),
+    ]
+}
+
+plane_query! {
+    /// `Account.objects.create(...)` (`adapter/oauth.py:120-130`): every
+    /// column, in the model's order, with `metadata`'s `dict` default.
+    ///
+    /// **Upstream behaviour, ported as-is:** a missing `access_token` or
+    /// `provider_account_id` is `NULL` here, which violates `NOT NULL`; the
+    /// caller swallows the `IntegrityError` (`oauth.py:131-132`).
+    INSERT_ACCOUNT = "auth_insert_account",
+    "INSERT INTO accounts (\
+     created_at, updated_at, id, user_id, provider_account_id, provider, access_token, \
+     access_token_expired_at, refresh_token, refresh_token_expired_at, last_connected_at, \
+     id_token, metadata) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+    []
+}
+
+plane_query! {
+    /// `account.save()` with no `update_fields` (`adapter/oauth.py:110-117`):
+    /// every non-PK column in `local_concrete_fields` order. `created_at` and
+    /// `metadata` keep the loaded values — `auto_now_add` does not re-fire on
+    /// an update, and the Python never assigns `metadata`.
+    UPDATE_ACCOUNT = "auth_update_account",
+    "UPDATE accounts SET \
+     created_at = $1, updated_at = $2, user_id = $3, provider_account_id = $4, \
+     provider = $5, access_token = $6, access_token_expired_at = $7, \
+     refresh_token = $8, refresh_token_expired_at = $9, last_connected_at = $10, \
+     id_token = $11, metadata = $12 \
+     WHERE id = $13",
+    []
+}
+
+plane_query! {
+    /// `FileAsset.objects.get(pk=user.avatar_asset_id, user_id=user.id).asset`
+    /// (`adapter/base.py:257`), through the soft-delete manager
+    /// (`plane/db/mixins.py:57`).
+    FILE_ASSET_OBJECT_KEY = "auth_file_asset_object_key",
+    "SELECT asset FROM file_assets \
+     WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+    [("asset", Varchar)]
+}
+
+plane_query! {
+    /// `asset.delete()` on a model instance (`adapter/base.py:262`): Django's
+    /// `Collector.delete()` issues a hard `DELETE` (the soft-delete override is
+    /// on the queryset, not the instance), and nothing cascades into
+    /// `file_assets`.
+    DELETE_FILE_ASSET_BY_ID = "auth_delete_file_asset_by_id",
+    "DELETE FROM file_assets WHERE id = $1",
+    []
+}
+
+plane_query! {
+    /// `FileAsset.objects.create(...)` for the OAuth avatar
+    /// (`adapter/base.py:213-222`). All 24 columns, in the order
+    /// `FileAsset.objects.create` binds them (`app/assets/write_queries.rs`'s
+    /// `FILE_ASSET_INSERT`, duplicated here because `plane-auth` cannot depend
+    /// on `plane-http-app`).
+    ///
+    /// Bind order: created_at, updated_at, id, attributes, asset, created_by,
+    /// updated_by, workspace, is_deleted, deleted_at, is_archived, comment,
+    /// entity_type, external_id, external_source, is_uploaded, issue, page,
+    /// project, size, storage_metadata, user, draft_issue, entity_identifier.
+    INSERT_USER_AVATAR_ASSET = "auth_insert_user_avatar_asset",
+    "INSERT INTO file_assets (created_at, updated_at, id, attributes, asset, \
+     created_by_id, updated_by_id, workspace_id, is_deleted, deleted_at, \
+     is_archived, comment_id, entity_type, external_id, external_source, \
+     is_uploaded, issue_id, page_id, project_id, size, storage_metadata, \
+     user_id, draft_issue_id, entity_identifier) VALUES \
+     ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, \
+      $17, $18, $19, $20, $21, $22, $23, $24)",
+    []
+}
+
 /// Every catalogued statement, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &LOAD_SESSION_BY_KEY,
@@ -527,6 +643,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &UPDATE_USER_LOGIN,
     &UPDATE_USER_SYNC,
     &INVITE_EXISTS_FOR_EMAIL,
+    &USER_EXISTS_BY_EMAIL,
     &INSERT_PROFILE,
     &INSERT_USER_NOTIFICATION_PREFERENCE,
     &WORKSPACE_INVITES_FOR_EMAIL,
@@ -539,6 +656,12 @@ pub static ALL_QUERIES: &[&Query] = &[
     &TOUCH_API_TOKEN,
     &UPDATE_USER_PASSWORD,
     &LOAD_FIRST_INSTANCE,
+    &ACCOUNT_BY_USER_PROVIDER_ID,
+    &INSERT_ACCOUNT,
+    &UPDATE_ACCOUNT,
+    &FILE_ASSET_OBJECT_KEY,
+    &DELETE_FILE_ASSET_BY_ID,
+    &INSERT_USER_AVATAR_ASSET,
 ];
 
 #[cfg(test)]

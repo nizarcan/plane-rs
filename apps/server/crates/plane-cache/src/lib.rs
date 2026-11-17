@@ -68,6 +68,7 @@
 pub mod client;
 pub mod drf;
 pub mod error;
+pub mod lua;
 pub mod page;
 pub mod pickle;
 pub mod pyint;
@@ -77,6 +78,7 @@ pub mod value;
 pub use client::{CachedValue, Client, DEFAULT_TIMEOUT, make_key, make_key_opt};
 pub use drf::{CachedResponse, Invalidation, RequestFacts};
 pub use error::{Error, PickleError};
+pub use lua::EvalArg;
 pub use page::{CachedPage, PageResponse};
 pub use pyint::PyInt;
 pub use redis::{ParsedUrl, Redis};
