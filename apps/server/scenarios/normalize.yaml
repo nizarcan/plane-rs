@@ -163,6 +163,15 @@ shapes:
   estimate_random_name:
     pattern: '^[a-z]{10}$'
     why: "generate_random_name: 10 random lowercase ASCII letters (plane/app/views/estimate/base.py:29-31, :66)"
+  # cryptography/fernet.py:36-51: the token is
+  # urlsafe_base64(0x80 || timestamp_u64_be || IV(16) || AES-128-CBC ciphertext
+  # || HMAC-SHA256(32)), with `=` padding. `0x80` followed by four zero bytes of
+  # a current Unix timestamp makes the first six base64 characters `gAAAAA`
+  # (until 2106). The shortest possible body is 73 bytes: 100 base64 characters,
+  # i.e. six prefix characters, 92 payload characters and `==`.
+  fernet_token:
+    pattern: '^gAAAAA[A-Za-z0-9_-]{92,}={0,2}$'
+    why: "Fernet token of an encrypted instance configuration (plane/license/utils/encryption.py:19-30, cryptography/fernet.py:36-51)"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -723,6 +732,33 @@ volatile_db_columns:
     shape: uuid_hex
     request: "POST *export-issues*"
     why: "ExporterHistory.token = uuid4().hex on create (plane/db/models/exporter.py:20, plane/app/views/exporter/base.py:50)"
+  # `PATCH /api/instances/configurations/` re-encrypts every changed encrypted
+  # row (`plane/license/api/views/configuration.py:51-56` →
+  # `encrypt_data`, plane/license/utils/encryption.py:19-30) with a fresh IV and
+  # `int(time.time())`, so the two targets' ciphertexts can never agree. The
+  # *response* decrypts the value again (`InstanceConfigurationSerializer.
+  # to_representation`) and carries the request's plaintext, which is
+  # deterministic and stays compared.
+  #
+  # `placeholder_if_shape`, not `placeholder_if_new` (the mode
+  # `plans/PUBLIC_INSTANCES.md` §2f names): a step may patch a plaintext key
+  # (`ENABLE_SMTP`, `EMAIL_HOST`) in the same request, and that new value is
+  # deterministic and must stay compared. `placeholder_if_new` shape-checks
+  # every non-baseline value, so such a step would be a violation. With
+  # `placeholder_if_shape` only a value that *is* a Fernet token is
+  # placeholdered. Writing plaintext into an encrypted row stays a DIFF either
+  # way, because Django's own ciphertext never matches it.
+  #
+  # Scoped to the write: a `GET` never placeholders, so every fixture
+  # ciphertext it returns is compared literally (it comes from the same SQL
+  # seed on both sides).
+  - table: instance_configurations
+    column: value
+    mode: placeholder_if_shape
+    placeholder: fernet-token
+    shape: fernet_token
+    request: "PATCH /api/instances/configurations/"
+    why: "encrypt_data stamps a fresh IV and int(time.time()) on every PATCH (plane/license/utils/encryption.py:19-30; plans/PUBLIC_INSTANCES.md §2f)"
 
 # Celery transport headers: not part of the task's observable behaviour, so
 # they are dropped rather than placeholdered (their values are per-process).

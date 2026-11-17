@@ -366,6 +366,16 @@ fn catalogs() -> Vec<Catalog> {
             source: "ai/queries.rs",
             queries: plane_http_app::ai::queries::ALL_QUERIES,
         },
+        Catalog {
+            domain: "public",
+            source: "public/queries.rs",
+            queries: plane_http_app::public::queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "instances",
+            source: "instances/queries.rs",
+            queries: plane_http_app::instances::queries::ALL_QUERIES,
+        },
     ]
 }
 
