@@ -47,13 +47,17 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
 }
 
 /// One decoded invite plus the nested workspace the serializer needs.
-struct InviteRecord {
-    model: WorkspaceMemberInvite,
-    workspace: WorkspaceLite,
+///
+/// `pub(crate)` because 189's `partial_update` reuses it for its response
+/// (`workspaces/invite_write.rs`): both routes read the same
+/// [`queries::INVITE_BY_ID`] projection.
+pub(crate) struct InviteRecord {
+    pub(crate) model: WorkspaceMemberInvite,
+    pub(crate) workspace: WorkspaceLite,
 }
 
 impl InviteRecord {
-    fn from_row(row: &tokio_postgres::Row) -> Result<Self, ViewError> {
+    pub(crate) fn from_row(row: &tokio_postgres::Row) -> Result<Self, ViewError> {
         let model = WorkspaceMemberInvite::from_row(row, 0)?;
         // Columns 13..19: the workspace lite fields and its logo asset type.
         let name: String = row.try_get(13)?;
@@ -75,7 +79,7 @@ impl InviteRecord {
 
     /// `WorkSpaceMemberInviteSerializer`
     /// (`plane/app/serializers/workspace.py:88-110`).
-    fn serializer<'a>(
+    pub(crate) fn serializer<'a>(
         &'a self,
         workspace: &'a plane_serializers::generated::app_workspace::WorkspaceLiteSerializer<'a>,
     ) -> WorkSpaceMemberInviteSerializer<'a> {
