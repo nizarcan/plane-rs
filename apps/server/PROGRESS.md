@@ -1400,6 +1400,33 @@ independent; each domain's sets start after its own P0. At most three builds run
 
   These 6 are now the expected baseline (was 21).
 
+### Phase 6: auth P0a (2026-11-17)
+
+- Auth P0a (merged `8496ff992e`): `plane_auth::auth_flow::{redirect, error, adapter,
+  email, password, reset_token}`.
+  - Redirect builder: golden corpus of 5,715 cases from the real `path_validator`.
+  - All 58 `AuthErrorCode`s.
+  - `complete_login_or_signup`, `save_user_data`, invite join.
+  - **H31** `hooks::user::after_insert`.
+  - Django's `PasswordResetTokenGenerator`: 2,268 golden tokens.
+  - `plane-drf`: lazy `request_user()` and `database()` on plain views.
+  - `validate_email` moved to `plane-auth` (re-exported by `plane-http-app`).
+
+  Verified on the merge: 1145 tests; full read + write sweep 92 files, 4995 steps clean;
+  contract 980 passed, 6 failed (the baseline).
+- **zxcvbn**: the Rust crate (3.1.1) scores identically to Python `zxcvbn==4.4.28` on all
+  830 windows of 100 chars or fewer, but differs on 33 of the 262 longer windows. The crate
+  truncates at 100 chars; Plane's window is 128. `is_password_strong` therefore returns a
+  not-ported error (a 500) above 100 chars, never a weaker policy. Being resolved: try the
+  crate with a 128 window; if any score still differs, port the matchers.
+- Upstream bugs kept:
+  - an accepted *project* invite always 500s after the workspace memberships are committed
+    (`ProjectMember` is built without `project_id`, `workspace_project_join.py:55-65`);
+  - login 500s without `REMOTE_ADDR`/`User-Agent` (NOT NULL columns);
+  - a malformed `*_BASE_URL` makes every auth redirect a 500;
+  - "redirect to last workspace" is dead;
+  - the signup invite check is case-sensitive.
+
 ### Phase 5 exit (2026-11-17)
 
 **Every app-surface (`/api/` minus v1/public/instances) write route is on Rust.**
