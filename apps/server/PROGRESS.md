@@ -1291,8 +1291,25 @@ independent; each domain's sets start after its own P0. At most three builds run
   - Follow-up: the read-side `workspaces/rows.rs::logo_url` renders a dynamic-entity
     `logo_asset` as `null`, where Django builds the URL or omits the key.
 
-Running: (none). Merging: analytics B+C. Queued: workspace-core B/C; then ai-assistant
-(51/52) and the held 34/75/82/107 methods (unplanned).
+- Analytics B+C (merged `c4ea761374`, flipped with this entry): 233 `rust(GET,POST)`, 4
+  `rust(POST)`, 203 `rust(POST)` (the synchronous CSV). `write/export-issues.yaml`
+  30/30 and `analytics-exports.yaml` 44/44 in both directions; the contract tests
+  reaching 4 and 203 pass. On the merge, the full read + write sweep is 87 files, 4659 steps
+  clean; 1063 tests. **The analytics/exports writes are fully on Rust.**
+  - New `plane_core::csv` (Python `csv` QUOTE_ALL writer + `sanitize_csv_value`, with a
+    golden corpus from CPython 3.12).
+  - `workspaces/user.rs` `activity_select` was lifted behind `ActivityScope`.
+  - Plan corrections:
+    - an unbraced `project` string is a `malformed array literal`, a 500; a braced one
+      inserts;
+    - `created_at__date=` truncates in the **active** (user) timezone.
+  - Upstream quirks kept: 203 has no `archived_at` filter and doesn't validate
+    `user_id`; 4 has no workspace lookup, so a soft-deleted workspace's member gets 200 +
+    a task.
+
+Running: (none). Queued: workspace-core B (members/invites/join), workspace-core C
+(preferences/links); then ai-assistant (51/52) and the held 34/75/82/107 methods
+(unplanned).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
