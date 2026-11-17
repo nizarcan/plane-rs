@@ -1594,10 +1594,17 @@ independent; each domain's sets start after its own P0. At most three builds run
     `ENABLE_MAGIC_LINK_LOGIN=0`; after changing them by hand, the cached
     `GET /api/instances/` (`@cache_response(7200)`) had to be deleted from Redis 11.
     Celery prefork hung on this host; `-P solo` works.
-- Phase 6 left: the owner's Google and GitLab sign-in with real credentials (D21).
-  Register `http://127.0.0.1:18080/auth/{google,gitlab}/callback/`: both providers
-  always use the app callback path, also for space sign-in (`google.py:50`,
-  `gitlab.py:56`).
+- **Phase 6 exit (2026-11-18): closed.** The owner skipped the real Google/GitLab sign-in
+  and accepted OAuth on the differential evidence (D21 amendment). Note for anyone
+  repeating it: register `http://127.0.0.1:18080/auth/{google,gitlab}/callback/`; both
+  providers always use the app callback path, also for space sign-in (`google.py:50`,
+  `gitlab.py:56`). The walk stack was stopped with `dev/run/walk/stop.sh` (database
+  `t_walk_1`, vhost `walk` and the dev proxy removed).
+  - Left on disk from the walk, to remove in the final revert: the root `node_modules/`
+    (from `pnpm install`; it also activates the repo's lint-staged pre-commit hook,
+    which reformats markdown tables, so orchestrator commits use `--no-verify`), the
+    `turbo build` output of web/admin/space and their packages, and the gitignored
+    `apps/{web,admin,space}/.env` files the setup wrote.
 
 ### Phase 5 exit (2026-11-17)
 
@@ -1643,8 +1650,8 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      only a "starting" log line. The broker connection was not confirmed, so re-check
      with `rabbitmqctl list_connections` during the idle window at the final benchmark.
      The Celery comparison is cross-environment (native macOS RSS) and only indicative.
-2. Phase 6 (auth flows): all 37 routes on Rust; browser walk done for email, magic and
-   password flows. Left: the owner's Google/GitLab sign-in (D21).
+2. Phase 6 (auth flows): done (all 37 routes on Rust, browser walk passed, exit accepted
+   by the owner).
 3. Phase 7: plans committed (`adadc1f188`).
    - `plans/V1_API.md`: P0 (new `plane-http-public`, three `plane-drf` fixes, v1
      expansion and write tables, page envelope), then sets A–D.

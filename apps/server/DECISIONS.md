@@ -460,6 +460,10 @@ workspace `Cargo.toml` and upgrade deliberately.
 - The owner tests Google and GitLab sign-in with real provider credentials and reports
   back. GitHub and Gitea rely on the differential scenarios (intercept proxy and fake
   provider).
+- Amended 2026-11-18: after the orchestrator's walk passed, the owner chose to skip the
+  real Google/GitLab sign-in and accepted the OAuth flows as working on the differential
+  evidence (`auth-oauth.yaml` 57/57, `auth-oauth-google-github.yaml` 52/52 with every
+  provider call intercepted). Phase 6 is closed.
 
 ## Open owner decisions
 
