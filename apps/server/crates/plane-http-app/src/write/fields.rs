@@ -533,9 +533,8 @@ pub fn uuid_field(raw: Raw<'_>) -> Result<uuid::Uuid, Detail> {
     }
 }
 
-/// `FloatField.to_internal_value` (`rest_framework/fields.py:964-982`).
+/// `FloatField.to_internal_value` (`rest_framework/fields.py:965-980`).
 pub fn float(raw: Raw<'_>) -> Result<f64, Detail> {
-    const MAX_STRING_LENGTH: usize = 1000;
     let invalid = || Detail::new("A valid number is required.", "invalid");
     let value = match raw {
         Raw::Json(value) => match value {
@@ -553,16 +552,11 @@ pub fn float(raw: Raw<'_>) -> Result<f64, Detail> {
             Json::Float(value) => *value,
             Json::Str(value) => {
                 let text = value.as_str().ok_or_else(invalid)?;
-                parse_float(text)?
+                float_string(text)?
             }
             Json::Null | Json::List(_) | Json::Dict(_) => return Err(invalid()),
         },
-        Raw::Text(text) => {
-            if text.len() > MAX_STRING_LENGTH {
-                return Err(Detail::new("String value too large.", "max_string_length"));
-            }
-            parse_float(text)?
-        }
+        Raw::Text(text) => float_string(text)?,
     };
     if !value.is_finite() {
         return Err(invalid());
@@ -570,49 +564,87 @@ pub fn float(raw: Raw<'_>) -> Result<f64, Detail> {
     Ok(value)
 }
 
-/// Python's `float(str)`: optional surrounding whitespace, optional sign,
-/// `inf`/`infinity`/`nan` in any case, underscores between digits.
-fn parse_float(text: &str) -> Result<f64, Detail> {
-    let invalid = || Detail::new("A valid number is required.", "invalid");
+/// The string branch of `FloatField.to_internal_value`: the length guard runs
+/// before `float()` and counts Python characters, not bytes
+/// (`fields.py:967-968`).
+fn float_string(text: &str) -> Result<f64, Detail> {
+    if text.chars().count() > 1000 {
+        return Err(Detail::new("String value too large.", "max_string_length"));
+    }
+    parse_float(text)
+}
+
+/// CPython's `float(text)` (`PyFloat_FromString`): strip Python whitespace
+/// (`Py_UNICODE_ISSPACE`, not `str.isspace()` — `"\x1c1"` is a `ValueError`),
+/// one optional sign, then either `inf`/`infinity`/`nan` in ASCII case or a
+/// decimal literal. Every non-ASCII character is transformed by
+/// `_PyUnicode_TransformDecimalAndSpaceToASCII`: Unicode decimal digits (`Nd`)
+/// become their ASCII digit and Python whitespace becomes a space; anything
+/// else is a `ValueError`. Underscores are stripped only when they sit
+/// directly between two decimal digits (`float("1_")`, `"1_e5"` and
+/// `"1._5"` are all `ValueError`s).
+///
+/// The remaining ASCII grammar is exactly what Rust's `f64` parser accepts
+/// (`[+-]? (digits[.digits] | .digits) [e[+-]digits]`, `inf`, `infinity`,
+/// `nan`), so the transformed string is handed to it.
+#[must_use]
+pub fn python_float(text: &str) -> Option<f64> {
     let trimmed = text.trim_matches(|c: char| c.is_whitespace());
     if trimmed.is_empty() {
-        return Err(invalid());
+        return None;
     }
-    let (negative, digits) = match trimmed.as_bytes()[0] {
+    let (negative, body) = match trimmed.as_bytes()[0] {
         b'-' => (true, &trimmed[1..]),
         b'+' => (false, &trimmed[1..]),
         _ => (false, trimmed),
     };
-    let folded = digits.to_ascii_lowercase();
-    if matches!(folded.as_str(), "inf" | "infinity" | "nan") {
-        let value = if folded == "nan" {
-            f64::NAN
+    // `PyOS_string_to_double` accepts at most one sign; a second one (as in
+    // `float("++1")` or `float("--inf")`) is a `ValueError`.
+    if body.starts_with(['+', '-']) {
+        return None;
+    }
+    if body.eq_ignore_ascii_case("inf") || body.eq_ignore_ascii_case("infinity") {
+        return Some(if negative {
+            f64::NEG_INFINITY
         } else {
             f64::INFINITY
-        };
-        return Ok(if negative { -value } else { value });
+        });
     }
-    // Underscores are accepted between digits only (`float("1_0")`).
-    if digits.contains('_') {
-        let mut cleaned = String::with_capacity(digits.len());
-        let mut previous_digit = false;
-        for character in digits.chars() {
-            if character == '_' {
-                if !previous_digit {
-                    return Err(invalid());
-                }
-                previous_digit = false;
-                continue;
+    if body.eq_ignore_ascii_case("nan") {
+        return Some(if negative { -f64::NAN } else { f64::NAN });
+    }
+
+    let characters: Vec<char> = body.chars().collect();
+    let mut ascii = String::with_capacity(body.len());
+    for (index, character) in characters.iter().enumerate() {
+        if *character == '_' {
+            let before = index
+                .checked_sub(1)
+                .and_then(|index| characters.get(index))
+                .and_then(|value| plane_core::py::decimal_value(*value));
+            let after = characters
+                .get(index + 1)
+                .and_then(|value| plane_core::py::decimal_value(*value));
+            if before.is_none() || after.is_none() {
+                return None;
             }
-            previous_digit = character.is_ascii_digit();
-            cleaned.push(character);
+        } else if let Some(digit) = plane_core::py::decimal_value(*character) {
+            ascii.push(char::from_digit(digit, 10)?);
+        } else if character.is_ascii() {
+            ascii.push(*character);
+        } else {
+            // A non-ASCII character that is neither a decimal digit nor
+            // whitespace makes the transform raise.
+            return None;
         }
-        if !cleaned.is_empty() && !previous_digit && cleaned.ends_with('_') {
-            return Err(invalid());
-        }
-        return parse_float(&format!("{}{}", if negative { "-" } else { "" }, cleaned));
     }
-    trimmed.parse::<f64>().map_err(|_| invalid())
+    let value = ascii.parse::<f64>().ok()?;
+    Some(if negative { -value } else { value })
+}
+
+/// `float(text)` as CPython sees it, with the field's generic detail.
+fn parse_float(text: &str) -> Result<f64, Detail> {
+    python_float(text).ok_or_else(|| Detail::new("A valid number is required.", "invalid"))
 }
 
 /// `DateTimeField.to_internal_value` with DRF's default `DATETIME_INPUT_FORMATS`
@@ -1345,6 +1377,69 @@ mod tests {
                 expected,
                 "{input:?}"
             );
+        }
+    }
+
+    /// Recorded from CPython's `float()` and
+    /// `FloatField().to_internal_value` by
+    /// `apps/server/tools/inventory/float_corpus.py`. Regenerate from the
+    /// repository root with:
+    ///
+    /// ```sh
+    /// apps/api/.venv/bin/python apps/server/tools/inventory/float_corpus.py
+    /// ```
+    const FLOAT_CORPUS: &str = include_str!("../../tests/golden/float-parsing.json");
+
+    fn expected_bits(value: &serde_json::Value) -> u64 {
+        u64::from_str_radix(value["bits"].as_str().expect("bits"), 16).expect("hex")
+    }
+
+    #[test]
+    fn the_float_parser_matches_cpython_and_drf() {
+        let document: serde_json::Value = serde_json::from_str(FLOAT_CORPUS).expect("corpus json");
+        let cases = document["cases"].as_array().expect("cases");
+        assert!(cases.len() >= 500, "corpus shrank: {}", cases.len());
+        for case in cases {
+            let text = case["input"].as_str().expect("string input");
+            match (case["python"]["ok"].as_bool(), python_float(text)) {
+                (Some(true), Some(value)) => assert_eq!(
+                    value.to_bits(),
+                    expected_bits(&case["python"]),
+                    "float({text:?})"
+                ),
+                (Some(true), None) => panic!("float({text:?}): expected a value"),
+                (Some(false), Some(value)) => {
+                    panic!("float({text:?}): expected a ValueError, got {value}")
+                }
+                (Some(false), None) => {}
+                (None, _) => panic!("float({text:?}): malformed expectation"),
+            }
+            match (case["field"]["ok"].as_bool(), super::float(Raw::Text(text))) {
+                (Some(true), Ok(value)) => assert_eq!(
+                    value.to_bits(),
+                    expected_bits(&case["field"]),
+                    "FloatField({text:?})"
+                ),
+                (Some(true), Err(detail)) => {
+                    panic!("FloatField({text:?}): expected a value, got {detail:?}")
+                }
+                (Some(false), Ok(value)) => {
+                    panic!("FloatField({text:?}): expected an error, got {value}")
+                }
+                (Some(false), Err(detail)) => {
+                    assert_eq!(
+                        detail.message,
+                        case["field"]["message"].as_str().expect("message"),
+                        "FloatField({text:?})"
+                    );
+                    assert_eq!(
+                        detail.code,
+                        case["field"]["code"].as_str().expect("code"),
+                        "FloatField({text:?})"
+                    );
+                }
+                (None, _) => panic!("FloatField({text:?}): malformed expectation"),
+            }
         }
     }
 }

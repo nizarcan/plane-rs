@@ -318,6 +318,18 @@ steps:
       Cookie: "session-id={{session_admin}}"
     expect_status: 500
 
+  # The custom `to_internal_value` runs `data.get` before DRF's
+  # "expected a dictionary" check, so an array body is also a 500.
+  - name: wirel-20a-link-create-array-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
   - name: wirel-21-link-create-unknown-issue
     method: POST
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{unknown_issue}}/issue-links/"
@@ -388,6 +400,133 @@ steps:
       Cookie: "session-id={{session_admin}}"
     origin: "http://evil.example"
     expect_status: 403
+
+  # `to_internal_value` writes `data["url"] = "http://…"` in place. A
+  # urlencoded body's `QueryDict` is immutable, so a scheme-less url is the
+  # family 500 before any field is validated; a schemed url never writes.
+  - name: wirel-26a-link-create-form-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "form.example.test/link"
+      title: "Form link"
+    expect_status: 500
+
+  - name: wirel-26b-link-create-form-schemed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "https://example.test/form-schemed"
+      title: "Form schemed"
+    capture:
+      - name: link_form
+        source: db
+        table: issue_links
+        column: id
+    expect_status: 201
+
+  # ... while a multipart body with a file part makes DRF copy the parsed
+  # dict into a **mutable** `request.data`, so the same write succeeds.
+  - name: wirel-26c-link-create-multipart-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        url: "multipart.example.test/link"
+        title: "Multipart link"
+      files:
+        - field: attachment
+          filename: note.txt
+          content_type: text/plain
+          content: "hello\n"
+    capture:
+      - name: link_multipart
+        source: db
+        table: issue_links
+        column: id
+    expect_status: 201
+
+  # A multipart body **without** a file part is not copied, so it stays
+  # immutable like a urlencoded one.
+  - name: wirel-26c2-link-create-multipart-no-file-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        url: "multipart-nofile.example.test/link"
+        title: "Multipart no file"
+    expect_status: 500
+
+  # A file part named `url` is the value `request.data.get("url")` returns, and
+  # a file object has no `.startswith`.
+  - name: wirel-26c3-link-create-file-part-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        title: "File url"
+      files:
+        - field: url
+          filename: url.txt
+          content_type: text/plain
+          content: "https://example.test/from-file"
+    expect_status: 500
+
+  - name: wirel-26d-link-patch-form-scheme-less
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_form}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "form-patch.example.test/link"
+    expect_status: 500
+
+  - name: wirel-26e-link-put-form-scheme-less
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_form}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "form-put.example.test/link"
+    expect_status: 500
+
+  # A multipart PATCH without a file part is immutable, so the in-place write
+  # raises (before `json.dumps` could refuse a file part).
+  - name: wirel-26f-link-patch-multipart-scheme-less
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_multipart}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        url: "multipart-patched.example.test/link"
+    expect_status: 500
 
   # --- links: patch / delete (75) -------------------------------------------
   - name: wirel-27-link-patch-title

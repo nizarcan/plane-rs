@@ -687,6 +687,26 @@ steps:
       url: "probe.example/form2"
     expect_status: 500
 
+  # ... but a multipart body **with a file part** is copied into a mutable
+  # `request.data` by DRF, so the same in-place write succeeds.
+  - name: wsp-49b-link-create-multipart-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/quick-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        url: "probe.example/multipart"
+        title: "Multipart Link"
+      files:
+        - field: attachment
+          filename: note.txt
+          content_type: text/plain
+          content: "hello\n"
+    expect_status: 201
+
   - name: wsp-50-link-create-form-blank-url
     method: POST
     path: "/api/workspaces/{{ws}}/quick-links/"

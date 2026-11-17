@@ -54,6 +54,7 @@ use plane_serde::pyjson::Value as Json;
 use crate::common::client;
 use crate::views::write_support::integrity;
 use crate::workspaces::write_c_queries as queries;
+use crate::write::fields::python_float;
 use crate::write::repr::python_repr;
 
 /// `plane.app.views.workspace.user_preference.WorkspaceUserPreferenceViewSet`.
@@ -283,45 +284,6 @@ fn model_float(value: &Json) -> Result<f64, ViewError> {
             python_type_name(other)
         ))),
     }
-}
-
-/// CPython's `float(text)` (`PyFloat_FromString`): surrounding whitespace, a
-/// sign, `inf`/`infinity`/`nan`, and an underscore only **between digits**.
-fn python_float(text: &str) -> Option<f64> {
-    let trimmed = text.trim_matches(|character: char| character.is_whitespace());
-    let (negative, digits) = match trimmed.as_bytes().first()? {
-        b'-' => (true, &trimmed[1..]),
-        b'+' => (false, &trimmed[1..]),
-        _ => (false, trimmed),
-    };
-    let folded = digits.to_ascii_lowercase();
-    if matches!(folded.as_str(), "inf" | "infinity" | "nan") {
-        let value = if folded == "nan" {
-            f64::NAN
-        } else {
-            f64::INFINITY
-        };
-        return Some(if negative { -value } else { value });
-    }
-    if digits.contains('_') {
-        let characters: Vec<char> = digits.chars().collect();
-        let mut cleaned = String::with_capacity(digits.len());
-        for (index, character) in characters.iter().enumerate() {
-            if *character == '_' {
-                let before = index.checked_sub(1).and_then(|i| characters.get(i));
-                let after = characters.get(index + 1);
-                if !before.is_some_and(char::is_ascii_digit)
-                    || !after.is_some_and(char::is_ascii_digit)
-                {
-                    return None;
-                }
-                continue;
-            }
-            cleaned.push(*character);
-        }
-        return python_float(&format!("{}{}", if negative { "-" } else { "" }, cleaned));
-    }
-    trimmed.parse::<f64>().ok()
 }
 
 #[cfg(test)]

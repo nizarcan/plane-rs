@@ -565,6 +565,126 @@ steps:
       Cookie: "session-id={{session_admin}}"
     expect_status: 400
 
+  # The custom `to_internal_value` runs `data.get` before DRF's "expected a
+  # dictionary" check, so an array body is a 500.
+  - name: wmod-33g-link-create-array-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    json: []
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `to_internal_value` writes `data["url"] = "http://…"` in place. A
+  # urlencoded body's `QueryDict` is immutable, so a scheme-less url is the
+  # family 500 before any field is validated; a schemed url never writes.
+  - name: wmod-33a-link-create-form-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "modform.example.test/link"
+      title: "Form link"
+    expect_status: 500
+
+  - name: wmod-33b-link-create-form-schemed
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "https://example.com/mod-form-schemed"
+      title: "Form schemed"
+    capture:
+      - name: link_form_module
+        source: db
+        table: module_links
+        column: id
+    expect_status: 201
+
+  # ... while a multipart body with a file part makes DRF copy the parsed
+  # dict into a **mutable** `request.data`, so the same write succeeds.
+  - name: wmod-33c-link-create-multipart-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        url: "modmultipart.example.test/link"
+        title: "Multipart link"
+      files:
+        - field: attachment
+          filename: note.txt
+          content_type: text/plain
+          content: "hello\n"
+    capture:
+      - name: link_multipart_module
+        source: db
+        table: module_links
+        column: id
+    expect_status: 201
+
+  # A multipart body **without** a file part is not copied, so it stays
+  # immutable like a urlencoded one.
+  - name: wmod-33c2-link-create-multipart-no-file-scheme-less
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        url: "modmultipart-nofile.example.test/link"
+        title: "Multipart no file"
+    expect_status: 500
+
+  - name: wmod-33d-link-patch-form-scheme-less
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_form_module}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "modform-patch.example.test/link"
+    expect_status: 500
+
+  - name: wmod-33e-link-put-form-scheme-less
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_form_module}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      url: "modform-put.example.test/link"
+    expect_status: 500
+
+  # A multipart PATCH without a file part is immutable, so the in-place write
+  # raises before `update()`'s own `validate_url(None)` could.
+  - name: wmod-33f-link-patch-multipart-scheme-less
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_backlog}}/module-links/{{link_multipart_module}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    multipart:
+      fields:
+        url: "modmultipart-patched.example.test/link"
+    expect_status: 500
+
   - name: wmod-34-link-create-unknown-module
     method: POST
     path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{unknown_module}}/module-links/"
