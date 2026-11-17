@@ -67,7 +67,7 @@ Both options apply to the dry selection pass as well
 | `PLANE_RS_CONTRACT_BACKEND` | `mixed` | `django` or `mixed` |
 | `PLANE_RS_CONTRACT_DB` | `t_rsct_contract` | test database (must start with `t_rsct`) |
 | `PLANE_RS_CONTRACT_PORT` | `18200` | `plane-api` bind port (18200–18299) |
-| `PLANE_RS_CONTRACT_REDIS_DB` | `1` | Redis database shared by Django's cache and `plane-api` |
+| `PLANE_RS_CONTRACT_REDIS_DB` | `15` | Redis database shared by Django's cache and `plane-api` (DB 1 receives writes from other processes) |
 | `PLANE_RS_CONTRACT_VHOST` | the contract DB name | RabbitMQ vhost created for the run; defaults to `PLANE_RS_CONTRACT_DB`, so separate DBs never share one |
 | `PLANE_RS_CONTRACT_REPORT` | `apps/server/target/contract-<backend>.json` | JSON report path |
 | `PLANE_RS_CONTRACT_DEBUG` | unset | `1` prints each drain and each replay decision to stderr |

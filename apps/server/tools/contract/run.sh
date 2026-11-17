@@ -22,7 +22,7 @@
 # pytest unchanged. PLANE_RS_CONTRACT_* variables override the defaults below.
 #
 # The run uses the shared dev stack (Postgres 55432, Valkey 56379, RabbitMQ
-# 55672/55673): database `t_rsct_*`, Redis DB 1, vhost `rsct*`. It never starts
+# 55672/55673): database `t_rsct_*`, Redis DB 15, vhost `rsct*`. It never starts
 # or stops a container; if a service is down, `dev/status.sh` says so.
 
 set -euo pipefail
@@ -95,13 +95,27 @@ esac
 # WEB_URL, AWS_*) is defined in one place; source it rather than duplicating it.
 contract_db="${PLANE_RS_CONTRACT_DB:-t_rsct_contract}"
 export PLANE_DB="$contract_db"
-export PLANE_REDIS_DB="${PLANE_RS_CONTRACT_REDIS_DB:-1}"
+export PLANE_REDIS_DB="${PLANE_RS_CONTRACT_REDIS_DB:-15}"
 # One vhost per contract database: separate DBs can run side by side without
 # deleting each other's broker state. An explicit value still wins.
 export PLANE_RS_CONTRACT_VHOST="${PLANE_RS_CONTRACT_VHOST:-$contract_db}"
 export PLANE_MQ_VHOST="$PLANE_RS_CONTRACT_VHOST"
 # shellcheck source=../../dev/django-env.sh
 source "$SERVER_DIR/dev/django-env.sh"
+
+# `/magic-generate/` refuses to work without an SMTP host: the provider raises
+# SMTP_NOT_CONFIGURED when `EMAIL_HOST` is empty
+# (plane/authentication/provider/credentials/magic_code.py:57-72), and the tests'
+# empty `instance_configurations` table makes `get_configuration_value` fall
+# back to the environment (plane/license/utils/instance_value.py:19-33). Without
+# it the 15 magic-link tests in plane/tests/contract/app/test_authentication.py
+# fail on a 400.
+#
+# This is exported here, not in dev/django-env.sh, because the differential
+# harness uses that file too. No test can deliver real mail: the ones that reach
+# the send path mock `magic_link.delay`, the test settings use the locmem email
+# backend (plane/settings/test.py:12), and 127.0.0.1 has no SMTP listener.
+export EMAIL_HOST=127.0.0.1
 
 # The contract suite must run under the test settings (DEBUG, locmem email,
 # plane.tests installed); django-env.sh sets the production module.

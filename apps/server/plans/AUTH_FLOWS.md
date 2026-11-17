@@ -242,8 +242,8 @@ to replay it against `plane-api` once `/auth/` is ported, which is set A's first
 - **Rate limits.** `AuthenticationThrottle` is per client IP at `10/minute` from
   `AUTHENTICATION_RATE_LIMIT`, read at **import** time (`rate_limit.py:29-34`); DRF uses it in
   `initial()`, plain views through `@throttle_auth_redirect` (`:62-95`), and a signed-in caller
-  shares the anonymous bucket. Key `:1:throttle_authentication_<ip>`. Every contract run defaults to
-  Redis DB 1 (`run.sh`), so the key is shared with other agents' runs; set
+  shares the anonymous bucket. Key `:1:throttle_authentication_<ip>`. Every contract run defaults
+  to Redis DB 15 (`run.sh`; DB 1 receives outside writes), so concurrent runs share the key; set
   `target_env: {AUTHENTICATION_RATE_LIMIT: "1000/minute"}` in auth scenarios.
 - **Timing.** Reset tokens bucket by the second and live 3 days; `magic_*` TTLs are 600 s with a 2 s
   redis-diff tolerance; `last_active`/`last_login_*`/`token_updated_at` are `timezone.now()` and must
