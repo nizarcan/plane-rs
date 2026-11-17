@@ -1419,9 +1419,15 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
 
 ## Next three steps
 
-1. Re-measure the Phase 3 benchmark row on a quiet stack (50 requests per route, one load
-   level, under ~20 min), now with every app write on Rust. Add container numbers for
-   `plane-worker`/`plane-beat`.
+1. Done: the benchmark re-measure (merged `4257b43d0a`, BENCH.md "Phase 5 — Linux
+   containers"). Rust vs Django at c=1: 9.1×–21.4× rps across the five read scenarios, p95
+   1.6–9.9 ms vs 20–106 ms; `reads-mixed` at c=8: 861 vs 52 rps. 0 errors and 0 diffs.
+   CPU per request is 26–61× lower; idle memory 56 vs 154 MiB; image 75 vs 497 MB.
+   - New `Dockerfile.plane-jobs` (worker/beat/migrator, ~54 MB each).
+   - Caveat: the `plane-worker`/`plane-beat` idle figures (1.0/0.9 MiB) were taken with
+     only a "starting" log line. The broker connection was not confirmed, so re-check
+     with `rabbitmqctl list_connections` during the idle window at the final benchmark.
+     The Celery comparison is cross-environment (native macOS RSS) and only indicative.
 2. Phase 6 (auth flows): plan committed (`plans/AUTH_FLOWS.md`, with an orchestrator
    revision). P0 first (possibly split P0a/P0b), then A session, B magic, C OAuth; plus a
    small contract-runner fix (`EMAIL_HOST`, default Redis DB off 1). The plan explains the
