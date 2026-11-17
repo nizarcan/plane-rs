@@ -65,7 +65,13 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .viewset("plane.app.views.user.base.UserEndpoint")?
         .action("retrieve", retrieve)?
         .action("retrieve_user_settings", retrieve_user_settings)?
-        .action("retrieve_instance_admin", retrieve_instance_admin)?;
+        .action("retrieve_instance_admin", retrieve_instance_admin)?
+        .action(
+            "generate_email_verification_code",
+            super::write_email::generate_code,
+        )?
+        .action("update_email", super::write_email::update_email)?
+        .action("deactivate", super::write_deactivate::deactivate)?;
     registry
         .api_view("plane.app.views.user.base.UserSessionEndpoint")?
         .method(Method::GET, session)?;
@@ -207,6 +213,45 @@ fn user_me_serializer<'a>(loaded: &'a LoadedUser, parts: &'a UserMeParts) -> Use
         last_login_medium: &user.last_login_medium,
         last_login_time: user.last_login_time,
     }
+}
+
+/// `request.user` as the full row, **without** the avatar/cover queries.
+///
+/// The `users_me` writes of `plans/USERS_ME.md` set B need the row but not the
+/// two `UserMeSerializer` properties: 162 DELETE never serialises the user (so
+/// Django issues no `file_assets` query), while 166 renders it afterwards
+/// through [`render_user_me`]. [`load_request_user`] stays the read path, which
+/// loads both assets eagerly.
+pub(super) async fn user_row<'a>(ctx: &'a ViewCtx<'a>) -> Result<Cow<'a, User>, ViewError> {
+    if let Some(user) = ctx.user.row() {
+        return Ok(Cow::Borrowed(user));
+    }
+    // A caller authenticated without the session loader (none of this group's
+    // routes has another authenticator) falls back to `User.objects.get(pk=…)`.
+    let user_id = support::user_id(ctx)?;
+    let client = crate::common::client(ctx)?;
+    let statement = queries::USER_BY_ID.prepare(client).await?;
+    let row = client
+        .query_opt(&statement, &[&user_id])
+        .await?
+        .ok_or(ViewError::ObjectDoesNotExist)?;
+    Ok(Cow::Owned(User::from_row(&row, 0)?))
+}
+
+/// `UserMeSerializer(user).data`, 200 — the body 166 returns after saving
+/// (`plane/app/views/user/base.py:275`).
+///
+/// Django renders from the in-memory user and reads `avatar_url` /
+/// `cover_image_url` as properties, so the two asset rows are the only queries
+/// (one per non-null foreign key, in that order).
+pub(super) async fn render_user_me<'a>(
+    ctx: &'a ViewCtx<'a>,
+    user: Cow<'a, User>,
+) -> Result<ViewResponse, ViewError> {
+    let loaded = loaded_user(ctx, user).await?;
+    let parts = user_me_parts(&loaded)?;
+    let body = crate::common::render(ctx, &user_me_serializer(&loaded, &parts))?;
+    Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
 }
 
 /// `UserEndpoint.retrieve` (`plane/app/views/user/base.py:77-85`).

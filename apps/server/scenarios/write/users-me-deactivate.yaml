@@ -1,0 +1,118 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Deactivation (set B): 162 `DELETE /api/users/me/`.
+#
+# Covers:
+#
+#   * the instance-admin 400 (`InstanceAdmin.objects.filter(user=user).exists()`
+#     is the only live guard);
+#   * both "only admin" guards are dead code: `nonmember` is the sole admin of
+#     `fix-second` and project `theta`, so the annotation would refuse if
+#     `Count(Case(...))`/`Count("id")` were not constant — the request must
+#     deactivate instead (`plans/USERS_ME.md` §4);
+#   * both membership scans and `bulk_update(["is_active"])`: the live alpha
+#     project membership added by the fixture flips with theta's, and
+#     `fix-second`'s workspace membership flips;
+#   * the H04 invite sweep: one live `nonmember` invitation is soft-deleted, a
+#     live invitation for another address and an already-deleted row are not;
+#   * `Session.objects.filter(user_id=…).delete()` removes **every** session row
+#     (the fixture adds a second one) and `logout()` then deletes the cookie and
+#     adds `Vary: Cookie`; the caller's next GET is 401;
+#   * the profile reset, the password re-hash (`uuid4().hex`, no
+#     `password_vars`, so the hash is shape-checked only), `is_active = False`,
+#     `last_logout_ip` (X-Forwarded-For here, REMOTE_ADDR for the first
+#     deactivation) and `last_logout_time`;
+#   * `user_deactivation_email.delay(base_host(..., is_app=True), user.id)`;
+#   * a second deactivation, of an account with no memberships or invitations,
+#     proves the empty-list paths run no UPDATE and still succeed.
+#
+# Each destructive step is last for its caller; nothing after it uses that
+# session except the 401 that proves the session row is gone.
+
+name: write-users-me-deactivate
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/users-me-deactivate-fixture.sql"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_no_workspace: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  - name: deactivate-01-unauthenticated
+    method: DELETE
+    path: /api/users/me/
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # The origin check runs in authentication, before the view: nothing is
+  # deactivated.
+  - name: deactivate-02-foreign-origin
+    method: DELETE
+    path: /api/users/me/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+      Origin: "http://evil.example"
+    expect_status: 403
+
+  # `member` has an `instance_admins` row in the fixture.
+  - name: deactivate-03-instance-admin
+    method: DELETE
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+
+  # An account with no project/workspace memberships and no invitations: both
+  # bulk updates are empty. No X-Forwarded-For, so `last_logout_ip` is
+  # REMOTE_ADDR (127.0.0.1).
+  - name: deactivate-04-no-memberships
+    method: DELETE
+    path: /api/users/me/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    expect_status: 204
+
+  - name: deactivate-05-lonely-session-gone
+    method: GET
+    path: /api/users/me/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    expect_status: 401
+
+  # `nonmember` is the only admin of `fix-second` and project `theta`: the dead
+  # guard must not refuse. This is the step whose DB diff carries the two
+  # project memberships, the workspace membership, the two session deletions,
+  # the invite soft delete, the profile reset and the user row.
+  - name: deactivate-06-dead-guard
+    method: DELETE
+    path: /api/users/me/
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+      X-Forwarded-For: 198.51.100.77
+    expect_status: 204
+
+  - name: deactivate-07-nonmember-session-gone
+    method: GET
+    path: /api/users/me/
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 401

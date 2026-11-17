@@ -198,6 +198,43 @@ plane_query! {
 }
 
 plane_query! {
+    /// `ProjectMember.objects.bulk_update(projects_to_deactivate,
+    /// ["is_active"])` (`plane/app/views/user/base.py:334`).
+    ///
+    /// `bulk_update` writes only the named column: no `save()` hook runs, so
+    /// `updated_at`/`updated_by_id` are untouched. One statement per row keeps
+    /// the handler identical to Django's per-batch `CASE` statement in every
+    /// observable way (the row set is fixed by the scan above).
+    ///
+    /// Bind order: the row id.
+    PROJECT_MEMBER_DEACTIVATE = "users_me_project_member_deactivate",
+    "UPDATE project_members SET \"is_active\" = FALSE WHERE \"id\" = $1",
+    []
+}
+
+plane_query! {
+    /// `WorkspaceMember.objects.bulk_update(workspaces_to_deactivate,
+    /// ["is_active"])` (`plane/app/views/user/base.py:336`).
+    ///
+    /// Same shape as [`PROJECT_MEMBER_DEACTIVATE`].
+    WORKSPACE_MEMBER_DEACTIVATE = "users_me_workspace_member_deactivate",
+    "UPDATE workspace_members SET \"is_active\" = FALSE WHERE \"id\" = $1",
+    []
+}
+
+plane_query! {
+    /// `User.objects.filter(email=new_email).exclude(id=user.id).exists()`
+    /// (`plane/app/views/user/base.py:136,251`): the two "address already
+    /// taken" checks of 165/166.
+    ///
+    /// Bind order: the address, then the caller's id.
+    USER_EMAIL_EXISTS = "users_me_user_email_exists",
+    "SELECT 1::int4 AS present FROM users \
+     WHERE \"email\" = $1 AND NOT (\"id\" = $2) LIMIT 1",
+    [("present", Int4)]
+}
+
+plane_query! {
     /// `WorkspaceMemberInvite.objects.filter(email=user.email).delete()`
     /// (`plane/app/views/user/base.py:337`).
     ///
@@ -208,10 +245,12 @@ plane_query! {
     /// update only touches live rows. The timestamp is the caller's
     /// `timezone.now()`, not the database clock.
     ///
-    /// Bind order: the e-mail, then the timestamp.
+    /// Bind order: the e-mail (possibly NULL; `filter(email=None)` is
+    /// `email IS NULL`, which `IS NOT DISTINCT FROM` reproduces), then the
+    /// timestamp.
     INVITE_DELETE_BY_EMAIL = "users_me_invite_delete_by_email",
     "UPDATE workspace_member_invites SET \"deleted_at\" = $2 \
-     WHERE \"deleted_at\" IS NULL AND \"email\" = $1",
+     WHERE \"deleted_at\" IS NULL AND \"email\" IS NOT DISTINCT FROM $1",
     []
 }
 
@@ -225,6 +264,9 @@ pub static ALL_QUERIES: &[&plane_db::Query] = &[
     &INSTANCE_ADMIN_EXISTS,
     &PROJECT_MEMBER_SCAN,
     &WORKSPACE_MEMBER_SCAN,
+    &PROJECT_MEMBER_DEACTIVATE,
+    &WORKSPACE_MEMBER_DEACTIVATE,
+    &USER_EMAIL_EXISTS,
     &INVITE_DELETE_BY_EMAIL,
 ];
 

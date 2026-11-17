@@ -49,7 +49,7 @@ pub(crate) fn body_get<'a>(data: &'a Data, key: &str) -> Result<Body<'a>, ViewEr
 }
 
 /// The Python type name, for the `AttributeError` above.
-fn python_type_name(value: &Value) -> &'static str {
+pub(crate) fn python_type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "NoneType",
         Value::Bool(_) => "bool",
