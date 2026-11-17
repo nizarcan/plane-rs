@@ -1,0 +1,93 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The AI assistant with a `LLM_PROVIDER` row that is SQL NULL
+# (`ai-assistant-config-fixture.sql`).
+#
+# `get_configuration_value` returns the value verbatim, so `provider_key` is
+# Python's `None` and `provider_key.lower()` is an uncaught `AttributeError`
+# (`plane/app/views/external/base.py:98`). The family handler renders it as
+#
+#   500 {"error": "Something went wrong please try again later"}
+#
+# (`plane/app/views/base.py:235-239`). Two things are worth pinning here:
+#
+#   * the 500 is the *family* body, not the endpoint's own
+#     `{"error": "An internal error has occurred."}`;
+#   * the configuration lookup runs before the body is read, so even a body
+#     that would reach `Task is required` — or a non-object body — answers this
+#     500 first. A truthy `task` with a `prompt` never reaches the network
+#     either, because the config check fails before both.
+
+name: write-ai-assistant-config
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/ai-assistant-config-fixture.sql"
+  ws: "fix-workspace"
+  project: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # The permission still answers first: the config lookup is inside the handler.
+  - name: aic-51-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: guest
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_guest}}" }
+    json: {}
+    expect_status: 403
+
+  - name: aic-51-empty-object
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 500
+
+  - name: aic-51-truthy-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 500
+
+  - name: aic-51-list-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: []
+    expect_status: 500
+
+  - name: aic-52-empty-object
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: {}
+    expect_status: 500
+
+  - name: aic-52-truthy-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json: { task: "summarise", prompt: "the issue" }
+    expect_status: 500
+
+  - name: aic-52-malformed-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/ai-assistant/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '{"task": '
+    expect_status: 500
