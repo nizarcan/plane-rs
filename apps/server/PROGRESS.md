@@ -1196,8 +1196,23 @@ independent; each domain's sets start after its own P0. At most three builds run
     is unscoped and makes the oldest asset the cover; draft-issue entity types silently drop
     the identifier.
 
-Running: assets B (legacy), `users/me` B (email/deactivate), assets C. Queued: `users/me` A,
-workspace-core A/B/C, analytics A/B/C.
+- `users/me` B (merged `162794ff56`, flipped with this entry): 162 `rust(GET,DELETE)`
+  (deactivate), 165 `rust(POST)`, 166 `rust(PATCH)`. `write/users-me-email.yaml` 33/33
+  and `users-me-deactivate.yaml` 7/7 in both directions. On the merge, the full read +
+  write sweep is 77 files, 4164 steps clean; 1029 tests.
+  - `django_password_hash` shape: the salt class now includes `-` (the fixture's
+    `fixture-salt-0001`).
+  - Contract: 165/166 are reached by 11 tests. **Three `test_user_email_change_app` tests
+    cannot pass against Rust**: they patch `AuthenticationThrottle.rate` and `cache.incr`
+    inside Django's process (harness limit, not a parity gap).
+  - Upstream quirks kept: the manual `self.throttled` is rewritten to `{"error_code":5900,…}`
+    with no `Retry-After`; H30 rotates `token` on the deactivate and email saves; a non-ASCII
+    code is a plain 400, not a `TypeError`.
+- Disk dipped to 29 GB again with three builds; recovered to 40 GB by removing merged
+  worktrees and the verification target.
+
+Running: assets C. Merging: assets B. Queued: `users/me` A, workspace-core A/B/C,
+analytics A/B/C.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 

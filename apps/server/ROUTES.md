@@ -249,11 +249,11 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 159 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); PATCH,DELETE allow(ADMIN;PROJECT) | rust(GET,PATCH,DELETE) | verified |
 | 160 | `/api/workspaces/{slug}/projects/{project_id}/intake-state/` | GET | `plane.app.views.state.base.IntakeStateEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
 | 161 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/mark-default/` | POST:mark_as_default | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; POST allow(ADMIN;PROJECT) | rust(POST) | verified |
-| 162 | `/api/users/me/` | GET:retrieve, PATCH:partial_update, DELETE:deactivate | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 162 | `/api/users/me/` | GET:retrieve, PATCH:partial_update, DELETE:deactivate | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET,DELETE) | verified |
 | 163 | `/api/users/session/` | GET | `plane.app.views.user.base.UserSessionEndpoint` | AllowAny | rust(GET) | verified |
 | 164 | `/api/users/me/settings/` | GET:retrieve_user_settings | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 165 | `/api/users/me/email/generate-code/` | POST:generate_email_verification_code | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | django | not-started |
-| 166 | `/api/users/me/email/` | PATCH:update_email | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | django | not-started |
+| 165 | `/api/users/me/email/generate-code/` | POST:generate_email_verification_code | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(POST) | verified |
+| 166 | `/api/users/me/email/` | PATCH:update_email | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(PATCH) | verified |
 | 167 | `/api/users/me/profile/` | GET, PATCH | `plane.app.views.user.base.ProfileEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 168 | `/api/users/me/accounts/` | GET, DELETE | `plane.app.views.user.base.AccountEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 169 | `/api/users/me/accounts/{pk}/` | GET, DELETE | `plane.app.views.user.base.AccountEndpoint` | IsAuthenticated | rust(GET) | verified |
