@@ -36,6 +36,10 @@
 --   webhook active     f8cfd225-6f45-442e-a86f-ec8317215958  (https://hooks.example.test/active)
 --   webhook inactive   b3167eff-f419-4108-8ed1-ed025c0a9d16  (https://hooks.example.test/inactive)
 --   webhook internal   9cffbfd4-5436-4466-b63c-771c4d2291d4  (https://api.example.test/internal)
+--   soft twin of active b9000000-0000-4000-8000-000000000001
+--   ws2 active URL      b9000000-0000-4000-8000-000000000002
+--   created_by NULL     b9000000-0000-4000-8000-000000000003
+--   soft twin, freed    b9000000-0000-4000-8000-000000000004  (https://hooks.example.test/revived)
 --
 -- `created_at` is older than every rich-fixture row (base time
 -- 2026-11-16T00:00:00Z) so the list's `-created_at` order stays deterministic
@@ -78,4 +82,16 @@ VALUES
    'a91c3d80-5ed0-40f3-92a8-a28c015f4388',
    'https://hooks.example.test/orphan', TRUE,
    'plane_wh_00000000000000000000000000000003',
-   FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 'v1');
+   FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, 'v1'),
+  -- A second soft-deleted row, whose URL no live row holds: a POST of
+  -- `https://hooks.example.test/revived` is the 201 the partial index allows.
+  -- The twin above cannot prove that on its own because a live row holds its
+  -- URL, so it is the 409 case instead.
+  ('2026-01-01 00:00:04+00', '2026-01-01 00:00:04+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL,
+   '2026-01-01 00:00:08+00',
+   'b9000000-0000-4000-8000-000000000004',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388',
+   'https://hooks.example.test/revived', TRUE,
+   'plane_wh_00000000000000000000000000000004',
+   FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, 'v1');

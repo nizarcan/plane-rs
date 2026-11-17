@@ -1,0 +1,733 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Webhooks set A of plans/WEBHOOKS.md §3 — create and regenerate:
+#
+#   POST /api/workspaces/{slug}/webhooks/                  (order 228)
+#   POST /api/workspaces/{slug}/webhooks/{pk}/             (order 229, the TypeError 500)
+#   POST /api/workspaces/{slug}/webhooks/{pk}/regenerate/  (order 230)
+#
+# Covers, in the view's own statement order (`plane/app/views/webhook/base.py:21-39`,
+# `:115-121`):
+#
+#   * `Workspace.objects.get` before the body is parsed: a member of the
+#     soft-deleted `fix-deleted` workspace passes the role check (the permission
+#     query's `workspaces` join is unfiltered) and then 404s; a slug the caller
+#     is not a member of is the 403 the permission decorator returns first.
+#   * the field chain (`serializers/webhook.py:25` → `validate_schema`,
+#     `validate_domain`, Django's `URLValidator`, in that order, accumulating):
+#     required, blank, null, non-string, schema only, domain only, URL only,
+#     schema + domain (`ftp://localhost`), schema + URL (`not a url`), the
+#     netloc bugs (`localhost:8000`, `LOCALHOST`, `user@localhost` pass
+#     `validate_domain`), and a parse failure (`http://[::1`) which DRF does not
+#     catch and is therefore a 500.
+#   * the save-time `_validate_webhook_url` (`:27-55`): the generic
+#     `{"url": "Invalid or disallowed webhook URL."}` bare string for loopback
+#     targets that pass the field chain (`http://localhost:8000/x`,
+#     `http://127.0.0.1:1/x`). `WEBHOOK_ALLOWED_HOSTS` makes every
+#     `hooks.example.test` URL skip DNS, so nothing here needs a resolver.
+#   * the INSERT: defaults, a full body (read-only keys ignored, `created_by`
+#     overwritten by H01, `updated_by` nulled), unknown keys ignored, an
+#     unknown `created_by` pk, a >1024-character URL (varchar overflow is
+#     psycopg's `DataError`, so a 500 — not the family's `IntegrityError` 400).
+#   * the partial unique index `webhook_url_unique_url_when_deleted_at_null`:
+#     a live duplicate is 409, the same URL in the other workspace is a 201
+#     (uniqueness is per workspace), and a URL only a soft-deleted row holds is
+#     a 201 (`webhooks-fixture.sql`).
+#   * POST on `webhooks/{pk}/`: the family 500 for an admin and the 403 for a
+#     member (the permission decorator wraps the method and runs first).
+#   * regenerate: twice on the same row (the secret changes both times; both
+#     are placeholdered by `normalize.yaml`'s request-scoped `webhook_secret`
+#     rules), on the fixture row with `created_by_id IS NULL`, a missing pk and
+#     a pk in another workspace (404), and MEMBER/GUEST/non-member/foreign
+#     `Origin` (403).
+#
+# Created ids are captured from the DB diff (`source: db`), never from the
+# response: the response's `id` is a generated UUID either way, and the
+# `secret_key` is placeholdered.
+
+name: write-webhooks-create
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+  # plans/WEBHOOKS.md §4: the three fixture URLs live on `hooks.example.test`,
+  # and the create path resolves every host it is not told to trust. Trusting
+  # this host keeps the successful creates offline and deterministic; the
+  # loopback rejections below stay real because they are not trusted. Never add
+  # `WEBHOOK_ALLOWED_IPS` here — it would make those rejections succeed.
+  WEBHOOK_ALLOWED_HOSTS: "hooks.example.test"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/webhooks-fixture.sql"
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  ws_deleted: "fix-deleted"
+  webhook_active: "f8cfd225-6f45-442e-a86f-ec8317215958"
+  webhook_orphan: "b9000000-0000-4000-8000-000000000003"
+  webhook_soft_twin: "b9000000-0000-4000-8000-000000000001"
+  webhook_ws2: "b9000000-0000-4000-8000-000000000002"
+  webhook_revived_url: "https://hooks.example.test/revived"
+  webhook_shared_url: "https://hooks.example.test/shared"
+  missing_webhook: "55555555-5555-4555-8555-555555555555"
+  user_member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- create: the body shapes the serializer rejects ---------------------
+  # No body at all: DRF hands the serializer an empty mapping, so `url` is the
+  # one required field (`{"url": ["This field is required."]}`).
+  - name: write-webhooks-create-01-empty-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-create-02-blank-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-create-03-null-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `URLField` overrides DRF's `invalid` message, so a bool or a list is
+  # `Enter a valid URL.` rather than `Not a valid string.`
+  # (`rest_framework/fields.py:794-797`).
+  - name: write-webhooks-create-04-bool-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: true
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-create-05-list-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: ["https://hooks.example.test/x"]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: the field chain, one message per branch --------------------
+  # `validate_schema` only: the scheme is not http/https.
+  - name: write-webhooks-create-06-schema-only
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "ftp://example.com"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `validate_domain` only: the netloc is exactly `localhost`.
+  - name: write-webhooks-create-07-domain-localhost
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "http://localhost"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-create-08-domain-loopback
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "http://127.0.0.1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Django's `URLValidator` only: `example` has no TLD.
+  - name: write-webhooks-create-09-url-only
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "http://example"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Accumulation, schema then domain: both messages in one list.
+  - name: write-webhooks-create-10-schema-and-domain
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "ftp://localhost"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Accumulation, schema then URLValidator: `urlparse("not a url")` succeeds
+  # with an empty scheme.
+  - name: write-webhooks-create-11-schema-and-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "not a url"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `validate_domain` compares the **netloc**, port included, so these three
+  # pass it and fail only the schema/URLValidator pair (the bug is kept,
+  # plans/WEBHOOKS.md §2b).
+  - name: write-webhooks-create-12-netloc-port
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "localhost:8000"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-create-13-netloc-uppercase
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "LOCALHOST"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-create-14-netloc-userinfo
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "user@localhost"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Two failing fields: the body keeps the `self.fields` order (`url` is
+  # declared first, `version` comes after `is_internal`).
+  - name: write-webhooks-create-15-two-field-errors
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "not a url"
+      version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # A `urlparse` failure inside a declared validator is not a field error:
+  # DRF catches only `ValidationError`, so the request is the family 500
+  # (`rest_framework/fields.py:544-556`).
+  - name: write-webhooks-create-16-unparsable-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "http://[::1"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # --- create: the save-time SSRF check -----------------------------------
+  # Both hostnames pass the field chain (`netloc` includes the port) and are
+  # rejected by `validate_url`, which resolves them through /etc/hosts and
+  # refuses the loopback answer. The body is the bare-string `{"url": …}`.
+  - name: write-webhooks-create-17-ssrf-localhost
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "http://localhost:8000/hook"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: write-webhooks-create-18-ssrf-loopback
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "http://127.0.0.1:1/hook"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: the successful shapes --------------------------------------
+  # Minimal body: every model default applies (`is_active` true, the event
+  # flags false, `version` "v1", a generated `secret_key`), H01 sets
+  # `created_by` and NULLs `updated_by`, and the two `timezone.now()` calls
+  # (`auto_now_add`, then `auto_now`) are separate values.
+  - name: write-webhooks-create-19-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/minimal"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: webhook_minimal
+        source: db
+        table: webhooks
+        column: id
+
+  # Full body with every writable field plus the read-only keys (`id`,
+  # `workspace`, `secret_key`, `deleted_at`, `created_at`, `updated_at`) and an
+  # unknown one: the read-only keys are dropped by `to_internal_value` and the
+  # unknown key by DRF. `created_by` is writable but H01 create overwrites it
+  # with the caller; `updated_by` is writable and nulled (H01).
+  - name: write-webhooks-create-20-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      id: "66666666-6666-4666-8666-666666666666"
+      workspace: "77777777-7777-4777-8777-777777777777"
+      secret_key: "plane_wh_ffffffffffffffffffffffffffffffff"
+      deleted_at: "2026-01-01T00:00:00Z"
+      created_at: "2026-01-01T00:00:00Z"
+      updated_at: "2026-01-01T00:00:00Z"
+      created_by: "{{user_member_id}}"
+      updated_by: "{{user_member_id}}"
+      url: "https://hooks.example.test/full"
+      is_active: false
+      project: true
+      issue: true
+      module: true
+      cycle: true
+      issue_comment: true
+      is_internal: true
+      version: "v2"
+      mystery: "ignored"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: webhook_full
+        source: db
+        table: webhooks
+        column: id
+
+  # An explicit `created_by: null` is still the caller after H01.
+  - name: write-webhooks-create-21-created-by-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/created-by-null"
+      created_by: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # A `created_by` that is not a user is the pk field's 400, before any write.
+  - name: write-webhooks-create-22-created-by-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/created-by-missing"
+      created_by: "99999999-9999-4999-8999-999999999999"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: uniqueness --------------------------------------------------
+  # The live fixture row holds this URL: the partial unique index fires and
+  # the view's substring test answers 409.
+  - name: write-webhooks-create-23-duplicate-live
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/active"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 409
+
+  # Uniqueness is `(workspace, url)`: the same URL is already live in
+  # `fix-second` (the fixture's `b9000000-…-0002` row).
+  - name: write-webhooks-create-24-duplicate-other-workspace
+    method: POST
+    path: "/api/workspaces/{{ws2}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/active"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 409
+
+  # The fixture's second soft-deleted row holds this URL and no live row does:
+  # the partial index does not see it, so the create is a 201.
+  - name: write-webhooks-create-25-revived-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "{{webhook_revived_url}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: webhook_revived
+        source: db
+        table: webhooks
+        column: id
+
+  # The same URL in the other workspace is a 201, created by that workspace's
+  # admin (the fixture's `nonmember`).
+  - name: write-webhooks-create-26-shared-url-workspace-a
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "{{webhook_shared_url}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  - name: write-webhooks-create-27-shared-url-workspace-b
+    method: POST
+    path: "/api/workspaces/{{ws2}}/webhooks/"
+    json:
+      url: "{{webhook_shared_url}}"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+
+  # --- create: the INSERT's other failure ---------------------------------
+  # `url` has no declared `max_length` (`rest_framework/serializers.py:1129-1131`
+  # never applies the model's 1024), so a 1100-character URL passes validation
+  # and overflows `varchar(1024)`. psycopg raises `DataError`, not
+  # `IntegrityError`, so the view's `except IntegrityError` never runs and the
+  # family handler answers 500.
+  - name: write-webhooks-create-28-url-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # --- create: workspaces ------------------------------------------------
+  # A slug the caller is not a member of: the permission decorator answers 403
+  # before `Workspace.objects.get` runs (`permissions/base.py:59-66`).
+  - name: write-webhooks-create-29-unknown-workspace
+    method: POST
+    path: "/api/workspaces/no-such-workspace/webhooks/"
+    json:
+      url: "{{webhook_shared_url}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # The caller is an active admin of the soft-deleted `fix-deleted` workspace:
+  # the permission join does not filter `workspaces`, so the role check passes
+  # and `Workspace.objects.get` (which does) is the family 404.
+  - name: write-webhooks-create-30-soft-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/webhooks/"
+    json:
+      url: "{{webhook_shared_url}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # --- POST on webhooks/{pk}/ --------------------------------------------
+  # `WebhookEndpoint.post(self, request, slug)` has no `pk` parameter, so the
+  # kwarg-expanded call raises `TypeError` and the family handler answers 500 —
+  # but `allow_permission` wraps the method, so a MEMBER gets the 403 first.
+  - name: write-webhooks-create-31-post-pk-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    json:
+      url: "https://hooks.example.test/post-with-pk"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: write-webhooks-create-32-post-pk-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_active}}/"
+    json:
+      url: "https://hooks.example.test/post-with-pk"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  # --- permissions ---------------------------------------------------------
+  # `allow_permission([ADMIN], WORKSPACE)` has no `creator=` escape hatch, so a
+  # MEMBER, a GUEST and a non-member are all 403 (`base.py:21`).
+  - name: write-webhooks-create-33-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/member"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: write-webhooks-create-34-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/guest"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-webhooks-create-35-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/nonmember"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # The origin check on an unsafe method: `BaseSessionAuthentication.enforce_csrf`
+  # (`plane/authentication/session.py:56-63`), not a CSRF token.
+  - name: write-webhooks-create-36-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "https://hooks.example.test/origin"
+    jar: admin
+    origin: "https://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # --- regenerate ----------------------------------------------------------
+  # `Webhook.objects.get` → a fresh `generate_token()` → a full save (H01
+  # update; `created_at` and `created_by` keep their stored values). The
+  # response is the 17-key body with the new secret, placeholdered by the
+  # request-scoped `webhook_secret` rules; the DB diff shows the same
+  # placeholder as the column change.
+  - name: write-webhooks-create-37-regenerate-once
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_minimal}}/regenerate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # Twice on the same row: the second secret differs from the first, so the
+  # two placeholders must differ too.
+  - name: write-webhooks-create-38-regenerate-twice
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_minimal}}/regenerate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # The fixture row with `created_by_id IS NULL`: the 17-key body renders
+  # `created_by: null` and the full save writes NULL back, setting only
+  # `updated_by` and `updated_at`.
+  - name: write-webhooks-create-39-regenerate-null-created-by
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_orphan}}/regenerate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # A pk in the other workspace: the `workspaces` join makes it a miss.
+  - name: write-webhooks-create-40-regenerate-other-workspace
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_ws2}}/regenerate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The soft-deleted twin: `Webhook.objects` filters `deleted_at`.
+  - name: write-webhooks-create-41-regenerate-soft-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_soft_twin}}/regenerate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-webhooks-create-42-regenerate-missing
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{missing_webhook}}/regenerate/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: write-webhooks-create-43-regenerate-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_minimal}}/regenerate/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 403
+
+  - name: write-webhooks-create-44-regenerate-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_minimal}}/regenerate/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: write-webhooks-create-45-regenerate-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_minimal}}/regenerate/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: write-webhooks-create-46-regenerate-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_minimal}}/regenerate/"
+    jar: admin
+    origin: "https://evil.example"
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 403
+
+  # --- the created rows are readable afterwards --------------------------
+  # A GET on one of them proves the create wrote what the 201 body claimed
+  # (the read shape has no `secret_key`, so this step also pins that the
+  # create's response is the only place the secret appears).
+  - name: write-webhooks-create-47-get-created
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_revived}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: write-webhooks-create-48-get-full-shape
+    method: GET
+    path: "/api/workspaces/{{ws}}/webhooks/{{webhook_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- the field chain's other input branches -----------------------------
+  # `CharField` trims before validating (`rest_framework/fields.py:742-749`),
+  # so surrounding whitespace still hits the unique index: 409, not 201.
+  - name: write-webhooks-create-49-duplicate-trimmed
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    json:
+      url: "  https://hooks.example.test/active  "
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 409
+
+  # A form body is DRF's html-input branch: the value arrives as a string and
+  # `url` is validated exactly as in a JSON body.
+  - name: write-webhooks-create-50-form-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    form:
+      url: "https://hooks.example.test/form"
+      is_active: "false"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: webhook_form
+        source: db
+        table: webhooks
+        column: id
+
+  # `url=` in a form body is `''`; the field is required and does not allow
+  # blanks, so it is DRF's `blank` message rather than the "required" one.
+  - name: write-webhooks-create-51-form-blank-url
+    method: POST
+    path: "/api/workspaces/{{ws}}/webhooks/"
+    form:
+      url: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400

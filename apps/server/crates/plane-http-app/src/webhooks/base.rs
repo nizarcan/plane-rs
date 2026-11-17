@@ -39,11 +39,16 @@ use crate::common::lookup;
 use crate::common::{client, render_list};
 use crate::webhooks::queries;
 use crate::webhooks::render::WebhookTen;
+use crate::webhooks::write;
 
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.webhook.base.WebhookEndpoint")?
-        .method(Method::GET, get)?;
+        .method(Method::GET, get)?
+        .method(Method::POST, write::create)?;
+    registry
+        .api_view("plane.app.views.webhook.base.WebhookSecretRegenerateEndpoint")?
+        .method(Method::POST, write::regenerate)?;
     registry
         .api_view("plane.app.views.webhook.base.WebhookLogsEndpoint")?
         .method(Method::GET, get_logs)?;
