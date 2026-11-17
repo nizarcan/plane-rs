@@ -536,6 +536,15 @@ volatile_json_paths:
 # reprs, Redis values and response text). A rule must name its request: an
 # unscoped six-digit pattern would rewrite unrelated numbers.
 volatile_text_patterns:
+  # OAuth `state`: `uuid.uuid4().hex` (32 lower-case hex characters), generated
+  # by every initiate view and copied into the provider URL's `state=` and into
+  # the session payload (`plane/authentication/views/app/google.py:46`,
+  # `.../space/google.py:41`, and the GitHub/GitLab/Gitea siblings). Scoped to
+  # the OAuth routes so a 32-hex value anywhere else is still compared.
+  - pattern: '\b[0-9a-f]{32}\b'
+    placeholder: oauth-state
+    request: "GET /auth/*"
+    why: "OAuth state is uuid.uuid4().hex (plane/authentication/views/app/google.py:46)"
   - pattern: '\b[0-9]{6}\b'
     placeholder: email-code
     request: "POST /api/users/me/email/generate-code/"
@@ -560,6 +569,20 @@ volatile_db_columns:
     column: last_used
     mode: relative_time
     why: "APIKeyAuthentication writes timezone.now() on every successful authentication (plane/api/middleware/api_authentication.py:38-40); the two targets authenticate at their own instants"
+  # `accounts.access_token_expired_at` is the OAuth token's expiry. GitLab sets
+  # it from the provider's `created_at + expires_in` (a fixed instant, still
+  # compared exactly), Gitea from `timezone.now() + expires_in`
+  # (`provider/oauth/gitea.py:97-101`), which is ~an hour outside the step
+  # window and differs between the targets by milliseconds. Compared as a
+  # rounded offset from the step clock, exactly like `sessions.expire_date`.
+  - table: accounts
+    column: access_token_expired_at
+    mode: relative_time
+    why: "Gitea's access-token expiry is datetime.now() + expires_in (plane/authentication/provider/oauth/gitea.py:97-101)"
+  - table: accounts
+    column: refresh_token_expired_at
+    mode: relative_time
+    why: "the provider's refresh_token_expired_at is an absolute instant; the port and Django agree, and a relative value would still compare"
   - table: users
     column: username
     placeholder: username

@@ -52,6 +52,11 @@ fn catalogs() -> Vec<Catalog> {
             queries: common::ALL_QUERIES,
         },
         Catalog {
+            domain: "auth_oauth",
+            source: "auth/oauth/queries.rs",
+            queries: plane_http_app::auth::oauth::queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "meta",
             source: "meta/queries.rs",
             queries: plane_http_app::meta::queries::ALL_QUERIES,

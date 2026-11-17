@@ -321,6 +321,13 @@ pub const ALL: [AuthErrorCode; 58] = [
 pub struct AuthFlowError {
     pub code: AuthErrorCode,
     pub payload: Vec<(String, Value)>,
+    /// `AuthenticationException(error_message=…)` when the call site passes
+    /// something other than the dictionary key. Three Gitea branches do
+    /// (`gitea.py:118-155`): `GITEA_OAUTH_PROVIDER_ERROR: Failed to fetch
+    /// emails`, `…: No emails found` and `…: Exception occurred while fetching
+    /// emails`. Every other call site passes the code's own name, which is
+    /// [`None`] here.
+    pub message: Option<String>,
 }
 
 impl AuthFlowError {
@@ -329,7 +336,16 @@ impl AuthFlowError {
         Self {
             code,
             payload: Vec::new(),
+            message: None,
         }
+    }
+
+    /// `AuthenticationException(error_message=<message>)`, kept verbatim. The
+    /// redirect views put it in the query string, so it is observable.
+    #[must_use]
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
     }
 
     /// `payload={"email": email}` (`adapter/base.py:66-70` and its callers).
@@ -338,6 +354,7 @@ impl AuthFlowError {
         Self {
             code,
             payload: vec![("email".to_string(), Value::String(email.into()))],
+            message: None,
         }
     }
 
@@ -347,6 +364,7 @@ impl AuthFlowError {
         Self {
             code,
             payload: vec![("email".to_string(), Value::Null)],
+            message: None,
         }
     }
 
@@ -363,8 +381,11 @@ impl AuthFlowError {
     }
 
     #[must_use]
-    pub fn message(&self) -> &'static str {
-        self.code.message()
+    pub fn message(&self) -> &str {
+        match &self.message {
+            Some(message) => message,
+            None => self.code.message(),
+        }
     }
 
     /// `AuthenticationException.get_error_dict()`: `error_code`,

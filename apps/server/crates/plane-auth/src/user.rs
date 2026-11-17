@@ -130,6 +130,14 @@ impl AuthUser {
         }
     }
 
+    /// [`AuthUser::from_model_row`] for the `/auth/` views: after
+    /// `complete_login_or_signup` saves the row, `user_login` needs the same
+    /// projection Django's `ModelBackend.get_user` would build from it.
+    #[must_use]
+    pub fn from_user_row(row: &UserRow) -> Self {
+        Self::from_model_row(row)
+    }
+
     /// The same projection from the full model row Django's session loader
     /// reads ([`crate::queries::LOAD_USER_BY_ID`], decoded with
     /// `plane_db::models::user::User::from_row`).

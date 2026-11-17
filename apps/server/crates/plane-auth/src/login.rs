@@ -15,18 +15,21 @@
 //!    middleware's response phase;
 //! 5. send `user_logged_in`.
 //!
-//! Step 5 has **no receiver in Plane**: `django.contrib.auth.models.update_last_login`
-//! is not connected anywhere in `plane/` (grep for `user_logged_in` finds no
-//! `@receiver`). `last_login` is therefore *not* updated by logging in;
-//! `plane/authentication/adapter/base.py:229-247` writes `last_login_time`,
-//! `last_login_ip`, `last_login_uagent` and `last_login_medium` in its own
-//! `save_user_data`, which is a Phase 6 concern.
+//! Step 5's receiver is Django's own: `django.contrib.auth.models` connects
+//! `update_last_login` with `dispatch_uid="update_last_login"` when the app is
+//! imported (`django/contrib/auth/models.py`), so every `login()` writes
+//! `users.last_login` with a one-column `save(update_fields=["last_login"])`.
+//! Plane's `save_user_data` (`adapter/base.py:229-247`) writes the *other*
+//! columns (`last_login_time`, `last_login_ip`, `last_login_uagent`,
+//! `last_login_medium`). The differential harness caught the missing
+//! `last_login` on the OAuth callbacks.
 //!
 //! Plane's `user_login` (`plane/authentication/utils/login.py:13-27`) calls
 //! `login()`, optionally sets the admin expiry, writes `device_info =
 //! {"user_agent", "ip_address", "domain"}` and calls `session.save()`
 //! explicitly, so a row always exists even when the middleware would not save.
 
+use chrono::{SubsecRound, Utc};
 use deadpool_postgres::Client;
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
@@ -166,6 +169,15 @@ pub async fn login(
             HASH_SESSION_KEY,
             Json::Str(session_auth_hash),
         )
+        .await?;
+
+    // `update_last_login`: `user.last_login = timezone.now();
+    // user.save(update_fields=["last_login"])`. Only that column moves.
+    let statement = crate::queries::UPDATE_USER_LAST_LOGIN
+        .prepare(client)
+        .await?;
+    client
+        .execute(&statement, &[&Utc::now().trunc_subsecs(6), &user.id])
         .await?;
 
     // `request.user = user` when the attribute exists.
