@@ -1254,8 +1254,26 @@ independent; each domain's sets start after its own P0. At most three builds run
     body's `created_by`; `WorkSpaceAdminPermission` admits members.
   - Plan correction: a 256-char name is a 400, not a 500.
 
-Running: `users/me` A, workspace-core A, analytics B (233). Queued: workspace-core B/C,
-analytics C; then ai-assistant (51/52) and the held 34/75/82/107 methods (unplanned).
+- `users/me` A (merged `fbbdf0189a`, flipped with this entry): 162
+  `rust(GET,PATCH,DELETE)`, 167 `rust(GET,PATCH)`, 168/169 `rust(GET,DELETE)` (168
+  DELETE is the signature 500), 171/172 `rust(PATCH)`, 226/227
+  `rust(GET,POST,PATCH,DELETE)`. `write/users-me-profile.yaml` 66/66 and
+  `api-tokens.yaml` 32/32 in both directions; all 20 `test_api_token.py` tests, the
+  avatar/cover owner tests and the session-origin tests pass. On the merge, the full read +
+  write sweep is 82 files, 4460 steps clean; 1047 tests. **The `users/me` writes are fully
+  on Rust.**
+  - Upstream quirks kept:
+    - 226 echoes `expired_at` verbatim (create and GET render different formats);
+    - 226 `label`/`description` are model-coerced (`null` is a 400, 256+ chars a 500);
+    - a non-string `expired_at` is a 500;
+    - 171/172 use Django's `BooleanField` coercion (`"true"` is a 400);
+    - `last_login` is writable;
+    - every PATCH leaks the plaintext token.
+  - Contract tests that can't pass against Rust, by design (in-process mocks): 3
+    `test_user_email_change_app`, 2 `test_legacy_file_asset_post_readonly_app`.
+
+Running: workspace-core A (done, merging), analytics B+C. Queued: workspace-core B/C;
+then ai-assistant (51/52) and the held 34/75/82/107 methods (unplanned).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 

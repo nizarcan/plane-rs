@@ -249,17 +249,17 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 159 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT); PATCH,DELETE allow(ADMIN;PROJECT) | rust(GET,PATCH,DELETE) | verified |
 | 160 | `/api/workspaces/{slug}/projects/{project_id}/intake-state/` | GET | `plane.app.views.state.base.IntakeStateEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;PROJECT) | rust(GET) | verified |
 | 161 | `/api/workspaces/{slug}/projects/{project_id}/states/{pk}/mark-default/` | POST:mark_as_default | `plane.app.views.state.base.StateViewSet` | IsAuthenticated; POST allow(ADMIN;PROJECT) | rust(POST) | verified |
-| 162 | `/api/users/me/` | GET:retrieve, PATCH:partial_update, DELETE:deactivate | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET,DELETE) | verified |
+| 162 | `/api/users/me/` | GET:retrieve, PATCH:partial_update, DELETE:deactivate | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET,PATCH,DELETE) | verified |
 | 163 | `/api/users/session/` | GET | `plane.app.views.user.base.UserSessionEndpoint` | AllowAny | rust(GET) | verified |
 | 164 | `/api/users/me/settings/` | GET:retrieve_user_settings | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 165 | `/api/users/me/email/generate-code/` | POST:generate_email_verification_code | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(POST) | verified |
 | 166 | `/api/users/me/email/` | PATCH:update_email | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(PATCH) | verified |
-| 167 | `/api/users/me/profile/` | GET, PATCH | `plane.app.views.user.base.ProfileEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 168 | `/api/users/me/accounts/` | GET, DELETE | `plane.app.views.user.base.AccountEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 169 | `/api/users/me/accounts/{pk}/` | GET, DELETE | `plane.app.views.user.base.AccountEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 167 | `/api/users/me/profile/` | GET, PATCH | `plane.app.views.user.base.ProfileEndpoint` | IsAuthenticated | rust(GET,PATCH) | verified |
+| 168 | `/api/users/me/accounts/` | GET, DELETE | `plane.app.views.user.base.AccountEndpoint` | IsAuthenticated | rust(GET,DELETE) | verified |
+| 169 | `/api/users/me/accounts/{pk}/` | GET, DELETE | `plane.app.views.user.base.AccountEndpoint` | IsAuthenticated | rust(GET,DELETE) | verified |
 | 170 | `/api/users/me/instance-admin/` | GET:retrieve_instance_admin | `plane.app.views.user.base.UserEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 171 | `/api/users/me/onboard/` | PATCH | `plane.app.views.user.base.UpdateUserOnBoardedEndpoint` | IsAuthenticated | django | not-started |
-| 172 | `/api/users/me/tour-completed/` | PATCH | `plane.app.views.user.base.UpdateUserTourCompletedEndpoint` | IsAuthenticated | django | not-started |
+| 171 | `/api/users/me/onboard/` | PATCH | `plane.app.views.user.base.UpdateUserOnBoardedEndpoint` | IsAuthenticated | rust(PATCH) | verified |
+| 172 | `/api/users/me/tour-completed/` | PATCH | `plane.app.views.user.base.UpdateUserTourCompletedEndpoint` | IsAuthenticated | rust(PATCH) | verified |
 | 173 | `/api/users/me/activities/` | GET | `plane.app.views.user.base.UserActivityEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 174 | `/api/users/me/workspaces/` | GET | `plane.app.views.workspace.base.UserWorkSpacesEndpoint` | IsAuthenticated | rust(GET) | verified |
 | 175 | `/api/users/me/workspaces/{slug}/activity-graph/` | GET | `plane.app.views.workspace.user.UserActivityGraphEndpoint` | IsAuthenticated | rust(GET) | verified |
@@ -313,8 +313,8 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 223 | `/api/workspaces/{slug}/stickies/` | GET:list, POST:create | `plane.app.views.workspace.sticky.WorkspaceStickyViewSet` | IsAuthenticated; GET,POST allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET,POST) | verified |
 | 224 | `/api/workspaces/{slug}/stickies/{pk}/` | GET:retrieve [405], PATCH:partial_update, DELETE:destroy | `plane.app.views.workspace.sticky.WorkspaceStickyViewSet` | IsAuthenticated; PATCH,DELETE allow(-;WORKSPACE;creator=Sticky) | rust(GET,PATCH,DELETE) | verified |
 | 225 | `/api/workspaces/{slug}/sidebar-preferences/` | GET, PATCH | `plane.app.views.workspace.user_preference.WorkspaceUserPreferenceViewSet` | IsAuthenticated; GET,PATCH allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |
-| 226 | `/api/users/api-tokens/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET) | verified |
-| 227 | `/api/users/api-tokens/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 226 | `/api/users/api-tokens/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET,POST,PATCH,DELETE) | verified |
+| 227 | `/api/users/api-tokens/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.api.ApiTokenEndpoint` | IsAuthenticated | rust(GET,POST,PATCH,DELETE) | verified |
 | 228 | `/api/workspaces/{slug}/webhooks/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET,POST,PATCH,DELETE) | verified |
 | 229 | `/api/workspaces/{slug}/webhooks/{pk}/` | GET, POST, PATCH, DELETE | `plane.app.views.webhook.base.WebhookEndpoint` | IsAuthenticated; GET,POST,PATCH,DELETE allow(ADMIN;WORKSPACE) | rust(GET,POST,PATCH,DELETE) | verified |
 | 230 | `/api/workspaces/{slug}/webhooks/{pk}/regenerate/` | POST | `plane.app.views.webhook.base.WebhookSecretRegenerateEndpoint` | IsAuthenticated; POST allow(ADMIN;WORKSPACE) | rust(POST) | verified |

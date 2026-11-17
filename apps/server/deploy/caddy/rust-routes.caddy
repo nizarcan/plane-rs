@@ -122,10 +122,13 @@ handle @plane_rs_meta {
 		({env.PLANE_RS_GROUP_USERS_ME} == "" ? "rust" : {env.PLANE_RS_GROUP_USERS_ME}) == "rust"
 		&& (
 			(method("GET", "POST") && (path_regexp(r"^/api/users/me/workspaces/[^/]+/projects/invitations/$")))
-			|| 			(method("GET") && (path_regexp(r"^/api/users/me/workspaces/[^/]+/project-roles/$") || path_regexp(r"^/api/users/session/$") || path_regexp(r"^/api/users/me/settings/$") || path_regexp(r"^/api/users/me/profile/$") || path_regexp(r"^/api/users/me/accounts/$") || path_regexp(r"^/api/users/me/accounts/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/users/me/instance-admin/$") || path_regexp(r"^/api/users/me/activities/$") || path_regexp(r"^/api/users/me/workspaces/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/activity-graph/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/issues-completed-graph/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/dashboard/$") || path_regexp(r"^/api/users/me/workspaces/invitations/$") || path_regexp(r"^/api/users/last-visited-workspace/$") || path_regexp(r"^/api/users/api-tokens/$") || path_regexp(r"^/api/users/api-tokens/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
-			|| 			(method("GET", "DELETE") && (path_regexp(r"^/api/users/me/$")))
+			|| 			(method("GET") && (path_regexp(r"^/api/users/me/workspaces/[^/]+/project-roles/$") || path_regexp(r"^/api/users/session/$") || path_regexp(r"^/api/users/me/settings/$") || path_regexp(r"^/api/users/me/instance-admin/$") || path_regexp(r"^/api/users/me/activities/$") || path_regexp(r"^/api/users/me/workspaces/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/activity-graph/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/issues-completed-graph/$") || path_regexp(r"^/api/users/me/workspaces/[^/]+/dashboard/$") || path_regexp(r"^/api/users/me/workspaces/invitations/$") || path_regexp(r"^/api/users/last-visited-workspace/$")))
+			|| 			(method("GET", "PATCH", "DELETE") && (path_regexp(r"^/api/users/me/$")))
 			|| 			(method("POST") && (path_regexp(r"^/api/users/me/email/generate-code/$")))
-			|| 			(method("PATCH") && (path_regexp(r"^/api/users/me/email/$")))
+			|| 			(method("PATCH") && (path_regexp(r"^/api/users/me/email/$") || path_regexp(r"^/api/users/me/onboard/$") || path_regexp(r"^/api/users/me/tour-completed/$")))
+			|| 			(method("GET", "PATCH") && (path_regexp(r"^/api/users/me/profile/$")))
+			|| 			(method("GET", "DELETE") && (path_regexp(r"^/api/users/me/accounts/$") || path_regexp(r"^/api/users/me/accounts/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("GET", "POST", "PATCH", "DELETE") && (path_regexp(r"^/api/users/api-tokens/$") || path_regexp(r"^/api/users/api-tokens/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
 		)
 	CEL
 }
