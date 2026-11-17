@@ -431,6 +431,36 @@ workspace `Cargo.toml` and upgrade deliberately.
   304) and the header is absent on one side and `0` (204) on the other. Any other
   `Content-Length` difference is still a diff. Rust handlers don't add the header back.
 
+## D19. `zxcvbn` is vendored with two documented changes (decided 2026-11-17)
+
+- Plane's `is_password_strong` scores the first and last 128 characters with Python
+  `zxcvbn==4.4.28`, which does not truncate. The Rust `zxcvbn` 3.1.1 crate truncates at
+  100 characters, and it keeps one-character l33t matches that Python drops
+  (`zxcvbn/matching.py:244`).
+- `apps/server/vendor/zxcvbn/` is upstream 3.1.1 with exactly those two changes (cap 128,
+  `len(token) > 1`), wired in with `[patch.crates-io]`; `VENDORED.md` has the diff.
+- Evidence: a corpus of 742 passwords (1484 windows) recorded from Python. Score and
+  policy both agree on every case; `tests/zxcvbn_corpus.rs` requires 0 differences.
+- Upgrading the crate means re-applying the two changes and re-running the corpus.
+
+## D20. Scope includes Phase 8 (decided by the owner 2026-11-17)
+
+- The work continues past Phase 7 into Phase 8 (cutover): every Celery task and schedule
+  owned by Rust, Django and RabbitMQ removed from the deployment, and `plane-migrator`
+  owning the schema from a baseline equal to the last Django migration.
+- Phase 9 (the live server) is **out of scope**.
+- Phase 8 is planned read-only after Phase 7's sets are under way. Until then, tasks stay
+  Celery-owned and are published byte-identically.
+
+## D21. The Phase 6 browser walk is shared with the owner (decided 2026-11-17)
+
+- The orchestrator runs the mixed backend and the web/space/admin frontends locally
+  behind the dev proxy, and walks the email, magic-link and password flows with the
+  in-app browser.
+- The owner tests Google and GitLab sign-in with real provider credentials and reports
+  back. GitHub and Gitea rely on the differential scenarios (intercept proxy and fake
+  provider).
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
