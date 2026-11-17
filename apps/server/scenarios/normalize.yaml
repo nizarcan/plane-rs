@@ -507,6 +507,16 @@ volatile_json_paths:
     placeholder: api-token
     shape: plane_api_token
     why: "APIToken.objects.create generates 'plane_api_' + uuid4().hex, and only the create response reveals it (plane/app/views/api.py:22-30, plane/db/models/api.py:13-14,19)"
+  # 227 PATCH answers with the same write serializer, so the same
+  # `plane_api_` token appears under `$.token` on the details route too
+  # (`plane/app/views/api.py:56-62`); the name-keyed `token` rule is
+  # `users.token` (64 hex) and would reject this value's shape. The glob keeps
+  # its trailing `*` so a step that adds a query string (`?fields=`) matches.
+  - path: "$.token"
+    request: "PATCH /api/users/api-tokens/*"
+    placeholder: api-token
+    shape: plane_api_token
+    why: "the 227 PATCH response is APITokenSerializer, which includes the stored 'plane_api_' + uuid4().hex token (plane/app/views/api.py:56-62)"
   - path: "$.label"
     request: "POST /api/users/api-tokens/"
     mode: placeholder_if_shape

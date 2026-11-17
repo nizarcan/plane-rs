@@ -1,0 +1,767 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Set A, part 1: 162 `PATCH /api/users/me/`, 167 `PATCH /api/users/me/profile/`,
+# 171 `PATCH /api/users/me/onboard/` and 172 `PATCH
+# /api/users/me/tour-completed/` (`plans/USERS_ME.md` §3).
+#
+# Covers:
+#
+#   * `IsAuthenticated` and the dispatcher's origin check, both before the view.
+#   * 162's `UserSerializer` validation: `validate_first_name`/`validate_last_name`
+#     (`contains_url`), `validate_avatar_asset`/`validate_cover_image_asset`
+#     (own asset + matching entity type), the read-only fields, the 433-value
+#     timezone choice, the URL field, max_length and the non-object body. The
+#     39-key response, and H30 rotating `users.token` on every save (the
+#     fixture sets `token_updated_at`, so even a no-op save rotates it).
+#   * 167's 29-key `ProfileSerializer`: JSON columns echoed from the request in
+#     the request's key order, the `start_of_the_week` 0..=6 choice, `role`/
+#     `use_case`/`last_workspace_id` nullability, the `user` read-only field,
+#     and the family 404 for the fixture's profile-less user (`no_workspace`).
+#   * 171/172: no serializer at all — `request.data.get(key, False)` through
+#     Django's `BooleanField.to_python` (`"t"`/`"True"`/`"1"`/`1` true,
+#     `"f"`/`"False"`/`"0"`/`0` false, `"true"`/`null`/a list a 400, a
+#     non-mapping body the family 500), the missing key meaning `false`, and
+#     the profile lookup running **before** the body is parsed.
+#
+# Every step's DB diff is compared, so the full-row UPDATEs, `updated_at`, and
+# the rotated `token` all have to match.
+
+name: write-users-me-profile
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/users-me-profile-fixture.sql"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_no_workspace: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  admin_account: "86554d9e-3b5f-492f-83de-438b91acb79d"
+  member_account: "6e93a842-d0a5-4d11-8566-6da291636ba6"
+  own_avatar: "d1000000-0000-4000-8000-000000000001"
+  own_cover: "d1000000-0000-4000-8000-000000000002"
+  foreign_avatar: "d1000000-0000-4000-8000-000000000003"
+  wrong_entity: "d1000000-0000-4000-8000-000000000004"
+  deleted_avatar: "d1000000-0000-4000-8000-000000000005"
+
+steps:
+  # --- 162: authentication and the origin check --------------------------
+  - name: user-01-unauthenticated
+    method: PATCH
+    path: /api/users/me/
+    headers:
+      Host: plane-fixture.test
+    json: { display_name: "Nope" }
+    expect_status: 401
+
+  - name: user-02-foreign-origin
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Origin: "http://evil.example"
+    json: { display_name: "Nope" }
+    expect_status: 403
+
+  # --- 162: UserSerializer's field hooks and read-only fields -------------
+  - name: user-03-patch-display-name
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { display_name: "Mia Updated" }
+    expect_status: 200
+
+  - name: user-04-first-name-url
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { first_name: "see https://example.com/x" }
+    expect_status: 400
+
+  - name: user-05-last-name-url
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { last_name: "www.example.com" }
+    expect_status: 400
+
+  # Two hook failures in one body: both keys, in `self.fields` order.
+  - name: user-06-both-names-are-urls
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { first_name: "a https://x.example", last_name: "b www.y.example" }
+    expect_status: 400
+
+  # A generated field error and a hook error in one body: `display_name` comes
+  # before `first_name` in the serializer's field order.
+  - name: user-07-blank-and-url
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { display_name: "", first_name: "https://x.example" }
+    expect_status: 400
+
+  # Read-only fields are skipped without being read: the save still runs (H30
+  # rotates `token`, `updated_at` moves), and the body changes nothing else.
+  - name: user-08-read-only-fields
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      id: "00000000-0000-4000-8000-000000000999"
+      email: "hijacked@example.com"
+      username: "hijacked"
+      token: "not-the-token"
+      is_active: false
+      is_staff: true
+      is_superuser: true
+      date_joined: "2001-01-01T00:00:00Z"
+      created_at: "2001-01-01T00:00:00Z"
+      last_login_medium: "sso"
+    expect_status: 200
+
+  - name: user-09-timezone-invalid
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { user_timezone: "Not/AZone" }
+    expect_status: 400
+
+  - name: user-10-timezone
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { user_timezone: "Europe/Berlin" }
+    expect_status: 200
+
+  - name: user-11-cover-image-invalid-url
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { cover_image: "not-a-url" }
+    expect_status: 400
+
+  - name: user-12-too-long-first-name
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { first_name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    expect_status: 400
+
+  # --- 162: the two asset hooks ------------------------------------------
+  - name: user-13-link-own-avatar
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { avatar_asset: "{{own_avatar}}" }
+    expect_status: 200
+
+  - name: user-14-link-foreign-avatar
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { avatar_asset: "{{foreign_avatar}}" }
+    expect_status: 400
+
+  # Own row, wrong entity type.
+  - name: user-15-link-wrong-entity-type
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { cover_image_asset: "{{wrong_entity}}" }
+    expect_status: 400
+
+  # The field's own `FileAsset.objects` lookup hides a soft-deleted row, so the
+  # error is DRF's `does_not_exist`, not `Invalid asset.`.
+  - name: user-16-link-soft-deleted-asset
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { avatar_asset: "{{deleted_avatar}}" }
+    expect_status: 400
+
+  - name: user-17-link-own-cover
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { cover_image_asset: "{{own_cover}}" }
+    expect_status: 200
+
+  - name: user-18-unlink-both-assets
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { avatar_asset: null, cover_image_asset: null }
+    expect_status: 200
+
+  # `last_login` is writable (`UserSerializer` does not list it read-only).
+  - name: user-19-patch-last-login
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { last_login: "2026-02-03T04:05:06Z" }
+    expect_status: 200
+
+  # A form body: `''` on a nullable DateTimeField is `None` (cleared).
+  - name: user-20-form-body
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form: { display_name: "Form Name", last_login: "" }
+    expect_status: 200
+
+  - name: user-21-non-object-body
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: [1, 2]
+    expect_status: 400
+
+  - name: user-22-unknown-field
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { nope: 1 }
+    expect_status: 200
+
+  # Fields no other step touches, with `null` on the nullable one.
+  - name: user-23-nullable-flags
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { bot_type: null, is_password_expired: true, is_email_valid: false, masked_at: "2025-06-01T00:00:00Z" }
+    expect_status: 200
+
+  - name: user-24-get-after-patch
+    method: GET
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # --- 167: ProfileSerializer --------------------------------------------
+  - name: profile-30-patch-role-company
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { role: "Design", company_name: "Acme" }
+    expect_status: 200
+
+  # The JSON column echoes the request's key order, not the stored jsonb order.
+  - name: profile-31-patch-theme
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      theme: { colorSchema: "dark", primaryColor: "#000000", theme: "dark", extra: { b: 2, a: 1 } }
+    expect_status: 200
+
+  # `last_workspace_id` has no foreign key: any UUID is stored.
+  - name: profile-32-patch-last-workspace
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { last_workspace_id: "00000000-0000-4000-8000-000000000123" }
+    expect_status: 200
+
+  - name: profile-33-start-of-week-invalid
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { start_of_the_week: 7 }
+    expect_status: 400
+
+  - name: profile-34-start-of-week
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { start_of_the_week: 3, notification_view_mode: "compact" }
+    expect_status: 200
+
+  - name: profile-35-blank-language
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { language: "" }
+    expect_status: 400
+
+  - name: profile-36-null-use-case
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { use_case: null, billing_address: { city: "Berlin" }, has_billing_address: true }
+    expect_status: 200
+
+  # `user` is read-only: the value is ignored without being validated.
+  - name: profile-37-read-only-user
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { user: "{{admin_id}}" }
+    expect_status: 200
+
+  - name: profile-38-onboarding-flags
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      is_onboarded: true
+      is_tour_completed: false
+      is_app_rail_docked: false
+      is_smooth_cursor_enabled: true
+      mobile_timezone_auto_set: true
+      is_navigation_tour_completed: true
+      has_marketing_email_consent: true
+      is_subscribed_to_changelog: true
+      product_tour: { work_items: true }
+      goals: { goals: ["a"] }
+      mobile_onboarding_step: { profile_complete: true }
+      onboarding_step: { workspace_join: true }
+    expect_status: 200
+
+  # `no_workspace`'s profile row is deleted by the fixture: the lookup 404s
+  # before the body is parsed, so even a non-mapping body is a 404.
+  - name: profile-39-missing-profile
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: { role: "Design" }
+    expect_status: 404
+
+  - name: profile-40-missing-profile-non-object-body
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: [1]
+    expect_status: 404
+
+  # --- 171: PATCH /api/users/me/onboard/ ---------------------------------
+  - name: onboard-50-true
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_onboarded: true }
+    expect_status: 200
+
+  # The key is absent: Django's `get(..., False)`, so the flag is cleared.
+  - name: onboard-51-missing-key
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: {}
+    expect_status: 200
+
+  # `"true"` is not one of Django's accepted strings (only `t`/`True`/`1`).
+  - name: onboard-52-lowercase-true
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_onboarded: "true" }
+    expect_status: 400
+
+  - name: onboard-53-null
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_onboarded: null }
+    expect_status: 400
+
+  # `1 == True` in Python, so an int is accepted.
+  - name: onboard-54-int-one
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_onboarded: 1 }
+    expect_status: 200
+
+  - name: onboard-55-string-f
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_onboarded: "f" }
+    expect_status: 200
+
+  # A form body carries strings, so the same coercions apply.
+  - name: onboard-56-form-true
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    form: { is_onboarded: "True" }
+    expect_status: 200
+
+  - name: onboard-57-form-lowercase
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    form: { is_onboarded: "true" }
+    expect_status: 400
+
+  # A list body has no `.get`: the family 500.
+  - name: onboard-58-list-body
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: [1]
+    expect_status: 500
+
+  - name: onboard-60-int-zero
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_onboarded: 0 }
+    expect_status: 200
+
+  - name: onboard-59-missing-profile
+    method: PATCH
+    path: /api/users/me/onboard/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: [1]
+    expect_status: 404
+
+  # --- 172: PATCH /api/users/me/tour-completed/ --------------------------
+  - name: tour-60-true
+    method: PATCH
+    path: /api/users/me/tour-completed/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_tour_completed: true }
+    expect_status: 200
+
+  - name: tour-61-missing-key
+    method: PATCH
+    path: /api/users/me/tour-completed/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: {}
+    expect_status: 200
+
+  - name: tour-62-invalid
+    method: PATCH
+    path: /api/users/me/tour-completed/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_tour_completed: "yes" }
+    expect_status: 400
+
+  - name: tour-63-false
+    method: PATCH
+    path: /api/users/me/tour-completed/
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { is_tour_completed: false }
+    expect_status: 200
+
+  - name: tour-64-missing-profile
+    method: PATCH
+    path: /api/users/me/tour-completed/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_no_workspace}}"
+    json: {}
+    expect_status: 404
+
+  # `?fields=` is ignored by `UserSerializer` too (`BaseSerializer`, not the
+  # dynamic one): a PATCH with the query parameters still answers 39 keys.
+  - name: user-25-patch-with-fields-param
+    method: PATCH
+    path: /api/users/me/
+    query:
+      fields: id,display_name
+      expand: display_name
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { display_name: "Fields Ignored" }
+    expect_status: 200
+
+  # A non-UUID asset pk is DRF's `“…” is not a valid UUID.`
+  - name: user-26-asset-not-a-uuid
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { avatar_asset: "not-a-uuid" }
+    expect_status: 400
+
+  # A non-object body is DRF's `non_field_errors` (`data=None` is "No data
+  # provided"), not a 500 — `ProfileEndpoint.patch` uses a serializer.
+  - name: profile-41-non-object-body
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: "nope"
+    expect_status: 400
+
+  # `RelatedField.run_validation` coerces `''` to `None`, which the nullable
+  # field accepts: the asset is cleared without an error.
+  - name: user-27-empty-asset-string
+    method: PATCH
+    path: /api/users/me/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { avatar_asset: "" }
+    expect_status: 200
+
+  # `background_color` is a writable CharField defaulted to a random colour;
+  # the harness shape-checks it as `<colour>`, so the step proves the write and
+  # the echo rather than the literal bytes.
+  - name: profile-42-background-color
+    method: PATCH
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { background_color: "#123abc" }
+    expect_status: 200
+
+  # --- 168/169: AccountEndpoint.delete -----------------------------------
+  # The collection route has no `pk` kwarg: the signature `TypeError` 500.
+  - name: account-80-collection-delete
+    method: DELETE
+    path: /api/users/me/accounts/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 500
+
+  - name: account-81-unauthenticated
+    method: DELETE
+    path: /api/users/me/accounts/{{admin_account}}/
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  - name: account-82-foreign-origin
+    method: DELETE
+    path: /api/users/me/accounts/{{admin_account}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Origin: "http://evil.example"
+    expect_status: 403
+
+  # `admin`'s account, called by `member`: the `user=request.user` scope is the
+  # family 404, and nothing is deleted.
+  - name: account-83-foreign-account
+    method: DELETE
+    path: /api/users/me/accounts/{{admin_account}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: account-84-missing-account
+    method: DELETE
+    path: /api/users/me/accounts/00000000-0000-4000-8000-000000000999/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # A real DELETE (`Account` is not soft-deletable), then the family 404.
+  - name: account-85-delete-own
+    method: DELETE
+    path: /api/users/me/accounts/{{admin_account}}/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: account-86-delete-again
+    method: DELETE
+    path: /api/users/me/accounts/{{admin_account}}/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: account-87-delete-member-account
+    method: DELETE
+    path: /api/users/me/accounts/{{member_account}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: account-88-list-empty
+    method: GET
+    path: /api/users/me/accounts/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # --- the reads that render the same rows ------------------------------
+  - name: profile-70-get-profile
+    method: GET
+    path: /api/users/me/profile/
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 200

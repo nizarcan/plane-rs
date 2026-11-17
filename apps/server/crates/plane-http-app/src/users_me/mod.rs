@@ -13,6 +13,9 @@
 //! | [`user_base`] | `plane/app/views/user/base.py` |
 //! | [`write_email`] | `plane/app/views/user/base.py` (165/166) |
 //! | [`write_deactivate`] | `plane/app/views/user/base.py` (162 DELETE) |
+//! | [`write_profile`] | `plane/app/views/user/base.py` (162 PATCH, 167, 171, 172) |
+//! | [`write_accounts`] | `plane/app/views/user/base.py` (168/169) |
+//! | [`write_tokens`] | `plane/app/views/api.py` (226/227) |
 //! | [`workspace_base`] | `plane/app/views/workspace/base.py` |
 //! | [`workspace_user`] | `plane/app/views/workspace/user.py` |
 //! | [`workspace_invite`] | `plane/app/views/workspace/invite.py` |
@@ -42,9 +45,13 @@ pub mod user_base;
 pub mod workspace_base;
 pub mod workspace_invite;
 pub mod workspace_user;
+pub mod write_a_queries;
+pub mod write_accounts;
 pub mod write_deactivate;
 pub mod write_email;
+pub mod write_profile;
 pub mod write_queries;
+pub mod write_tokens;
 
 /// Register this group's handlers, in the order they were ported.
 ///

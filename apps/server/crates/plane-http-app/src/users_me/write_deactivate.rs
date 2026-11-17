@@ -210,7 +210,10 @@ fn onboarding_step() -> Json {
 
 /// The bind vector of [`write_queries::PROFILE_UPDATE`]: `USER_PROFILE`'s
 /// columns without `id`, then `id`.
-fn profile_binds(profile: &Profile) -> Vec<&(dyn tokio_postgres::types::ToSql + Sync)> {
+///
+/// Shared with set A's 167/171/172 (`write_profile`), which write the same
+/// full row.
+pub(super) fn profile_binds(profile: &Profile) -> Vec<&(dyn tokio_postgres::types::ToSql + Sync)> {
     vec![
         &profile.created_at,
         &profile.updated_at,

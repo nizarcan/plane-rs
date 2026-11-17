@@ -6,6 +6,7 @@
 //!
 //! * `GET /api/users/api-tokens/` — `ApiTokenEndpoint.get` with no `pk`
 //! * `GET /api/users/api-tokens/{pk}/` — `ApiTokenEndpoint.get` with `pk`
+//! * 226/227 `POST`/`PATCH`/`DELETE` — [`super::write_tokens`] (set A)
 //!
 //! `APITokenReadSerializer` (the read side) excludes `token` and computes
 //! `is_active` from `expired_at` (`plane/app/serializers/api.py:28-38`).
@@ -22,12 +23,18 @@ use uuid::Uuid;
 
 use super::queries;
 use super::support;
+use super::write_tokens;
 
-/// Register this module's handler.
+/// Register this module's handlers.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.app.views.api.ApiTokenEndpoint")?
-        .method(Method::GET, get)?;
+        .method(Method::GET, get)?
+        // Set A: 226 `POST` and 227 `PATCH`/`DELETE`, plus the two signature
+        // 500s (`PATCH`/`DELETE` on 226, `POST` on 227).
+        .method(Method::POST, write_tokens::post)?
+        .method(Method::PATCH, write_tokens::patch)?
+        .method(Method::DELETE, write_tokens::delete)?;
     Ok(())
 }
 
