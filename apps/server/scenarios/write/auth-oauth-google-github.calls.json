@@ -1,0 +1,17 @@
+[
+  {"method": "POST", "host": "oauth2.googleapis.com", "path": "/token", "count": 24},
+  {"method": "GET", "host": "www.googleapis.com", "path": "/oauth2/v2/userinfo", "count": 20},
+  {"method": "POST", "host": "github.com", "path": "/login/oauth/access_token", "count": 28},
+  {"method": "GET", "host": "api.github.com", "path": "/user", "count": 26},
+  {"method": "GET", "host": "api.github.com", "path": "/user/emails", "count": 22},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-signup", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-member", "count": 6},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-outsider", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-unverified", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-primary-unverified", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-secondary-first", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-emails-not-list", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-emails-not-json", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-space", "count": 2},
+  {"method": "GET", "host": "api.github.com", "path": "/orgs/fake-org-id/memberships/gh-space-unverified", "count": 2}
+]

@@ -8,11 +8,11 @@
 # `tools/auth/fake_provider.py` on 127.0.0.1:18400. The fixture
 # (`auth-oauth-fixture.sql`) points GITLAB_HOST/GITEA_HOST at that server and
 # gives Google/GitHub dummy credentials, so every initiate takes its configured
-# branch. Google's and GitHub's **callbacks** are not exercised: they need TLS
-# interception of accounts.google.com/github.com, which is out of scope here
-# (their claim mapping is recorded from the Python classes in
-# `crates/plane-auth/tests/golden/oauth_claims.json`). The unconfigured-provider
-# errors are in `auth-oauth-unconfigured.yaml`.
+# branch. Google's and GitHub's **success callbacks** are covered by
+# `auth-oauth-google-github.yaml`, which runs through the TLS-intercepting
+# proxy (`tools/auth/oauth_https_proxy.py`); this file keeps the initiate
+# redirects and the GitLab/Gitea round trips. The unconfigured-provider errors
+# are in `auth-oauth-unconfigured.yaml`.
 #
 # What each step pins:
 #

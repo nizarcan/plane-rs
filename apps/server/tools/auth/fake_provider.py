@@ -4,8 +4,8 @@
 # See the LICENSE file for details.
 """A deterministic local OAuth provider for the `auth-oauth` differential test.
 
-It answers the two **self-hostable** providers' shapes, which is all Plane can
-be pointed at without intercepting TLS:
+It answers the two **self-hostable** providers' shapes (Google's and GitHub's
+hardcoded endpoints are served by `tools/auth/oauth_https_proxy.py` instead):
 
 | Provider | Endpoints |
 | --- | --- |

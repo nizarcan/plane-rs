@@ -1,0 +1,817 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth set C — the Google and GitHub **success** callbacks (routes 366, 368,
+# 370, 372), app and space. `plans/AUTH_FLOWS.md` §4 option (a).
+#
+# Both providers' URLs are class constants (`provider/oauth/google.py:22-23`,
+# `github.py:24-26`), so the callbacks can only be reached end to end through a
+# TLS-intercepting proxy. Run this file through
+# `tools/auth/run-oauth-scenario.sh`, which starts
+# `tools/auth/oauth_https_proxy.py` on 127.0.0.1:18401. The proxy generates a
+# CA into `apps/server/target/oauth-mitm/` at startup; `target_env` points
+# `HTTPS_PROXY` there and `REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE`/`SSL_CERT_FILE`
+# at the CA. Both sides therefore trust **only** the proxy's CA: a request that
+# bypasses the proxy fails certificate verification against the real provider
+# instead of silently reaching the internet. The wrapper also checks
+# `auth-oauth-google-github.calls.json` against the proxy's log after the run;
+# the counts are per run, i.e. for both managed targets.
+#
+# What each group pins:
+#
+#   * the token exchange and the userinfo/emails/membership calls, including
+#     the request shape each provider builds (form body, bearer header, the
+#     `Accept: application/json` GitHub needs);
+#   * a new sign-up (user + profile + account row), a returning user's account
+#     upsert and the `sync_user_data` name/avatar re-application;
+#   * Google's `verified_email is not True` rejection, both `false` and absent
+#     (`google.py:108-112`);
+#   * GitHub's primary **and** verified address selection
+#     (`github.py:114-132`): an unverified primary is rejected even when a
+#     verified secondary exists, and a verified secondary listed first does not
+#     win over the primary;
+#   * `GITHUB_ORGANIZATION_ID`: a member passes, `gh-outsider` gets
+#     `GITHUB_USER_NOT_IN_ORG` before the emails call;
+#   * a provider 4xx (`*_OAUTH_PROVIDER_ERROR`), a non-JSON token body and a
+#     non-object userinfo body (the uncaught `.get` 500);
+#   * `next_path` on the app callbacks and the space callbacks' base+path
+#     builder, including a session started by the app initiate.
+#
+# The OAuth `state` is `uuid.uuid4().hex` and appears in the `Location` header
+# and in the session payload; `normalize.yaml`'s `GET /auth/*`-scoped
+# `oauth-state` rule placeholders both. The access tokens are `access-<code>`,
+# so a differing token in `accounts` is a visible diff.
+
+name: write-auth-oauth-google-github
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  # DRF's auth throttle is read at import time; the plain OAuth views do not use
+  # it, but keep the shared Redis history identical to the other auth scenarios.
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+  PYTHONHASHSEED: "0"
+  # The intercepting proxy (tools/auth/oauth_https_proxy.py). Both `requests`
+  # and plane-net's unguarded preset read these env proxies; NO_PROXY keeps the
+  # dev stack's own traffic (Postgres, Valkey, RabbitMQ, MinIO, the fake
+  # GitLab/Gitea provider) direct on both sides.
+  HTTP_PROXY: "http://127.0.0.1:18401"
+  HTTPS_PROXY: "http://127.0.0.1:18401"
+  ALL_PROXY: "http://127.0.0.1:18401"
+  NO_PROXY: "127.0.0.1,localhost,::1"
+  # Trust the run-time CA only. requests reads REQUESTS_CA_BUNDLE (then
+  # CURL_CA_BUNDLE); plane-net's `TlsTrust::Environment` reads the same two.
+  # SSL_CERT_FILE is set for completeness (CPython's ssl default).
+  REQUESTS_CA_BUNDLE: "{repo}/apps/server/target/oauth-mitm/ca.pem"
+  CURL_CA_BUNDLE: "{repo}/apps/server/target/oauth-mitm/ca.pem"
+  SSL_CERT_FILE: "{repo}/apps/server/target/oauth-mitm/ca.pem"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-oauth-google-github-fixture.sql"
+  host: "plane-fixture.test"
+  next_path: "/fix-workspace/"
+steps:
+  # -------------------------------------------------------------------------
+  # Google initiates, app and space. Each jar is a separate browser session so
+  # every callback owns exactly one `state`.
+  # -------------------------------------------------------------------------
+  - name: auth-oauth-gg-01-google-init-app-signup
+    method: GET
+    path: "/auth/google/"
+    jar: g_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.100
+    expect_status: 302
+    capture:
+      - name: g_signup_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # A returning user with `next_path`: the success redirect keeps the path.
+  - name: auth-oauth-gg-02-google-init-app-signin
+    method: GET
+    path: "/auth/google/"
+    query:
+      next_path: "{{next_path}}"
+    jar: g_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.101
+    expect_status: 302
+    capture:
+      - name: g_signin_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # The error redirect carries the session's `next_path` on the query string.
+  - name: auth-oauth-gg-03-google-init-app-unverified
+    method: GET
+    path: "/auth/google/"
+    query:
+      next_path: "{{next_path}}"
+    jar: g_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.102
+    expect_status: 302
+    capture:
+      - name: g_unverified_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # `verified_email` absent is the same rejection as `false` (fail closed).
+  - name: auth-oauth-gg-04-google-init-app-unverified-absent
+    method: GET
+    path: "/auth/google/"
+    jar: g_unverified_absent
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.103
+    expect_status: 302
+    capture:
+      - name: g_unverified_absent_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-05-google-init-app-token-error
+    method: GET
+    path: "/auth/google/"
+    query:
+      next_path: "{{next_path}}"
+    jar: g_token_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.104
+    expect_status: 302
+    capture:
+      - name: g_token_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-06-google-init-app-token-not-json
+    method: GET
+    path: "/auth/google/"
+    jar: g_token_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.105
+    expect_status: 302
+    capture:
+      - name: g_token_not_json_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-07-google-init-app-userinfo-error
+    method: GET
+    path: "/auth/google/"
+    query:
+      next_path: "{{next_path}}"
+    jar: g_userinfo_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.106
+    expect_status: 302
+    capture:
+      - name: g_userinfo_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # A userinfo body that is not an object is `.get`'s AttributeError -> 500.
+  - name: auth-oauth-gg-08-google-init-app-userinfo-not-object
+    method: GET
+    path: "/auth/google/"
+    jar: g_userinfo_not_object
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.107
+    expect_status: 302
+    capture:
+      - name: g_userinfo_not_object_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-09-google-init-space-signup
+    method: GET
+    path: "/auth/spaces/google/"
+    jar: sg_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.108
+    expect_status: 302
+    capture:
+      - name: sg_signup_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-10-google-init-space-signin
+    method: GET
+    path: "/auth/spaces/google/"
+    jar: sg_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.109
+    expect_status: 302
+    capture:
+      - name: sg_signin_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-11-google-init-space-unverified
+    method: GET
+    path: "/auth/spaces/google/"
+    query:
+      next_path: "{{next_path}}"
+    jar: sg_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.110
+    expect_status: 302
+    capture:
+      - name: sg_unverified_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # A session started by the *app* initiate, finished on the space callback:
+  # the space views never store `next_path` themselves, so this is the only way
+  # their success builder sees one.
+  - name: auth-oauth-gg-12-google-app-init-for-space-next
+    method: GET
+    path: "/auth/google/"
+    query:
+      next_path: "{{next_path}}"
+    jar: sg_next
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.111
+    expect_status: 302
+    capture:
+      - name: sg_next_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # -------------------------------------------------------------------------
+  # Google callbacks, app.
+  # -------------------------------------------------------------------------
+  # Sign-up without `next_path`: the accepted invite joins `fix-workspace`,
+  # so `get_redirection_path` answers the workspace slug.
+  - name: auth-oauth-gg-13-google-callback-signup
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-signup
+      state: "{{g_signup_state}}"
+    jar: g_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.112
+    expect_status: 302
+
+  # The account row seeded by the fixture builder is upserted (new tokens,
+  # `last_connected_at`) and the IDP name/avatar are re-applied.
+  - name: auth-oauth-gg-14-google-callback-signin-existing
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-signin
+      state: "{{g_signin_state}}"
+    jar: g_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.113
+    expect_status: 302
+
+  - name: auth-oauth-gg-15-google-callback-unverified
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-unverified
+      state: "{{g_unverified_state}}"
+    jar: g_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.114
+    expect_status: 302
+
+  - name: auth-oauth-gg-16-google-callback-unverified-absent
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-unverified-absent
+      state: "{{g_unverified_absent_state}}"
+    jar: g_unverified_absent
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.115
+    expect_status: 302
+
+  # A 4xx from the token endpoint is the provider's own error code.
+  - name: auth-oauth-gg-17-google-callback-token-error
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-token-error
+      state: "{{g_token_error_state}}"
+    jar: g_token_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.116
+    expect_status: 302
+
+  # requests 2.33's JSONDecodeError is a RequestException, so a non-JSON token
+  # body is caught by `get_user_token`.
+  - name: auth-oauth-gg-18-google-callback-token-not-json
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-token-not-json
+      state: "{{g_token_not_json_state}}"
+    jar: g_token_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.117
+    expect_status: 302
+
+  - name: auth-oauth-gg-19-google-callback-userinfo-error
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-userinfo-error
+      state: "{{g_userinfo_error_state}}"
+    jar: g_userinfo_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.118
+    expect_status: 302
+
+  # `reason`: a list has no `.get`, and `set_user_data` does not catch it.
+  - name: auth-oauth-gg-20-google-callback-userinfo-not-object
+    method: GET
+    path: "/auth/google/callback/"
+    query:
+      code: google-userinfo-not-object
+      state: "{{g_userinfo_not_object_state}}"
+    jar: g_userinfo_not_object
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.119
+    expect_status: 500
+
+  # -------------------------------------------------------------------------
+  # Google callbacks, space.
+  # -------------------------------------------------------------------------
+  - name: auth-oauth-gg-21-google-space-callback-signup
+    method: GET
+    path: "/auth/spaces/google/callback/"
+    query:
+      code: google-space-signup
+      state: "{{sg_signup_state}}"
+    jar: sg_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.120
+    expect_status: 302
+
+  - name: auth-oauth-gg-22-google-space-callback-signin
+    method: GET
+    path: "/auth/spaces/google/callback/"
+    query:
+      code: google-space-signin
+      state: "{{sg_signin_state}}"
+    jar: sg_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.121
+    expect_status: 302
+
+  - name: auth-oauth-gg-23-google-space-callback-unverified
+    method: GET
+    path: "/auth/spaces/google/callback/"
+    query:
+      code: google-space-unverified
+      state: "{{sg_unverified_state}}"
+    jar: sg_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.122
+    expect_status: 302
+
+  # The app-initiated session's `next_path` reaches the space builder.
+  - name: auth-oauth-gg-24-google-space-callback-next
+    method: GET
+    path: "/auth/spaces/google/callback/"
+    query:
+      code: google-signin
+      state: "{{sg_next_state}}"
+    jar: sg_next
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.123
+    expect_status: 302
+
+  # -------------------------------------------------------------------------
+  # GitHub initiates, app and space.
+  # -------------------------------------------------------------------------
+  - name: auth-oauth-gg-25-github-init-app-signup
+    method: GET
+    path: "/auth/github/"
+    jar: h_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.124
+    expect_status: 302
+    capture:
+      - name: h_signup_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-26-github-init-app-signin
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: h_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.125
+    expect_status: 302
+    capture:
+      - name: h_signin_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # `gh-outsider` is the non-member: the membership call answers 404.
+  - name: auth-oauth-gg-27-github-init-app-outsider
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: h_outsider
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.126
+    expect_status: 302
+    capture:
+      - name: h_outsider_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-28-github-init-app-unverified
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: h_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.127
+    expect_status: 302
+    capture:
+      - name: h_unverified_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # Primary unverified + secondary verified: rejected, not rescued.
+  - name: auth-oauth-gg-29-github-init-app-primary-unverified
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: h_primary_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.128
+    expect_status: 302
+    capture:
+      - name: h_primary_unverified_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # A verified secondary listed first: the primary must still win.
+  - name: auth-oauth-gg-30-github-init-app-secondary-first
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: h_secondary_first
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.129
+    expect_status: 302
+    capture:
+      - name: h_secondary_first_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-31-github-init-app-emails-not-list
+    method: GET
+    path: "/auth/github/"
+    jar: h_emails_not_list
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.130
+    expect_status: 302
+    capture:
+      - name: h_emails_not_list_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-32-github-init-app-emails-not-json
+    method: GET
+    path: "/auth/github/"
+    jar: h_emails_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.131
+    expect_status: 302
+    capture:
+      - name: h_emails_not_json_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-33-github-init-app-token-error
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: h_token_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.132
+    expect_status: 302
+    capture:
+      - name: h_token_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-34-github-init-app-userinfo-error
+    method: GET
+    path: "/auth/github/"
+    jar: h_userinfo_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.133
+    expect_status: 302
+    capture:
+      - name: h_userinfo_error_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-35-github-init-space-signup
+    method: GET
+    path: "/auth/spaces/github/"
+    jar: sh_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.134
+    expect_status: 302
+    capture:
+      - name: sh_signup_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-36-github-init-space-signin
+    method: GET
+    path: "/auth/spaces/github/"
+    jar: sh_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.135
+    expect_status: 302
+    capture:
+      - name: sh_signin_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-37-github-init-space-unverified
+    method: GET
+    path: "/auth/spaces/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: sh_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.136
+    expect_status: 302
+    capture:
+      - name: sh_unverified_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  - name: auth-oauth-gg-38-github-app-init-for-space-next
+    method: GET
+    path: "/auth/github/"
+    query:
+      next_path: "{{next_path}}"
+    jar: sh_next
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.137
+    expect_status: 302
+    capture:
+      - name: sh_next_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+
+  # -------------------------------------------------------------------------
+  # GitHub callbacks, app.
+  # -------------------------------------------------------------------------
+  - name: auth-oauth-gg-39-github-callback-signup
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-signup
+      state: "{{h_signup_state}}"
+    jar: h_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.138
+    expect_status: 302
+
+  # Member of `GITHUB_ORGANIZATION_ID`: membership 200, then the account row
+  # (seeded by the fixture builder as `github-member-account`) is upserted.
+  - name: auth-oauth-gg-40-github-callback-signin-existing
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-signin
+      state: "{{h_signin_state}}"
+    jar: h_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.139
+    expect_status: 302
+
+  # Non-member: `GITHUB_USER_NOT_IN_ORG`, before `/user/emails`.
+  - name: auth-oauth-gg-41-github-callback-outsider
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-outsider
+      state: "{{h_outsider_state}}"
+    jar: h_outsider
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.140
+    expect_status: 302
+
+  - name: auth-oauth-gg-42-github-callback-unverified
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-unverified
+      state: "{{h_unverified_state}}"
+    jar: h_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.141
+    expect_status: 302
+
+  - name: auth-oauth-gg-43-github-callback-primary-unverified
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-primary-unverified
+      state: "{{h_primary_unverified_state}}"
+    jar: h_primary_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.142
+    expect_status: 302
+
+  # The primary (second entry) is the address that is used.
+  - name: auth-oauth-gg-44-github-callback-secondary-first
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-secondary-first
+      state: "{{h_secondary_first_state}}"
+    jar: h_secondary_first
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.143
+    expect_status: 302
+
+  - name: auth-oauth-gg-45-github-callback-emails-not-list
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-emails-not-list
+      state: "{{h_emails_not_list_state}}"
+    jar: h_emails_not_list
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.144
+    expect_status: 302
+
+  - name: auth-oauth-gg-46-github-callback-emails-not-json
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-emails-not-json
+      state: "{{h_emails_not_json_state}}"
+    jar: h_emails_not_json
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.145
+    expect_status: 302
+
+  - name: auth-oauth-gg-47-github-callback-token-error
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-token-error
+      state: "{{h_token_error_state}}"
+    jar: h_token_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.146
+    expect_status: 302
+
+  - name: auth-oauth-gg-48-github-callback-userinfo-error
+    method: GET
+    path: "/auth/github/callback/"
+    query:
+      code: github-userinfo-error
+      state: "{{h_userinfo_error_state}}"
+    jar: h_userinfo_error
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.147
+    expect_status: 302
+
+  # -------------------------------------------------------------------------
+  # GitHub callbacks, space.
+  # -------------------------------------------------------------------------
+  - name: auth-oauth-gg-49-github-space-callback-signup
+    method: GET
+    path: "/auth/spaces/github/callback/"
+    query:
+      code: github-space-signup
+      state: "{{sh_signup_state}}"
+    jar: sh_signup
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.148
+    expect_status: 302
+
+  - name: auth-oauth-gg-50-github-space-callback-signin
+    method: GET
+    path: "/auth/spaces/github/callback/"
+    query:
+      code: github-space-signin
+      state: "{{sh_signin_state}}"
+    jar: sh_signin
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.149
+    expect_status: 302
+
+  - name: auth-oauth-gg-51-github-space-callback-unverified
+    method: GET
+    path: "/auth/spaces/github/callback/"
+    query:
+      code: github-space-unverified
+      state: "{{sh_unverified_state}}"
+    jar: sh_unverified
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.150
+    expect_status: 302
+
+  - name: auth-oauth-gg-52-github-space-callback-next
+    method: GET
+    path: "/auth/spaces/github/callback/"
+    query:
+      code: github-signin
+      state: "{{sh_next_state}}"
+    jar: sh_next
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.151
+    expect_status: 302
