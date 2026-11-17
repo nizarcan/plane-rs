@@ -1620,5 +1620,15 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      The Celery comparison is cross-environment (native macOS RSS) and only indicative.
 2. Phase 6 (auth flows): all 37 routes on Rust. Left: the browser walk-through of every
    flow against the mixed backend (the exit check).
-3. Phase 7 (v1/public/instances), planned the same way; then the final benchmark and the
-   environment revert (see "In flight").
+3. Phase 7: plans committed (`adadc1f188`).
+   - `plans/V1_API.md`: P0 (new `plane-http-public`, three `plane-drf` fixes, v1
+     expansion and write tables, page envelope), then sets A–D.
+   - `plans/PUBLIC_INSTANCES.md`: P0, P0b (`lettre`/fake SMTP/OpenAPI goldens), then
+     sets A–C. Health and web stay Django.
+
+   Running: v1 P0, public/instances P0. Then the final benchmark and the environment
+   revert (see "In flight").
+   - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
+     in scope or not.
+   - The Phase 6 browser walk needs `pnpm install` (no `node_modules` in the repo) and
+     the web/space frontends against the dev proxy. Pending the owner's go-ahead.
