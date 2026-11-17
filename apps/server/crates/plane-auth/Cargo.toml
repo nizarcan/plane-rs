@@ -23,6 +23,7 @@ md-5.workspace = true
 percent-encoding.workspace = true
 plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
+plane-serde = { path = "../plane-serde" }
 scrypt.workspace = true
 serde.workspace = true
 serde_json.workspace = true

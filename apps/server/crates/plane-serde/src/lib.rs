@@ -130,6 +130,15 @@ pub enum Error {
     Custom(String),
 }
 
+/// CPython's `float.__repr__` for a finite value, as `str(float)` and
+/// `json.dumps` write it (`1.0`, `1e+16`, `1e-05`); `None` for NaN and the
+/// infinities, which the JSON dialects render as `NaN`/`Infinity` and Python's
+/// `repr` as `nan`/`inf`.
+#[must_use]
+pub fn float_repr(value: f64) -> Option<String> {
+    float::PyFloatRepr::new(value).map(|repr| repr.as_str().to_owned())
+}
+
 /// Convert `value` to the bytes `json.dumps` would produce for `dialect`.
 ///
 /// See [`Dialect`] for the differences between the dialects.

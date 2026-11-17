@@ -13,6 +13,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldKind {
     Char,
+    /// `serializers.SlugField`: `Serializer::slug_field`'s validator chain.
+    Slug,
     Url,
     Integer,
     Float,
@@ -111,3 +113,10 @@ pub mod user_favorite_serializer;
 pub mod user_notification_preference_serializer;
 pub mod user_serializer;
 pub mod webhook_serializer;
+pub mod work_space_member_invite_serializer;
+pub mod work_space_member_serializer;
+pub mod work_space_serializer;
+pub mod workspace_home_preference_serializer;
+pub mod workspace_theme_serializer;
+pub mod workspace_user_link_serializer;
+pub mod workspace_user_properties_serializer;

@@ -19,6 +19,9 @@
 //! | --- | --- | --- |
 //! | H01 | `BaseModel.save` (`plane/db/models/base.py:23-45`) | [`audit::stamp`] |
 //! | H03 | `SoftDeleteModel.delete` (`plane/db/mixins.py:65-77`) | [`soft_delete::delete_instance`] |
+//! | H04 | `SoftDeletionQuerySet.delete` (`plane/db/mixins.py:33-38`) | [`soft_delete::delete_where`] |
+//! | H05 | `Workspace.delete` (`plane/db/models/workspace.py:156-176`) | [`workspace::after_soft_delete`] |
+//! | H06/H07 | `WorkspaceBaseModel.save` / `ProjectBaseModel.save` (`plane/db/models/workspace.py:198-206`, `project.py:229-235`) | [`scope::workspace_from_project`] |
 //! | H14/H15 | `IssueComment.save` (`plane/db/models/issue.py:481-532`) | [`issue_comment::before_save`] / [`issue_comment::description_changes`] |
 //! | H21 | `Module.save` (`plane/db/models/module.py:115-124`) | [`module::before_insert`] |
 //! | H22 | `Cycle.save` (`plane/db/models/cycle.py:88-97`) | [`cycle::before_insert`] |
@@ -70,7 +73,9 @@ pub mod module;
 pub mod page;
 pub mod project;
 pub mod project_member;
+pub mod scope;
 pub mod soft_delete;
 pub mod state;
 pub mod sticky;
 pub mod user;
+pub mod workspace;

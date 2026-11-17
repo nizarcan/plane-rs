@@ -1253,7 +1253,7 @@ impl TargetNormalizer {
                 path,
                 format!(
                     "value does not match shape {name} ({}): {} characters, {}",
-                    shape.regex.as_str(),
+                    shape.pattern(),
                     text.chars().count(),
                     preview(text)
                 ),
@@ -1994,7 +1994,8 @@ mod tests {
 
     fn shape(pattern: &str) -> ShapeRule {
         ShapeRule {
-            pattern: pattern.to_string(),
+            pattern: Some(pattern.to_string()),
+            any_of: None,
             why: "test shape".to_string(),
         }
     }

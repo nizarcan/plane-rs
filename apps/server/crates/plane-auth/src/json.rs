@@ -179,6 +179,38 @@ impl Json {
             ),
         }
     }
+
+    /// The same value as a `json.loads` tree (`plane_serde::pyjson::Value`),
+    /// keeping insertion order and integer-vs-float typing.
+    ///
+    /// `None` when the value has no representation here: a Python `int`
+    /// outside `i64` (this type holds `i64`, `pyjson` holds arbitrary
+    /// precision) or a string with a lone surrogate (`pyjson` stores WTF-8).
+    /// Both can only come from a request body; the caller decides what a value
+    /// it cannot render means.
+    #[must_use]
+    pub fn from_pyjson(value: &plane_serde::pyjson::Value) -> Option<Self> {
+        use plane_serde::pyjson::Value as Py;
+        Some(match value {
+            Py::Null => Self::Null,
+            Py::Bool(value) => Self::Bool(*value),
+            Py::Int(value) => Self::Int(value.as_i64()?),
+            Py::Float(value) => Self::Float(*value),
+            Py::Str(value) => Self::Str(value.as_str()?.to_owned()),
+            Py::List(values) => Self::Array(
+                values
+                    .iter()
+                    .map(Self::from_pyjson)
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            Py::Dict(entries) => Self::Object(
+                entries
+                    .iter()
+                    .map(|(key, value)| Some((key.as_str()?.to_owned(), Self::from_pyjson(value)?)))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+        })
+    }
 }
 
 /// `json.dumps(value, separators=(",", ":"))` with `ensure_ascii=True`.
@@ -674,6 +706,28 @@ mod tests {
             to_compact_string(&value),
             "\"a\\\"b\\\\c\\nd\\te\\bf\\fg\\u007fh \\u2014 \\u65e5\\u672c\\u8a9e \\ud83d\\ude80\""
         );
+    }
+
+    #[test]
+    fn a_json_loads_tree_converts_without_losing_order_or_number_type() {
+        let parsed = plane_serde::pyjson::loads(
+            br#"{"email": "a@b", "role": 5, "score": 1.0, "tags": [true, null]}"#,
+            "utf-8",
+        )
+        .expect("parse");
+        let value = Json::from_pyjson(&parsed).expect("representable");
+        assert_eq!(
+            to_compact_string(&value),
+            r#"{"email":"a@b","role":5,"score":1.0,"tags":[true,null]}"#
+        );
+    }
+
+    #[test]
+    fn an_unrepresentable_tree_is_none() {
+        // A Python `int` beyond `i64`.
+        let parsed =
+            plane_serde::pyjson::loads(b"123456789012345678901234567890", "utf-8").expect("parse");
+        assert!(Json::from_pyjson(&parsed).is_none());
     }
 
     // HTTP_CONTRACT Appendix B.1: the small session, non-ASCII session and the

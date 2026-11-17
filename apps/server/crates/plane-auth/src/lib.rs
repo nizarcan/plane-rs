@@ -31,6 +31,7 @@ pub mod csrf;
 pub mod error;
 pub mod host;
 pub mod json;
+pub mod jwt;
 pub mod login;
 pub mod origin;
 pub mod password;

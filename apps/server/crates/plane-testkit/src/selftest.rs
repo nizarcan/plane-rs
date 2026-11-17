@@ -92,7 +92,8 @@ impl Checks {
 
 fn shape(pattern: &str) -> ShapeRule {
     ShapeRule {
-        pattern: pattern.to_string(),
+        pattern: Some(pattern.to_string()),
+        any_of: None,
         why: "selftest shape".to_string(),
     }
 }

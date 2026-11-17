@@ -212,6 +212,76 @@ pub struct PrimaryKeyListOptions {
     pub query: &'static plane_db::Query,
 }
 
+/// A generated `serializers.SlugField` (`WriteSpaceSerializer.slug`).
+///
+/// See [`Serializer::slug_field`] for the validator chain these fields carry.
+#[derive(Debug, Clone, Copy)]
+pub struct SlugOptions {
+    /// `required` — only consulted for the html-input empty-string rule
+    /// (`Field.get_value`); `partial=True` does not change it.
+    pub required: bool,
+    pub allow_null: bool,
+    pub allow_blank: bool,
+    /// The model field's `max_length`; DRF's `MaxLengthValidator`.
+    pub max_length: Option<usize>,
+    /// The model field's own validators, minus `validate_slug`
+    /// (`rest_framework/utils/field_mapping.py:280-284`).
+    pub restricted: &'static [&'static str],
+    /// DRF's `UniqueValidator`, when the model field is `unique=True`.
+    pub unique: Option<SlugUnique>,
+}
+
+impl SlugOptions {
+    /// `CharField(required, allow_null=false, allow_blank=false)` with no
+    /// declared validators and no uniqueness check.
+    #[must_use]
+    pub const fn required(max_length: usize) -> Self {
+        Self {
+            required: true,
+            allow_null: false,
+            allow_blank: false,
+            max_length: Some(max_length),
+            restricted: &[],
+            unique: None,
+        }
+    }
+
+    /// Add the model field's declared validators (the restricted list).
+    #[must_use]
+    pub const fn restricted(mut self, restricted: &'static [&'static str]) -> Self {
+        self.restricted = restricted;
+        self
+    }
+
+    /// Add DRF's `UniqueValidator`.
+    #[must_use]
+    pub const fn unique(
+        mut self,
+        query: &'static plane_db::Query,
+        message: &'static str,
+        exclude: Option<uuid::Uuid>,
+    ) -> Self {
+        self.unique = Some(SlugUnique {
+            query,
+            message,
+            exclude,
+        });
+        self
+    }
+}
+
+/// One `UniqueValidator`: the compiled `EXISTS` and the message DRF renders.
+#[derive(Debug, Clone, Copy)]
+pub struct SlugUnique {
+    pub query: &'static plane_db::Query,
+    /// `"<Model> with this <field> already exists."` — Django's default
+    /// `unique` error message, formatted with the model's `verbose_name` and
+    /// the field's (`django/db/models/fields/__init__.py`).
+    pub message: &'static str,
+    /// The instance being updated (`UniqueValidator.exclude_current_instance`).
+    pub exclude: Option<uuid::Uuid>,
+}
+
 /// `serializer.errors`: ordered `(field, details)` pairs.
 #[derive(Debug, Default)]
 pub struct ValidationErrors(Vec<(&'static str, FieldErrors)>);
@@ -699,6 +769,201 @@ impl<'a> Serializer<'a> {
         }
         self.values.push((name, Value::Text(value.clone())));
         Ok(Some(value))
+    }
+
+    /// `serializers.SlugField` as `ModelSerializer` generates it from a model
+    /// `SlugField` (`rest_framework/utils/field_mapping.py:100-135,280-284`;
+    /// `rest_framework/fields.py:790-803`).
+    ///
+    /// The validator chain is the reason this is not a `char_field` call. DRF
+    /// assembles it in this order, and **every** failure is reported (a
+    /// `run_validators` loop, not first-fail):
+    ///
+    /// 1. the model field's own validators, minus `validate_slug`
+    ///    (`field_mapping.py:280-284`) — `Workspace.slug` declares
+    ///    `slug_validator`, which rejects `RESTRICTED_WORKSPACE_SLUGS`
+    ///    (`plane/db/models/workspace.py:114-116,136`);
+    /// 2. DRF's `UniqueValidator` (`field_mapping.py:65-93`, appended last to
+    ///    the declared list);
+    /// 3. `MaxLengthValidator` (`max_length`);
+    /// 4. `ProhibitNullCharactersValidator`, then
+    ///    `ProhibitSurrogateCharactersValidator` (`CharField.__init__`);
+    /// 5. `SlugField`'s own `RegexValidator(r"^[-a-zA-Z0-9_]+$")`.
+    ///
+    /// `WorkspaceSerializer.validate_slug` (the restricted-list and
+    /// `re.match` checks, `plane/app/serializers/workspace.py:61-70`) runs
+    /// only when this chain is clean, and both of its checks are implied by
+    /// 1 and 5, so it never produces an error.
+    ///
+    /// # Errors
+    ///
+    /// The uniqueness lookup's database failure.
+    pub async fn slug_field(
+        &mut self,
+        client: &Client,
+        name: &'static str,
+        options: SlugOptions,
+    ) -> Result<Option<String>, ViewError> {
+        // `Field.get_value`'s html-input branch (`fields.py:391-412`): a form
+        // `''` is `None` for a nullable field, `empty` for an optional one, and
+        // `''` — which then fails `blank` — for a required one.
+        if self.form
+            && !self.fatal
+            && !self.skipped.contains(&name)
+            && matches!(
+                self.body.as_ref().and_then(|body| body.raw(name)),
+                Some(Raw::Text(""))
+            )
+        {
+            if options.allow_null || options.required || options.allow_blank {
+                if options.allow_blank {
+                    self.values.push((name, Value::Text(String::new())));
+                    return Ok(Some(String::new()));
+                }
+                if options.allow_null {
+                    self.values.push((name, Value::Null));
+                    return Ok(None);
+                }
+                self.errors.push(name, Detail::blank());
+            }
+            return Ok(None);
+        }
+        let Some(raw) = self.field_value(name, options.allow_null, Some(options.allow_blank))
+        else {
+            return Ok(None);
+        };
+        let value = match fields::char(
+            raw,
+            &CharOptions {
+                allow_null: options.allow_null,
+                allow_blank: options.allow_blank,
+                trim_whitespace: true,
+                // The length validator is part of the chain below, after the
+                // declared validators and the uniqueness check.
+                max_length: None,
+            },
+        ) {
+            Ok(value) => value,
+            Err(detail) => {
+                self.errors.push(name, detail);
+                return Ok(None);
+            }
+        };
+        // `CharField.run_validation`'s early return for a blank value: no
+        // validator runs at all (`rest_framework/fields.py:742-749`). Only a
+        // field that allows blanks can reach here, because [`fields::char`]
+        // already reported `blank` otherwise.
+        if value.is_empty() {
+            self.values.push((name, Value::Text(value.clone())));
+            return Ok(Some(value));
+        }
+        let mut failed = false;
+        // 1. The model field's declared validators.
+        if options.restricted.contains(&value.as_str()) {
+            // `raise ValidationError("Slug is not valid")`.
+            self.errors
+                .push(name, Detail::new("Slug is not valid", "invalid"));
+            failed = true;
+        }
+        // 2. `UniqueValidator`.
+        if let Some(unique) = options.unique
+            && !self
+                .unique_live(
+                    client,
+                    name,
+                    unique.query,
+                    &value,
+                    unique.exclude,
+                    unique.message,
+                )
+                .await?
+        {
+            failed = true;
+        }
+        // 3. `MaxLengthValidator`.
+        if let Some(max_length) = options.max_length
+            && value.chars().count() > max_length
+        {
+            self.errors.push(
+                name,
+                Detail::new(
+                    format!("Ensure this field has no more than {max_length} characters."),
+                    "max_length",
+                ),
+            );
+            failed = true;
+        }
+        // 4. `ProhibitNullCharactersValidator`; the surrogate validator is
+        // unreachable because a Rust `str` cannot hold a surrogate.
+        if value.contains('\0') {
+            self.errors.push(
+                name,
+                Detail::new(
+                    "Null characters are not allowed.",
+                    "null_characters_not_allowed",
+                ),
+            );
+            failed = true;
+        }
+        // 5. `SlugField`'s `RegexValidator(r"^[-a-zA-Z0-9_]+$")`.
+        if !value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        {
+            self.errors.push(
+                name,
+                Detail::new(
+                    "Enter a valid \"slug\" consisting of letters, numbers, underscores or hyphens.",
+                    "invalid",
+                ),
+            );
+            failed = true;
+        }
+        if failed {
+            return Ok(None);
+        }
+        self.values.push((name, Value::Text(value.clone())));
+        Ok(Some(value))
+    }
+
+    /// DRF's `UniqueValidator` (`rest_framework/validators.py:69-113`):
+    /// `queryset.filter(<field>=value)` — and `.exclude(pk=instance.pk)` on an
+    /// update — reduced to one `EXISTS` query.
+    ///
+    /// The statement is the caller's, compiled from the model field's own
+    /// queryset, so the manager's predicate (usually `deleted_at IS NULL`)
+    /// decides which rows collide: a soft-deleted workspace keeps its slug and
+    /// does **not** make a new one a duplicate. `$1` is `value` and `$2` is
+    /// `exclude` (NULL on create); the statement must test
+    /// `($2::uuid IS NULL OR id <> $2)`.
+    ///
+    /// Returns whether the value is unique. On a collision the error is
+    /// recorded with DRF's `unique` code and the caller must not report the
+    /// field as valid.
+    ///
+    /// # Errors
+    ///
+    /// A database failure.
+    pub async fn unique_live(
+        &mut self,
+        client: &Client,
+        name: &'static str,
+        query: &'static plane_db::Query,
+        value: &str,
+        exclude: Option<uuid::Uuid>,
+        message: &'static str,
+    ) -> Result<bool, ViewError> {
+        let statement = query.prepare(client).await.map_err(ViewError::from)?;
+        let row = client
+            .query_one(&statement, &[&value, &exclude])
+            .await
+            .map_err(ViewError::from)?;
+        let exists: bool = row.get(0);
+        if exists {
+            self.errors.push(name, Detail::new(message, "unique"));
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     /// `CharField` for a **required** field over a form body.
