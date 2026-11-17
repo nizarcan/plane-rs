@@ -1558,10 +1558,21 @@ independent; each domain's sets start after its own P0. At most three builds run
   Django: 366, 368, 370, 372** (the Google/GitHub callbacks). Their success path has only
   the claim golden; they flip after an HTTPS-intercept fake provider covers them end to
   end.
-- Phase 6 left:
-  1. the Google/GitHub intercept test, then flip 366/368/370/372;
-  2. the exit check: every flow walked in a browser against the mixed backend (dev proxy
-     `127.0.0.1:18080`).
+- Google/GitHub intercept test (merged `564aebb840`): `tools/auth/oauth_https_proxy.py`
+  terminates TLS for the Google/GitHub hosts with a CA generated at run time (under the
+  gitignored `target/oauth-mitm/`, never committed). Both backends reach it through
+  `HTTPS_PROXY` + `REQUESTS_CA_BUNDLE`, and no Rust change was needed (D9's env
+  proxy/CA). `verify_mitm_log.py` checks the exact provider-call inventory and fails on any
+  call that isn't intercepted. `write/auth-oauth-google-github.yaml` 52/52 DvR (144/144
+  provider calls intercepted); `auth-oauth.yaml` 57/57. **Flipped with this entry:**
+  366/368/370/372 `rust(GET)`. **All 37 `/auth/` routes are on Rust.**
+  - Upstream bug kept: Google/GitHub treat the OAuth `expires_in` *duration* as a Unix
+    timestamp (`google.py:89-93`, `github.py:95-99`), so
+    `accounts.access_token_expired_at` is in 1970.
+  - Residual: `requests` also honours macOS system-proxy exceptions after `NO_PROXY`;
+    reqwest doesn't (D9). No provider host is affected.
+- Phase 6 left: the exit check, every flow walked in a browser against the mixed backend
+  (dev proxy `127.0.0.1:18080`).
 
 ### Phase 5 exit (2026-11-17)
 
@@ -1607,8 +1618,7 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      only a "starting" log line. The broker connection was not confirmed, so re-check
      with `rabbitmqctl list_connections` during the idle window at the final benchmark.
      The Celery comparison is cross-environment (native macOS RSS) and only indicative.
-2. Phase 6 (auth flows): 33/37 routes on Rust. Left: the Google/GitHub callback intercept
-   test (then flip 366/368/370/372), and the browser walk-through of every flow against
-   the mixed backend (the exit check).
+2. Phase 6 (auth flows): all 37 routes on Rust. Left: the browser walk-through of every
+   flow against the mixed backend (the exit check).
 3. Phase 7 (v1/public/instances), planned the same way; then the final benchmark and the
    environment revert (see "In flight").

@@ -532,7 +532,7 @@ handle @plane_rs_auth_magic {
 	expression <<CEL
 		({env.PLANE_RS_GROUP_AUTH_OAUTH} == "" ? "rust" : {env.PLANE_RS_GROUP_AUTH_OAUTH}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/auth/google/$") || path_regexp(r"^/auth/spaces/google/$") || path_regexp(r"^/auth/github/$") || path_regexp(r"^/auth/spaces/github/$") || path_regexp(r"^/auth/gitlab/$") || path_regexp(r"^/auth/gitlab/callback/$") || path_regexp(r"^/auth/spaces/gitlab/$") || path_regexp(r"^/auth/spaces/gitlab/callback/$") || path_regexp(r"^/auth/gitea/$") || path_regexp(r"^/auth/gitea/callback/$") || path_regexp(r"^/auth/spaces/gitea/$") || path_regexp(r"^/auth/spaces/gitea/callback/$")))
+			(method("GET") && (path_regexp(r"^/auth/google/$") || path_regexp(r"^/auth/google/callback/$") || path_regexp(r"^/auth/spaces/google/$") || path_regexp(r"^/auth/spaces/google/callback/$") || path_regexp(r"^/auth/github/$") || path_regexp(r"^/auth/github/callback/$") || path_regexp(r"^/auth/spaces/github/$") || path_regexp(r"^/auth/spaces/github/callback/$") || path_regexp(r"^/auth/gitlab/$") || path_regexp(r"^/auth/gitlab/callback/$") || path_regexp(r"^/auth/spaces/gitlab/$") || path_regexp(r"^/auth/spaces/gitlab/callback/$") || path_regexp(r"^/auth/gitea/$") || path_regexp(r"^/auth/gitea/callback/$") || path_regexp(r"^/auth/spaces/gitea/$") || path_regexp(r"^/auth/spaces/gitea/callback/$")))
 		)
 	CEL
 }

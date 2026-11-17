@@ -454,13 +454,13 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 363 | `/auth/spaces/magic-sign-in/` | POST | `plane.authentication.views.space.magic.MagicSignInSpaceEndpoint` | - | rust(POST) | verified |
 | 364 | `/auth/spaces/magic-sign-up/` | POST | `plane.authentication.views.space.magic.MagicSignUpSpaceEndpoint` | - | rust(POST) | verified |
 | 365 | `/auth/google/` | GET | `plane.authentication.views.app.google.GoogleOauthInitiateEndpoint` | - | rust(GET) | verified |
-| 366 | `/auth/google/callback/` | GET | `plane.authentication.views.app.google.GoogleCallbackEndpoint` | - | django | not-started |
+| 366 | `/auth/google/callback/` | GET | `plane.authentication.views.app.google.GoogleCallbackEndpoint` | - | rust(GET) | verified |
 | 367 | `/auth/spaces/google/` | GET | `plane.authentication.views.space.google.GoogleOauthInitiateSpaceEndpoint` | - | rust(GET) | verified |
-| 368 | `/auth/spaces/google/callback/` | GET | `plane.authentication.views.space.google.GoogleCallbackSpaceEndpoint` | - | django | not-started |
+| 368 | `/auth/spaces/google/callback/` | GET | `plane.authentication.views.space.google.GoogleCallbackSpaceEndpoint` | - | rust(GET) | verified |
 | 369 | `/auth/github/` | GET | `plane.authentication.views.app.github.GitHubOauthInitiateEndpoint` | - | rust(GET) | verified |
-| 370 | `/auth/github/callback/` | GET | `plane.authentication.views.app.github.GitHubCallbackEndpoint` | - | django | not-started |
+| 370 | `/auth/github/callback/` | GET | `plane.authentication.views.app.github.GitHubCallbackEndpoint` | - | rust(GET) | verified |
 | 371 | `/auth/spaces/github/` | GET | `plane.authentication.views.space.github.GitHubOauthInitiateSpaceEndpoint` | - | rust(GET) | verified |
-| 372 | `/auth/spaces/github/callback/` | GET | `plane.authentication.views.space.github.GitHubCallbackSpaceEndpoint` | - | django | not-started |
+| 372 | `/auth/spaces/github/callback/` | GET | `plane.authentication.views.space.github.GitHubCallbackSpaceEndpoint` | - | rust(GET) | verified |
 | 373 | `/auth/gitlab/` | GET | `plane.authentication.views.app.gitlab.GitLabOauthInitiateEndpoint` | - | rust(GET) | verified |
 | 374 | `/auth/gitlab/callback/` | GET | `plane.authentication.views.app.gitlab.GitLabCallbackEndpoint` | - | rust(GET) | verified |
 | 375 | `/auth/spaces/gitlab/` | GET | `plane.authentication.views.space.gitlab.GitLabOauthInitiateSpaceEndpoint` | - | rust(GET) | verified |
