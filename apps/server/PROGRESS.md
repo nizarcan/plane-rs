@@ -1307,9 +1307,23 @@ independent; each domain's sets start after its own P0. At most three builds run
     `user_id`; 4 has no workspace lookup, so a soft-deleted workspace's member gets 200 +
     a task.
 
-Running: (none). Queued: workspace-core B (members/invites/join), workspace-core C
-(preferences/links); then ai-assistant (51/52) and the held 34/75/82/107 methods
-(unplanned).
+- Plan committed: `plans/REMAINING_APP.md` (`ae337587e2`). AI assistant 51/52: with no
+  LLM key, every body is the same 400 before parsing; the success path calls OpenAI and
+  only a wire golden can pin it.
+- Held methods (merged `a7489e7ce1`, flipped with this entry): 34/75/82/107 are now
+  `rust(GET,PUT,PATCH,DELETE)`. 34/82/107's extra verbs are the guard 405s
+  (`guard_only`); **75 PUT is a real full update** (the old "guard-refused" comment was
+  wrong). Scenarios extended: `cycle-issues` 36, `issue-comments` 54, `module-issues` 75,
+  `issue-relations` 106, all clean in both directions; the whole write set (45 files, 2543
+  steps) is clean on the merge. No contract test sends PUT.
+  - Scenario-comment correction: `issue-relations.yaml` step `wirel-24` was not an
+    archived-project create (wrong project); new steps `wirel-35m1/m2` cover it.
+  - Follow-up (shared, affects 74/75/108/109): `IssueLinkSerializer.to_internal_value`
+    mutates `request.data`. A urlencoded body with a scheme-less `url` is an immutable
+    `QueryDict`, so `AttributeError` gives a 500 in Django, while Rust prefixes in memory.
+
+Running: workspace-core B, workspace-core C. Queued: AI assistant (51/52), the link-form
+500 follow-up.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
