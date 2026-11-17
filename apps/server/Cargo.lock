@@ -2359,6 +2359,7 @@ dependencies = [
  "plane-jobs",
  "plane-net",
  "plane-serde",
+ "plane-storage",
  "regex",
  "scrypt",
  "serde",

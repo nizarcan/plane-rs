@@ -32,8 +32,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use redis::aio::ConnectionManager;
-use redis::{Client, TlsCertificates};
+use redis::{Client, FromRedisValue, TlsCertificates};
 use tokio::sync::OnceCell;
+
+use crate::lua::EvalArg;
 
 use plane_core::Settings;
 use plane_core::config::RedisSettings;
@@ -196,6 +198,85 @@ impl Redis {
         Ok(())
     }
 
+    /// `SET key value EX <seconds>` — the plain `redis-py` form
+    /// (`cache.set(..., ex=600)`), not django-redis's `PX`.
+    pub async fn set_bytes_ex(
+        &self,
+        full_key: &str,
+        value: &[u8],
+        seconds: i64,
+    ) -> Result<(), Error> {
+        let mut connection = self.connection().await?;
+        let _: () = redis::cmd("SET")
+            .arg(full_key)
+            .arg(value)
+            .arg("EX")
+            .arg(seconds)
+            .query_async(&mut connection)
+            .await?;
+        Ok(())
+    }
+
+    /// `redis-py`'s `Redis.eval(script, numkeys, *keys_and_args)`
+    /// (`redis/client.py:2707-2780`).
+    ///
+    /// `numkeys` is `keys.len()`; `args` follow the keys, in order, and are
+    /// encoded the way redis-py encodes a command argument (an `int` becomes
+    /// its decimal text, a `str` its UTF-8 bytes). The reply is decoded into
+    /// `T` with [`FromRedisValue`], so a script that returns a different shape
+    /// is an error — a `ResponseError` in Python, a 500 in a request.
+    ///
+    /// redis-py has no parameter binding: the script and its arguments all
+    /// travel as `bulk` strings inside one `EVAL` command. This method issues
+    /// exactly that command, so an existing script keeps its SHA and the
+    /// server-side effect order is unchanged.
+    pub async fn eval<T: FromRedisValue>(
+        &self,
+        script: &str,
+        keys: &[&str],
+        args: &[EvalArg<'_>],
+    ) -> Result<T, Error> {
+        let mut connection = self.connection().await?;
+        let mut command = redis::cmd("EVAL");
+        command.arg(script).arg(keys.len() as i64);
+        for key in keys {
+            command.arg(*key);
+        }
+        for arg in args {
+            match arg {
+                EvalArg::Int(value) => {
+                    command.arg(*value);
+                }
+                EvalArg::Str(value) => {
+                    command.arg(*value);
+                }
+                EvalArg::Bytes(value) => {
+                    command.arg(*value);
+                }
+            }
+        }
+        Ok(command.query_async(&mut connection).await?)
+    }
+
+    /// Atomic `INCR`, with `EXPIRE` **only on the first increment**
+    /// (`plane/authentication/provider/credentials/magic_code.py:40-46`).
+    ///
+    /// `INCR` preserves an existing TTL, so every later increment keeps the
+    /// window that the first one set — which is what makes the counter expire
+    /// with the key it counts. Returns the new counter value.
+    pub async fn incr_expire_on_first(
+        &self,
+        full_key: &str,
+        ttl_seconds: i64,
+    ) -> Result<i64, Error> {
+        self.eval(
+            crate::lua::INCR_EXPIRE_ON_FIRST,
+            &[full_key],
+            &[EvalArg::Int(ttl_seconds)],
+        )
+        .await
+    }
+
     /// `SET key value NX`, the command `DefaultClient.set(..., nx=True)`
     /// issues without a timeout (`django_redis/client/default.py:270-283`).
     /// Returns whether the key was written (`SET NX` replies `nil` when the
@@ -254,15 +335,7 @@ impl Redis {
                               if (exists == 1) then\n\
                                 return redis.call('INCRBY', KEYS[1], ARGV[1])\n\
                               else return false end";
-        let mut connection = self.connection().await?;
-        let value: Option<i64> = redis::cmd("EVAL")
-            .arg(SCRIPT)
-            .arg(1)
-            .arg(full_key)
-            .arg(delta)
-            .query_async(&mut connection)
-            .await?;
-        Ok(value)
+        self.eval(SCRIPT, &[full_key], &[EvalArg::Int(delta)]).await
     }
 
     /// `TTL key` in seconds, as django-redis's `ttl()` reads it: `-1` means

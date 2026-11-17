@@ -21,6 +21,8 @@
 pub mod adapter;
 pub mod email;
 pub mod error;
+pub mod magic;
+pub mod oauth;
 pub mod password;
 pub mod redirect;
 pub mod reset_token;
@@ -32,6 +34,16 @@ pub use adapter::{
 };
 pub use email::validate_email;
 pub use error::{ALL as ALL_AUTH_ERROR_CODES, AuthErrorCode, AuthFlowError};
+pub use magic::{
+    ISSUE_WINDOW_SECONDS, IssuedCode, MAX_CODES_PER_WINDOW, MAX_VERIFY_ATTEMPTS, MagicCodeFlags,
+    MagicCodeProvider, TOKEN_TTL_SECONDS, generate_code, issued_key, magic_key,
+    verify_attempts_key,
+};
+pub use oauth::{
+    OAUTH_STATE_SESSION_KEY, OAuthHttp, OAuthProvider, OauthAdapter, TokenData, TokenRequest,
+    create_update_account, oauth_redirect_uri, oauth_state_matches, sync_flag_name,
+    validate_oauth_state,
+};
 pub use password::{PasswordStrengthError, is_password_strong};
 pub use redirect::{
     PyValueError, RedirectionPath, allowed_hosts, get_safe_redirect_url, settings_allowed_hosts,

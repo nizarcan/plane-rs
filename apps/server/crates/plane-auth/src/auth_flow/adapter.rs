@@ -79,6 +79,18 @@ impl AdapterError {
     }
 }
 
+impl From<crate::error::AuthError> for AdapterError {
+    fn from(error: crate::error::AuthError) -> Self {
+        Self::Internal(error.to_string())
+    }
+}
+
+impl From<AuthFlowError> for AdapterError {
+    fn from(error: AuthFlowError) -> Self {
+        Self::Auth(error)
+    }
+}
+
 impl From<tokio_postgres::Error> for AdapterError {
     fn from(error: tokio_postgres::Error) -> Self {
         Self::Internal(error.to_string())
@@ -111,10 +123,10 @@ pub trait AuthProvider: Send + Sync {
     /// `self.code`: the password or magic code.
     fn code(&self) -> Option<&str>;
 
-    /// `self.token_data`: `None` for email and magic code, so
-    /// `create_update_account` is not called.
-    fn token_data(&self) -> Option<&Value> {
-        None
+    /// `bool(self.token_data)`: `false` for email and magic code, so
+    /// `create_update_account` is not called (`base.py:401-403`).
+    fn has_token_data(&self) -> bool {
+        false
     }
 
     /// `check_sync_enabled()` (`base.py:122-134`), resolved against the
@@ -127,7 +139,7 @@ pub trait AuthProvider: Send + Sync {
     /// [`Self::sync_enabled`] is true and the user is not signing up.
     fn sync_user_data<'a>(
         &'a self,
-        _client: &'a Client,
+        _context: &'a AdapterContext<'a>,
         _user: &'a mut User,
     ) -> ProviderFuture<'a, ()> {
         Box::pin(async { Ok(()) })
@@ -136,11 +148,13 @@ pub trait AuthProvider: Send + Sync {
     /// The signup half of `download_and_upload_avatar` (`base.py:136-224`):
     /// sets `user.avatar` (and `avatar_asset_id`) when the provider has an
     /// avatar URL. A no-op for email/magic code, whose `avatar` is `""`.
+    ///
+    /// The context is needed because the upload is `S3Storage(request=…)`:
+    /// the avatar's object key is built by the storage layer and the request
+    /// supplies the browser-visible host (`plane/settings/storage.py:42-56`).
     fn upload_signup_avatar<'a>(
         &'a self,
-        _client: &'a Client,
-        _settings: &'a Settings,
-        _ctx: &'a RequestContext,
+        _context: &'a AdapterContext<'a>,
         _user: &'a mut User,
     ) -> ProviderFuture<'a, ()> {
         Box::pin(async { Ok(()) })
@@ -194,7 +208,7 @@ fn now() -> DateTime<Utc> {
 }
 
 /// Python truthiness for the values `user_data` holds.
-fn truthy(value: Option<&Value>) -> bool {
+pub(crate) fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
         Some(Value::Bool(value)) => *value,
@@ -205,8 +219,8 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-/// `str(value)` for the scalar types an email can arrive as.
-fn python_str(value: &Value) -> String {
+/// `str(value)` for the scalar types `user_data` can hold.
+pub(crate) fn python_str(value: &Value) -> String {
     match value {
         Value::Null => "None".to_string(),
         Value::Bool(true) => "True".to_string(),
@@ -692,8 +706,12 @@ pub async fn complete_login_or_signup(
             .filter(|value| truthy(Some(value)))
             .map(python_str)
             .unwrap_or_default();
+        // `avatar` is only assigned to the new user when it is **truthy**
+        // (`base.py:377-385`), so a `null`/`""`/missing value leaves the
+        // model's `""` default; `str(None)` would be `"None"`.
         let avatar = profile_data
             .get("avatar")
+            .filter(|value| truthy(Some(value)))
             .map(python_str)
             .unwrap_or_default();
 
@@ -755,7 +773,7 @@ pub async fn complete_login_or_signup(
         // and does **not** save; the later `save_user_data` full save is what
         // persists them, which is why `UPDATE_USER_LOGIN` carries both columns.
         provider
-            .upload_signup_avatar(client, settings, ctx, &mut new_user)
+            .upload_signup_avatar(context, &mut new_user)
             .await?;
 
         // `Profile.objects.create(user=user)`.
@@ -769,7 +787,7 @@ pub async fn complete_login_or_signup(
 
     // `if self.check_sync_enabled() and not is_signup: sync_user_data`.
     if provider.sync_enabled() && !is_signup {
-        provider.sync_user_data(client, &mut user).await?;
+        provider.sync_user_data(context, &mut user).await?;
         // `sync_user_data` ends with `user.save()` — a full save that rotates
         // the token when `token_updated_at` is set and moves `updated_at`,
         // even when every field it assigned already had that value.
@@ -782,7 +800,7 @@ pub async fn complete_login_or_signup(
         callback.call(context, &user, is_signup).await?;
     }
 
-    if provider.token_data().is_some() {
+    if provider.has_token_data() {
         provider.create_update_account(client, &user).await?;
     }
 

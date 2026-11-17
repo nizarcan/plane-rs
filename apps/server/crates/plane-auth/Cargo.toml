@@ -29,6 +29,10 @@ plane-jobs = { path = "../plane-jobs" }
 # that crate. The auth redirects cannot use `url`'s RFC parser: Django's
 # safety check depends on CPython's quirks (bracketed hosts, NFKC netlocs).
 plane-net = { path = "../plane-net" }
+# The OAuth avatar download/upload is `S3Storage(request=…).upload_file` +
+# `FileAsset.objects.create` (`adapter/base.py:198-222`), so the auth crate
+# needs the storage client. `plane-storage` does not depend on `plane-auth`.
+plane-storage = { path = "../plane-storage" }
 plane-serde = { path = "../plane-serde" }
 regex.workspace = true
 scrypt.workspace = true
