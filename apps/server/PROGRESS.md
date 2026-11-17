@@ -1637,7 +1637,35 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
    - Disk is at 24–28 GB with v1 P0 and the browser-walk setup running. The orchestrator
      verifies the public P0 merge once v1 P0's worktree is removed.
 
-   Running: v1 P0; browser-walk stack setup (D21). Then the final benchmark and the environment
+   - v1 P0 (merged `3bcb35b390`, **verification pending**; `normalize.yaml` conflict with
+     the public P0 resolved by keeping both shapes). Agent-reported: 1200 tests, testkit
+     185, schema_check, 108 scenario files clean, both OAuth wrappers clean.
+     - New `crates/plane-http-public` (registers nothing yet): `common::page` (plain
+       `BasePaginator` envelope, `per_page`/`cursor` 400s), `common::render`
+       (`expansions` with the `<name>_id` fallback), `common::html` (the lxml
+       accept/reject gate; `normalize()` is deliberately `Unsupported`; set D ports it
+       against `tests/golden/lxml_html.jsonl`, 70 cases).
+     - `plane-drf`: the keyed throttle and `X-RateLimit-*` only on `api.BaseAPIView`
+       (invitations/stickies keep `AnonRateThrottle`, no headers); API-key auth reads
+       and writes `api_tokens` on the primary (`Conn::primary_client`). Django reads it
+       from the replica on an opted-in GET (`dbrouters.py:46-49`); the divergence is
+       documented in `plane-drf/src/db.rs`.
+     - `plane-serializers::v1` expansion map; 15 v1 write serializers generated
+       (class-name collisions get an `api_` prefix); `plane-query` envelope public.
+     - `normalize.yaml`: random v1 project `logo_props` (icon name shape, colour path,
+       DB column `mode: drop`, which testkit now supports), scoped to
+       `POST /api/v1/workspaces/*/projects/`. Upstream: `logo_props` is read-only and not
+       in `Meta.fields` (`api/serializers/project.py:45-104`), so a body value is ignored.
+     - Left for the sets: lxml `tostring` normalisation (D), a v1 policy pass, fixture
+       additions (needs a `plane_fix_tpl` rebuild), `gen_read.py` v1 steps, a two-DB
+       `last_used` test.
+   - Contract: with every method routed (no `--methods`), 15 extra failures appear:
+     14 `test_oauth_callback_state_app.py` (patches the provider class by path) and 1
+     `test_user_email_change_app.py` (`patch.object(cache, "incr")`). Both are in-process
+     patches the plugin doesn't detect yet; the 983/3 run used `--methods GET,POST`, so
+     the PATCH one never reached Rust. Detector fix running (`rs/contract-detect`).
+
+   Running: browser-walk stack setup (D21); the contract detector fix. Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
