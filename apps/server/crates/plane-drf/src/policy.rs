@@ -778,10 +778,17 @@ fn resolve_route(raw: RawRoute) -> Result<RoutePolicy, PolicyError> {
         })?);
     }
 
-    // `plane/api/views/base.py:69-70`: `get_throttles` returns
+    // `plane/api/views/base.py:69-70`: `BaseAPIView.get_throttles` returns
     // `[ApiKeyRateThrottle()]`, replacing the defaults. The inventory records
     // that as a `get_throttles` override owned by the family base.
-    let family_throttles = matches!(family, Family::ApiApiView | Family::ApiViewSet);
+    //
+    // `BaseViewSet` (`:162-279`) overrides neither `get_throttles` nor
+    // `throttle_classes`, so the `BaseViewSet` rows (invitations, stickies)
+    // keep `DEFAULT_THROTTLE_CLASSES` = `AnonRateThrottle`
+    // (`plane/settings/common.py:141`), which is a no-op for an authenticated
+    // caller and emits no `X-RateLimit-*` headers (`HTTP_CONTRACT.md`
+    // §12 "AnonRateThrottle"). The inventory records that class for them.
+    let family_throttles = family == Family::ApiApiView;
     if family_throttles {
         throttles = vec![ThrottleClass::ApiKey];
     }
@@ -1323,12 +1330,32 @@ mod tests {
             user.effective_throttles(Some("retrieve")),
             &[ThrottleClass::Anon]
         );
-        // The v1 families replace the DRF defaults with the API-key throttle.
+        // The v1 families: `BaseAPIView.get_throttles` replaces the defaults
+        // with the API-key throttle; `BaseViewSet` does not, so its rows keep
+        // `AnonRateThrottle` (`plane/api/views/base.py:69-70,162-279`).
         let v1 = table
             .routes()
             .iter()
             .find(|route| route.group == "v1" && route.family == Family::ApiApiView)
             .expect("v1 api view");
         assert_eq!(v1.throttles, vec![ThrottleClass::ApiKey]);
+        let v1_viewset = table
+            .routes()
+            .iter()
+            .find(|route| route.group == "v1" && route.family == Family::ApiViewSet)
+            .expect("v1 viewset");
+        assert_eq!(
+            v1_viewset.throttles,
+            vec![ThrottleClass::Anon],
+            "BaseViewSet inherits DEFAULT_THROTTLE_CLASSES, it does not override get_throttles"
+        );
+        // The two `drf.APIView` api-roots are not part of a Plane family
+        // either: they keep the default `AnonRateThrottle`.
+        let v1_root = table
+            .routes()
+            .iter()
+            .find(|route| route.group == "v1" && route.family == Family::DrfApiView)
+            .expect("v1 api root");
+        assert_eq!(v1_root.throttles, vec![ThrottleClass::Anon]);
     }
 }

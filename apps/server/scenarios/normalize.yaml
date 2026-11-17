@@ -172,6 +172,12 @@ shapes:
   fernet_token:
     pattern: '^gAAAAA[A-Za-z0-9_-]{92,}={0,2}$'
     why: "Fernet token of an encrypted instance configuration (plane/license/utils/encryption.py:19-30, cryptography/fernet.py:36-51)"
+  # plane/api/serializers/project.py:40-68: random.choice over the 28 icons
+  # `ProjectCreateSerializer.PROJECT_ICON_DEFAULT_ICONS` lists. The value only
+  # ever appears as `logo_props.icon.name` on a v1 project create.
+  project_icon_name:
+    pattern: '^(?:home|apps|settings|star|favorite|done|check_circle|add_task|create_new_folder|dataset|terminal|key|rocket|public|quiz|mood|gavel|eco|diamond|forest|bolt|sync|cached|library_add|view_timeline|view_kanban|empty_dashboard|cycle)$'
+    why: "random.choice(PROJECT_ICON_DEFAULT_ICONS): 28 editor icon names (plane/api/serializers/project.py:40-68,157)"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -540,6 +546,23 @@ volatile_json_paths:
     placeholder: api-token-label
     shape: api_token_label
     why: "APIToken.label defaults to uuid4().hex when the create body omits it (plane/app/views/api.py:22, plane/db/models/api.py:9-10,15)"
+  # Every `/api/v1/` project create invents an icon and a colour, because
+  # `logo_props` is read-only on `ProjectCreateSerializer`
+  # (`serializers/project.py:89`) and `create` fills it in (`:152-160`). The two
+  # leaves are placeholdered instead of the whole object, so the shape
+  # (`{"in_use":"icon","icon":{…}}`) and the icon/colour domains still compare.
+  # Scoped to the v1 create: the app's create echoes the `logo_props` its body
+  # carried (`plane/app/serializers/project.py:108`) and stays literal.
+  - path: "$.logo_props.icon.name"
+    request: "POST /api/v1/workspaces/*/projects/"
+    placeholder: project-icon
+    shape: project_icon_name
+    why: "random.choice(PROJECT_ICON_DEFAULT_ICONS) on every v1 project create (plane/api/serializers/project.py:40-68,152-160)"
+  - path: "$.logo_props.icon.color"
+    request: "POST /api/v1/workspaces/*/projects/"
+    placeholder: colour
+    shape: hex_colour
+    why: "random.choice(PROJECT_ICON_DEFAULT_COLORS) on every v1 project create (plane/api/serializers/project.py:30-39,152-160)"
 
 # Regexes over every string the normaliser rewrites (JSON values, Celery
 # reprs, Redis values and response text). A rule must name its request: an
@@ -716,6 +739,15 @@ volatile_db_columns:
     shape: estimate_random_name
     request: "POST /api/workspaces/*/projects/*/estimates/"
     why: "generate_random_name() when the create body has no `name` (plane/app/views/estimate/base.py:29-31, :66)"
+  # The DB half of the `logo_props` rules above. A JSON column cannot be
+  # rewritten in place, so the whole column leaves the diff on this one
+  # request; the response-body rules still check the object's shape and the
+  # icon/colour domains, which is where the value is observable.
+  - table: projects
+    column: logo_props
+    mode: drop
+    request: "POST /api/v1/workspaces/*/projects/"
+    why: "every v1 project create stores a random icon + colour (plane/api/serializers/project.py:89,152-160)"
   # `ExportIssuesEndpoint.post` stores `ExporterHistory.token = uuid4().hex`
   # (plane/db/models/exporter.py:20, plane/app/views/exporter/base.py:50) and
   # publishes the same value as `token_id`. The DB diff is normalised before

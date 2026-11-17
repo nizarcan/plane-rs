@@ -265,3 +265,131 @@ fn requested_base_field_must_be_resolved() {
     let error = plane_serializers::render(&dynamic(), &ctx).expect_err("missing expansion");
     assert!(matches!(error, DrfError::MissingExpansion(name) if name == "state"));
 }
+
+/// `ProjectMemberSerializer` with `fields=`/`expand=`, byte-compared with what
+/// DRF 3.18.3 answers for
+///
+/// ```python
+/// ProjectMember(id="1111…", member_id="2222…", role=15)
+/// ProjectMemberSerializer(instance, fields=…, expand=…)
+/// JSONRenderer().render(serializer.data)
+/// ```
+///
+/// Recorded from `apps/api` on 2026-11-17. The three shapes the v1 base has
+/// that the app's does not:
+///
+/// * `expand=member` — `member` is a concrete FK, so `getattr(instance,
+///   "member_id")` is the UUID the unexpanded field already renders;
+/// * `expand=role` — a `ChoiceField` has no `role_id`, so the key becomes
+///   `null`;
+/// * `expand=id` — the model's own primary key has no `id_id` either.
+#[test]
+fn the_v1_id_fallback_matches_drf_on_project_member() {
+    use plane_serializers::generated::api_member::ProjectMemberSerializer;
+    use plane_serializers::v1::{id_fallback, is_expansion_name};
+    use uuid::Uuid;
+
+    let id = Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("id");
+    let member = Uuid::parse_str("22222222-2222-4222-8222-222222222222").expect("member");
+    let value = ProjectMemberSerializer {
+        id,
+        member: Some(member),
+        role: 15,
+    };
+
+    // `id_fallback` values exactly as the handler would supply them: `member`
+    // is a FK (the pk), `role` and `id` are not.
+    type Case = (
+        Option<&'static [&'static str]>,
+        &'static [&'static str],
+        &'static str,
+    );
+    let cases: &[Case] = &[
+        (
+            None,
+            &[],
+            r#"{"id":"11111111-1111-4111-8111-111111111111","member":"22222222-2222-4222-8222-222222222222","role":15}"#,
+        ),
+        (
+            Some(&[]),
+            &[],
+            r#"{"id":"11111111-1111-4111-8111-111111111111","member":"22222222-2222-4222-8222-222222222222","role":15}"#,
+        ),
+        (
+            Some(&["id"]),
+            &[],
+            r#"{"id":"11111111-1111-4111-8111-111111111111"}"#,
+        ),
+        // expand=member: a FK, so the id fallback is the same UUID.
+        (
+            None,
+            &["member"],
+            r#"{"id":"11111111-1111-4111-8111-111111111111","member":"22222222-2222-4222-8222-222222222222","role":15}"#,
+        ),
+        // expand=role: no `role_id`, so the key is null.
+        (
+            None,
+            &["role"],
+            r#"{"id":"11111111-1111-4111-8111-111111111111","member":"22222222-2222-4222-8222-222222222222","role":null}"#,
+        ),
+        // expand=id: no `id_id`.
+        (
+            None,
+            &["id"],
+            r#"{"id":null,"member":"22222222-2222-4222-8222-222222222222","role":15}"#,
+        ),
+        // Both at once: member keeps its value (not `member_id`), role nulls.
+        (
+            None,
+            &["member", "role"],
+            r#"{"id":"11111111-1111-4111-8111-111111111111","member":"22222222-2222-4222-8222-222222222222","role":null}"#,
+        ),
+        // `fields=` removed `member`, so `expand=member` finds nothing to
+        // replace (`base.py:85`).
+        (
+            Some(&["id"]),
+            &["member"],
+            r#"{"id":"11111111-1111-4111-8111-111111111111"}"#,
+        ),
+        // A mapper name that is not a field of this serializer is ignored.
+        (
+            None,
+            &["user"],
+            r#"{"id":"11111111-1111-4111-8111-111111111111","member":"22222222-2222-4222-8222-222222222222","role":15}"#,
+        ),
+        (
+            None,
+            &["workspace"],
+            r#"{"id":"11111111-1111-4111-8111-111111111111","member":"22222222-2222-4222-8222-222222222222","role":15}"#,
+        ),
+    ];
+
+    for (fields, expand, expected) in cases {
+        let entries = fields.map(|names| {
+            names
+                .iter()
+                .copied()
+                .map(FieldEntry::Name)
+                .collect::<Vec<FieldEntry<'_>>>()
+        });
+        let id_values: Vec<Expansion<'_>> = expand
+            .iter()
+            .filter(|name| !is_expansion_name(name))
+            .map(|name| Expansion {
+                name,
+                value: if *name == "member" {
+                    id_fallback(Some(member))
+                } else {
+                    id_fallback(None)
+                },
+            })
+            .collect();
+        let ctx = RenderCtx::new(&UTC, entries.as_deref(), expand)
+            .with_expansions(Expansions::new(expand, &id_values));
+        assert_eq!(
+            render(&value, &ctx),
+            *expected,
+            "fields={fields:?} expand={expand:?}"
+        );
+    }
+}

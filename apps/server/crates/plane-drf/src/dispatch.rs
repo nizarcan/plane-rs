@@ -267,7 +267,11 @@ impl Runtime {
             if let Some(allow) = &route.allow {
                 response.set_header("Allow", allow.clone());
             }
-            if matches!(route.family, Family::ApiViewSet | Family::ApiApiView)
+            // Only `BaseAPIView.finalize_response` copies them
+            // (`plane/api/views/base.py:123-136`). `BaseViewSet` and the two
+            // `drf.APIView` api-roots do not, and their `AnonRateThrottle`
+            // never sets `request.META["X-RateLimit-*"]` anyway.
+            if copies_rate_limit_headers(route.family)
                 && let Some(rate_limit) = state.rate_limit
             {
                 for (name, value) in rate_limit.as_headers() {
@@ -698,6 +702,16 @@ fn is_re_raised(family: Family, error: &ViewError) -> bool {
     !matches!(error, ViewError::Api(_)) && !family.has_family_exception_handler()
 }
 
+/// Whether `finalize_response` copies `X-RateLimit-*` from `request.META`.
+///
+/// Only `plane.api.views.base.BaseAPIView` does (`:123-136`).
+/// `BaseViewSet` (`:162-279`) inherits DRF's passthrough, and the two v1
+/// `drf.APIView` api-roots inherit it from `APIView`. Both of those are
+/// throttled by `AnonRateThrottle`, which never writes the two keys.
+fn copies_rate_limit_headers(family: Family) -> bool {
+    family == Family::ApiApiView
+}
+
 /// The action half of `BaseViewSet._resolved_action_is_authorized`
 /// (`plane/app/views/base.py:103-172`).
 fn guard_denies(
@@ -835,6 +849,7 @@ pub use plane_core::context::RequestContext as DrfRequestContext;
 mod tests {
     use super::*;
     use plane_permissions::PermissionClass;
+    use plane_throttle::ThrottleClass;
 
     fn table() -> PolicyTable {
         PolicyTable::load().expect("routes.json")
@@ -923,6 +938,31 @@ mod tests {
         assert_eq!(
             std::str::from_utf8(&response.body).expect("utf8"),
             r#"{"detail":"Method \"POST\" not allowed."}"#
+        );
+    }
+
+    /// `plane/api/views/base.py:123-136`: only `BaseAPIView` copies the two
+    /// headers. `BaseViewSet` (invitations, stickies) and the v1 api-roots do
+    /// not, so an `ApiKeyRateThrottle` resolved for them cannot leak headers a
+    /// Django response would not carry.
+    #[test]
+    fn rate_limit_headers_are_copied_by_base_api_view_only() {
+        assert!(copies_rate_limit_headers(Family::ApiApiView));
+        assert!(!copies_rate_limit_headers(Family::ApiViewSet));
+        assert!(!copies_rate_limit_headers(Family::DrfApiView));
+        assert!(!copies_rate_limit_headers(Family::AppApiView));
+        assert!(!copies_rate_limit_headers(Family::AppViewSet));
+        assert!(!copies_rate_limit_headers(Family::DjangoView));
+        // And the v1 `BaseViewSet` rows really are throttled by the default.
+        let table = table();
+        let stickies = table
+            .routes()
+            .iter()
+            .find(|route| route.view == "plane.api.views.sticky.StickyViewSet")
+            .expect("stickies");
+        assert_eq!(
+            stickies.effective_throttles(Some("list")),
+            &[ThrottleClass::Anon]
         );
     }
 
