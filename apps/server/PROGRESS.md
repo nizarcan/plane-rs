@@ -1107,7 +1107,20 @@ independent; each domain's sets start after its own P0. At most three builds run
   only), so triage/archived/draft issues are fanned out too; `[{}]` is the `value` required
   error, not "Estimate points are required".
 
-Running: `users/me` P0, analytics P0, estimates A (46/47).
+- Analytics P0 (merged `5d798690c6`):
+  - `issue_export_task` takes `project_ids`/`multiple` as `TaskArg` (raw body values);
+  - five raw-body Celery golden cases (69 messages);
+  - the generated `AnalyticViewSerializer`;
+  - the `exporters.token` request-scoped DB placeholder rule.
+
+  On the merge: 992 tests; 30 write scenarios plus `read/analytics*`, 1996 steps, clean
+  DvR.
+- Disk: dipped to 28 GB (below the floor) with three builds running; one worktree's
+  incremental cache was 6.6 GB. Merged worktrees and the verification target were
+  removed, which brought it back to 34 GB. Briefs now ask for `CARGO_INCREMENTAL=0` on
+  full-workspace commands.
+
+Running: `users/me` P0, estimates A (46/47).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
