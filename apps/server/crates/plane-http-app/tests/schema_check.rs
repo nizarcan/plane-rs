@@ -122,6 +122,11 @@ fn catalogs() -> Vec<Catalog> {
             queries: plane_http_app::estimates::write_queries::ALL_QUERIES,
         },
         Catalog {
+            domain: "estimates_write_estimate",
+            source: "estimates/write_estimate_queries.rs",
+            queries: plane_http_app::estimates::write_estimate_queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "issues",
             source: "issues/queries.rs",
             queries: plane_http_app::issues::queries::ALL_QUERIES,
