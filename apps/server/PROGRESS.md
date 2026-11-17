@@ -1077,7 +1077,21 @@ independent; each domain's sets start after its own P0. At most three builds run
   (`len(split)` is always truthy); a NULL email 500s in `User.save`; a workspace admin who
   isn't a project member gets no promotion in `can_modify_asset`.
 
-Running: estimates P0, exact related-queryset pk checks (`rs/pk-qs`), `users/me` P0.
+- Exact generated pk lookups (merged `015a33bbc3`):
+  - The generator compiles each related field's own queryset with Django's compiler
+    (`queryset.filter(pk=…)` / `pk__in`, `values_list("pk").order_by()`) into one
+    catalogued statement per field: 65 in `write/generated/pk_queries.rs`, all prepared by
+    schema_check.
+  - `primary_key_field`/`_list_field`/`_many_field` take the statement.
+  - 12 fields changed to Django's predicates: triage states; triage/archived/draft/
+    archived-project issues for `parent`/`issue`/`duplicate_to`; soft-deleted labels in
+    `label_ids`/`labels`.
+  - `recheck_manager_fields` and `recheck_duplicate_to` were removed; `validate()`'s own
+    non-field errors are kept.
+  - `tests/generated_pk_lookups.rs` pins 12 statements to Django's SQL.
+  - On the merge: all 30 write scenarios, 1656 steps, clean DvR; 985 tests.
+
+Running: estimates P0 (done, merging), `users/me` P0.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
