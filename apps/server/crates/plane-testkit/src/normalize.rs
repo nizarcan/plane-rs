@@ -1626,18 +1626,34 @@ impl TargetNormalizer {
         };
         let columns: Vec<String> = map.keys().cloned().collect();
         for column in columns {
-            let Some(value) = map.get_mut(&column) else {
-                continue;
+            let drop = {
+                let Some(value) = map.get_mut(&column) else {
+                    continue;
+                };
+                let path = format!("db:{table}.{column}");
+                self.normalize_db_value(table, &column, value, &path)
             };
-            let path = format!("db:{table}.{column}");
-            self.normalize_db_value(table, &column, value, &path);
+            if drop {
+                map.remove(&column);
+            }
         }
         if table.rsplit('.').next() == Some("sessions") {
             self.check_session_row(row, &format!("db:{table}"));
         }
     }
 
-    fn normalize_db_value(&mut self, table: &str, column: &str, value: &mut Value, path: &str) {
+    /// Normalise one column of a changed row.
+    ///
+    /// `true` means the column leaves the diff entirely: a `drop` rule on a
+    /// **JSON** column (`projects.logo_props`) cannot be expressed by
+    /// `apply_rule`, which only rewrites a value in place.
+    fn normalize_db_value(
+        &mut self,
+        table: &str,
+        column: &str,
+        value: &mut Value,
+        path: &str,
+    ) -> bool {
         let bare_table = table.rsplit('.').next().unwrap_or(table);
         if let Some(rule) = self
             .db_columns
@@ -1645,14 +1661,19 @@ impl TargetNormalizer {
             .cloned()
             .filter(|rule| rule.matches_request(self.request.as_deref()))
         {
+            if rule.mode == RuleMode::Drop {
+                self.record(&format!("db:{bare_table}.{column}"), &rule.why);
+                return true;
+            }
             let before = value.clone();
             self.apply_rule(&rule, value, &format!("db:{bare_table}.{column}"), path);
             if *value != before {
                 self.record(&format!("db:{bare_table}.{column}"), &rule.why);
             }
-            return;
+            return false;
         }
         self.normalize_json(value, path);
+        false
     }
 
     /// The `sessions` row must be internally consistent: the columns mirror
@@ -2545,6 +2566,80 @@ mod tests {
         assert_eq!(update["b"], json!("#123456"));
         assert_eq!(update["a"], json!("#ABCDEF"));
         assert!(normalizer.take_violations().is_empty());
+    }
+
+    /// A `drop` rule on a **JSON** column removes it from the diff. Rewriting
+    /// it in place is not possible (the value is an object, not a string), so
+    /// `normalize_db_value` reports the drop and the row loses the key. A v1
+    /// project create is the case: `logo_props` is read-only on the serializer
+    /// and `create` fills it with a random icon and colour
+    /// (`plane/api/serializers/project.py:89,152-160`).
+    #[test]
+    fn a_dropped_json_db_column_leaves_the_diff() {
+        let mut rules = (*rules()).clone();
+        rules.volatile_db_columns.push(DbRule {
+            table: "projects".to_string(),
+            column: "logo_props".to_string(),
+            why: "random icon and colour on every v1 project create".to_string(),
+            mode: RuleMode::Drop,
+            placeholder: None,
+            shape: None,
+            check: None,
+            request: Some("POST /api/v1/workspaces/ws/projects/".to_string()),
+        });
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(rules),
+            base_url: "http://127.0.0.1:1".to_string(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        normalizer.set_request("POST /api/v1/workspaces/ws/projects/");
+        start(&mut normalizer);
+        let mut diff = crate::db::DbDiff::default();
+        diff.tables.insert(
+            "public.projects".to_string(),
+            crate::db::TableDiff {
+                inserted: vec![json!({
+                    "id": "22222222-2222-4222-8222-222222222222",
+                    "logo_props": {"in_use": "icon", "icon": {"name": "rocket", "color": "#6d7b8a"}},
+                    "name": "x",
+                })],
+                ..Default::default()
+            },
+        );
+        normalizer.normalize_db_diff(&mut diff);
+        assert_eq!(
+            diff.tables["public.projects"].inserted[0],
+            json!({
+                "id": "<id:1>",
+                "name": "x",
+            })
+        );
+        // Every other step keeps the column: the rule names the v1 create.
+        normalizer.start_step(
+            "2026-11-15T20:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("time"),
+            "2026-11-15T20:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("time"),
+        );
+        normalizer.set_request("POST /api/workspaces/ws/projects/");
+        let mut diff = crate::db::DbDiff::default();
+        diff.tables.insert(
+            "public.projects".to_string(),
+            crate::db::TableDiff {
+                inserted: vec![json!({"logo_props": {"in_use": "icon"}})],
+                ..Default::default()
+            },
+        );
+        normalizer.normalize_db_diff(&mut diff);
+        assert_eq!(
+            diff.tables["public.projects"].inserted[0],
+            json!({"logo_props": {"in_use": "icon"}})
+        );
     }
 
     /// The `epoch` kwarg's `kwargsrepr` copy is normalised too: the JSON value

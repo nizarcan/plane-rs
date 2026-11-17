@@ -77,6 +77,7 @@ pub mod fields;
 pub mod generated;
 pub mod mask;
 pub mod ser;
+pub mod v1;
 pub mod value;
 pub mod writer;
 

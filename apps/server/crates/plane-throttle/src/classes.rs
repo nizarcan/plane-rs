@@ -13,7 +13,7 @@
 //! | `UserRateThrottle` | `user` | `throttle_user_<pk or ident>` | Not instantiated by Plane; it is `EmailVerificationThrottle`'s base class. Kept because a future view may name it, and because it must fail the same way if it does (no `user` entry in `DEFAULT_THROTTLE_RATES`). |
 //! | `AuthenticationThrottle` | `authentication` | `throttle_authentication_<ident>` | `/auth/` APIViews (`check`, `magic`, `password_management`, `common.py:49`), `UserEndpoint.update_email`, `UserEndpoint.generate_email_verification_code`, and the `@throttle_auth_redirect` decorator on the plain `View` flows |
 //! | `EmailVerificationThrottle` | `email_verification` | `throttle_email_verification_<pk or ident>` | `UserEndpoint.generate_email_verification_code` (`plane/app/views/user/base.py:72-80`) |
-//! | `ApiKeyRateThrottle` | `api_key` | `api_key:<X-Api-Key>` | `/api/v1/` via `BaseAPIView.get_throttles`/`BaseViewSet.get_throttles` (`plane/api/views/base.py:69-70`) |
+//! | `ApiKeyRateThrottle` | `api_key` | `api_key:<X-Api-Key>` | `/api/v1/` via `BaseAPIView.get_throttles` (`plane/api/views/base.py:69-70`); `BaseViewSet` does **not** override it and runs `AnonRateThrottle` instead |
 //! | `AssetRateThrottle` | `asset_id` | `throttle_asset_<asset_id>` | `DuplicateAssetEndpoint` (`plane/app/views/asset/v2.py:841`) |
 //!
 //! `ScopedRateThrottle` is deliberately absent: no Plane view sets

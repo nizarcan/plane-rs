@@ -1220,9 +1220,13 @@ fn validate_spec(
             }
         }
         RuleMode::Drop => {
-            if what != "celery header" {
+            // A JSON/db column can be dropped too: `normalize_db_value`
+            // reports the drop to `normalize_db_row`, which removes the key.
+            // It is the only way to neutralise a column whose value is a
+            // random object rather than a string (`projects.logo_props`).
+            if what != "celery header" && what != "database column" {
                 bail!(
-                    "normalize: {what} rule {name:?}: `mode: drop` only applies to celery headers"
+                    "normalize: {what} rule {name:?}: `mode: drop` applies to celery headers and database columns"
                 );
             }
             if spec.placeholder.is_some() || spec.shape.is_some() {

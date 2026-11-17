@@ -1990,6 +1990,38 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.workspace.WorkspaceUserLinkSerializer",
     "plane.app.serializers.workspace.WorkspaceHomePreferenceSerializer",
     "plane.app.serializers.workspace.WorkSpaceMemberSerializer",
+    # `/api/v1/` write serializers (`plans/V1_API.md` §3c). The v1 sets (B, C,
+    # A) validate their request bodies through these tables instead of
+    # hand-written field lists: `BaseSerializer`'s only write-side difference
+    # from the app base is `fields=`, which never reaches validation, so one
+    # generator serves both surfaces.
+    #
+    # Not in this table, because it cannot be expressed as fields:
+    # * `ProjectCreateSerializer.create` sets a random `logo_props`
+    #   (`serializers/project.py:152-160`), and v1 makes the field read-only, so
+    #   every v1 project create is random;
+    # * `ModuleCreateSerializer.create` raises the duplicate-name
+    #   `ValidationError({"id","code","error","message"})` from `save()`
+    #   (`serializers/module.py:88-100`);
+    # * `StateSerializer.save` clears the other `default` states in a
+    #   transaction (`serializers/state.py:28-33`);
+    # * `ProjectSerializer.validate`'s `UnboundLocalError` on a non-dict
+    #   `description_html` (`serializers/project.py:272-281`).
+    "plane.api.serializers.project.ProjectCreateSerializer",
+    "plane.api.serializers.project.ProjectUpdateSerializer",
+    "plane.api.serializers.state.StateSerializer",
+    "plane.api.serializers.issue.LabelCreateUpdateSerializer",
+    "plane.api.serializers.cycle.CycleCreateSerializer",
+    "plane.api.serializers.cycle.CycleUpdateSerializer",
+    "plane.api.serializers.module.ModuleCreateSerializer",
+    "plane.api.serializers.module.ModuleUpdateSerializer",
+    "plane.api.serializers.issue.IssueCommentCreateSerializer",
+    "plane.api.serializers.issue.IssueLinkCreateSerializer",
+    "plane.api.serializers.issue.IssueLinkUpdateSerializer",
+    "plane.api.serializers.intake.IntakeIssueUpdateSerializer",
+    "plane.api.serializers.member.ProjectMemberSerializer",
+    "plane.api.serializers.invite.WorkspaceInviteSerializer",
+    "plane.api.serializers.sticky.StickySerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is
@@ -2288,8 +2320,24 @@ def declared_url_validators(field: Any) -> list[str] | None:
     return names
 
 
-def write_module_name(class_name: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", "_", class_name).lower()
+def write_module_name(class_name: str, python_name: str, duplicates: set[str]) -> str:
+    """The file name for one serializer's write table.
+
+    Normally the class name in snake case. Two surfaces can declare the same
+    class name for different models (`plane.app.serializers.project
+    .ProjectMemberSerializer` and `plane.api.serializers.member
+    .ProjectMemberSerializer`), so a duplicated name takes the surface prefix —
+    `api_project_member_serializer`. The app surface keeps the unprefixed name
+    because its handlers already import it, and because `plane-serializers`
+    names its representation modules the same way (`app_*`/`api_*`).
+    """
+    base = re.sub(r"(?<!^)(?=[A-Z])", "_", class_name).lower()
+    if class_name not in duplicates:
+        return base
+    surface = python_name.split(".")[1] if python_name.startswith("plane.") else "plane"
+    if surface in ("app", "space", "license"):
+        return base
+    return f"{surface}_{base}"
 
 
 def related_queryset(field: Any) -> Any:
@@ -2437,7 +2485,7 @@ def pk_lookup_query(field: Any, many: bool) -> OrderedDict[str, Any]:
     )
 
 
-def write_serializer_record(cls: type) -> OrderedDict[str, Any]:
+def write_serializer_record(cls: type, duplicates: set[str] = frozenset()) -> OrderedDict[str, Any]:
     """Everything the module for one serializer needs."""
     serializer = cls()
     model = getattr(getattr(cls, "Meta", None), "model", None)
@@ -2500,7 +2548,7 @@ def write_serializer_record(cls: type) -> OrderedDict[str, Any]:
         [
             ("python_name", dotted(cls)),
             ("class", cls.__name__),
-            ("module", write_module_name(cls.__name__)),
+            ("module", write_module_name(cls.__name__, dotted(cls), duplicates)),
             ("source_file", source.get("file")),
             ("source_line", source.get("line")),
             ("model", model_label(model)),
@@ -2729,7 +2777,10 @@ def pk_query_const(field: dict[str, Any]) -> str:
 
 def pk_query_name(field: dict[str, Any]) -> str:
     """The catalog name of that static (unique across the crate)."""
-    return "write_pk_" + write_module_name(field["serializer"]) + "_" + field["name"]
+    module = field.get("serializer_module") or re.sub(
+        r"(?<!^)(?=[A-Z])", "_", field["serializer"]
+    ).lower()
+    return "write_pk_" + module + "_" + field["name"]
 
 
 def render_pk_query(field: dict[str, Any]) -> list[str]:
@@ -2848,6 +2899,7 @@ def render_write_module(record: OrderedDict[str, Any]) -> str:
     lines.append("")
     for field in record["fields"]:
         field["serializer"] = record["class"]
+        field["serializer_module"] = record["module"]
     for field in record["fields"]:
         if field.get("related_query") is None:
             continue
@@ -2978,12 +3030,18 @@ def write_output(
     classes: dict[str, type], requested: list[str]
 ) -> tuple[dict[Path, str], list[OrderedDict[str, Any]], list[tuple[str, str, str]]]:
     """The generated write modules, the records, and every TODO entry."""
-    records = [write_serializer_record(classes[name]) for name in requested]
+    seen: dict[str, int] = {}
+    for name in classes:
+        class_name = name.rsplit(".", 1)[-1]
+        seen[class_name] = seen.get(class_name, 0) + 1
+    duplicates = {class_name for class_name, count in seen.items() if count > 1}
+    records = [write_serializer_record(classes[name], duplicates) for name in requested]
     files: dict[Path, str] = {}
     todos: list[tuple[str, str, str]] = []
     for record in records:
         for field in record["fields"]:
             field["serializer"] = record["class"]
+            field["serializer_module"] = record["module"]
         _, record_todos = validate_lines(record["fields"])
         todos.extend(record_todos)
         files[WRITE_GENERATED_DIR / f"{record['module']}.rs"] = format_rust(

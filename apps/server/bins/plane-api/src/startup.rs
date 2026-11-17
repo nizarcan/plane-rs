@@ -54,6 +54,12 @@ pub fn build_runtime(settings: &Settings) -> anyhow::Result<Runtime> {
     #[cfg(not(feature = "policy-probe"))]
     plane_http_app::register_all(&mut registry).context("registering the /api/ handlers")?;
 
+    // Every ported `/api/v1/` handler (`crates/plane-http-public`). The crate
+    // and its `common/` module land with P0; the four route sets fill it. An
+    // empty `register_all` is intentional and leaves every v1 route on Django.
+    #[cfg(not(feature = "policy-probe"))]
+    plane_http_public::register_all(&mut registry).context("registering the /api/v1/ handlers")?;
+
     #[cfg(feature = "policy-probe")]
     crate::probe::register_all(&mut registry).context("registering the policy probe handlers")?;
 

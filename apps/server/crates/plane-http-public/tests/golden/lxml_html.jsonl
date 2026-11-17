@@ -1,0 +1,70 @@
+{"input": "", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": " ", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "\n\t ", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "  \n  ", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "\r", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "\f", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "\u000b", "outcome": "ok", "lxml": "<span>\u000b</span>", "stored": "<span>\u000b</span>"}
+{"input": " ", "outcome": "ok", "lxml": "<span> </span>", "stored": "<span>&nbsp;</span>"}
+{"input": " ", "outcome": "ok", "lxml": "<span> </span>", "stored": "<span> </span>"}
+{"input": "　", "outcome": "ok", "lxml": "<span>　</span>", "stored": "<span>　</span>"}
+{"input": "\u001c", "outcome": "ok", "lxml": "<span>\u001c</span>", "stored": "<span>\u001c</span>"}
+{"input": "hello", "outcome": "ok", "lxml": "<span>hello</span>", "stored": "<span>hello</span>"}
+{"input": "hello world", "outcome": "ok", "lxml": "<span>hello world</span>", "stored": "<span>hello world</span>"}
+{"input": "+", "outcome": "ok", "lxml": "<span>+</span>", "stored": "<span>+</span>"}
+{"input": " ", "outcome": "ok", "lxml": "<span> </span>", "stored": "<span>&nbsp;</span>"}
+{"input": "<p>hello</p>", "outcome": "ok", "lxml": "<p>hello</p>", "stored": "<p>hello</p>"}
+{"input": "<p></p>", "outcome": "ok", "lxml": "<p></p>", "stored": "<p></p>"}
+{"input": "<p><br></p>", "outcome": "ok", "lxml": "<p><br></p>", "stored": "<p><br></p>"}
+{"input": "<div><br></div>", "outcome": "ok", "lxml": "<div><br></div>", "stored": "<div><br></div>"}
+{"input": "<p>a</p><p>b</p>", "outcome": "ok", "lxml": "<div><p>a</p><p>b</p></div>", "stored": "<div><p>a</p><p>b</p></div>"}
+{"input": "<p>a</p>\n<p>b</p>", "outcome": "ok", "lxml": "<div><p>a</p>\n<p>b</p></div>", "stored": "<div><p>a</p>\n<p>b</p></div>"}
+{"input": "text<p>x</p>", "outcome": "ok", "lxml": "<div>text<p>x</p></div>", "stored": "<div>text<p>x</p></div>"}
+{"input": "<p>x</p>text", "outcome": "ok", "lxml": "<div><p>x</p>text</div>", "stored": "<div><p>x</p>text</div>"}
+{"input": "<p>a</p>trailing", "outcome": "ok", "lxml": "<div><p>a</p>trailing</div>", "stored": "<div><p>a</p>trailing</div>"}
+{"input": "<p class=\"editor-paragraph\"><span>Hello</span></p>", "outcome": "ok", "lxml": "<p class=\"editor-paragraph\"><span>Hello</span></p>", "stored": "<p class=\"editor-paragraph\"><span>Hello</span></p>"}
+{"input": "<ul><li>a</li><li>b</li></ul>", "outcome": "ok", "lxml": "<ul><li>a</li><li>b</li></ul>", "stored": "<ul><li>a</li><li>b</li></ul>"}
+{"input": "<ol><li>a</li><li>b</li></ol>", "outcome": "ok", "lxml": "<ol><li>a</li><li>b</li></ol>", "stored": "<ol><li>a</li><li>b</li></ol>"}
+{"input": "<blockquote>quote</blockquote>", "outcome": "ok", "lxml": "<blockquote>quote</blockquote>", "stored": "<blockquote>quote</blockquote>"}
+{"input": "<pre><code>let x = 1;</code></pre>", "outcome": "ok", "lxml": "<pre><code>let x = 1;</code></pre>", "stored": "<pre><code>let x = 1;</code></pre>"}
+{"input": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>", "outcome": "ok", "lxml": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>", "stored": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>"}
+{"input": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>", "outcome": "ok", "lxml": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>", "stored": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>"}
+{"input": "<a href=\"https://example.com/?a=1&amp;b=2\" target=\"_blank\">link</a>", "outcome": "ok", "lxml": "<a href=\"https://example.com/?a=1&amp;b=2\" target=\"_blank\">link</a>", "stored": "<a href=\"https://example.com/?a=1&amp;b=2\" target=\"_blank\" rel=\"noopener noreferrer\">link</a>"}
+{"input": "<p>a &amp; b</p>", "outcome": "ok", "lxml": "<p>a &amp; b</p>", "stored": "<p>a &amp; b</p>"}
+{"input": "<p>&lt;script&gt;</p>", "outcome": "ok", "lxml": "<p>&lt;script&gt;</p>", "stored": "<p>&lt;script&gt;</p>"}
+{"input": "<p>&copy; &#169; &#xA9;</p>", "outcome": "ok", "lxml": "<p>© © ©</p>", "stored": "<p>© © ©</p>"}
+{"input": "<p>emoji 😀 ünïcode</p>", "outcome": "ok", "lxml": "<p>emoji 😀 ünïcode</p>", "stored": "<p>emoji 😀 ünïcode</p>"}
+{"input": "<p>a b</p>", "outcome": "ok", "lxml": "<p>a b</p>", "stored": "<p>a&nbsp;b</p>"}
+{"input": "<table><tr><td>x</td></tr></table>", "outcome": "ok", "lxml": "<table><tr><td>x</td></tr></table>", "stored": "<table><tbody><tr><td>x</td></tr></tbody></table>"}
+{"input": "<hr>", "outcome": "ok", "lxml": "<hr>", "stored": "<hr>"}
+{"input": "<img src=\"x\">", "outcome": "ok", "lxml": "<img src=\"x\">", "stored": "<img src=\"x\">"}
+{"input": "<input type='checkbox' checked>", "outcome": "ok", "lxml": "<input type=\"checkbox\" checked>", "stored": "<input type=\"checkbox\" checked=\"\">"}
+{"input": "<P CLASS='x'>Hi</P>", "outcome": "ok", "lxml": "<p class=\"x\">Hi</p>", "stored": "<p class=\"x\">Hi</p>"}
+{"input": "<p title=\"a &amp; b &quot; c\">x</p>", "outcome": "ok", "lxml": "<p title='a &amp; b \" c'>x</p>", "stored": "<p title=\"a &amp; b &quot; c\">x</p>"}
+{"input": "<p title=x>y</p>", "outcome": "ok", "lxml": "<p title=\"x\">y</p>", "stored": "<p title=\"x\">y</p>"}
+{"input": "<p>a > b</p>", "outcome": "ok", "lxml": "<p>a &gt; b</p>", "stored": "<p>a &gt; b</p>"}
+{"input": "<br/>", "outcome": "ok", "lxml": "<br>", "stored": "<br>"}
+{"input": "<p>a<br/>b</p>", "outcome": "ok", "lxml": "<p>a<br>b</p>", "stored": "<p>a<br>b</p>"}
+{"input": "<p>a<p>b", "outcome": "ok", "lxml": "<div><p>a</p><p>b</p></div>", "stored": "<div><p>a</p><p>b</p></div>"}
+{"input": "<ul><li>a<li>b</ul>", "outcome": "ok", "lxml": "<ul><li>a</li><li>b</li></ul>", "stored": "<ul><li>a</li><li>b</li></ul>"}
+{"input": "<table><tr><td>x</table>", "outcome": "ok", "lxml": "<table><tr><td>x</td></tr></table>", "stored": "<table><tbody><tr><td>x</td></tr></tbody></table>"}
+{"input": "<p>x</p></p>", "outcome": "ok", "lxml": "<p>x</p>", "stored": "<p>x</p>"}
+{"input": "<svg><circle/></svg>", "outcome": "ok", "lxml": "<svg><circle></circle></svg>", "stored": ""}
+{"input": "<textarea>a<b</textarea>", "outcome": "ok", "lxml": "<textarea>a&lt;b</textarea>", "stored": "a&lt;b"}
+{"input": "<!-- c --><p>x</p>", "outcome": "ok", "lxml": "<p>x</p>", "stored": "<p>x</p>"}
+{"input": "<p>a</p><!-- c -->", "outcome": "ok", "lxml": "<div><p>a</p><!-- c --></div>", "stored": "<div><p>a</p></div>"}
+{"input": "<!DOCTYPE html><html><body><p>x</p></body></html>", "outcome": "ok", "lxml": "<html><body><p>x</p></body></html>", "stored": "<p>x</p>"}
+{"input": "<html><body><p>x</p></body></html>", "outcome": "ok", "lxml": "<html><body><p>x</p></body></html>", "stored": "<p>x</p>"}
+{"input": "<script>alert(1)</script>", "outcome": "ok", "lxml": "<html><head><script>alert(1)</script></head></html>", "stored": ""}
+{"input": "<style>.x{}</style>", "outcome": "ok", "lxml": "<html><head><style>.x{}</style></head></html>", "stored": ""}
+{"input": "<!-- only comment -->", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "<?xml version='1.0'?>", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "</p>", "outcome": "error", "error": "ParserError: Document is empty"}
+{"input": "<", "outcome": "ok", "lxml": "<span>&lt;</span>", "stored": "<span>&lt;</span>"}
+{"input": "<>", "outcome": "ok", "lxml": "<span>&lt;&gt;</span>", "stored": "<span>&lt;&gt;</span>"}
+{"input": "< p>", "outcome": "ok", "lxml": "<span>&lt; p&gt;</span>", "stored": "<span>&lt; p&gt;</span>"}
+{"input": "<p", "outcome": "ok", "lxml": "<span></span>", "stored": "<span></span>"}
+{"input": "<p ", "outcome": "ok", "lxml": "<span></span>", "stored": "<span></span>"}
+{"input": "&bogus;", "outcome": "ok", "lxml": "<span>&amp;bogus;</span>", "stored": "<span>&amp;bogus;</span>"}
+{"input": "\u0000", "outcome": "ok", "lxml": "<span>�</span>", "stored": "<span>�</span>"}
+{"input": "\u0000a", "outcome": "ok", "lxml": "<span>�a</span>", "stored": "<span>�a</span>"}

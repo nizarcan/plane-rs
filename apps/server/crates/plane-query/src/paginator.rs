@@ -599,7 +599,8 @@ pub async fn issue_list_page_with(
     ))
 }
 
-fn ceil_div(value: i64, by: i64) -> i64 {
+/// Python's `math.ceil(value / by)` for two non-negative integers.
+pub fn ceil_div(value: i64, by: i64) -> i64 {
     if by <= 0 {
         return 0;
     }
@@ -1037,8 +1038,15 @@ fn plain_sub_group(
     Ok(Json::Object(out))
 }
 
+/// The paginator's response dict (`plane/utils/paginator.py:733-755`).
+///
+/// Public because `/api/v1/`'s lists paginate with the same paginator over
+/// their own SQL (`plane_http_public::common::page`); a grouped app list builds
+/// it through [`issue_list_page`] instead. `group_by`/`sub_group_by` are `None`
+/// for a plain page, and `total_pages` is `max_hits`: the plain paginator's
+/// `math.ceil(total / limit)`, the grouped ones' `ceil(largest group / limit)`.
 #[allow(clippy::too_many_arguments)]
-fn envelope(
+pub fn envelope(
     group_by: Option<GroupField>,
     sub_group_by: Option<GroupField>,
     hits: i64,

@@ -191,7 +191,7 @@ impl<'a, 'db> Authenticator<'a, 'db> {
         if header.is_empty() {
             return Ok(None);
         }
-        let client = self.conn.client().await?;
+        let client = self.conn.primary_client().await?;
         match api_key::authenticate(client, Some(header)).await {
             Ok(Some(token)) => Ok(Some(RequestUser::from_user((*token.user).clone()))),
             Ok(None) => Ok(None),
