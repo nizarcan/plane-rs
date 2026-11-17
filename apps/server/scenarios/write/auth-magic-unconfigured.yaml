@@ -1,0 +1,50 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The instance gate on the two generate routes, with the fixture template
+# unchanged: `instances.is_setup_done` is `FALSE`, so `Instance.objects.first()`
+# answers a row whose `is_setup_done` is false and both views answer 400
+# `INSTANCE_NOT_CONFIGURED` before reading the body (`views/app/magic.py:43-49`,
+# `views/space/magic.py:42-48`).
+#
+# Nothing is enqueued, no Redis key is written and the four plain views have no
+# such gate — their first failure is the CSRF check, then the missing code.
+
+name: write-auth-magic-unconfigured
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  member_email: "fix.member@example.com"
+
+steps:
+  - name: unconfigured-generate
+    method: POST
+    path: /auth/magic-generate/
+    jar: unconf01
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{member_email}}" }
+    expect_status: 400
+
+  - name: unconfigured-space-generate
+    method: POST
+    path: /auth/spaces/magic-generate/
+    jar: unconf02
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{member_email}}" }
+    expect_status: 400
+
+  # The generate gate runs before the body is read: an invalid address is the
+  # gate's 400, not the 500 the same body produces once the instance is set up.
+  - name: unconfigured-generate-invalid-email
+    method: POST
+    path: /auth/magic-generate/
+    jar: unconf03
+    headers:
+      Host: plane-fixture.test
+    json: { email: "not-an-email" }
+    expect_status: 400

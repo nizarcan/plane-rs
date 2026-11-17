@@ -222,6 +222,7 @@ impl Runtime {
         };
         let mut conn = Conn::new(pools, method, route.use_read_replica);
         let mut state = RunState::default();
+        let mut re_raised = false;
 
         let result = self
             .run(
@@ -239,10 +240,19 @@ impl Runtime {
 
         let mut response = match result {
             Ok(response) => response,
-            Err(error) => render_api(route.family.exception(error)),
+            Err(error) => {
+                // `APIView.dispatch`: when `handle_exception` returns `None` the
+                // exception is re-raised, so `finalize_response` never runs and
+                // the response Django builds carries **no** `default_response_
+                // headers` — no `Allow` (`rest_framework/views.py:453-485`).
+                // Only a family with its own `handle_exception` converts a
+                // non-`APIException` into a response.
+                re_raised = is_re_raised(route.family, &error);
+                render_api(route.family.exception(error))
+            }
         };
 
-        if route.family.is_drf() {
+        if route.family.is_drf() && !re_raised {
             if let Some(allow) = &route.allow {
                 response.set_header("Allow", allow.clone());
             }
@@ -661,6 +671,17 @@ impl Runtime {
     }
 }
 
+/// Whether a handler error escapes `APIView.dispatch` altogether.
+///
+/// `handle_exception` only converts `APIException` subclasses; everything else
+/// is re-raised unless the family base implements its own handler
+/// (`plane-drf`'s `Family::has_family_exception_handler`). A re-raised
+/// exception is answered by Django's handler, so `finalize_response` — and the
+/// `Allow` and `X-RateLimit-*` headers it copies — never runs.
+fn is_re_raised(family: Family, error: &ViewError) -> bool {
+    !matches!(error, ViewError::Api(_)) && !family.has_family_exception_handler()
+}
+
 /// The action half of `BaseViewSet._resolved_action_is_authorized`
 /// (`plane/app/views/base.py:103-172`).
 fn guard_denies(
@@ -887,6 +908,31 @@ mod tests {
             std::str::from_utf8(&response.body).expect("utf8"),
             r#"{"detail":"Method \"POST\" not allowed."}"#
         );
+    }
+
+    #[test]
+    fn a_re_raised_error_gets_no_finalize_headers() {
+        // A DRF view without a family handler: a non-`APIException` is
+        // re-raised, so Django's 500 page carries no `Allow`
+        // (`rest_framework/views.py:453-485`).
+        assert!(is_re_raised(
+            Family::DrfApiView,
+            &ViewError::Unknown("boom".to_string())
+        ));
+        assert!(is_re_raised(Family::DrfViewSet, &ViewError::Validation));
+        // An `APIException` is converted by DRF's handler, then
+        // `finalize_response` adds `Allow`.
+        assert!(!is_re_raised(
+            Family::DrfApiView,
+            &ViewError::Api(ApiError::NotAuthenticated)
+        ));
+        // Plane's family bases implement `handle_exception`, so their 500 is a
+        // JSON response that went through `finalize_response`.
+        assert!(!is_re_raised(
+            Family::AppApiView,
+            &ViewError::Unknown("boom".to_string())
+        ));
+        assert!(!is_re_raised(Family::AppViewSet, &ViewError::Integrity));
     }
 
     #[test]

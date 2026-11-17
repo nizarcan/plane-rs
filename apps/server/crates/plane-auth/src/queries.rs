@@ -382,6 +382,20 @@ plane_query! {
 }
 
 plane_query! {
+    /// `Profile.objects.get_or_create(user=user)`'s read half
+    /// (`authentication/views/app/magic.py:109`,
+    /// `authentication/utils/redirection_path.py:11`).
+    ///
+    /// `Profile` is `TimeAuditModel`, **not** `SoftDeleteModel`
+    /// (`plane/db/models/user.py:200`), so there is no `deleted_at` filter, and
+    /// `user_id` is unique (`OneToOneField`), so `get()` returns at most one row.
+    /// Only the three columns the callers read are selected.
+    LOAD_PROFILE_FOR_USER = "auth_load_profile_for_user",
+    "SELECT is_onboarded, last_workspace_id FROM profiles WHERE user_id = $1",
+    [("is_onboarded", Bool), ("last_workspace_id", Uuid)]
+}
+
+plane_query! {
     /// H31: `create_user_notification` (`plane/db/models/user.py:298-312`), a
     /// `post_save` receiver on `User` that creates one row when
     /// `created and not instance.is_bot`.
@@ -657,6 +671,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &INVITE_EXISTS_FOR_EMAIL,
     &USER_EXISTS_BY_EMAIL,
     &INSERT_PROFILE,
+    &LOAD_PROFILE_FOR_USER,
     &INSERT_USER_NOTIFICATION_PREFERENCE,
     &WORKSPACE_INVITES_FOR_EMAIL,
     &PROJECT_INVITES_FOR_EMAIL,

@@ -34,9 +34,9 @@ pub mod tasks;
 
 pub use adapter::{
     AdapterContext, AdapterError, AuthCallback, AuthProvider, CompletedLogin, InviteOutcome,
-    PostUserAuthWorkflow, complete_login_or_signup, create_profile,
-    process_workspace_project_invitations, sanitize_email, save_user_data, signup_allowed,
-    validate_password,
+    PostUserAuthWorkflow, ProfileState, complete_login_or_signup, create_profile,
+    process_workspace_project_invitations, profile_for_user, sanitize_email, save_user_data,
+    signup_allowed, validate_password,
 };
 pub use email::validate_email;
 pub use error::{ALL as ALL_AUTH_ERROR_CODES, AuthErrorCode, AuthFlowError};

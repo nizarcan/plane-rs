@@ -14,11 +14,9 @@
 //!    policy. Registration is stateful and one place owns the sequence, so a
 //!    duplicated or stale registration is a startup failure and must stay one.
 //! 2. Every registered `(view, action or method)` resolves to a route whose
-//!    `routes.json` `group` is `app` — or `auth`, which this crate also serves
-//!    as of Phase 6 (the auth agents put `/auth/` in `src/auth/` rather than a
-//!    new crate; `planes/AUTH_FLOWS.md` §3 says `plane-http-auth`). A handler
-//!    for `/api/v1/`, `/api/public/` or `/api/instances/` would still be dead
-//!    code in the wrong binary.
+//!    `routes.json` `group` is `app` or `auth`. This crate serves `/api/` and
+//!    (from Phase 6) `/auth/`; a handler for `/api/v1/`, `/api/public/` or
+//!    `/api/instances/` would be dead code in the wrong binary.
 //! 3. Each domain module registers an action or method only if every route that
 //!    dispatches to it belongs to that module's group in
 //!    `deploy/route-groups.yaml` (`src/lib.rs` maps module to group: `users_me`
@@ -82,6 +80,9 @@ const DOMAINS: &[(&str, &str)] = &[
     ("stickies", "stickies"),
     ("webhooks", "webhooks"),
     ("ai", "ai"),
+    // The three auth sets share `src/auth/`; each set registers only its own
+    // `route-groups.yaml` group, so the per-group check stays exact.
+    ("auth::magic", "auth-magic"),
 ];
 
 /// `apps/server/`, from `CARGO_MANIFEST_DIR` (`apps/server/crates/plane-http-app`).
@@ -149,6 +150,7 @@ fn register_module(module: &str) -> RegisterFn {
         "stickies" => plane_http_app::stickies::register,
         "webhooks" => plane_http_app::webhooks::register,
         "ai" => plane_http_app::ai::register,
+        "auth::magic" => plane_http_app::auth::magic::register,
         other => panic!("DOMAINS lists {other:?}, which register_all does not call"),
     }
 }

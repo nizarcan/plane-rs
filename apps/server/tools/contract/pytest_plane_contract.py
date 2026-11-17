@@ -390,6 +390,15 @@ def _local_mock_reason() -> str | None:
     The check looks at the effect (the module attribute is a `Mock`) rather than
     `unittest.mock._patch._active_patches`: the context-manager form of
     `patch` does not register there.
+
+    The same reasoning covers the auth throttle's rate: `test_authentication.py`
+    lowers `AuthenticationThrottle.rate` with `patch.object` so a test does not
+    have to fire ten requests (`plane/tests/contract/app/
+    test_authentication.py::TestAuthenticationThrottle`). Django reads the class
+    attribute per request; `plane-api` reads `AUTHENTICATION_RATE_LIMIT` once at
+    startup, so a patch in this process cannot reach it. The differential
+    scenario `scenarios/write/auth-magic-throttle.yaml` covers the behaviour on
+    Rust instead.
     """
     for module_name, attribute in STORAGE_MOCK_TARGETS:
         module = sys.modules.get(module_name)
@@ -400,6 +409,36 @@ def _local_mock_reason() -> str | None:
                 f"asserts on an in-process `{module_name}.{attribute}` mock; "
                 "served by Django"
             )
+    return _patched_throttle_rate_reason()
+
+
+# The `AuthenticationThrottle.rate` value before any test patched it, captured
+# on the first request (the module is imported by then; every patch is scoped to
+# one test and restores it).
+_ORIGINAL_THROTTLE_RATE: str | None = None
+
+
+def _patched_throttle_rate_reason() -> str | None:
+    """Whether this test replaced `AuthenticationThrottle.rate` in-process."""
+    global _ORIGINAL_THROTTLE_RATE
+    module = sys.modules.get("plane.authentication.rate_limit")
+    if module is None:
+        return None
+    cls = getattr(module, "AuthenticationThrottle", None)
+    if cls is None:
+        return None
+    rate = getattr(cls, "rate", None)
+    if not isinstance(rate, str):
+        return None
+    if _ORIGINAL_THROTTLE_RATE is None:
+        _ORIGINAL_THROTTLE_RATE = rate
+        return None
+    if rate != _ORIGINAL_THROTTLE_RATE:
+        return (
+            "patches `AuthenticationThrottle.rate` in-process; plane-api reads "
+            f"AUTHENTICATION_RATE_LIMIT at startup (this process uses {rate!r}, "
+            f"the original is {_ORIGINAL_THROTTLE_RATE!r}); served by Django"
+        )
     return None
 
 
@@ -800,6 +839,14 @@ def _build_response(
     response.wsgi_request = None
     response.json = partial(client._parse_json, response)
     response.data = _parse_json_body(response.content, response.headers.get("Content-Type", ""))
+    # `HttpResponseRedirectBase.url` is `property(lambda self: self["Location"])`
+    # (`django/http/response.py:190-205`). A Django `HttpResponse` built here has
+    # no such attribute, and the tests read it: `response.url` on a redirect, and
+    # `Client._handle_redirects`/`_follow_redirect` follow it for `follow=True`
+    # (`django/test/client.py:958-997,1372-1397`).
+    location = response.headers.get("Location")
+    if location is not None:
+        response.url = location
     response.was_rust = True
     response.rust_group = route.group
     return response
@@ -832,7 +879,16 @@ def _dispatch_to_rust(client: Any, environ: dict[str, Any], route: RustRoute) ->
     entry.status = wire.status_code
     if STATE.rabbit is not None and record is not None:
         _drain_and_replay(STATE.rabbit, record)
-    return _build_response(client, environ, wire, route)
+    response = _build_response(client, environ, wire, route)
+    # `Client.request`'s "Update persistent cookie data"
+    # (`django/test/client.py:1104-1106`): `self.cookies.update(response.cookies)`.
+    # The Rust branch returns from the patched `request` before that line, so
+    # without this the client's jar — and therefore `response.client.session` /
+    # `response.client.cookies` for the next step — never sees the target's
+    # `session-id`/`csrftoken` cookies.
+    if response.cookies:
+        client.cookies.update(response.cookies)
+    return response
 
 
 # ---------------------------------------------------------------------------

@@ -856,6 +856,48 @@ async fn insert_user(client: &Client, user: &User) -> Result<(), AdapterError> {
     Ok(())
 }
 
+/// `Profile.objects.get_or_create(user=user)` (`views/app/magic.py:109`, also
+/// the first statement of `authentication/utils/redirection_path.py:11`).
+///
+/// The profile row, or — when the user has none — the inserted row's defaults.
+/// Only the columns those two call sites read are returned, so the row's
+/// identity (`id`, timestamps) is not part of the answer.
+///
+/// Django's `get_or_create` catches the `IntegrityError` a concurrent insert
+/// produces and re-runs the `get`; this port propagates the error instead, which
+/// is a 500 where Django retries. Unreachable for one user in one request; noted
+/// rather than reproduced.
+///
+/// # Errors
+///
+/// A database failure, or the `NullEmail` `AttributeError` the insert can raise.
+pub async fn profile_for_user(client: &Client, user: &User) -> Result<ProfileState, AdapterError> {
+    let statement = crate::queries::LOAD_PROFILE_FOR_USER
+        .prepare(client)
+        .await?;
+    if let Some(row) = client.query_opt(&statement, &[&user.id]).await? {
+        return Ok(ProfileState {
+            is_onboarded: row.get(0),
+            last_workspace_id: row.get(1),
+        });
+    }
+    insert_profile(client, user).await?;
+    // The model defaults `insert_profile` writes: `is_onboarded=False` and
+    // `last_workspace_id=None` (`plane/db/models/user.py:245-246`).
+    Ok(ProfileState {
+        is_onboarded: false,
+        last_workspace_id: None,
+    })
+}
+
+/// The columns of `profiles` the `/auth/` flows read
+/// (`authentication/utils/redirection_path.py:14-30`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProfileState {
+    pub is_onboarded: bool,
+    pub last_workspace_id: Option<Uuid>,
+}
+
 /// H31's `UserNotificationPreference.objects.create(...)`.
 async fn insert_notification_preference(
     client: &Client,

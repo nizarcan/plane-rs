@@ -42,6 +42,25 @@
 //!   expiry. The harness compares TTLs within 2 s, so a fixture TTL only has
 //!   to be the same value on both sides.
 //!
+//! ## `encoding: "raw"`
+//!
+//! A few keys do **not** live in the django-redis keyspace. The magic-link
+//! provider uses `redis_instance()` (`plane/settings/redis.py:8-16`), a raw
+//! `redis-py` client: the key has no `:1:` prefix and the value is written with
+//! a plain `SET` — the JSON record `{"current_attempt": 0, "email": …,
+//! "token": …}` and the `:issued`/`:verify_attempts` counters (ASCII digits).
+//! An entry with `"encoding": "raw"` is written exactly as its JSON value says:
+//!
+//! * the key is **not** prefixed;
+//! * a string is written as its UTF-8 bytes (no pickle), an integer as its
+//!   decimal text; every other JSON type is refused.
+//!
+//! ```json
+//! { "key": "magic_a@example.com",
+//!   "value": "{\"current_attempt\": 0, \"email\": \"a@example.com\", \"token\": \"123456\"}",
+//!   "timeout": 600, "encoding": "raw" }
+//! ```
+//!
 //! The encoder is deliberately small: it handles the shapes a fixture needs
 //! (int, str, bool, null) and refuses anything else, so a fixture cannot
 //! silently write a value `cache.get` would decode differently.
@@ -79,6 +98,19 @@ struct FixtureEntry {
     value: Value,
     #[serde(default)]
     timeout: Option<i64>,
+    #[serde(default)]
+    encoding: Encoding,
+}
+
+/// How an entry's value is written.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum Encoding {
+    /// A django-redis entry: `:1:`-prefixed key, `DefaultClient.encode` value.
+    #[default]
+    Cache,
+    /// A `redis_instance()` entry: the literal key, the literal value.
+    Raw,
 }
 
 /// Read and encode a fixture file.
@@ -92,8 +124,18 @@ pub fn load(path: &Path) -> Result<Vec<Entry>> {
         if entry.key.is_empty() {
             bail!("{}: an entry has an empty key", path.display());
         }
-        let value = encode(&entry.value)
-            .with_context(|| format!("{}: entry {:?}", path.display(), entry.key))?;
+        let (key, value) = match entry.encoding {
+            Encoding::Cache => (
+                format!("{KEY_PREFIX}{}", entry.key),
+                encode(&entry.value)
+                    .with_context(|| format!("{}: entry {:?}", path.display(), entry.key))?,
+            ),
+            Encoding::Raw => (
+                entry.key.clone(),
+                encode_raw(&entry.value)
+                    .with_context(|| format!("{}: raw entry {:?}", path.display(), entry.key))?,
+            ),
+        };
         let ttl_ms = match entry.timeout {
             None => None,
             Some(seconds) if seconds > 0 => Some(seconds.saturating_mul(1000)),
@@ -104,13 +146,28 @@ pub fn load(path: &Path) -> Result<Vec<Entry>> {
                 entry.key
             ),
         };
-        entries.push(Entry {
-            key: format!("{KEY_PREFIX}{}", entry.key),
-            value,
-            ttl_ms,
-        });
+        entries.push(Entry { key, value, ttl_ms });
     }
     Ok(entries)
+}
+
+/// A raw entry's bytes: a Python `str` as UTF-8, an `int` as its decimal text.
+///
+/// `redis-py` sends whatever the view passes to `SET`. The two shapes the magic
+/// provider writes are `json.dumps(...)` text and `INCR`'s counter, which is
+/// stored as decimal ASCII. A bool or null would be Python's `str(bool)`
+/// (`"True"`), which no call site writes; refusing it keeps the fixture honest.
+pub fn encode_raw(value: &Value) -> Result<Vec<u8>> {
+    match value {
+        Value::String(text) => Ok(text.clone().into_bytes()),
+        Value::Number(number) => match number.as_i64() {
+            Some(integer) => Ok(integer.to_string().into_bytes()),
+            None => bail!("a raw value must be a string or an integer"),
+        },
+        Value::Bool(_) | Value::Null | Value::Array(_) | Value::Object(_) => {
+            bail!("a raw value must be a JSON string or integer")
+        }
+    }
 }
 
 /// `django_redis.serializers.pickle.PickleSerializer.dumps(value)`: a
@@ -222,5 +279,35 @@ mod tests {
         assert_eq!(entries[1].key, ":1:n");
         assert_eq!(entries[1].value, b"0");
         assert_eq!(entries[1].ttl_ms, None);
+    }
+
+    /// `redis_instance()`'s keyspace: no `:1:` prefix and no pickle, because
+    /// `redis-py`'s `SET` writes the value the view passed.
+    #[test]
+    fn raw_entries_are_neither_prefixed_nor_pickled() {
+        let directory = std::env::temp_dir();
+        let path = directory.join(format!(
+            "plane-fixture-redis-raw-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"entries":[
+                {"key":"magic_a@example.com","value":"{\"current_attempt\": 0}","timeout":600,"encoding":"raw"},
+                {"key":"magic_a@example.com:issued","value":1,"timeout":600,"encoding":"raw"}
+            ]}"#,
+        )
+        .expect("write fixture");
+        let entries = load(&path).expect("load fixture");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(entries[0].key, "magic_a@example.com");
+        assert_eq!(entries[0].value, b"{\"current_attempt\": 0}");
+        assert_eq!(entries[0].ttl_ms, Some(600_000));
+        assert_eq!(entries[1].key, "magic_a@example.com:issued");
+        assert_eq!(entries[1].value, b"1");
+        // The cache encoder stays the default.
+        assert_eq!(encode(&json!("x")).expect("pickle"), pickle_str("x"));
+        assert!(encode_raw(&json!(true)).is_err());
+        assert!(encode_raw(&json!([1])).is_err());
     }
 }

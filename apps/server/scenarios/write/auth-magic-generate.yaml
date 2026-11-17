@@ -1,0 +1,283 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Magic-link generation (set B): routes 359 `POST /auth/magic-generate/` and
+# 362 `POST /auth/spaces/magic-generate/`.
+#
+# Covers, in Step order:
+#
+#   * `request.data.get("email", "").strip().lower()` (app/magic.py:51) for a
+#     JSON object, a missing key, a JSON null, a non-string and a non-mapping
+#     body. The invalid/empty cases are **500s**: `validate_email` raises
+#     Django's `ValidationError` outside the view's `except
+#     AuthenticationException` and DRF does not map it. `/auth/email-check/`
+#     answers `INVALID_EMAIL` for the same input; that difference is the point.
+#   * `MagicCodeProvider.initiate()`: one Redis record per request
+#     (`magic_<email>`, 600 s, `json.dumps` with default separators), the
+#     `:issued` counter (`INCR` + `EXPIRE 600` on the first increment only) and
+#     the `magic_link` Celery message with the six-digit code.
+#   * the issued-code cap of 4 per window (magic_code.py:33-34,101-113): the
+#     fifth request is a 400 in the `_SIGN_IN` variant for a registered address
+#     and in the `_SIGN_UP` variant for an unknown one, and it does not touch
+#     the stored record.
+#   * the space route is the same view, written out independently in Python.
+#
+# Fixture rows, not `target_env`: the provider reads both knobs through
+# `get_configuration_value`, whose `SKIP_ENV_VAR` branch defaults to on
+# (plane/settings/common.py:401), so a seeded `instance_configurations` row
+# always wins over the environment — and the template seeds `EMAIL_HOST = ''`
+# and `ENABLE_MAGIC_LINK_LOGIN = '0'`. `auth-magic-fixture.sql` flips both and
+# marks the instance set up; the SMTP and disabled gates have their own
+# scenarios.
+#
+# The six-digit code is random on each side. `volatile_text_patterns` masks a
+# six-digit run **only** on these two requests, exactly like the e-mail-change
+# rule (normalize.yaml), so it covers the Redis value, the Celery `argsrepr`
+# and any accidental body leak while leaving every other number compared.
+
+name: write-auth-magic-generate
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-magic-fixture.sql"
+  email_existing: "fix.member@example.com"
+  email_new: "magic-new-user@example.com"
+  email_bot: "fix.bot@example.com"
+  email_deactivated: "fix.inactive@example.com"
+  email_cap_new: "magic-cap-new@example.com"
+  email_cap_existing: "fix.admin@example.com"
+  email_space: "magic-space@example.com"
+
+steps:
+  # --- 359: the body, before anything is read from Redis --------------------
+  - name: generate-01-empty-object
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: {}
+    expect_status: 500
+
+  - name: generate-02-invalid-email
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "not-an-email" }
+    expect_status: 500
+
+  - name: generate-03-null-email
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: null }
+    expect_status: 500
+
+  - name: generate-04-non-string-email
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: 123 }
+    expect_status: 500
+
+  - name: generate-05-list-body
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: []
+    expect_status: 500
+
+  # --- 359: the three user shapes -------------------------------------------
+  - name: generate-06-existing-user
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_existing}}" }
+    expect_status: 200
+
+  - name: generate-07-unknown-address
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_new}}" }
+    expect_status: 200
+
+  # Generation never checks `is_bot`; only the login path rejects a bot.
+  - name: generate-08-bot-user
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_bot}}" }
+    expect_status: 200
+
+  - name: generate-09-deactivated-user
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_deactivated}}" }
+    expect_status: 200
+
+  # --- 359: the issued-code cap ---------------------------------------------
+  # Four codes per window, counted per address: an unknown address gets the
+  # `_SIGN_UP` variant on the fifth request.
+  - name: generate-10-cap-new-1
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_new}}" }
+    expect_status: 200
+
+  - name: generate-11-cap-new-2
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_new}}" }
+    expect_status: 200
+
+  - name: generate-12-cap-new-3
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_new}}" }
+    expect_status: 200
+
+  - name: generate-13-cap-new-4
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_new}}" }
+    expect_status: 200
+
+  # 5102 EMAIL_CODE_ATTEMPT_EXHAUSTED_SIGN_UP. The stored record is the fourth
+  # code's, unchanged: the cap is checked before the `SET`.
+  - name: generate-14-cap-new-5
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_new}}" }
+    expect_status: 400
+
+  # 5100 …_SIGN_IN for a registered address.
+  - name: generate-15-cap-existing-1
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_existing}}" }
+    expect_status: 200
+
+  - name: generate-16-cap-existing-2
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_existing}}" }
+    expect_status: 200
+
+  - name: generate-17-cap-existing-3
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_existing}}" }
+    expect_status: 200
+
+  - name: generate-18-cap-existing-4
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_existing}}" }
+    expect_status: 200
+
+  - name: generate-19-cap-existing-5
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_existing}}" }
+    expect_status: 400
+
+  # A sixth request keeps the same counter and the same answer.
+  - name: generate-20-cap-existing-6
+    method: POST
+    path: /auth/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_cap_existing}}" }
+    expect_status: 400
+
+  # --- 362: the space route -------------------------------------------------
+  - name: generate-21-space
+    method: POST
+    path: /auth/spaces/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_space}}" }
+    expect_status: 200
+
+  - name: generate-22-space-second
+    method: POST
+    path: /auth/spaces/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_space}}" }
+    expect_status: 200
+
+  # The space route shares the `magic_<email>:issued` counter with the app
+  # route: the key is the address, not the surface.
+  - name: generate-23-space-existing-app-counter
+    method: POST
+    path: /auth/spaces/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: { email: "{{email_existing}}" }
+    expect_status: 200
+
+  - name: generate-24-space-empty
+    method: POST
+    path: /auth/spaces/magic-generate/
+    jar: gen
+    headers:
+      Host: plane-fixture.test
+    json: {}
+    expect_status: 500

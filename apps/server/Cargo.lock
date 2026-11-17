@@ -2497,6 +2497,7 @@ dependencies = [
  "plane-serde",
  "plane-serializers",
  "plane-storage",
+ "plane-throttle",
  "regex",
  "serde",
  "serde_json",
