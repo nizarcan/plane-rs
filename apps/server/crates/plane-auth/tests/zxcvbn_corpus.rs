@@ -2,21 +2,24 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // See the LICENSE file for details.
 
-//! `tools/auth/zxcvbn_corpus.json`: 546 passwords scored by the real
+//! `tools/auth/zxcvbn_corpus.json`: 742 passwords scored by the real
 //! `zxcvbn==4.4.28` through `plane.authentication.utils.password.
 //! is_password_strong`, recorded by `tools/auth/record_corpora.py`.
 //!
-//! The Rust `zxcvbn` 3.1.1 crate truncates its input to the first 100
-//! characters (`zxcvbn-3.1.1/src/lib.rs:156-158`); Plane's windows are 128, so
-//! the crate is only proven for windows ≤ 100 characters. This test pins that
-//! split — **0/830** differences at ≤ 100 and **33/262** above — so a crate
-//! upgrade that changes either side fails loudly and the decision in
-//! `auth_flow/password.rs` is revisited.
+//! The crate is vendored at `apps/server/vendor/zxcvbn/` with two changes
+//! (`VENDORED.md`): the input cap is raised from 100 to 128 characters, the
+//! window `is_password_strong` scores, and one-character l33t matches are
+//! dropped as Python drops them. This test requires the crate's **score** to
+//! equal Python's on every first/last window — 1 484 windows, 654 of them
+//! longer than 100 characters, across repeats, dictionary words, keyboard
+//! walks, dates, l33t, sequences, Unicode and random input — and the policy
+//! answer for every password, with **0** differences.
 //!
-//! The corpora include random ASCII, Unicode, emoji, >128-character strings,
-//! dictionary words and the fixture passwords.
+//! The recorded scores include the ones that disagreed before the vendor
+//! patch: 33 long windows scored differently with the 100-character cap, and
+//! `"1" * 128` scored 0 instead of 1 because of the l33t bug.
 
-use plane_auth::auth_flow::{PasswordStrengthError, is_password_strong};
+use plane_auth::auth_flow::is_password_strong;
 use serde::Deserialize;
 
 const CORPUS: &str = include_str!("../../../tools/auth/zxcvbn_corpus.json");
@@ -42,7 +45,7 @@ fn score(password: &str) -> u8 {
 }
 
 /// The crate's score for both windows of every case, computed once: scoring is
-/// the expensive part of this file (~20 s for 1 092 windows).
+/// the expensive part of this file (zxcvbn is super-linear on random input).
 fn scores() -> &'static [(u8, u8)] {
     use std::sync::OnceLock;
     static SCORES: OnceLock<Vec<(u8, u8)>> = OnceLock::new();
@@ -60,92 +63,54 @@ fn scores() -> &'static [(u8, u8)] {
 fn the_corpus_is_from_the_pinned_python_zxcvbn() {
     let corpus: Corpus = serde_json::from_str(CORPUS).expect("corpus json");
     assert_eq!(corpus.zxcvbn, "4.4.28");
-    assert!(corpus.cases.len() >= 500);
+    assert_eq!(corpus.cases.len(), 742);
 }
 
 #[test]
-fn the_crate_agrees_on_every_window_at_most_100_characters() {
+fn every_window_score_matches_python() {
     let corpus: Corpus = serde_json::from_str(CORPUS).expect("corpus json");
-    let mut checked = 0;
-    let scores = scores();
-    for (case, (first, last)) in corpus.cases.iter().zip(scores) {
+    let mut short = 0;
+    let mut long = 0;
+    let mut differences = Vec::new();
+    for (case, (first, last)) in corpus.cases.iter().zip(scores()) {
         for (window, expected, actual) in [
             (&case.first, case.first_score, *first),
             (&case.last, case.last_score, *last),
         ] {
             if window.chars().count() > 100 {
-                continue;
+                long += 1;
+            } else {
+                short += 1;
             }
-            assert_eq!(
-                actual, expected,
-                "zxcvbn({:?}) (password {:?})",
-                window, case.password
-            );
-            checked += 1;
+            if actual != expected {
+                differences.push((window.clone(), expected, actual, case.password.clone()));
+            }
         }
     }
-    assert_eq!(checked, 830, "the short-window population changed");
+    assert_eq!(short, 830, "the short-window population changed");
+    assert_eq!(long, 654, "the long-window population changed");
+    assert!(
+        differences.is_empty(),
+        "{} score differences, first: {:?}",
+        differences.len(),
+        differences.first()
+    );
 }
 
 #[test]
-fn the_crate_differs_exactly_on_the_windows_it_truncates() {
+fn is_password_strong_matches_python_on_every_password() {
     let corpus: Corpus = serde_json::from_str(CORPUS).expect("corpus json");
-    let mut first_differences = 0;
-    let mut last_differences = 0;
-    let mut strong_differences = 0;
-    let mut long_windows = 0;
-    let scores = scores();
-    for (case, (first, last)) in corpus.cases.iter().zip(scores) {
-        let first = *first;
-        let last = *last;
-        if case.first.chars().count() > 100 {
-            long_windows += 1;
-            if first != case.first_score {
-                first_differences += 1;
-            }
-        } else {
-            assert_eq!(first, case.first_score, "short first window changed");
-        }
-        if case.last.chars().count() > 100 {
-            long_windows += 1;
-            if last != case.last_score {
-                last_differences += 1;
-            }
-        } else {
-            assert_eq!(last, case.last_score, "short last window changed");
-        }
-        if (first >= 3 || last >= 3) != case.strong {
-            strong_differences += 1;
-        }
-    }
-    assert_eq!(long_windows, 262, "the long-window population changed");
-    assert_eq!(first_differences, 16);
-    assert_eq!(last_differences, 17);
-    assert_eq!(strong_differences, 3);
-}
-
-#[test]
-fn is_password_strong_matches_python_where_the_crate_is_proven() {
-    let corpus: Corpus = serde_json::from_str(CORPUS).expect("corpus json");
-    let mut answered = 0;
+    let mut differences = Vec::new();
     for case in &corpus.cases {
-        let length = case.first.chars().count().max(case.last.chars().count());
-        if length <= 100 {
-            assert_eq!(
-                is_password_strong(&case.password),
-                Ok(case.strong),
-                "is_password_strong({:?})",
-                case.password
-            );
-            answered += 1;
-        } else {
-            // A 500 (the deliberate not-implemented path), never a wrong
-            // password policy.
-            assert_eq!(
-                is_password_strong(&case.password),
-                Err(PasswordStrengthError::NotPorted { length })
-            );
+        let actual = is_password_strong(&case.password);
+        if actual != case.strong {
+            differences.push((case.password.clone(), case.strong, actual));
         }
     }
-    assert!(answered >= 400);
+    assert!(
+        differences.is_empty(),
+        "{} policy differences, first: {:?}",
+        differences.len(),
+        differences.first()
+    );
 }

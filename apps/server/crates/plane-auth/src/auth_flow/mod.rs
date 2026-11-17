@@ -55,7 +55,7 @@ pub use oauth::{
     create_update_account, oauth_redirect_uri, oauth_state_matches, sync_flag_name,
     validate_oauth_state,
 };
-pub use password::{PasswordStrengthError, is_password_strong};
+pub use password::{is_password_strong, is_password_strong_async};
 pub use redirect::{
     PyValueError, RedirectionPath, allowed_hosts, get_safe_redirect_url, settings_allowed_hosts,
     space_redirect_url, url_has_allowed_host_and_scheme, url_has_allowed_host_and_scheme_https,

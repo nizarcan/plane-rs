@@ -14,7 +14,14 @@ members = ["crates/*", "bins/*"]
 # and prints numbers, so the server would run different code in tests than in
 # the production binary. Build it with
 # `cargo ... --manifest-path crates/plane-testkit/Cargo.toml`.
-exclude = ["crates/plane-testkit"]
+exclude = ["crates/plane-testkit", "vendor/zxcvbn"]
+
+# `vendor/zxcvbn` is upstream `zxcvbn` 3.1.1 with two changes: the
+# 100-character input cap is raised to 128, the window `is_password_strong`
+# scores, and one-character l33t matches are dropped as Python drops them. See
+# `vendor/zxcvbn/VENDORED.md`.
+[patch.crates-io]
+zxcvbn = { path = "vendor/zxcvbn" }
 
 [workspace.package]
 version = "0.1.0"
@@ -86,3 +93,11 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# zxcvbn's dictionary match is super-linear on random input (a 128-character
+# random-printable password is ~0.6 s optimized, many seconds unoptimized), so
+# the recorded corpus in `crates/plane-auth/tests/zxcvbn_corpus.rs` is
+# unusable without optimizing this one dependency. Test binaries of the
+# workspace crates stay unoptimized.
+[profile.test.package.zxcvbn]
+opt-level = 3

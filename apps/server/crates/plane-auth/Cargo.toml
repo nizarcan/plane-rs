@@ -44,9 +44,11 @@ tokio = { workspace = true, features = ["rt", "sync"] }
 tokio-postgres.workspace = true
 tracing.workspace = true
 uuid.workspace = true
-# `is_password_strong`: see `auth_flow/password.rs`. The crate is used only for
-# windows it is proven to score identically (≤ 100 characters); longer windows
-# return the not-ported error until the Python matchers are ported.
+# `is_password_strong`: see `auth_flow/password.rs`. Wired to the vendored
+# `apps/server/vendor/zxcvbn` by `[patch.crates-io]` in the workspace root; the
+# vendor patch raises the crate's 100-character cap to Plane's 128-character
+# window and matches Python's l33t filtering. The corpus test pins score
+# equality on every recorded window.
 zxcvbn = { version = "3.1.1", default-features = false }
 
 [dev-dependencies]
