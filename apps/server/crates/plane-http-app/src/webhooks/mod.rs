@@ -14,11 +14,11 @@
 //! | Rust | Python |
 //! | --- | --- |
 //! | [`base`] | `webhook/base.py` — `WebhookEndpoint`, `WebhookLogsEndpoint`, `WebhookSecretRegenerateEndpoint` |
+//! | [`write_patch`] | `WebhookEndpoint.patch`/`.delete` (`base.py:81-111`) |
 //!
-//! The three `GET`s are ported, and set A's writes (`POST` on `webhooks/`,
-//! the `pk` route's TypeError 500 and `POST …/webhooks/{pk}/regenerate/`).
-//! `PATCH`/`DELETE` stay on Django (unregistered → 501) until set B registers
-//! them.
+//! The three `GET`s and every write are ported: set A's `POST` on `webhooks/`,
+//! the `pk` route's TypeError 500 and `POST …/webhooks/{pk}/regenerate/`; set
+//! B's `PATCH`/`DELETE` and their TypeError 500 on `webhooks/`.
 //!
 //! The shared write pieces live beside them:
 //!
@@ -36,6 +36,7 @@ pub mod queries;
 pub mod render;
 pub mod validate;
 pub mod write;
+pub mod write_patch;
 pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
