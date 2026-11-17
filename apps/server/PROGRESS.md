@@ -944,7 +944,24 @@ and only `verified` rows are Rust-owned.
 - Doc note: `MODEL_HOOKS.md`'s status column says `not-ported` for all 39 rows and was
   never maintained. The source of truth for ported hooks is the "Ported today" table in
   `plane-db/src/hooks/mod.rs`.
-- Running: intake C (PATCH 56/60).
+- Intake C (merged `30247ebdb7`, flipped with this entry): 56/60
+  `rust(GET,PATCH,DELETE)`. `write/intake-issues-patch.yaml` 60/60 in both directions;
+  on the merge, all 25 write scenarios plus `read/intake*` are clean DvR.
+  `test_intake_issue_read_only_fields_app.py` passes, and the orchestrator's full
+  contract run has 58/58 Rust-touching tests passing (971 passed; the 15 failures are the
+  known Django-only magic-link tests). Harness change reviewed: for a non-mocked task
+  under `task_always_eager`, the contract plugin now runs the task from the
+  Rust-published message, like Django's in-process `apply`.
+- **The intake domain is fully on Rust** (53–62, 160).
+- Upstream quirks kept: a urlencoded PATCH body 500s (immutable `QueryDict.pop`);
+  `created_by` is writable; the three-key `issue_data` reduction also applies to a
+  workspace admin with a guest project role; accept saves the stale cached
+  `instance.issue` and reverts that request's nested edits.
+- Follow-up (shared): `write::fields::datetime` diverges from CPython's
+  `datetime.fromisoformat`. It accepts `" 2026-11-2"` and rejects the basic format
+  `"20261120"`, both of which Django handles the other way. This affects every ported
+  datetime field.
+- Running: notifications A+B (117–122).
 
 ## Next three steps
 
