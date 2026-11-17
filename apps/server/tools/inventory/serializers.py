@@ -1969,6 +1969,7 @@ WRITE_SERIALIZERS = (
     "plane.app.serializers.intake.IntakeSerializer",
     "plane.app.serializers.intake.IntakeIssueSerializer",
     "plane.app.serializers.notification.UserNotificationPreferenceSerializer",
+    "plane.app.serializers.webhook.WebhookSerializer",
 )
 
 # Hand-written tables the generated output must agree with. Each value is
@@ -2003,6 +2004,10 @@ WRITE_EQUIVALENCE = {
 
 FIELD_KIND_VARIANTS = {
     "char": "Char",
+    # `serializers.URLField`: a `CharField` with Django's `URLValidator` and
+    # optionally declared validators appended (`rest_framework/fields.py:806-814`).
+    # Its own kind so `validate` can emit `url_field` instead of `char_field`.
+    "url": "Url",
     "integer": "Integer",
     "float": "Float",
     "boolean": "Boolean",
@@ -2068,6 +2073,10 @@ def write_kind(field: Any) -> str:
 
     if isinstance(field, drf_fields.FileField):
         return "file"
+    # Before `CharField`: `URLField` subclasses it
+    # (`rest_framework/fields.py:794-814`).
+    if isinstance(field, drf.URLField):
+        return "url"
     if isinstance(field, drf.CharField):
         return "char"
     if isinstance(field, drf.ModelField):
@@ -2177,7 +2186,57 @@ def write_field_record(field: Any, cls: type) -> OrderedDict[str, Any]:
         record["child"] = write_field_record(field.child_relation, cls)
     elif isinstance(field, drf_serializers.ListSerializer):
         record["child"] = write_field_record(field.child, cls)
+    if record["kind"] == "url":
+        # The validators DRF appends itself (`CharField.__init__`'s
+        # `ProhibitNullCharactersValidator`/`ProhibitSurrogateCharactersValidator`
+        # and `URLField.__init__`'s `URLValidator`) are not part of the
+        # declaration: `url_field` runs them in the same positions. Only the
+        # serializer's own list is named here, and an unknown one is a TODO
+        # rather than a silent drop.
+        record["url_validators"] = declared_url_validators(field)
     return record
+
+
+# `WebhookSerializer.url` is the app's only `serializers.URLField`, and its two
+# declared validators are `plane.db.models.webhook`'s
+# (`plane/app/serializers/webhook.py:25`).
+URL_FIELD_VALIDATORS = {
+    "validate_schema": "Schema",
+    "validate_domain": "Domain",
+}
+
+
+def declared_url_validators(field: Any) -> list[str] | None:
+    """The `UrlValidator` variants for a `URLField`, or `None` when unknown."""
+    from django.core.validators import (
+        MaxLengthValidator,
+        MinLengthValidator,
+        ProhibitNullCharactersValidator,
+        URLValidator,
+    )
+    from rest_framework.validators import ProhibitSurrogateCharactersValidator
+
+    # `CharField.__init__` appends the length validators it derives from
+    # `max_length`/`min_length` and the two character-class validators;
+    # `URLField.__init__` appends `URLValidator`
+    # (`rest_framework/fields.py:537-559`, `:806-814`). `url_field` runs each of
+    # them in the same position, so they must not appear as declarations.
+    builtin = (
+        MaxLengthValidator,
+        MinLengthValidator,
+        ProhibitNullCharactersValidator,
+        ProhibitSurrogateCharactersValidator,
+        URLValidator,
+    )
+    names: list[str] = []
+    for validator in field.validators:
+        if isinstance(validator, builtin):
+            continue
+        mapped = URL_FIELD_VALIDATORS.get(getattr(validator, "__name__", ""))
+        if mapped is None:
+            return None
+        names.append(mapped)
+    return names
 
 
 def write_module_name(class_name: str) -> str:
@@ -2316,6 +2375,20 @@ def validate_lines(fields: list[dict[str, Any]]) -> tuple[list[str], list[tuple[
                 f"allow_blank: {bool_literal(field['allow_blank'])}, "
                 f"trim_whitespace: {bool_literal(field['trim_whitespace'])}, "
                 f"max_length: {('Some(' + str(field['max_length']) + ')') if 'max_length' in field else 'None'} }});"
+            )
+        elif kind == "url" and field.get("url_validators") is not None:
+            has_statement = True
+            validators = ", ".join(
+                f"UrlValidator::{variant}" for variant in field["url_validators"]
+            )
+            lines.append(
+                "    let _ = s.url_field("
+                f"{name}, UrlOptions {{ required: {bool_literal(field['required'])}, "
+                f"allow_null: {bool_literal(field['allow_null'])}, "
+                f"allow_blank: {bool_literal(field['allow_blank'])}, "
+                f"trim_whitespace: {bool_literal(field['trim_whitespace'])}, "
+                f"max_length: {('Some(' + str(field['max_length']) + ')') if 'max_length' in field else 'None'}, "
+                f"validators: &[{validators}] }})?;"
             )
         elif kind == "boolean" and not field["allow_null"]:
             has_statement = True
@@ -2458,6 +2531,10 @@ def write_validate_imports(fields: list[dict[str, Any]]) -> list[str]:
     names = ["Serializer"]
     if any(field["kind"] == "char" for field in fields):
         names.append("CharOptions")
+    if any(field["kind"] == "url" and field.get("url_validators") is not None for field in fields):
+        names.append("UrlOptions")
+    if any(field.get("url_validators") for field in fields):
+        names.append("UrlValidator")
     if any(field["required"] for field in fields):
         names.append("Detail")
     if any(field["kind"] == "integer" for field in fields):
@@ -2542,6 +2619,7 @@ def write_generated_mod(records: list[OrderedDict[str, Any]]) -> str:
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
         "pub enum FieldKind {",
         "    Char,",
+        "    Url,",
         "    Integer,",
         "    Float,",
         "    Boolean,",

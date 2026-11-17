@@ -31,13 +31,14 @@ use plane_core::error::APPLICATION_JSON;
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_serializers::RenderCtx;
 use plane_serializers::generated::app_webhook::WebhookLogSerializer;
-use plane_serializers::{DrfError, DrfSerialize, DrfUuid, DrfWriter, RenderCtx};
 use uuid::Uuid;
 
 use crate::common::lookup;
 use crate::common::{client, render_list};
 use crate::webhooks::queries;
+use crate::webhooks::render::WebhookTen;
 
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
@@ -47,69 +48,6 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .api_view("plane.app.views.webhook.base.WebhookLogsEndpoint")?
         .method(Method::GET, get_logs)?;
     Ok(())
-}
-
-/// One row of either `WebhookEndpoint` branch.
-#[derive(Debug)]
-struct Webhook {
-    id: Uuid,
-    url: String,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
-    is_active: bool,
-    project: bool,
-    issue: bool,
-    module: bool,
-    cycle: bool,
-    issue_comment: bool,
-}
-
-impl Webhook {
-    fn decode(row: &tokio_postgres::Row) -> Result<Self, ViewError> {
-        Ok(Self {
-            id: row.try_get(0).map_err(ViewError::from)?,
-            url: row.try_get(1).map_err(ViewError::from)?,
-            created_at: row.try_get(2).map_err(ViewError::from)?,
-            updated_at: row.try_get(3).map_err(ViewError::from)?,
-            is_active: row.try_get(4).map_err(ViewError::from)?,
-            project: row.try_get(5).map_err(ViewError::from)?,
-            issue: row.try_get(6).map_err(ViewError::from)?,
-            module: row.try_get(7).map_err(ViewError::from)?,
-            cycle: row.try_get(8).map_err(ViewError::from)?,
-            issue_comment: row.try_get(9).map_err(ViewError::from)?,
-        })
-    }
-}
-
-/// `WebhookSerializer(webhook, fields=(…))`'s `.data`, in declaration order.
-#[derive(Debug)]
-struct WebhookValue<'a>(&'a Webhook);
-
-impl DrfSerialize for WebhookValue<'_> {
-    fn drf_write(&self, w: &mut DrfWriter, ctx: &RenderCtx<'_>) -> Result<(), DrfError> {
-        let webhook = self.0;
-        let mut obj = w.begin_object();
-        obj.field_dyn("id", ctx, &DrfUuid(webhook.id))?;
-        obj.field_dyn("url", ctx, &webhook.url)?;
-        obj.field_dyn(
-            "created_at",
-            ctx,
-            &plane_serializers::fields::drf_datetime(webhook.created_at, ctx.tz()),
-        )?;
-        obj.field_dyn(
-            "updated_at",
-            ctx,
-            &plane_serializers::fields::drf_datetime(webhook.updated_at, ctx.tz()),
-        )?;
-        obj.field_dyn("is_active", ctx, &webhook.is_active)?;
-        obj.field_dyn("project", ctx, &webhook.project)?;
-        obj.field_dyn("issue", ctx, &webhook.issue)?;
-        obj.field_dyn("module", ctx, &webhook.module)?;
-        obj.field_dyn("cycle", ctx, &webhook.cycle)?;
-        obj.field_dyn("issue_comment", ctx, &webhook.issue_comment)?;
-        obj.end();
-        Ok(())
-    }
 }
 
 /// `WebhookEndpoint.get` (`plane/app/views/webhook/base.py:43-79`). One
@@ -132,10 +70,9 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
                 .map_err(ViewError::from)?;
             let mut webhooks = Vec::with_capacity(rows.len());
             for row in &rows {
-                webhooks.push(Webhook::decode(row)?);
+                webhooks.push(WebhookTen::decode(row)?);
             }
-            let values: Vec<WebhookValue<'_>> = webhooks.iter().map(WebhookValue).collect();
-            let body = render_list(&values, &RenderCtx::full(&timezone))?;
+            let body = render_list(&webhooks, &RenderCtx::full(&timezone))?;
             return Ok(ViewResponse::raw(200, APPLICATION_JSON, body));
         };
 
@@ -152,8 +89,8 @@ pub fn get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
         else {
             return Err(ViewError::ObjectDoesNotExist);
         };
-        let webhook = Webhook::decode(&row)?;
-        let body = plane_serializers::render(&WebhookValue(&webhook), &RenderCtx::full(&timezone))?;
+        let webhook = WebhookTen::decode(&row)?;
+        let body = plane_serializers::render(&webhook, &RenderCtx::full(&timezone))?;
         Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
     })
 }

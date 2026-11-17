@@ -7,7 +7,7 @@
 //! `tools/inventory/serializers.py --rust`; do not edit.
 
 use crate::write::generated::{ExtraKwarg, FieldKind, FieldSpec, ReadOnlySpec};
-use crate::write::{CharOptions, Detail, Serializer};
+use crate::write::{CharOptions, Detail, Serializer, UrlOptions};
 use deadpool_postgres::Client;
 use plane_drf::error::ViewError;
 
@@ -60,7 +60,7 @@ pub const FIELDS: &[FieldSpec] = &[
         name: "url",
         source: "url",
         python_class: "URLField",
-        kind: FieldKind::Char,
+        kind: FieldKind::Url,
         required: true,
         write_only: false,
         allow_null: false,
@@ -172,15 +172,17 @@ pub async fn validate(s: &mut Serializer<'_>, client: &Client) -> Result<(), Vie
             max_length: Some(255),
         },
     );
-    let _ = s.char_field(
+    let _ = s.url_field(
         "url",
-        CharOptions {
+        UrlOptions {
+            required: true,
             allow_null: false,
             allow_blank: false,
             trim_whitespace: true,
             max_length: Some(200),
+            validators: &[],
         },
-    );
+    )?;
     if s.missing_required("url") {
         s.push_error("url", Detail::required());
     }

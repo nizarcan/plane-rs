@@ -12,6 +12,124 @@
 //! .URLValidator`, so a handler that needs the exact accept/reject decision
 //! can call this function directly (the field error is DRF's `"Enter a valid
 //! URL."`).
+//!
+//! [`run_url_validators`] is DRF's validator **chain** for a `URLField`, which
+//! matters because `WebhookSerializer.url`
+//! (`plane/app/serializers/webhook.py:25`) is the one `serializers.URLField` in
+//! the app and every validator in the chain accumulates: `Field.__init__` keeps
+//! the declared list, `CharField.__init__` appends the length and
+//! character-class validators, and `URLField.__init__` appends Django's
+//! `URLValidator` last (`rest_framework/fields.py:326-327`, `:537-559`,
+//! `:806-814`). So `ftp://localhost` yields *two* messages, not the first one.
+
+use crate::write::fields::Detail;
+
+/// One validator declared on a `URLField`, in declaration order.
+///
+/// The app declares only the two model validators:
+/// `serializers.URLField(validators=[validate_schema, validate_domain])`
+/// (`plane/app/serializers/webhook.py:25`, from
+/// `plane/db/models/webhook.py:21-31`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UrlValidator {
+    /// `plane.db.models.webhook.validate_schema` — scheme not `http`/`https`.
+    Schema,
+    /// `plane.db.models.webhook.validate_domain` — netloc exactly
+    /// `localhost`/`127.0.0.1`.
+    Domain,
+}
+
+/// A `serializers.URLField(validators=[…])` declaration.
+///
+/// `required` is only needed for the html-input empty-string rule: a form body's
+/// `url=` is `''` for a required field and `empty` (skipped) for an optional
+/// one (`rest_framework/fields.py:394-418`).
+#[derive(Debug, Clone, Copy)]
+pub struct UrlOptions {
+    pub required: bool,
+    pub allow_null: bool,
+    pub allow_blank: bool,
+    pub trim_whitespace: bool,
+    pub max_length: Option<usize>,
+    pub validators: &'static [UrlValidator],
+}
+
+impl UrlOptions {
+    /// `WebhookSerializer.url`: required, no `allow_null`/`allow_blank`, the
+    /// default trim, no `max_length` (the model's 1024 is **not** applied: a
+    /// declared field keeps its own options,
+    /// `rest_framework/serializers.py:1129-1131`).
+    pub const WEBHOOK_URL: Self = Self {
+        required: true,
+        allow_null: false,
+        allow_blank: false,
+        trim_whitespace: true,
+        max_length: None,
+        validators: &[UrlValidator::Schema, UrlValidator::Domain],
+    };
+}
+
+/// `Field.run_validators` for a `URLField`, in DRF's order.
+///
+/// The chain is: the declared validators, then `MaxLengthValidator` (when the
+/// field declares a length), then `ProhibitNullCharactersValidator`, then
+/// `ProhibitSurrogateCharactersValidator`, then Django's `URLValidator`
+/// (`rest_framework/fields.py:537-559`, `:806-814`). The Rust string type
+/// cannot hold a surrogate, so that validator is unreachable and not
+/// re-implemented.
+///
+/// Every failure is kept: DRF collects all of them into the field's list.
+///
+/// # Errors
+///
+/// The message of the `ValueError` `urlparse` raises inside a declared
+/// validator. Python does not catch it there (`rest_framework/fields.py:544-556`
+/// catches only `ValidationError`/Django's `ValidationError`), so it reaches
+/// Plane's family handler and the request is a 500 — e.g. `http://[::1` or a
+/// netloc whose NFKC normalisation contains a delimiter.
+pub fn run_url_validators(
+    value: &str,
+    validators: &[UrlValidator],
+    max_length: Option<usize>,
+) -> Result<Vec<Detail>, String> {
+    // `validate_schema` parses first, so a `urlparse` failure happens before
+    // any message can be collected.
+    if let Err(error) = plane_net::pyurl::urlparse(value) {
+        return Err(error.message().to_owned());
+    }
+    let mut errors = Vec::new();
+    for validator in validators {
+        let result = match validator {
+            UrlValidator::Schema => plane_net::webhook::validate_schema(value),
+            UrlValidator::Domain => plane_net::webhook::validate_domain(value),
+        };
+        // The parse cannot fail here: it just succeeded.
+        if let Err(error) = result {
+            errors.push(Detail::new(error.message(), "invalid"));
+        }
+    }
+    if let Some(max_length) = max_length
+        && value.chars().count() > max_length
+    {
+        errors.push(Detail::new(
+            format!("Ensure this field has no more than {max_length} characters."),
+            "max_length",
+        ));
+    }
+    if value.contains('\0') {
+        // `ProhibitNullCharactersValidator` (`django/core/validators.py`);
+        // DRF passes the field's own message only for `invalid`, so this one
+        // is Django's.
+        errors.push(Detail::new(
+            "Null characters are not allowed.",
+            "null_characters_not_allowed",
+        ));
+    }
+    if !django_url_valid(value) {
+        errors.push(Detail::new("Enter a valid URL.", "invalid"));
+    }
+    Ok(errors)
+}
 
 // ---------------------------------------------------------------------------
 // Django's URLValidator

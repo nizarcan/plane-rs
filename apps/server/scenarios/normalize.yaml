@@ -104,6 +104,14 @@ shapes:
   naive_datetime:
     pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?$'
     why: "str(datetime.now()): naive local datetime with a space separator (plane/app/views/page/base.py:332)"
+  # plane/db/models/webhook.py:17-18: `"plane_wh_" + uuid4().hex`. The model's
+  # default is `generate_token` (:38) and regenerate assigns a fresh one
+  # (plane/app/views/webhook/base.py:118-119). The fixture's secrets are
+  # `plane_wh_` + `stable(name).hex` (tools/fixtures/build.py:2688), so they
+  # match the same shape and are identical on both sides.
+  webhook_secret:
+    pattern: '^plane_wh_[0-9a-f]{32}$'
+    why: "Webhook.generate_token: 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
 
 # Headers that are not part of the HTTP contract.
 ignore_headers:
@@ -409,6 +417,19 @@ volatile_json_keys:
     shape: naive_datetime
     request: "POST /api/workspaces/*/projects/*/pages/*/archive/"
     why: "plane/app/views/page/base.py:332 renders str(datetime.now()) for the archive response"
+  # The secret a create/regen response reveals is generated per request
+  # (`Webhook.secret_key` default `generate_token`, plane/db/models/webhook.py:38;
+  # regenerate at plane/app/views/webhook/base.py:118-119), so two targets never
+  # produce the same value. Scoped to the webhook routes: no other response has a
+  # `secret_key` key, and a fixture row's value — the same bytes on both sides —
+  # is replaced by the same placeholder rather than skipped, so it is still
+  # compared.
+  - name: secret_key
+    mode: placeholder
+    placeholder: webhook-secret
+    shape: webhook_secret
+    request: "*webhooks*"
+    why: "generated HMAC secret: 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
 
 volatile_db_columns:
   - table: sessions
@@ -477,6 +498,17 @@ volatile_db_columns:
     placeholder: asset
     shape: asset_key
     why: "FileAsset.asset = workspace/uuid4().hex-filename (plane/db/models/asset.py:20-25); a fixture key stays literal"
+  # The DB half of the `secret_key` rule above: a create's inserted row and a
+  # regenerate's column update both carry a freshly generated value, and the
+  # same raw value gets the same placeholder in the body and the diff
+  # (`plane/db/models/webhook.py:17-18`, `:38`).
+  - table: webhooks
+    column: secret_key
+    mode: placeholder
+    placeholder: webhook-secret
+    shape: webhook_secret
+    request: "*webhooks*"
+    why: "Webhook.secret_key = generate_token(): 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
 
 # Celery transport headers: not part of the task's observable behaviour, so
 # they are dropped rather than placeholdered (their values are per-process).

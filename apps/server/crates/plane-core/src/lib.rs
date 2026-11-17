@@ -16,6 +16,7 @@ pub mod error;
 pub mod ids;
 pub mod json;
 pub mod py;
+pub mod secrets;
 
 pub use config::{ConfigError, ConfigWarning, Role, Settings};
 pub use context::RequestContext;

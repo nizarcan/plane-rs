@@ -13,6 +13,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldKind {
     Char,
+    Url,
     Integer,
     Float,
     Boolean,
@@ -102,3 +103,4 @@ pub mod project_user_property_serializer;
 pub mod state_serializer;
 pub mod sticky_serializer;
 pub mod user_notification_preference_serializer;
+pub mod webhook_serializer;

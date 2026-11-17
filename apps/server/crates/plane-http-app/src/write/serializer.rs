@@ -32,6 +32,7 @@ use plane_drf::view::ViewCtx;
 use plane_serde::pyjson::{self, PyDict, PyStr, Value as Json};
 
 use crate::write::fields::{self, CharOptions, Detail, Raw};
+use crate::write::url::{self, UrlOptions};
 
 /// One field's validated value.
 #[derive(Debug, Clone, PartialEq)]
@@ -585,6 +586,118 @@ impl<'a> Serializer<'a> {
                 None
             }
         }
+    }
+
+    /// `serializers.URLField`, whose only instance in the app is
+    /// `WebhookSerializer.url` (`plane/app/serializers/webhook.py:25`).
+    ///
+    /// `CharField.run_validation` (`rest_framework/fields.py:742-749`) returns
+    /// early for an empty input — a blank field fails with `blank`, a field
+    /// that allows blanks returns `''` **without running any validator** — and
+    /// the declared chain ([`url::run_url_validators`]) runs otherwise.
+    ///
+    /// # Errors
+    ///
+    /// [`ViewError::Unknown`] when `urlparse` raises `ValueError` inside a
+    /// declared validator: DRF does not catch it, so the view 500s.
+    pub fn url_field(
+        &mut self,
+        name: &'static str,
+        options: UrlOptions,
+    ) -> Result<Option<String>, ViewError> {
+        // `Field.get_value`'s html-input branch (`fields.py:394-418`). A form
+        // body's empty value is `None` when the field is nullable, `empty`
+        // (skipped) when it is optional, and `''` when it is required —
+        // `Serializer::field_value` only carries the first two rules because
+        // every other write serializer's fields are optional.
+        if self.form
+            && !self.fatal
+            && !self.skipped.contains(&name)
+            && self
+                .body
+                .as_ref()
+                .and_then(|body| body.raw(name))
+                .is_some_and(|raw| matches!(raw, Raw::Text("")))
+        {
+            if options.allow_null {
+                if options.allow_blank {
+                    self.values.push((name, Value::Text(String::new())));
+                } else {
+                    self.values.push((name, Value::Null));
+                }
+                return Ok(None);
+            }
+            if !options.required {
+                return Ok(None);
+            }
+            if !options.allow_blank {
+                self.errors.push(name, Detail::blank());
+                return Ok(None);
+            }
+            self.values.push((name, Value::Text(String::new())));
+            return Ok(Some(String::new()));
+        }
+        let Some(raw) = self.field_value(name, options.allow_null, Some(options.allow_blank))
+        else {
+            return Ok(None);
+        };
+        // `CharField.run_validation`'s early return: only strings can be blank
+        // (a number's `str()` is never empty), and an exact `''` is blank even
+        // without trimming.
+        let blank = match raw {
+            Raw::Text(text) => {
+                text.is_empty() || (options.trim_whitespace && text.trim().is_empty())
+            }
+            Raw::Json(Json::Str(text)) => text.as_str().is_some_and(|text| {
+                text.is_empty() || (options.trim_whitespace && text.trim().is_empty())
+            }),
+            Raw::Json(_) => false,
+        };
+        if blank {
+            if !options.allow_blank {
+                self.errors.push(name, Detail::blank());
+                return Ok(None);
+            }
+            self.values.push((name, Value::Text(String::new())));
+            return Ok(Some(String::new()));
+        }
+        let value = match fields::char(
+            raw,
+            &CharOptions {
+                allow_null: options.allow_null,
+                allow_blank: options.allow_blank,
+                trim_whitespace: options.trim_whitespace,
+                // The length validator is part of the chain below, after the
+                // declared validators.
+                max_length: None,
+            },
+        ) {
+            Ok(value) => value,
+            Err(detail) => {
+                // `URLField` overrides `default_error_messages['invalid']`, so
+                // `CharField.to_internal_value`'s `fail('invalid')` for a
+                // bool/list/dict input renders `Enter a valid URL.`, not
+                // `Not a valid string.` (`rest_framework/fields.py:794-797`).
+                let detail = if detail.code == "invalid" && detail.message == "Not a valid string."
+                {
+                    Detail::new("Enter a valid URL.", "invalid")
+                } else {
+                    detail
+                };
+                self.errors.push(name, detail);
+                return Ok(None);
+            }
+        };
+        let errors = url::run_url_validators(&value, options.validators, options.max_length)
+            .map_err(ViewError::Unknown)?;
+        if !errors.is_empty() {
+            for detail in errors {
+                self.errors.push(name, detail);
+            }
+            return Ok(None);
+        }
+        self.values.push((name, Value::Text(value.clone())));
+        Ok(Some(value))
     }
 
     /// `FloatField` (finite numbers only).
@@ -1544,5 +1657,184 @@ mod tests {
                 "value {value:?}"
             );
         }
+    }
+
+    /// Render `url_field("url")` over `body` and return either the validated
+    /// string or `serializer.errors`, exactly as `WebhookSerializer`'s
+    /// generated `validate` sees them.
+    fn validate_url(input: Body<'_>) -> Result<String, serde_json::Value> {
+        let mut serializer = Serializer {
+            body: Some(input),
+            partial: false,
+            form: false,
+            errors: ValidationErrors::default(),
+            values: Vec::new(),
+            skipped: Vec::new(),
+            fatal: false,
+            timezone: chrono_tz::UTC,
+        };
+        let _ = serializer
+            .url_field("url", crate::write::UrlOptions::WEBHOOK_URL)
+            .expect("no urlparse failure");
+        match serializer.finish() {
+            Ok(values) => Ok(values.text("url").unwrap_or_default().to_owned()),
+            Err(errors) => Err(body(errors.into_response())),
+        }
+    }
+
+    /// Recorded from DRF 3.18.3's `WebhookSerializer(data={"url": value})`
+    /// (minimal settings, no database). The chain accumulates, and the two
+    /// declared validators run before `Enter a valid URL.`.
+    #[test]
+    fn url_field_reproduces_drf_messages() {
+        let cases: &[(&str, Result<&str, serde_json::Value>)] = &[
+            (
+                r#"{"url": "http://hooks.example.test/x"}"#,
+                Ok("http://hooks.example.test/x"),
+            ),
+            // `validate_schema` lowercases the scheme, so this passes both
+            // declared validators and Django's accepts the host.
+            (r#"{"url": "HTTP://EXAMPLE.COM"}"#, Ok("HTTP://EXAMPLE.COM")),
+            // Whitespace is trimmed before the validators run.
+            (
+                r#"{"url": "  https://hooks.example.test/x  "}"#,
+                Ok("https://hooks.example.test/x"),
+            ),
+            (
+                r#"{"url": "ftp://localhost"}"#,
+                Err(serde_json::json!({
+                    "url": [
+                        "Invalid schema. Only HTTP and HTTPS are allowed.",
+                        "Local URLs are not allowed."
+                    ]
+                })),
+            ),
+            (
+                r#"{"url": "not a url"}"#,
+                Err(serde_json::json!({
+                    "url": [
+                        "Invalid schema. Only HTTP and HTTPS are allowed.",
+                        "Enter a valid URL."
+                    ]
+                })),
+            ),
+            (
+                r#"{"url": "HTTP://x"}"#,
+                Err(serde_json::json!({"url": ["Enter a valid URL."]})),
+            ),
+            (
+                r#"{"url": "localhost:8000"}"#,
+                Err(serde_json::json!({
+                    "url": [
+                        "Invalid schema. Only HTTP and HTTPS are allowed.",
+                        "Enter a valid URL."
+                    ]
+                })),
+            ),
+            (
+                r#"{"url": "LOCALHOST"}"#,
+                Err(serde_json::json!({
+                    "url": [
+                        "Invalid schema. Only HTTP and HTTPS are allowed.",
+                        "Enter a valid URL."
+                    ]
+                })),
+            ),
+            (
+                r#"{"url": "user@localhost"}"#,
+                Err(serde_json::json!({
+                    "url": [
+                        "Invalid schema. Only HTTP and HTTPS are allowed.",
+                        "Enter a valid URL."
+                    ]
+                })),
+            ),
+            (
+                r#"{"url": "http://localhost"}"#,
+                Err(serde_json::json!({"url": ["Local URLs are not allowed."]})),
+            ),
+            // `validate_domain` compares the netloc, so a port defeats it.
+            (
+                r#"{"url": "http://localhost:8000/x"}"#,
+                Ok("http://localhost:8000/x"),
+            ),
+            (
+                r#"{"url": ""}"#,
+                Err(serde_json::json!({"url": ["This field may not be blank."]})),
+            ),
+            (
+                r#"{"url": "   "}"#,
+                Err(serde_json::json!({"url": ["This field may not be blank."]})),
+            ),
+            (
+                r#"{"url": null}"#,
+                Err(serde_json::json!({"url": ["This field may not be null."]})),
+            ),
+            // `CharField` coerces a number with `str()` and the validators then
+            // reject it; a bool or a composite is `fail('invalid')`, which a
+            // `URLField` renders with its own message.
+            (
+                r#"{"url": 123}"#,
+                Err(serde_json::json!({
+                    "url": [
+                        "Invalid schema. Only HTTP and HTTPS are allowed.",
+                        "Enter a valid URL."
+                    ]
+                })),
+            ),
+            (
+                r#"{"url": true}"#,
+                Err(serde_json::json!({"url": ["Enter a valid URL."]})),
+            ),
+            (
+                r#"{"url": ["http://example.com"]}"#,
+                Err(serde_json::json!({"url": ["Enter a valid URL."]})),
+            ),
+            (
+                r#"{"url": "http://example.com/\u0000"}"#,
+                Err(serde_json::json!({"url": ["Null characters are not allowed."]})),
+            ),
+        ];
+        for (raw, expected) in cases {
+            let body = json_body(raw);
+            let result = validate_url(Body::Json(&body));
+            match expected {
+                Ok(value) => assert_eq!(result, Ok((*value).to_owned()), "body {raw}"),
+                Err(expected) => assert_eq!(result, Err(expected.clone()), "body {raw}"),
+            }
+        }
+    }
+
+    /// A form body's `url=` is `''` for this **required** field, so it is the
+    /// blank error — not the "field is not set" branch an optional field takes
+    /// (`rest_framework/fields.py:394-418`).
+    #[test]
+    fn url_field_form_input_rules() {
+        let query = plane_drf::QueryDict::parse("url=", None).expect("query");
+        let result = validate_url(Body::Form(&query));
+        assert_eq!(
+            result,
+            Err(serde_json::json!({"url": ["This field may not be blank."]}))
+        );
+
+        // A form body without `url` is `empty`: `url_field` stores nothing and
+        // the generated `missing_required` emits the required error.
+        let empty = plane_drf::QueryDict::parse("", None).expect("query");
+        let mut serializer = Serializer {
+            body: Some(Body::Form(&empty)),
+            partial: false,
+            form: true,
+            errors: ValidationErrors::default(),
+            values: Vec::new(),
+            skipped: Vec::new(),
+            fatal: false,
+            timezone: chrono_tz::UTC,
+        };
+        assert_eq!(
+            serializer.url_field("url", crate::write::UrlOptions::WEBHOOK_URL),
+            Ok(None)
+        );
+        assert!(serializer.missing_required("url"));
+        assert!(!serializer.has_errors());
     }
 }
