@@ -66,6 +66,8 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .action("retrieve", retrieve)?
         .action("retrieve_user_settings", retrieve_user_settings)?
         .action("retrieve_instance_admin", retrieve_instance_admin)?
+        // Set A: 162 `PATCH /api/users/me/` (DRF's `partial_update`).
+        .action("partial_update", super::write_profile::partial_update)?
         .action(
             "generate_email_verification_code",
             super::write_email::generate_code,
@@ -77,13 +79,24 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .method(Method::GET, session)?;
     registry
         .api_view("plane.app.views.user.base.ProfileEndpoint")?
-        .method(Method::GET, profile)?;
+        .method(Method::GET, profile)?
+        // Set A: 167 `PATCH /api/users/me/profile/`.
+        .method(Method::PATCH, super::write_profile::profile_patch)?;
     registry
         .api_view("plane.app.views.user.base.AccountEndpoint")?
-        .method(Method::GET, accounts)?;
+        .method(Method::GET, accounts)?
+        // Set A: 169 `DELETE …/accounts/{pk}/` and 168's signature 500.
+        .method(Method::DELETE, super::write_accounts::delete)?;
     registry
         .api_view("plane.app.views.user.base.UserActivityEndpoint")?
         .method(Method::GET, activities)?;
+    // Set A: 171/172 — whole rows, one method each.
+    registry
+        .api_view("plane.app.views.user.base.UpdateUserOnBoardedEndpoint")?
+        .method(Method::PATCH, super::write_profile::onboard)?;
+    registry
+        .api_view("plane.app.views.user.base.UpdateUserTourCompletedEndpoint")?
+        .method(Method::PATCH, super::write_profile::tour_completed)?;
     Ok(())
 }
 
@@ -494,7 +507,11 @@ fn profile<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewE
     })
 }
 
-fn profile_serializer(profile: &Profile) -> ProfileSerializer<'_> {
+/// `ProfileSerializer(profile)`, 29 keys with `id` first.
+///
+/// Shared with 167 PATCH's response (`write_profile`), which renders the same
+/// serializer from the in-memory row.
+pub(super) fn profile_serializer(profile: &Profile) -> ProfileSerializer<'_> {
     ProfileSerializer {
         id: profile.id,
         created_at: profile.created_at,

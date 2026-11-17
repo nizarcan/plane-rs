@@ -1,0 +1,412 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Set A, part 2: 226 `POST /api/users/api-tokens/` and 227
+# `PATCH`/`DELETE /api/users/api-tokens/{pk}/` (`plans/USERS_ME.md` §3), plus the
+# three signature 500s.
+#
+# Covers:
+#
+#   * `IsAuthenticated` and the dispatcher's origin check, both before the view.
+#   * 226's raw-body path (no serializer): the `label` default
+#     (`uuid4().hex`) and the `plane_api_` token, `description`'s `""`
+#     default, `expired_at` through Django's `DateTimeField` (a string, a
+#     date-only string, an unparseable string → 400, a *non-string* → 500), a
+#     `null` label/description → the family `IntegrityError` 400, a 300-char
+#     label → the family 500, and a non-string label's `str()` coercion.
+#   * The 201 body is `APITokenSerializer` — 15 keys **with** `token`, which no
+#     other route ever reveals (`APITokenReadSerializer` excludes it).
+#   * 227 PATCH: the owner-scoped lookup (another account's token is the family
+#     404), the five writable fields (`deleted_at`, `label`, `description`,
+#     `created_by`, `updated_by`) and the read-only ones (`token`,
+#     `expired_at`, `is_active`, `user_type`, `user`, `workspace`).
+#   * 227 DELETE: H03's soft delete (`deleted_at` + `updated_at` + `updated_by`,
+#     then the `soft_delete_related_objects` publish) and the 404 afterwards.
+#   * The three signature 500s: `PATCH`/`DELETE` on 226 and `POST` on 227.
+#
+# The created token and label are normalised by the `plane_api_token` /
+# `api_token_label` shapes (`scenarios/normalize.yaml`), so both targets agree
+# on a value neither can predict.
+
+name: write-api-tokens
+template_db: plane_fix_tpl
+redis_db: [9, 10]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  member_token_id: "e7768911-cb2b-4351-bfc0-8af8b22d5a98"
+  admin_token_id: "bc463e70-3c9e-4a4d-bedd-8e701fd4983e"
+
+steps:
+  # --- authentication and the origin check -------------------------------
+  - name: token-01-unauthenticated
+    method: POST
+    path: /api/users/api-tokens/
+    headers:
+      Host: plane-fixture.test
+    json: { label: "nope" }
+    expect_status: 401
+
+  - name: token-02-foreign-origin
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+      Origin: "http://evil.example"
+    json: { label: "nope" }
+    expect_status: 403
+
+  # --- 226: the raw body --------------------------------------------------
+  # No body at all: `label` is `uuid4().hex` and `token` is
+  # `plane_api_ + uuid4().hex`; both are shape-checked and placeholdered.
+  - name: token-03-minimal-create
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    capture:
+      - name: created_token
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: token-04-full-create
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      label: "fixture-created"
+      description: "created in the scenario"
+      expired_at: "2026-12-31T23:59:59Z"
+    capture:
+      - name: second_token
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  # A date-only string: `parse_datetime` accepts it as midnight, localised in
+  # `TIME_ZONE` (UTC).
+  - name: token-05-date-only-expiry
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "date-only-expiry", expired_at: "2027-01-02" }
+    capture:
+      - name: third_token
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  # `CharField.get_prep_value` is `str(value)`, so a number is its digits.
+  - name: token-06-int-label
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: 5 }
+    capture:
+      - name: fourth_token
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  - name: token-07-null-label
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: null }
+    expect_status: 400
+
+  - name: token-08-null-description
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "null-description", description: null }
+    expect_status: 400
+
+  # 300 characters overflow `varchar(255)` at INSERT: psycopg's `DataError`,
+  # which Plane does not map — the family 500.
+  - name: token-09-label-too-long
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    expect_status: 500
+
+  - name: token-10-invalid-expiry
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "invalid-expiry", expired_at: "not-a-date" }
+    expect_status: 400
+
+  # `datetime.fromisoformat(5)` raises a TypeError that Django does not catch.
+  - name: token-11-non-string-expiry
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "int-expiry", expired_at: 5 }
+    expect_status: 500
+
+  # A form body: every value is a string, and `expired_at` is still echoed
+  # verbatim in the response.
+  - name: token-12-form-create
+    method: POST
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form: { label: "form-created", description: "from a form", expired_at: "2026-06-01T12:00:00Z" }
+    capture:
+      - name: form_token
+        source: json
+        pointer: /id
+    expect_status: 201
+
+  # --- the two signature 500s on the collection route ---------------------
+  - name: token-12-collection-patch
+    method: PATCH
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "nope" }
+    expect_status: 500
+
+  - name: token-13-collection-delete
+    method: DELETE
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 500
+
+  # --- 227 PATCH ----------------------------------------------------------
+  - name: token-20-patch-label
+    method: PATCH
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "renamed", description: "patched" }
+    expect_status: 200
+
+  # Read-only fields are ignored without being validated; the response still
+  # carries the stored `token` and `expired_at`.
+  - name: token-21-patch-read-only
+    method: PATCH
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      token: "plane_api_00000000000000000000000000000000"
+      expired_at: "2001-01-01T00:00:00Z"
+      is_active: false
+      user_type: 1
+      user: "d44ae570-3de4-4413-af08-f686bf5b7235"
+      workspace: null
+    expect_status: 200
+
+  - name: token-22-patch-null-label
+    method: PATCH
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: null, description: null }
+    expect_status: 400
+
+  # `created_by`/`updated_by` are writable: `created_by` keeps the body value
+  # and `updated_by` is overwritten by H01.
+  - name: token-23-patch-audit-columns
+    method: PATCH
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      created_by: "d44ae570-3de4-4413-af08-f686bf5b7235"
+      updated_by: "d44ae570-3de4-4413-af08-f686bf5b7235"
+    expect_status: 200
+
+  - name: token-24-patch-unknown-user
+    method: PATCH
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { created_by: "00000000-0000-4000-8000-000000000999" }
+    expect_status: 400
+
+  # Another account's token: the `user=request.user` lookup is the family 404.
+  - name: token-25-patch-foreign-token
+    method: PATCH
+    path: /api/users/api-tokens/{{member_token_id}}/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { label: "hijacked" }
+    expect_status: 404
+
+  - name: token-26-patch-missing-token
+    method: PATCH
+    path: /api/users/api-tokens/00000000-0000-4000-8000-000000000999/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "nope" }
+    expect_status: 404
+
+  # --- the 227 POST signature 500 ----------------------------------------
+  - name: token-27-detail-post
+    method: POST
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { label: "nope" }
+    expect_status: 500
+
+  # `?fields=` is ignored: `BaseSerializer` is not a `DynamicBaseSerializer`
+  # (`plane/app/serializers/base.py:87-89`), so the mask never applies.
+  - name: token-28-patch-with-fields-param
+    method: PATCH
+    path: /api/users/api-tokens/{{form_token}}/
+    query:
+      fields: id,label
+      expand: label
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { description: "fields ignored" }
+    expect_status: 200
+
+  # --- soft delete through PATCH's writable `deleted_at` ------------------
+  - name: token-30-patch-deleted-at
+    method: PATCH
+    path: /api/users/api-tokens/{{second_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { deleted_at: "2026-03-04T05:06:07Z" }
+    expect_status: 200
+
+  - name: token-31-get-soft-deleted
+    method: GET
+    path: /api/users/api-tokens/{{second_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # --- 227 DELETE (H03) ---------------------------------------------------
+  - name: token-40-delete-foreign
+    method: DELETE
+    path: /api/users/api-tokens/{{member_token_id}}/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: token-41-delete
+    method: DELETE
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: token-42-delete-again
+    method: DELETE
+    path: /api/users/api-tokens/{{created_token}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: token-43-delete-missing
+    method: DELETE
+    path: /api/users/api-tokens/00000000-0000-4000-8000-000000000999/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # --- the list and a fixture token that must survive --------------------
+  - name: token-50-list
+    method: GET
+    path: /api/users/api-tokens/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  - name: token-51-fixture-token-untouched
+    method: GET
+    path: /api/users/api-tokens/{{member_token_id}}/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 200
+
+  # `admin`'s own fixture token is still live after the scoping 404s.
+  - name: token-52-admin-token-untouched
+    method: GET
+    path: /api/users/api-tokens/{{admin_token_id}}/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
