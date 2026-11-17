@@ -1159,8 +1159,32 @@ independent; each domain's sets start after its own P0. At most three builds run
   - `allow_permission`'s project branch ignores `WorkspaceMember`, so a ws1 member with a
     ws2 `ProjectMember` row can write ws2 points.
 
-Running: workspace-core P0, assets A (v2 workspace/project), assets B (legacy). Queued:
-assets C, analytics A/B/C, `users/me` A/B, workspace-core A/B/C (after its P0).
+- Workspace-core P0 (merged `2151a6ab16`):
+  - hooks H04 `soft_delete::delete_where`, H05 `workspace::after_soft_delete`, H06/H07
+    `scope::workspace_from_project`;
+  - `Serializer::{slug_field, unique_live}` (the generated `WorkSpaceSerializer` keeps a
+    `TODO(slug)` that set A must fill with `slug_field`);
+  - `plane_auth::jwt` (a PyJWT 2.15.1-exact HS256 encoder);
+  - `write::repr::python_repr`;
+  - seven generated serializer tables;
+  - `workspaces/write_queries.rs`;
+  - testkit `any_of` union shapes;
+  - invite-token rules;
+  - `workspace-core-fixture.sql`.
+
+  Verified on the merge: 1019 tests, testkit 183; schema_check (http-app and auth);
+  **full read + write sweep 74 files, 4036 steps clean**; full contract run 971 passed,
+  15 failed (the known magic-link tests). Upstream quirks noted for the sets:
+  - the workspace-delete slug rewrite runs after the soft delete, so a 40-char slug 500s
+    with the row already deleted;
+  - `is_sole_admin_of_any_project` counts soft-deleted members;
+  - invitation acceptance is case-insensitive in the pre-check and case-sensitive in the
+    user lookup;
+  - `user.last_workspace_id` is a silent no-op.
+
+Running: assets A (v2 workspace/project), assets B (legacy), `users/me` B
+(email/deactivate). Queued: `users/me` A, workspace-core A/B/C, assets C, analytics
+A/B/C.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
