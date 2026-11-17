@@ -188,15 +188,7 @@ fn user_properties<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespons
         };
         let workspace: Uuid = row.try_get(0)?;
 
-        let statement = client
-            .prepare_cached(queries::USER_PROPERTIES_FOR_WORKSPACE.sql)
-            .await?;
-        let rows = client.query(&statement, &[&user, &workspace]).await?;
-        let (model, created) = match rows.len() {
-            0 => (create_user_properties(client, workspace, user).await?, true),
-            1 => (WorkspaceUserProperties::from_row(&rows[0], 0)?, false),
-            _ => return Err(rows::multiple_objects("WorkspaceUserProperties")),
-        };
+        let (model, created) = get_or_create(client, workspace, user).await?;
 
         // A row Django just created carries the *Python* dict's key order: the
         // value is rendered from the in-memory instance, not from `jsonb`
@@ -302,20 +294,49 @@ impl DrfSerialize for UserPropertiesView<'_> {
 
 /// `get_default_filters()` (`plane/db/models/workspace.py:62-73`), in the
 /// Python dict's order.
-const DEFAULT_FILTERS: &str = "{\"priority\": null, \"state\": null, \"state_group\": null, \
+pub(super) const DEFAULT_FILTERS: &str = "{\"priority\": null, \"state\": null, \"state_group\": null, \
  \"assignees\": null, \"created_by\": null, \"labels\": null, \"start_date\": null, \
  \"target_date\": null, \"subscriber\": null}";
 
 /// `get_default_display_filters()` (`plane/db/models/workspace.py:76-87`).
-const DEFAULT_DISPLAY_FILTERS: &str = "{\"display_filters\": {\"group_by\": null, \
+pub(super) const DEFAULT_DISPLAY_FILTERS: &str = "{\"display_filters\": {\"group_by\": null, \
  \"order_by\": \"-created_at\", \"type\": null, \"sub_issue\": true, \
  \"show_empty_groups\": true, \"layout\": \"list\", \"calendar_date_range\": \"\"}}";
 
 /// `get_default_display_properties()` (`plane/db/models/workspace.py:90-107`).
-const DEFAULT_DISPLAY_PROPERTIES: &str = "{\"display_properties\": {\"assignee\": true, \
+pub(super) const DEFAULT_DISPLAY_PROPERTIES: &str = "{\"display_properties\": {\"assignee\": true, \
  \"attachment_count\": true, \"created_on\": true, \"due_date\": true, \"estimate\": true, \
  \"key\": true, \"labels\": true, \"link\": true, \"priority\": true, \"start_date\": true, \
  \"state\": true, \"sub_issue_count\": true, \"updated_on\": true}}";
+
+/// `WorkspaceUserProperties.objects.get_or_create(user=request.user,
+/// workspace_id=workspace.id)` (`plane/app/views/workspace/user.py:277-279`,
+/// `:291-293`).
+///
+/// Returns the row and whether this request created it. `created` matters
+/// because Django renders `serializer.data` from the **in-memory** instance: a
+/// row it just created still holds the Python default dicts (their key order),
+/// while a row read back holds `json.loads(jsonb)` (Postgres' key order).
+///
+/// # Errors
+///
+/// `MultipleObjectsReturned` (more than one live row for the pair), or a
+/// database failure.
+pub(super) async fn get_or_create(
+    client: &deadpool_postgres::Client,
+    workspace: Uuid,
+    user: Uuid,
+) -> Result<(WorkspaceUserProperties, bool), ViewError> {
+    let statement = client
+        .prepare_cached(queries::USER_PROPERTIES_FOR_WORKSPACE.sql)
+        .await?;
+    let rows = client.query(&statement, &[&user, &workspace]).await?;
+    match rows.len() {
+        0 => create_user_properties(client, workspace, user).await,
+        1 => Ok((WorkspaceUserProperties::from_row(&rows[0], 0)?, false)),
+        _ => Err(rows::multiple_objects("WorkspaceUserProperties")),
+    }
+}
 
 /// `get_or_create`'s `create(**params)` with the model's column defaults
 /// (`plane/db/models/workspace.py:352-390`). `Model.save()` runs for a
@@ -325,7 +346,7 @@ async fn create_user_properties(
     client: &deadpool_postgres::Client,
     workspace: Uuid,
     user: Uuid,
-) -> Result<WorkspaceUserProperties, ViewError> {
+) -> Result<(WorkspaceUserProperties, bool), ViewError> {
     let now = plane_core::clock::now();
     let id = Uuid::new_v4();
     // `jsonb` parameters need a JSON value, not text: `postgres-types` accepts
@@ -336,19 +357,8 @@ async fn create_user_properties(
         .map_err(|error| ViewError::Unknown(error.to_string()))?;
     let display_properties: serde_json::Value = serde_json::from_str(DEFAULT_DISPLAY_PROPERTIES)
         .map_err(|error| ViewError::Unknown(error.to_string()))?;
-    let statement = client
-        .prepare(
-            "INSERT INTO workspace_user_properties \
-             (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id, workspace_id, \
-              user_id, filters, display_filters, display_properties, rich_filters, \
-              navigation_project_limit, navigation_control_preference) \
-             VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7, $8, $9, '{}'::jsonb, 10, \
-              'ACCORDION') \
-             ON CONFLICT DO NOTHING \
-             RETURNING created_at, updated_at, created_by_id, updated_by_id, deleted_at, id, \
-              workspace_id, user_id, filters, display_filters, display_properties, \
-              rich_filters, navigation_project_limit, navigation_control_preference",
-        )
+    let statement = crate::workspaces::write_c_queries::USER_PROPERTIES_INSERT
+        .prepare(client)
         .await?;
     let rows = client
         .query(
@@ -367,15 +377,16 @@ async fn create_user_properties(
         )
         .await?;
     match rows.len() {
-        1 => Ok(WorkspaceUserProperties::from_row(&rows[0], 0)?),
-        // A concurrent create won the unique index; re-read.
+        1 => Ok((WorkspaceUserProperties::from_row(&rows[0], 0)?, true)),
+        // A concurrent create won the unique index; re-read. Django's
+        // `get_or_create` retries the `get()` and reports `False`.
         0 => {
             let statement = client
                 .prepare_cached(queries::USER_PROPERTIES_FOR_WORKSPACE.sql)
                 .await?;
             let rows = client.query(&statement, &[&user, &workspace]).await?;
             match rows.len() {
-                1 => Ok(WorkspaceUserProperties::from_row(&rows[0], 0)?),
+                1 => Ok((WorkspaceUserProperties::from_row(&rows[0], 0)?, false)),
                 _ => Err(rows::multiple_objects("WorkspaceUserProperties")),
             }
         }

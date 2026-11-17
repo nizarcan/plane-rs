@@ -65,17 +65,22 @@ pub mod activity_export;
 pub mod base;
 pub mod favorite;
 pub mod home;
+pub mod home_write;
 pub mod invite;
 pub mod member;
 pub mod queries;
 pub mod quick_link;
+pub mod quick_link_write;
 pub mod recent_visit;
 pub mod rows;
 pub mod theme_write;
 pub mod user;
 pub mod user_preference;
+pub mod user_preference_write;
+pub mod user_properties_write;
 pub mod write;
 pub mod write_a_queries;
+pub mod write_c_queries;
 pub mod write_favorite;
 pub mod write_favorite_queries;
 pub mod write_queries;
@@ -94,10 +99,15 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     favorite::register(registry)?;
     write_favorite::register(registry)?;
     quick_link::register(registry)?;
+    quick_link_write::register(registry)?;
     home::register(registry)?;
+    home_write::register(registry)?;
     recent_visit::register(registry)?;
     user_preference::register(registry)?;
+    user_preference_write::register(registry)?;
     user::register(registry)?;
+    // set C's `PATCH /user-properties/` (207).
+    user_properties_write::register(registry)?;
     // `POST /user-activity/{user_id}/export/` (203), the synchronous CSV.
     registry
         .api_view("plane.app.views.workspace.base.ExportWorkspaceUserActivityEndpoint")?
