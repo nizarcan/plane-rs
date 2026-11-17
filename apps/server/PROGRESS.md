@@ -1384,6 +1384,22 @@ independent; each domain's sets start after its own P0. At most three builds run
   full contract run 965 passed, 21 failed (15 magic-link + the 6 in-process-mock tests
   listed above).
 
+### Phase 6: contract runner fix (2026-11-17)
+
+- Contract runner (merged `d9546f9df8`): `tools/contract/run.sh` exports
+  `EMAIL_HOST=127.0.0.1`, and the default Redis DB moves from 1 to 15 (also the plugin's
+  fallback). That ends **the 15 magic-link failures**: `/magic-generate/` was a 400
+  `SMTP_NOT_CONFIGURED` because the runner had no `EMAIL_HOST` and the test DB has no
+  instance-config rows. No mail can be sent: the task is mocked and the backend is locmem.
+  `test_authentication.py` with `--backend django` is 42/42. The full mixed run is
+  **980 passed, 6 failed**. The 6 are the in-process-mock tests that can't pass against
+  Rust:
+  - 2 `test_legacy_file_asset_post_readonly_app`;
+  - 3 `test_user_email_change_app`;
+  - 1 `test_workspace_app.py::test_create_workspace_valid_data`.
+
+  These 6 are now the expected baseline (was 21).
+
 ### Phase 5 exit (2026-11-17)
 
 **Every app-surface (`/api/` minus v1/public/instances) write route is on Rust.**
