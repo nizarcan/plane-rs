@@ -128,7 +128,7 @@ DEV_ENV_SCRIPT = SERVER_DIR / "dev" / "django-env.sh"
 BACKENDS = ("django", "mixed")
 DEFAULT_DB = "t_rsct_contract"
 DEFAULT_PORT = 18200
-DEFAULT_REDIS_DB = 1
+DEFAULT_REDIS_DB = 15
 DEFAULT_VHOST = "rsct_contract"
 DB_PREFIX = "t_rsct"
 
