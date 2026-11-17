@@ -300,3 +300,165 @@ VALUES
 --    runs before `super().destroy()`).
 UPDATE profiles SET last_workspace_id = 'e0000000-0000-4000-8000-000000000001'
 WHERE user_id = (SELECT id FROM users WHERE email = 'fix.lonely@example.com');
+
+-- ---------------------------------------------------------------------------
+-- Workspace-core set B (`plans/WORKSPACES_CORE.md` §4). Everything above this
+-- line is set A's; the rows below only add, never change, what it reads.
+-- ---------------------------------------------------------------------------
+
+-- 9. Two projects of `member`'s, each with **two** rows. Route 194's PATCH
+--    demotes every live `project_members` row of the member —
+--    `is_active=False` included (`member.py:131-134`) — while its DELETE
+--    deactivates only the active ones (`member.py:174-176`). So `omega` holds
+--    the active row and `kappa` the inactive one; a second row per project
+--    (a different member) keeps `is_sole_admin_of_any_project` from firing:
+--    it needs `COUNT(...) = 1`. The partial unique index allows one live row
+--    per `(project, member)`, which is why the two rows cannot share a project.
+--    `identifier` is `WSB`/`WSK` so set A's `project-identifiers/` steps never
+--    touch them.
+INSERT INTO projects
+  (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id, name,
+   description, description_text, description_html, network, workspace_id,
+   identifier, default_assignee_id, project_lead_id, emoji, icon_prop,
+   module_view, cycle_view, issue_views_view, page_view, intake_view,
+   is_time_tracking_enabled, is_issue_type_enabled, guest_view_all_features,
+   cover_image, cover_image_asset_id, estimate_id, archive_in, close_in,
+   logo_props, default_state_id, archived_at, timezone, external_source,
+   external_id)
+VALUES
+  ('2026-01-01 00:00:22+00', '2026-01-01 00:00:22+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000080',
+   'Omega Members', 'Omega Members description', '{}', '{}', 2,
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', 'WSB', NULL, NULL, NULL, NULL,
+   TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, '', NULL, NULL, 0, 0,
+   '{}', NULL, NULL, 'UTC', NULL, NULL),
+  ('2026-01-01 00:00:32+00', '2026-01-01 00:00:32+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000085',
+   'Kappa Members', 'Kappa Members description', '{}', '{}', 2,
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', 'WSK', NULL, NULL, NULL, NULL,
+   TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, '', NULL, NULL, 0, 0,
+   '{}', NULL, NULL, 'UTC', NULL, NULL);
+
+INSERT INTO project_members
+  (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id,
+   project_id, workspace_id, member_id, comment, role, view_props,
+   default_props, preferences, sort_order, is_active)
+VALUES
+  -- `omega`: the target's active row. 194's PATCH rewrites its role and its
+  -- DELETE deactivates it. `guest` is the second row, so the project is not a
+  -- one-admin project.
+  ('2026-01-01 00:00:23+00', '2026-01-01 00:00:23+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000081',
+   'e0000000-0000-4000-8000-000000000080',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388',
+   '78100240-9cfd-4782-8627-25ab039c6e9a', NULL, 15, '{}', '{}', '{}', 65535,
+   TRUE),
+  ('2026-01-01 00:00:33+00', '2026-01-01 00:00:33+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000087',
+   'e0000000-0000-4000-8000-000000000080',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388',
+   '31a752d6-2f12-4ac9-b23f-ae260a96c148', NULL, 5, '{}', '{}', '{}', 65535,
+   TRUE),
+  -- `kappa`: the target's **inactive** row. Only the demotion may touch it;
+  -- the DELETE's `is_active=True` filter skips it. `tz_tokyo` is the second
+  -- row.
+  ('2026-01-01 00:00:24+00', '2026-01-01 00:00:24+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000086',
+   'e0000000-0000-4000-8000-000000000085',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388',
+   '78100240-9cfd-4782-8627-25ab039c6e9a', NULL, 20, '{}', '{}', '{}', 65535,
+   FALSE),
+  ('2026-01-01 00:00:34+00', '2026-01-01 00:00:34+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000088',
+   'e0000000-0000-4000-8000-000000000085',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388',
+   'dfb81684-7a80-49ad-968a-a9eda974c651', NULL, 15, '{}', '{}', '{}', 65535,
+   TRUE);
+
+-- 10. Route 191's create branch. `nonmember` has no `fix-workspace`
+--     membership and no other invitation, so accepting this one inserts a new
+--     `workspace_members` row, saves `users`, then soft-deletes the invite.
+INSERT INTO workspace_member_invites
+  (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id,
+   workspace_id, email, accepted, token, message, responded_at, role)
+VALUES
+  ('2026-01-01 00:00:25+00', '2026-01-01 00:00:25+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000071',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', 'fix.nonmember@example.com', FALSE,
+   'e000000000000000000000000000000000000000000000000000000000000071',
+   NULL, NULL, 15),
+  -- 11. Route 191's case-sensitive `User.objects.filter(email=…)` miss: the
+  --     stored address of `no_workspace` is lower case, the invitation's is
+  --     upper case, and the pre-check above compares case-insensitively — so
+  --     the view answers 200 "Accepted" and leaves the invitation untouched.
+  ('2026-01-01 00:00:26+00', '2026-01-01 00:00:26+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000072',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', 'FIX.LONELY@EXAMPLE.COM', FALSE,
+   'e000000000000000000000000000000000000000000000000000000000000072',
+   NULL, NULL, 15),
+  -- 12. Route 191 with a form `accepted=false`: the raw string is truthy, so
+  --     the accepted branch runs and the column stores `False`. The address
+  --     belongs to a user whose only `fix-workspace` membership is
+  --     soft-deleted, so the lookup misses the manager's filter and the view
+  --     creates a second row (the unique index is partial).
+  ('2026-01-01 00:00:27+00', '2026-01-01 00:00:27+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000073',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388',
+   'fix.deleted-member@example.com', FALSE,
+   'e000000000000000000000000000000000000000000000000000000000000073',
+   NULL, NULL, 15),
+  -- 12b. The same case-sensitive lookup miss with `accepted=true`: the
+  --      invitation is saved (`accepted`, `responded_at`) and then **not**
+  --      deleted, because the `User.objects.filter` below it found nothing. A
+  --      second POST is the already-responded 400.
+  ('2026-01-01 00:00:30+00', '2026-01-01 00:00:30+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000074',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', 'FIX.ONBOARDED@EXAMPLE.COM', FALSE,
+   'e000000000000000000000000000000000000000000000000000000000000074',
+   NULL, NULL, 15),
+  -- 12c. A live invitation for `guest`, whose `accepted` value can be coerced
+  --      by the column: `accepted: "maybe"` is the family 400 and writes
+  --      nothing.
+  ('2026-01-01 00:00:31+00', '2026-01-01 00:00:31+00',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000075',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', 'fix.guest@example.com', FALSE,
+   'e000000000000000000000000000000000000000000000000000000000000075',
+   NULL, NULL, 15);
+
+-- 13. Route 190's reactivate branch: `guest2` deactivated in `fix-second`, plus
+--     the invitation that flips it back on. The row's role is 5, the
+--     invitation's 15, so both columns of the `.update()` move — and no
+--     `updated_at`/`updated_by` does (`invite.py:292-294`).
+INSERT INTO workspace_members
+  (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id,
+   workspace_id, member_id, role, company_role, view_props, default_props,
+   issue_props, is_active, getting_started_checklist, tips, explored_features)
+VALUES
+  ('2026-01-01 00:00:28+00', '2026-01-01 00:00:28+00',
+   'e15c61cc-f495-4e69-a88f-9c2cf5cdca7b', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000083',
+   '7045c0d6-5260-494d-a205-4cfbaab24fea',
+   '8e40753c-7792-49be-8620-598e938b1a71', 5, NULL,
+   '{}', '{}', '{}', FALSE, '{}', '{}', '{}');
+
+INSERT INTO workspace_member_invites
+  (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id,
+   workspace_id, email, accepted, token, message, responded_at, role)
+VALUES
+  ('2026-01-01 00:00:29+00', '2026-01-01 00:00:29+00',
+   'e15c61cc-f495-4e69-a88f-9c2cf5cdca7b', NULL, NULL,
+   'e0000000-0000-4000-8000-000000000084',
+   '7045c0d6-5260-494d-a205-4cfbaab24fea', 'fix.guest2@example.com', FALSE,
+   'e000000000000000000000000000000000000000000000000000000000000084',
+   NULL, NULL, 15);

@@ -44,6 +44,7 @@ pub mod support;
 pub mod user_base;
 pub mod workspace_base;
 pub mod workspace_invite;
+pub mod workspace_invite_write;
 pub mod workspace_user;
 pub mod write_a_queries;
 pub mod write_accounts;
@@ -62,6 +63,7 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     workspace_base::register(registry)?;
     workspace_user::register(registry)?;
     workspace_invite::register(registry)?;
+    workspace_invite_write::register(registry)?;
     project_invite::register(registry)?;
     project_member::register(registry)?;
     api::register(registry)?;

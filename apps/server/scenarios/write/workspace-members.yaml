@@ -1,0 +1,1101 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Workspace core set B — routes 188, 189, 190, 191, 194 and 195:
+#
+#   POST   /api/workspaces/{slug}/invitations/                      188 create
+#   PATCH  /api/workspaces/{slug}/invitations/{pk}/                 189 partial_update
+#   DELETE /api/workspaces/{slug}/invitations/{pk}/                 189 destroy
+#   POST   /api/users/me/workspaces/invitations/                    190 create
+#   POST   /api/workspaces/{slug}/invitations/{pk}/join/            191 post
+#   PATCH  /api/workspaces/{slug}/members/{pk}/                     194 partial_update
+#   DELETE /api/workspaces/{slug}/members/{pk}/                     194 destroy
+#   POST   /api/workspaces/{slug}/members/leave/                    195 leave
+#
+# Covers:
+#
+#   * 188's raw-body order (`invite.py:52-128`): `emails` truthiness → the
+#     caller's membership → the `int(role)` cap → `Workspace.objects.get` → the
+#     case-sensitive `member__email__in` pre-check (whose 400 nests 17-key
+#     `WorkSpaceMemberSerializer` objects) → per-address `validate_email` and a
+#     JWT over the **raw body element** → one atomic `bulk_create` → `base_host`
+#     → one publish per input object. The invalid-address body interpolates the
+#     dict's Python `repr`; a non-string address is the 500 inside Django's
+#     validator; a JWT over 255 characters fails the INSERT after the (empty)
+#     transaction.
+#   * 189: the `set(request.data) != {"role"}` guard runs **before** the lookup
+#     (a form body is a `dict`, so it passes), the serializer's `ChoiceField`
+#     error, the caller's-role cap after validation, the 14-key response, and
+#     the DELETE's H03 + `workspacememberinvite` cascade.
+#   * 190: the list is filtered by `email=request.user.email`, so another
+#     address's id is a silent no-op; the member `.update(is_active, role)`
+#     writes no `updated_at`; the insert is `ignore_conflicts`; the delete is
+#     H04 (`deleted_at` only).
+#   * 191: the token check before authentication (403/401), the case-insensitive
+#     invitee check, `accepted` truthiness vs the column's `BooleanField`
+#     coercion (a form `accepted=false` creates the membership and stores
+#     `False`), the case-sensitive `User.objects.filter` miss that answers 200
+#     "Accepted" without deleting the invitation, the reject path, the
+#     reactivation branch, and the already-responded 400.
+#   * 194: the self check before the body guard, the sole-admin guard counting
+#     the fixture's soft-deleted `project_members` ghost, the only outer
+#     `transaction.atomic()` in the set, the guest demotion of **every** live
+#     project membership (the fixture's inactive row included) and the
+#     `update_fields` save; DELETE's self/higher-role/sole-admin refusals, the
+#     active-only project deactivation and the membership full save.
+#   * 195: the only-active-workspace-admin guard (`.count() > 1`), the
+#     sole-admin refusal, then the same deactivations as 194 DELETE.
+#   * permissions: 188/189 are `WorkSpaceAdminPermission` (ADMIN **or** MEMBER),
+#     190 is any authenticated caller, 191 is `AllowAny` with its own 401/403,
+#     194/195 are admin-only / any-member through `allow_permission`, guests,
+#     non-members, anonymous callers, a foreign Origin and a soft-deleted
+#     workspace are refused or 404.
+#
+# Fixture: the shared `workspace-core-fixture.sql` (set A's rows plus set B's
+# invitations, the deactivated `fix-second` membership, and the `omega` project
+# whose two rows pin the demotion's inactive branch). `fix.member`'s `mu`/`nu`
+# projects are the sole-admin predicate: `mu` is a single admin row, `nu` has a
+# soft-deleted second row that the raw LEFT JOIN still counts.
+#
+# One invitation per create step: the `workspace_member_invites.token` DB rule
+# numbers placeholders in the diff's iteration order, so a create with two
+# rows could swap them between targets. A **conflicting** create is not
+# compared at all (`ignore_conflicts` leaves no row for its token to be
+# placeheld from, and the Celery argument would then be compared literally).
+
+name: write-workspace-members
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/workspace-core-fixture.sql"
+  ws: "fix-workspace"
+  ws_second: "fix-second"
+  ws_deleted: "fix-deleted"
+  missing_uuid: "77777777-7777-4777-8777-777777777777"
+  # 220 `a`s + `@example.com`: a valid address whose JWT payload is over 255
+  # characters, so the INSERT is a `value too long for type character varying`.
+  long_email: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member2: "4c3fc8a0e97645cdbdcb3b70c54b00f5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest2: "c6b8ece2f717406882651e6d314d1007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_lonely: "d15dd57c0ccb40e1bb957964797eefaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_deleted_member: "8950e5f54a7346fd8e95db1f4e548005000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_onboarded: "1fd26618b513400e9b352ab72ccd96cd000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  member_ws_id: "8fcc0bc6-e248-4474-9579-329acd71e94e"
+  member2_ws_id: "b04eadc9-3532-4030-bcfc-835c87db3690"
+  admin_ws_id: "25544f33-0cbd-4a5c-881c-f2b41ee36270"
+  guest2_ws_id: "f5fb475d-e3fd-476d-b742-039bf618be18"
+  invite_admin_second: "e0000000-0000-4000-8000-000000000031"
+  invite_admin_second_token: "e000000000000000000000000000000000000000000000000000000000000031"
+  invite_answered: "e0000000-0000-4000-8000-000000000033"
+  invite_answered_token: "e000000000000000000000000000000000000000000000000000000000000033"
+  invite_lonely: "e0000000-0000-4000-8000-000000000034"
+  invite_lonely_token: "e000000000000000000000000000000000000000000000000000000000000034"
+  invite_nonmember: "e0000000-0000-4000-8000-000000000071"
+  invite_nonmember_token: "e000000000000000000000000000000000000000000000000000000000000071"
+  invite_uppercase: "e0000000-0000-4000-8000-000000000072"
+  invite_uppercase_token: "e000000000000000000000000000000000000000000000000000000000000072"
+  invite_deleted_member: "e0000000-0000-4000-8000-000000000073"
+  invite_deleted_member_token: "e000000000000000000000000000000000000000000000000000000000000073"
+  invite_onboarded_upper: "e0000000-0000-4000-8000-000000000074"
+  invite_onboarded_upper_token: "e000000000000000000000000000000000000000000000000000000000000074"
+  invite_guest: "e0000000-0000-4000-8000-000000000075"
+  invite_guest_token: "e000000000000000000000000000000000000000000000000000000000000075"
+  invite_guest2_second: "e0000000-0000-4000-8000-000000000084"
+  invite_guest2_second_token: "e000000000000000000000000000000000000000000000000000000000000084"
+
+steps:
+  # ---------------------------------------------------------------------------
+  # 188 POST /api/workspaces/{slug}/invitations/
+  # ---------------------------------------------------------------------------
+  - name: wsm-01-invite-no-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: wsm-02-invite-empty-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { emails: [] }
+    expect_status: 400
+
+  # `not "<empty string>"`, the form variant of the same early 400.
+  - name: wsm-03-invite-empty-form
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form: { emails: "" }
+    expect_status: 400
+
+  # `validate_email(None)` is a ValidationError, and the message interpolates
+  # the whole raw element with Python's `repr`.
+  - name: wsm-04-invite-missing-address
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ role: 15 }]
+    expect_status: 400
+
+  - name: wsm-05-invite-invalid-address
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: "not-an-address", role: 15 }]
+    expect_status: 400
+
+  # A non-string address is a `TypeError` inside `"@" not in value` (500), not
+  # the validator's `ValidationError`.
+  - name: wsm-06-invite-numeric-address
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: 123 }]
+    expect_status: 500
+
+  # `int(email.get("role", 5))` for every element, before any write.
+  - name: wsm-07-invite-role-not-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: "scratch-a@example.com", role: "abc" }]
+    expect_status: 500
+
+  # `emails` itself is not iterable: 500, after the caller's membership lookup.
+  - name: wsm-08-invite-emails-number
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { emails: 5 }
+    expect_status: 500
+
+  # ...and a `null` element has no `.get` either.
+  - name: wsm-09-invite-emails-null-element
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [null]
+    expect_status: 500
+
+  # The role cap is the caller's own: an admin may invite an admin.
+  - name: wsm-10-invite-role-equal-as-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: "new-admin@example.com", role: 20 }]
+    capture:
+      - name: invite_new_admin
+        source: db
+        table: workspace_member_invites
+        column: id
+    expect_status: 200
+
+  # A member may use the route (`WorkSpaceAdminPermission` admits MEMBER) but
+  # may not grant a role above their own.
+  - name: wsm-11-invite-higher-role-as-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      emails: [{ email: "scratch-b@example.com", role: 20 }]
+    expect_status: 400
+
+  - name: wsm-12-invite-role-equal-as-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      emails: [{ email: "scratch-c@example.com", role: 15 }]
+    capture:
+      - name: invite_scratch_c
+        source: db
+        table: workspace_member_invites
+        column: id
+    expect_status: 200
+
+  # The pre-check joins `users.email` case-sensitively, so the stored address's
+  # own spelling finds the membership and nests the 17-key serializer.
+  - name: wsm-13-invite-existing-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: "fix.member@example.com", role: 5 }]
+    expect_status: 400
+
+  # A conflicting `(email, workspace)` row (`fix.invitee@example.com`) is the
+  # one shape this route cannot compare: `ignore_conflicts` keeps the old row,
+  # so the freshly minted JWT has no DB row for the `workspace_member_invites
+  # .token` rule to placeholder it from, and the Celery argument (a positional
+  # string) is compared literally. Per `plans/WORKSPACES_CORE.md` §2f the step
+  # is therefore left out.
+
+  # A valid address whose JWT payload is longer than the column: the atomic
+  # `bulk_create` rolls back, nothing is written, and the answer is the 500.
+  - name: wsm-15-invite-token-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: "{{long_email}}" }]
+    expect_status: 500
+
+  - name: wsm-16-invite-form-emails
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form: { emails: "scratch-d@example.com" }
+    expect_status: 500
+
+  # A JSON object is iterable too — its **keys**, which are strings without a
+  # `.get`, so the comprehension is the family 500.
+  - name: wsm-16b-invite-emails-object
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: { a: 1 }
+    expect_status: 500
+
+  - name: wsm-17-invite-as-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json:
+      emails: [{ email: "scratch-e@example.com" }]
+    expect_status: 403
+
+  - name: wsm-18-invite-as-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json:
+      emails: [{ email: "scratch-f@example.com" }]
+    expect_status: 403
+
+  - name: wsm-19-invite-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    headers:
+      Host: plane-fixture.test
+    json:
+      emails: [{ email: "scratch-g@example.com" }]
+    expect_status: 401
+
+  - name: wsm-20-invite-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    json:
+      emails: [{ email: "scratch-h@example.com" }]
+    expect_status: 403
+
+  # The class permission joins `workspace_members` only, so the admin of the
+  # soft-deleted workspace passes it and `Workspace.objects.get` is the 404.
+  - name: wsm-21-invite-soft-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: "scratch-i@example.com" }]
+    expect_status: 404
+
+  - name: wsm-22-invite-missing-workspace
+    method: POST
+    path: "/api/workspaces/no-such-workspace/invitations/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      emails: [{ email: "scratch-j@example.com" }]
+    expect_status: 403
+
+  # ---------------------------------------------------------------------------
+  # 189 PATCH/DELETE /api/workspaces/{slug}/invitations/{pk}/
+  # ---------------------------------------------------------------------------
+  - name: wsm-23-invite-patch-form-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_scratch_c}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    form: { role: "15" }
+    expect_status: 200
+
+  # The guard is a key-set comparison, so any extra key is the 400 before the
+  # lookup — even with a valid role.
+  - name: wsm-24-invite-patch-extra-key
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15, email: "other@example.com" }
+    expect_status: 400
+
+  - name: wsm-25-invite-patch-empty-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: wsm-26-invite-patch-body-list
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    body: "[]"
+    expect_status: 400
+
+  # The body guard runs **before** the lookup: a missing invite with a bad body
+  # is still the guard's 400.
+  - name: wsm-27-invite-patch-bad-body-missing-invite
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { name: "x" }
+    expect_status: 400
+
+  - name: wsm-28-invite-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15 }
+    expect_status: 404
+
+  # An invitation of `fix-second`, addressed through `fix-workspace`.
+  - name: wsm-29-invite-patch-foreign
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_guest2_second}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15 }
+    expect_status: 404
+
+  - name: wsm-30-invite-patch-invalid-choice
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: "abc" }
+    expect_status: 400
+
+  - name: wsm-31-invite-patch-zero-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 0 }
+    expect_status: 400
+
+  - name: wsm-32-invite-patch-null-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: null }
+    expect_status: 400
+
+  # Validation runs first, the cap second: a member cannot raise a role to 20.
+  - name: wsm-33-invite-patch-cap-as-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { role: 20 }
+    expect_status: 400
+
+  - name: wsm-34-invite-patch-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15 }
+    expect_status: 200
+
+  # A fixture invitation: its 64-hex token and its `invite_link` stay
+  # comparable through the `token` shape rule.
+  - name: wsm-35-invite-patch-fixture
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_answered}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15 }
+    expect_status: 200
+
+  - name: wsm-36-invite-patch-as-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { role: 15 }
+    expect_status: 403
+
+  - name: wsm-37-invite-delete-as-member
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: wsm-38-invite-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_new_admin}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: wsm-39-invite-delete-foreign
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_guest2_second}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # ---------------------------------------------------------------------------
+  # 191 POST /api/workspaces/{slug}/invitations/{pk}/join/
+  # ---------------------------------------------------------------------------
+  - name: wsm-40-join-bad-token
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_nonmember}}/join/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { token: "wrong", accepted: true }
+    expect_status: 403
+
+  - name: wsm-41-join-no-token
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_nonmember}}/join/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { accepted: true }
+    expect_status: 403
+
+  # The token is checked before authentication: a correct token without a
+  # session is the 401, not the 403.
+  - name: wsm-42-join-anonymous
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_nonmember}}/join/"
+    headers:
+      Host: plane-fixture.test
+    json: { token: "{{invite_nonmember_token}}", accepted: true }
+    expect_status: 401
+
+  - name: wsm-43-join-wrong-user
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_nonmember}}/join/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { token: "{{invite_nonmember_token}}", accepted: true }
+    expect_status: 403
+
+  - name: wsm-44-join-missing-invite
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{missing_uuid}}/join/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { token: "{{invite_nonmember_token}}", accepted: true }
+    expect_status: 404
+
+  # The create branch: no membership exists, so a new `workspace_members` row
+  # is inserted with role 15, `users.updated_at` moves, the invite is
+  # soft-deleted and the cascade published.
+  - name: wsm-45-join-accept-create
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_nonmember}}/join/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { token: "{{invite_nonmember_token}}", accepted: true }
+    expect_status: 200
+
+  # The accept soft-deleted the invitation, so a second POST never reaches the
+  # already-responded branch: the lookup misses (404).
+  - name: wsm-46-join-accepted-invite-gone
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_nonmember}}/join/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: { token: "{{invite_nonmember_token}}", accepted: true }
+    expect_status: 404
+
+  # The reactivate branch: `admin`'s `fix-second` membership is deactivated in
+  # the fixture, so the accept flips it to active with the invitation's role.
+  - name: wsm-47-join-accept-reactivate
+    method: POST
+    path: "/api/workspaces/{{ws_second}}/invitations/{{invite_admin_second}}/join/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { token: "{{invite_admin_second_token}}", accepted: true }
+    expect_status: 200
+
+  # A form `accepted=False` is a truthy string (the bug), and the column's own
+  # coercion maps `"False"` to `False`: the accepted branch runs and the stored
+  # value is False. (`"false"` lower-case is a `ValidationError` instead — see
+  # wsm-50.) The address's only membership is soft-deleted, so a second row is
+  # created.
+  - name: wsm-48-join-form-false
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_deleted_member}}/join/"
+    jar: removed
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_deleted_member}}"
+    form:
+      token: "{{invite_deleted_member_token}}"
+      accepted: "False"
+    expect_status: 200
+
+  # The reject path: `accepted: false` stores `False` and answers "was not
+  # accepted"; the invitation keeps its row with `responded_at` set.
+  - name: wsm-49-join-reject
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_uppercase}}/join/"
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json: { token: "{{invite_uppercase_token}}", accepted: false }
+    expect_status: 200
+
+  # `accepted` in the column's own coercion: a value that is neither boolean
+  # nor a Django boolean string is the family 400 (the row is not written).
+  - name: wsm-50-join-accepted-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_guest}}/join/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { token: "{{invite_guest_token}}", accepted: "maybe" }
+    expect_status: 400
+
+  # An explicit `null` is `get_prep_value(None)` — SQL NULL in a NOT NULL
+  # column, i.e. the `IntegrityError` arm of the family handler, a different
+  # body from the `ValidationError` above. Nothing is written.
+  - name: wsm-50a-join-accepted-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_guest}}/join/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: { token: "{{invite_guest_token}}", accepted: null }
+    expect_status: 400
+
+  # The already-responded guard runs before the `accepted` coercion.
+  - name: wsm-50b-join-already-responded
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_answered}}/join/"
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+    json: { token: "{{invite_answered_token}}", accepted: "maybe" }
+    expect_status: 400
+
+  # The case-sensitive `User.objects.filter` miss: the caller passes the
+  # case-insensitive pre-check, the invitation is saved, the lookup finds
+  # nothing, and the view answers 200 "Accepted" **without** deleting it.
+  - name: wsm-51-join-user-lookup-miss
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_onboarded_upper}}/join/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { token: "{{invite_onboarded_upper_token}}", accepted: true }
+    expect_status: 200
+
+  - name: wsm-52-join-user-lookup-miss-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/invitations/{{invite_onboarded_upper}}/join/"
+    jar: onboarded
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_onboarded}}"
+    json: { token: "{{invite_onboarded_upper_token}}", accepted: true }
+    expect_status: 400
+
+  # ---------------------------------------------------------------------------
+  # 194 PATCH /api/workspaces/{slug}/members/{pk}/
+  # ---------------------------------------------------------------------------
+  # The self check precedes the body guard.
+  - name: wsm-53-member-patch-self
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{admin_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15 }
+    expect_status: 400
+
+  - name: wsm-54-member-patch-bad-body
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15, is_active: false }
+    expect_status: 400
+
+  - name: wsm-55-member-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{missing_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 15 }
+    expect_status: 404
+
+  # The fixture's `inactive` user holds a `workspace_members` row with
+  # `is_active=False`, which the lookup hides: a 404, not a 400.
+  - name: wsm-56-member-patch-inactive-target
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/edc90ce8-c334-4a84-b6f4-981a14c7430f/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 5 }
+    expect_status: 404
+
+  - name: wsm-57-member-patch-invalid-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 7 }
+    expect_status: 400
+
+  - name: wsm-58-member-patch-null-role
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: null }
+    expect_status: 400
+
+  # `mu` holds one admin row, so demoting its member to guest is refused. The
+  # soft-deleted ghost in `nu` still counts, so `nu` alone would not refuse.
+  - name: wsm-59-member-patch-sole-admin
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{member2_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 5 }
+    expect_status: 400
+
+  # A member is not an admin: `allow_permission` refuses before the handler.
+  - name: wsm-60-member-patch-as-member
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{member2_ws_id}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: { role: 5 }
+    expect_status: 403
+
+  - name: wsm-61-member-patch-anonymous
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    headers:
+      Host: plane-fixture.test
+    json: { role: 5 }
+    expect_status: 401
+
+  # The demotion: every live `project_members` row of the member in the
+  # workspace — the fixture's `omega` inactive row included — becomes guest, and
+  # the membership row writes `role`, `updated_at`, `updated_by` only.
+  - name: wsm-62-member-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 5 }
+    expect_status: 200
+
+  # ---------------------------------------------------------------------------
+  # 194 DELETE /api/workspaces/{slug}/members/{pk}/
+  # ---------------------------------------------------------------------------
+  - name: wsm-64-member-delete-self
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/members/{{admin_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wsm-65-member-delete-sole-admin
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/members/{{member2_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wsm-66-member-delete-as-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  # Only the *active* project memberships are deactivated; the membership row
+  # is full-saved with `is_active=False` and stays live (no cascade task).
+  - name: wsm-67-member-delete
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: wsm-68-member-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/members/{{member_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # ---------------------------------------------------------------------------
+  # 195 POST /api/workspaces/{slug}/members/leave/
+  # ---------------------------------------------------------------------------
+  # The only active workspace admin cannot leave.
+  - name: wsm-69-leave-only-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/members/leave/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  # A non-admin member who is the only admin of a project (`mu`) is refused with
+  # 195's own wording, before the project deactivation.
+  - name: wsm-69b-leave-sole-project-admin
+    method: POST
+    path: "/api/workspaces/{{ws}}/members/leave/"
+    jar: member2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member2}}"
+    json: {}
+    expect_status: 400
+
+  - name: wsm-70-leave-as-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/members/leave/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 204
+
+  - name: wsm-71-leave-again
+    method: POST
+    path: "/api/workspaces/{{ws}}/members/leave/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 403
+
+  # `member` left through 194's DELETE, so its own row is inactive.
+  - name: wsm-72-leave-deleted-member
+    method: POST
+    path: "/api/workspaces/{{ws}}/members/leave/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 403
+
+  # `lonely` has no `fix-workspace` membership yet (190 runs below), so the
+  # permission decorator refuses before the handler's lookup.
+  - name: wsm-73-leave-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/members/leave/"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json: {}
+    expect_status: 403
+
+  # ---------------------------------------------------------------------------
+  # 190 POST /api/users/me/workspaces/invitations/
+  # ---------------------------------------------------------------------------
+  # The invitation is for another address, so the `email=request.user.email`
+  # filter selects nothing and the write is a no-op (204).
+  - name: wsm-74-user-invites-other-address
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json:
+      invitations: ["{{invite_lonely}}"]
+    expect_status: 204
+
+  - name: wsm-75-user-invites-empty
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json: { invitations: [] }
+    expect_status: 204
+
+  - name: wsm-76-user-invites-missing
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json: {}
+    expect_status: 204
+
+  # `pk__in="abc"` iterates the string's characters through `UUIDField`, a
+  # `ValidationError` — the family 400.
+  - name: wsm-77-user-invites-string
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json: { invitations: "abc" }
+    expect_status: 400
+
+  - name: wsm-78-user-invites-malformed
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json: { invitations: ["not-a-uuid"] }
+    expect_status: 400
+
+  # `pk__in=None` iterates `None`: a `TypeError`, the family 500.
+  - name: wsm-79-user-invites-null
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json: { invitations: null }
+    expect_status: 500
+
+  - name: wsm-80-user-invites-anonymous
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    headers:
+      Host: plane-fixture.test
+    json: { invitations: [] }
+    expect_status: 401
+
+  # The create branch: no `fix-workspace` membership exists, so a row is
+  # inserted (with `created_by`) and the invitation is H04-deleted
+  # (`deleted_at` only).
+  - name: wsm-81-user-invites-accept
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json:
+      invitations: ["{{invite_lonely}}"]
+    expect_status: 204
+
+  - name: wsm-82-user-invites-accept-again
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: lonely
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_lonely}}"
+    json:
+      invitations: ["{{invite_lonely}}"]
+    expect_status: 204
+
+  # The reactivate branch: `guest2`'s `fix-second` row is inactive with role 5,
+  # the invitation's role is 15, and the `.update()` moves both columns while
+  # `updated_at`/`updated_by` keep their fixture values.
+  - name: wsm-83-user-invites-reactivate
+    method: POST
+    path: /api/users/me/workspaces/invitations/
+    jar: guest2
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest2}}"
+    json:
+      invitations: ["{{invite_guest2_second}}"]
+    expect_status: 204
+
+  # 194 has no role cap: a guest can be promoted straight to admin. Last, so
+  # the "only admin" leave guard above still sees one role-20 member.
+  - name: wsm-84-member-patch-promote-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/members/{{guest2_ws_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: { role: 20 }
+    expect_status: 200
