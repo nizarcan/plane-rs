@@ -56,6 +56,10 @@ use plane_drf::registry::Registry;
 /// Every module `register_all` calls, in `src/lib.rs`'s order, with the
 /// `deploy/route-groups.yaml` group whose routes that module must serve.
 const DOMAINS: &[(&str, &str)] = &[
+    // The `/auth/` session group lives in this crate by the orchestrator's
+    // instruction (`AUTH_FLOWS.md` set A registers it here, not in a separate
+    // `plane-http-auth` crate), so it is a domain like any other.
+    ("auth", "auth-session"),
     ("meta", "meta"),
     ("users_me", "users-me"),
     ("assets", "assets"),
@@ -122,6 +126,7 @@ fn domain_registries() -> Vec<(&'static str, &'static str, Registry)> {
 /// with `src/lib.rs`, and `register_all` is checked by invariant 1 regardless.
 fn register_module(module: &str) -> RegisterFn {
     match module {
+        "auth" => plane_http_app::auth::register,
         "meta" => plane_http_app::meta::register,
         "users_me" => plane_http_app::users_me::register,
         "assets" => plane_http_app::assets::register,
@@ -201,12 +206,17 @@ fn only_app_routes_are_registered() {
                 "{view_name} registers {entry}, but no routes.json row for that view maps it"
             );
             for route in matching {
-                assert_eq!(
-                    route.group, "app",
+                // `/api/` is the `app` group; the session handlers (`set A`)
+                // are the `auth` group and are registered here on the
+                // orchestrator's instruction. Every other surface has its own
+                // crate.
+                assert!(
+                    route.group == "app" || route.group == "auth",
                     "{view_name} registers {entry} for {}, but routes.json puts that route on \
-                     the {:?} surface; plane-http-app serves /api/ only, and the other surfaces \
-                     have their own crates",
-                    route.path_template, route.group
+                     the {:?} surface; plane-http-app serves /api/ (and the /auth/ session \
+                     group), and the other surfaces have their own crates",
+                    route.path_template,
+                    route.group
                 );
             }
         }

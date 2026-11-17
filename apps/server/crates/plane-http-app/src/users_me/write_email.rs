@@ -296,7 +296,10 @@ pub fn update_email<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespon
 /// (`plane/db/models/user.py:169-187`, `django/db/models/fields/__init__.py:874`)
 /// — so they are two [`write::now`] calls here. The token rotates whenever
 /// `token_updated_at` is non-NULL, which the fixture makes true for every user.
-pub(super) async fn save_user(client: &Client, user: User) -> Result<User, ViewError> {
+/// The full `User.save()` (H30 + `auto_now`), shared with the `/auth/`
+/// password routes (`change-password`, `set-password`, the reset views and
+/// sign-out), which save the same row.
+pub(crate) async fn save_user(client: &Client, user: User) -> Result<User, ViewError> {
     let hook_now = write::now();
     let prepared = hooks::user::before_save(
         user.email.as_deref(),

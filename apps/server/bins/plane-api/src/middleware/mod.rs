@@ -161,7 +161,7 @@ async fn run(state: &AppState, ctx: &mut RequestContext, body: &mut Option<Body>
     // 5. CsrfViewMiddleware.process_request: adopt or replace the cookie
     //    secret. `get_token`/`rotate_token` (layer > 5) update this state and
     //    layer 5's response phase writes the cookie.
-    csrf::request(&state.settings, ctx, &mut auth_context.csrf);
+    csrf::request(&state.settings, ctx, &auth_context.csrf).await;
 
     // 6-9: Authentication is lazy (see `auth::AuthContext`); XFrame and GZip
     // have no request-phase effect.
@@ -297,6 +297,7 @@ async fn dispatch_drf(
             kwargs,
             ctx,
             session: &auth_context.session,
+            csrf: Some(&auth_context.csrf),
             preloaded_user,
         },
     ))
@@ -406,11 +407,7 @@ async fn response_phase(
         1 => Ok(security::response(ctx, resp)),
         LAYER_SESSION => session::response(state, ctx, auth_context, db, resp).await,
         LAYER_COMMON => Ok(common::response(&state.settings, &state.routes, ctx, resp)),
-        LAYER_CSRF => Ok(csrf::response(
-            &state.settings,
-            &mut auth_context.csrf,
-            resp,
-        )),
+        LAYER_CSRF => Ok(csrf::response(&state.settings, &auth_context.csrf, resp).await),
         LAYER_XFRAME => Ok(xframe::response(resp)),
         LAYER_GZIP => Ok(gzip::response(ctx, resp)),
         LAYER_TOKEN_LOG => {

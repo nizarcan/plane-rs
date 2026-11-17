@@ -376,6 +376,30 @@ STORAGE_MOCK_TARGETS: tuple[tuple[str, str], ...] = (
     ("plane.authentication.adapter.base", "S3Storage"),
 )
 
+# The auth contract tests that patch a symbol inside Django's process:
+# `user_activation_email` is a Celery task the adapter calls (the test asserts
+# the call), `omnimatch` is zxcvbn's matcher (the test asserts the scored
+# window's length), and `AuthenticationThrottle.rate` is the class attribute the
+# throttle tests lower per test. A Rust process read its own rate at startup and
+# is not reachable by `unittest.mock`.
+AUTH_MOCK_TARGETS: tuple[tuple[str, str], ...] = (
+    ("plane.authentication.adapter.base", "user_activation_email"),
+    ("zxcvbn.matching", "omnimatch"),
+)
+AUTH_MOCK_CLASS_ATTRIBUTES: tuple[tuple[str, str, str], ...] = ()
+
+# `patch.object(AuthenticationThrottle, "rate", "2/minute")` assigns a plain
+# string, not a `Mock`, so it is detected by comparing the class attribute with
+# the value its module read from the runner's environment at import time.
+AUTH_PATCHED_RATES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "plane.authentication.rate_limit",
+        "AuthenticationThrottle",
+        "rate",
+        "AUTHENTICATION_RATE_LIMIT",
+    ),
+)
+
 
 def _local_mock_reason() -> str | None:
     """A `unittest.mock` replacement that only an in-process Django view can satisfy.
@@ -387,18 +411,51 @@ def _local_mock_reason() -> str | None:
     request is served by Django and reported, rather than failing on an
     assertion about an object Rust does not use.
 
-    The check looks at the effect (the module attribute is a `Mock`) rather than
-    `unittest.mock._patch._active_patches`: the context-manager form of
-    `patch` does not register there.
+    The auth routes have the same shape of test: `AuthenticationThrottle.rate`
+    is patched to a small rate (the Rust process read its rate from its own
+    environment at startup), `user_activation_email.delay` is mocked (the test
+    asserts the mock was called) and `zxcvbn.matching.omnimatch` is wrapped (the
+    test asserts the argument length). Those serve by Django too.
+
+    The check looks at the effect (the module attribute, or a class attribute,
+    is a `Mock`) rather than `unittest.mock._patch._active_patches`: the
+    context-manager form of `patch` does not register there.
     """
-    for module_name, attribute in STORAGE_MOCK_TARGETS:
+    for module_name, attribute in STORAGE_MOCK_TARGETS + AUTH_MOCK_TARGETS:
         module = sys.modules.get(module_name)
         if module is None:
             continue
-        if isinstance(getattr(module, attribute, None), unittest.mock.Mock):
+        value = getattr(module, attribute, None)
+        if isinstance(value, unittest.mock.Mock):
             return (
                 f"asserts on an in-process `{module_name}.{attribute}` mock; "
                 "served by Django"
+            )
+    for module_name, class_name, attribute in AUTH_MOCK_CLASS_ATTRIBUTES:
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        cls = getattr(module, class_name, None)
+        if cls is None:
+            continue
+        if isinstance(getattr(cls, attribute, None), unittest.mock.Mock):
+            return (
+                f"asserts on an in-process `{module_name}.{class_name}.{attribute}` mock; "
+                "served by Django"
+            )
+    for module_name, class_name, attribute, env_name in AUTH_PATCHED_RATES:
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        cls = getattr(module, class_name, None)
+        if cls is None:
+            continue
+        expected = os.environ.get(env_name, "10/minute")
+        current = getattr(cls, attribute, None)
+        if current != expected:
+            return (
+                f"patches `{module_name}.{class_name}.{attribute}` to {current!r} per test; "
+                f"the Rust process read {expected!r} at startup — served by Django"
             )
     return None
 
@@ -800,6 +857,21 @@ def _build_response(
     response.wsgi_request = None
     response.json = partial(client._parse_json, response)
     response.data = _parse_json_body(response.content, response.headers.get("Content-Type", ""))
+    # `django.test.client.Client.post(..., follow=True)` reads `response.url` in
+    # `_follow_redirect`, and a real `HttpResponseRedirect` is the only Django
+    # response class carrying it. The Rust 302 is wrapped in a plain
+    # `HttpResponse`, so set the attribute the follower needs.
+    location = wire.headers.get("Location")
+    if wire.status_code in (301, 302, 303, 307, 308) and location:
+        response.url = location
+    # `Client.request` normally folds the response's cookies into
+    # `client.cookies` (`client.py:1140-1145`); the wrapper replaced that method,
+    # so do it here. Without it a test that signs in over Rust cannot see
+    # `request.session["_auth_user_id"]` afterwards.
+    try:
+        client.cookies.update(response.cookies)
+    except (AttributeError, TypeError):
+        pass
     response.was_rust = True
     response.rust_group = route.group
     return response

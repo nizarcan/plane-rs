@@ -1,0 +1,427 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth session set A — the password flows (`AUTH_FLOWS.md` 352-355, 356-357):
+#
+#   POST  /auth/sign-in/                 (352)  app
+#   POST  /auth/sign-up/                 (353)  app, with the invite callback
+#   POST  /auth/spaces/sign-in/          (354)  no callback, path-appending redirect
+#   POST  /auth/spaces/sign-up/          (355)
+#   POST  /auth/sign-out/                (356)  ignores `next_path`
+#   POST  /auth/spaces/sign-out/         (357)  honours it
+#
+# Branches covered, in the Python's order:
+#
+#   * required fields (`email=False` when the key is missing), invalid email,
+#     unknown user, wrong password, deactivated user, bot user, a provisioned
+#     inactive user (allowed, activates, publishes `user_activation_email`);
+#   * the signup gate's other half: an existing address, `PASSWORD_TOO_WEAK`
+#     from zxcvbn, a strong password, a >128-character password whose 128-char
+#     windows are strong;
+#   * `next_path`: allowed (the redirect is followed), an absolute URL (the
+#     path survives `urlparse`), an authority-relative `//host` (dropped), a
+#     smuggled `&error_code=` (interpolated unencoded), and empty;
+#   * app vs space: the app success redirect is `base/?next_path=…`, the space
+#     one appends the path to the base; space sign-out honours `next_path`;
+#   * CSRF failure on a plain view is the 200 HTML page;
+#   * sign-out is idempotent and, for the app, ignores `next_path`.
+#
+# The fixture opens the instance gate and inserts the accounts; their password
+# is `Auth-Fixture-Passw0rd-2026!` (see `auth-session-email-fixture.sql`).
+
+name: write-auth-session-email
+template_db: plane_tpl
+redis_db: [3, 4]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-session-email-fixture.sql"
+  fixture_email: signin@example.com
+  fixture_password: Auth-Fixture-Passw0rd-2026!
+  signup_email: signup-app@example.com
+  signup_space_email: signup-space@example.com
+  signup_password: Diff-Test-Signup-2026-Str0ng!
+password_vars:
+  - fixture_password
+  - signup_password
+steps:
+  # --- CSRF cookies ------------------------------------------------------
+  # One `get_token` per jar: the harness sends the jar's `csrftoken` cookie as
+  # `X-CSRFToken`, which Django's `CsrfViewMiddleware` accepts in place of the
+  # form field, and `login()` rotates it, so every jar refetches after a sign-in
+  # only if a later step depends on the old secret.
+  - name: anon-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: anon
+    expect_status: 200
+
+  - name: signin-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: signin
+    expect_status: 200
+
+  - name: signup-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: signup
+    expect_status: 200
+
+  - name: space-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: space
+    expect_status: 200
+
+  - name: space-alt-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: space-alt
+    expect_status: 200
+
+  - name: smuggle-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: smuggle
+    expect_status: 200
+
+  - name: authority-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: authority
+    expect_status: 200
+
+  - name: absolute-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: absolute
+    expect_status: 200
+
+  - name: empty-path-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: empty-path
+    expect_status: 200
+
+  - name: space-signup-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: space-signup
+    expect_status: 200
+
+  - name: provisioned-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: provisioned
+    expect_status: 200
+
+  - name: folded-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: folded
+    expect_status: 200
+
+  # --- sign-in error branches -------------------------------------------
+  - name: sign-in-without-fields
+    method: POST
+    path: /auth/sign-in/
+    jar: anon
+    form: {}
+    expect_status: 302
+    capture:
+      - name: required_location
+        source: header
+        header: Location
+      # Everything after the origin's `/`; the literal path below supplies it.
+      - name: required_query
+        source: regex
+        header: Location
+        pattern: '^https?://[^/]+/(.*)$'
+
+  - name: follow-required-location
+    method: GET
+    path: "/{{required_query}}"
+    expect_status: 200
+
+  - name: sign-in-without-password
+    method: POST
+    path: /auth/sign-in/
+    jar: anon
+    form:
+      email: "{{fixture_email}}"
+    expect_status: 302
+
+  - name: sign-in-invalid-email
+    method: POST
+    path: /auth/sign-in/
+    jar: anon
+    form:
+      email: useremail.com
+      password: "{{fixture_password}}"
+    expect_status: 302
+
+  - name: sign-in-unknown-user
+    method: POST
+    path: /auth/sign-in/
+    jar: anon
+    form:
+      email: nobody@example.com
+      password: "{{fixture_password}}"
+    expect_status: 302
+
+  - name: sign-in-wrong-password
+    method: POST
+    path: /auth/sign-in/
+    jar: anon
+    form:
+      email: "{{fixture_email}}"
+      password: not-the-password
+    expect_status: 302
+
+  - name: sign-in-deactivated
+    method: POST
+    path: /auth/sign-in/
+    jar: anon
+    form:
+      email: deactivated@example.com
+      password: "{{fixture_password}}"
+    expect_status: 302
+
+  - name: sign-in-bot
+    method: POST
+    path: /auth/sign-in/
+    jar: anon
+    form:
+      email: bot@example.com
+      password: "{{fixture_password}}"
+    expect_status: 302
+
+  # `is_active=False` with `last_logout_time=None`: a provisioned account's
+  # first login. It is activated and publishes `user_activation_email`.
+  - name: sign-in-provisioned
+    method: POST
+    path: /auth/sign-in/
+    jar: provisioned
+    form:
+      email: provisioned@example.com
+      password: "{{fixture_password}}"
+    expect_status: 302
+
+  # --- sign-in success, next_path variants ------------------------------
+  - name: sign-in-next-path
+    method: POST
+    path: /auth/sign-in/
+    jar: signin
+    form:
+      email: "{{fixture_email}}"
+      password: "{{fixture_password}}"
+      next_path: /my-workspace/
+    expect_status: 302
+    capture:
+      - name: next_path_location
+        source: header
+        header: Location
+      - name: next_path_query
+        source: regex
+        header: Location
+        pattern: '^https?://[^/]+/(.*)$'
+
+  - name: follow-next-path-location
+    method: GET
+    path: "/{{next_path_query}}"
+    expect_status: 200
+
+  # The path is interpolated unencoded: `&` forges a query parameter.
+  - name: sign-in-smuggled-next-path
+    method: POST
+    path: /auth/sign-in/
+    jar: smuggle
+    form:
+      email: "{{fixture_email}}"
+      password: "{{fixture_password}}"
+      next_path: "/a&error_code=1"
+    expect_status: 302
+
+  # `//evil.example/x` is authority-relative and `validate_next_path` drops it.
+  - name: sign-in-authority-relative-next-path
+    method: POST
+    path: /auth/sign-in/
+    jar: authority
+    form:
+      email: "{{fixture_email}}"
+      password: "{{fixture_password}}"
+      next_path: "//evil.example/x"
+    expect_status: 302
+
+  # An absolute URL keeps only its path (`urlparse`), so it stays on the base.
+  - name: sign-in-absolute-next-path
+    method: POST
+    path: /auth/sign-in/
+    jar: absolute
+    form:
+      email: "{{fixture_email}}"
+      password: "{{fixture_password}}"
+      next_path: "https://evil.example/path?q=1"
+    expect_status: 302
+
+  - name: sign-in-empty-next-path
+    method: POST
+    path: /auth/sign-in/
+    jar: empty-path
+    form:
+      email: "{{fixture_email}}"
+      password: "{{fixture_password}}"
+      next_path: ""
+    expect_status: 302
+
+  # `.strip().lower()` on the address: spaces and case are folded.
+  - name: sign-in-case-and-space-folded
+    method: POST
+    path: /auth/sign-in/
+    jar: folded
+    form:
+      email: "  SIGNIN@EXAMPLE.COM  "
+      password: "{{fixture_password}}"
+    expect_status: 302
+
+  # --- sign-up ----------------------------------------------------------
+  - name: sign-up-weak-password
+    method: POST
+    path: /auth/sign-up/
+    jar: signup
+    form:
+      email: "{{signup_email}}"
+      password: "123456"
+    expect_status: 302
+
+  - name: sign-up-existing-user
+    method: POST
+    path: /auth/sign-up/
+    jar: signup
+    form:
+      email: "{{fixture_email}}"
+      password: "{{signup_password}}"
+    expect_status: 302
+
+  - name: sign-up-new-user
+    method: POST
+    path: /auth/sign-up/
+    jar: signup
+    form:
+      email: "{{signup_email}}"
+      password: "{{signup_password}}"
+    expect_status: 302
+
+  # A second signup with the same address now hits the existing-user branch.
+  - name: sign-up-again
+    method: POST
+    path: /auth/sign-up/
+    jar: signup
+    form:
+      email: "{{signup_email}}"
+      password: "{{signup_password}}"
+    expect_status: 302
+
+  # --- space variants ---------------------------------------------------
+  - name: space-sign-in-with-next-path
+    method: POST
+    path: /auth/spaces/sign-in/
+    jar: space
+    form:
+      email: "{{fixture_email}}"
+      password: "{{fixture_password}}"
+      next_path: /space-path/
+    expect_status: 302
+
+  - name: space-sign-in-off-host
+    method: POST
+    path: /auth/spaces/sign-in/
+    jar: space-alt
+    form:
+      email: "{{fixture_email}}"
+      password: "{{fixture_password}}"
+      next_path: "//evil.example/x"
+    expect_status: 302
+
+  - name: space-sign-in-wrong-password
+    method: POST
+    path: /auth/spaces/sign-in/
+    jar: space-alt
+    form:
+      email: "{{fixture_email}}"
+      password: wrong
+    expect_status: 302
+
+  - name: space-sign-up-new-user
+    method: POST
+    path: /auth/spaces/sign-up/
+    jar: space-signup
+    form:
+      email: "{{signup_space_email}}"
+      password: "{{signup_password}}"
+      next_path: /after-signup/
+    expect_status: 302
+
+  - name: space-sign-up-existing-user
+    method: POST
+    path: /auth/spaces/sign-up/
+    jar: space-signup
+    form:
+      email: "{{fixture_email}}"
+      password: "{{signup_password}}"
+    expect_status: 302
+
+  # --- CSRF failure on a plain view -------------------------------------
+  # No `csrfmiddlewaretoken` and no cookie: the custom failure page with status
+  # 200, not 403.
+  - name: sign-in-without-csrf-token
+    method: POST
+    path: /auth/sign-in/
+    jar: no-csrf
+    form:
+      email: csrf@example.com
+      password: "{{fixture_password}}"
+    expect_status: 200
+
+  # --- sign-out ---------------------------------------------------------
+  - name: sign-out
+    method: POST
+    path: /auth/sign-out/
+    jar: signup
+    form: {}
+    expect_status: 302
+
+  # The session row and the cookie are gone; a second sign-out is a no-op.
+  - name: sign-out-again
+    method: POST
+    path: /auth/sign-out/
+    jar: signup
+    form: {}
+    expect_status: 302
+
+  # The app view ignores `next_path`.
+  - name: sign-out-with-next-path
+    method: POST
+    path: /auth/sign-out/
+    jar: signin
+    form:
+      next_path: /after-sign-out/
+    expect_status: 302
+
+  - name: space-sign-out-with-next-path
+    method: POST
+    path: /auth/spaces/sign-out/
+    jar: space
+    form:
+      next_path: /space-after-sign-out/
+    expect_status: 302
+
+  - name: space-sign-out-again
+    method: POST
+    path: /auth/spaces/sign-out/
+    jar: space
+    form:
+      next_path: /space-after-sign-out/
+    expect_status: 302

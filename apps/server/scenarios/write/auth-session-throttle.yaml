@@ -1,0 +1,128 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth session set A — the rate limit (`plane/authentication/rate_limit.py`).
+#
+# `AUTHENTICATION_RATE_LIMIT` is pinned to `3/minute`, and every route below
+# shares the one `throttle_authentication_<ip>` bucket: the plain redirect
+# views run `@throttle_auth_redirect` by hand, the DRF views list
+# `AuthenticationThrottle` in `throttle_classes`, and a signed-in caller uses
+# the same key (`get_cache_key` keys on the client IP only).
+#
+# Covered:
+#
+#   * two failed sign-ins and one successful sign-in fit in the budget;
+#   * the fourth request is a 302 to the app's error page with
+#     `error_code=5900&error_message=RATE_LIMIT_EXCEEDED`, `next_path` included;
+#   * the DRF endpoints then answer 429 with Plane's `RATE_LIMIT_EXCEEDED` body
+#     (`email-check`, `change-password`);
+#   * a permission failure (401) runs before the throttle and consumes nothing;
+#   * the space sign-in and the plain sign-out share the exhausted bucket.
+#
+# `GET /auth/get-csrf-token/` uses `AnonRateThrottle` (scope `anon`, 60/min), so
+# the CSRF token fetches do not touch the auth budget.
+
+name: write-auth-session-throttle
+template_db: plane_tpl
+redis_db: [3, 4]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "3/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-session-throttle-fixture.sql"
+  password: Auth-Fixture-Passw0rd-2026!
+password_vars:
+  - password
+steps:
+  - name: throttle-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: throttle
+    expect_status: 200
+
+  # Budget: 1.
+  - name: throttle-sign-in-wrong-1
+    method: POST
+    path: /auth/sign-in/
+    jar: throttle
+    form:
+      email: throttle@example.com
+      password: wrong
+    expect_status: 302
+
+  # Budget: 2.
+  - name: throttle-sign-in-wrong-2
+    method: POST
+    path: /auth/sign-in/
+    jar: throttle
+    form:
+      email: throttle@example.com
+      password: wrong
+    expect_status: 302
+
+  # Budget: 3 (a success still consumes the bucket).
+  - name: throttle-sign-in-success
+    method: POST
+    path: /auth/sign-in/
+    jar: throttle
+    form:
+      email: throttle@example.com
+      password: "{{password}}"
+    expect_status: 302
+
+  # Exhausted: the plain view redirects instead of answering 429.
+  - name: throttle-sign-in-limited
+    method: POST
+    path: /auth/sign-in/
+    jar: throttle
+    form:
+      email: throttle@example.com
+      password: "{{password}}"
+      next_path: /limited/
+    expect_status: 302
+
+  # The DRF views answer 429 with the error dict.
+  - name: throttle-email-check-limited
+    method: POST
+    path: /auth/email-check/
+    jar: throttle
+    json:
+      email: throttle@example.com
+    expect_status: 429
+
+  # `IsAuthenticated` runs before `check_throttles`, so this is a 401 and does
+  # not touch the bucket.
+  - name: throttle-change-password-unauthenticated
+    method: POST
+    path: /auth/change-password/
+    jar: anonymous
+    json:
+      old_password: "{{password}}"
+      new_password: Diff-Test-Changed-2026-N3w!
+    expect_status: 401
+
+  - name: throttle-change-password-limited
+    method: POST
+    path: /auth/change-password/
+    jar: throttle
+    json:
+      old_password: "{{password}}"
+      new_password: Diff-Test-Changed-2026-N3w!
+    expect_status: 429
+
+  - name: throttle-space-sign-in-limited
+    method: POST
+    path: /auth/spaces/sign-in/
+    jar: throttle
+    form:
+      email: throttle@example.com
+      password: "{{password}}"
+      next_path: /space-limited/
+    expect_status: 302
+
+  - name: throttle-sign-out-limited
+    method: POST
+    path: /auth/sign-out/
+    jar: throttle
+    form: {}
+    expect_status: 302

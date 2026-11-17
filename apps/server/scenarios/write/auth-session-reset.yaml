@@ -1,0 +1,294 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth session set A — the reset flows (379-382) with SMTP configured:
+#
+#   POST  /auth/forgot-password/                              (379)  app
+#   POST  /auth/reset-password/{uidb64}/{token}/              (380)  app
+#   POST  /auth/spaces/forgot-password/                       (381)  space
+#   POST  /auth/spaces/reset-password/{uidb64}/{token}/       (382)  space
+#
+# The fixture sets `EMAIL_HOST=127.0.0.1` and `ENABLE_MAGIC_LINK_LOGIN=1`, so
+# `forgot-password` publishes its Celery message and `email-check` answers
+# `MAGIC_CODE`.
+#
+# The reset tokens are minted with the real `PasswordResetTokenGenerator` at a
+# fixed timestamp (2099-12-31, so they cannot expire) with the dev stack's
+# `SECRET_KEY` — the one both targets load from `apps/server/dev/.env.local`
+# (`dev/lib.sh` sources it *after* the caller's environment, so a scenario
+# cannot pin a different key). The tokens are bound to the fixture users'
+# password hash, so a fixture change requires minting them again; the scenario
+# creates no session, so the harness's session verification never sees them.
+#
+# App vs space reset differences (`AUTH_FLOWS.md` §5) are the point of the
+# second half: the space view catches only `DjangoUnicodeDecodeError` (a bad
+# `uidb64` or an unknown user is a 500), builds `{space}/accounts/reset-password/?…`
+# with the base's trailing slash doubled, and answers a bare space base on
+# success instead of `sign-in?success=True`.
+#
+# The >128-character password is exercised here rather than on signup: reset is
+# a plain view with no throttle, so zxcvbn's cost does not skew a Redis TTL.
+
+name: write-auth-session-reset
+template_db: plane_tpl
+redis_db: [3, 4]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-session-reset-fixture.sql"
+  reset_uidb64: YTEwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA4
+  reset_token: 1vuhmo0-b824c191548a4daa615fbc836598ce18
+  autoset_uidb64: YTEwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA5
+  autoset_token: 1vuhmo0-bec5d948f3f532dbf945bd344266b941
+  weak_uidb64: YTEwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDBh
+  weak_token: 1vuhmo0-ecaf11eac616ca8426cd54bc6b1c7649
+  # base64url("00000000-0000-4000-8000-000000000000"): decodes to a UUID that
+  # is not in the table.
+  missing_uidb64: MDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAw
+  # base64url(b"not-a-uuid"), a valid UTF-8 string that `User.id` rejects.
+  not_uuid_uidb64: bm90LWEtdXVpZA
+  # base64url(b"\xff\xfe"): valid base64, invalid UTF-8.
+  non_utf8_uidb64: __4
+  # base64url("a") has an invalid data length: `binascii` ValueError.
+  bad_base64_uidb64: a
+  strong_password: Diff-Test-Reset-2026-N3w!
+  # 160 deterministic printable characters: both 128-character windows score
+  # >= 3, and Python's zxcvbn takes seconds on it.
+  long_password: "Xk9#mQ2$vL7@pT4%zR8^wN5&bH3*cJ6!dF1(gS0)eU9{Qa2}Wz4|Er6+Ty8=Ui0)Op1]As3[Df5;Gh7'Jk9:Lz1<Xc3>Vb5?Nm7/Bq9,We1.Rt3*Yy5&Uu7^Io9!Pa1@Ss3#Dd5$Ff7%Gg9^Hh1&Jj3*Kk5(Ll7)Zz9"
+  fixture_password: Auth-Fixture-Passw0rd-2026!
+password_vars:
+  - fixture_password
+  - strong_password
+  - long_password
+steps:
+  # The >128-character reset runs **first**, with a fixed CSRF cookie/header
+  # instead of `/auth/get-csrf-token/`: zxcvbn takes seconds on the long
+  # password, and any Redis key created before this step would be compared with
+  # a TTL skewed by that cost. A plain reset view writes no cache key, so there
+  # is nothing to compare yet.
+  - name: reset-app-success-long-password
+    method: POST
+    path: "/auth/reset-password/{{reset_uidb64}}/{{reset_token}}/"
+    jar: reset
+    headers:
+      Cookie: "csrftoken=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      X-CSRFToken: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    form:
+      password: "{{long_password}}"
+    expect_status: 302
+
+  # The token hashes the password, so the same link no longer verifies.
+  - name: reset-app-reuse-token
+    method: POST
+    path: "/auth/reset-password/{{reset_uidb64}}/{{reset_token}}/"
+    jar: reset
+    headers:
+      Cookie: "csrftoken=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      X-CSRFToken: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    form:
+      password: "{{strong_password}}"
+    expect_status: 302
+
+  - name: reset-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: reset
+    expect_status: 200
+
+  # --- email-check with SMTP + magic login enabled ----------------------
+  - name: email-check-autoset
+    method: POST
+    path: /auth/email-check/
+    jar: reset
+    json:
+      email: check-autoset@example.com
+    expect_status: 200
+
+  - name: email-check-credential
+    method: POST
+    path: /auth/email-check/
+    jar: reset
+    json:
+      email: check-credential@example.com
+    expect_status: 200
+
+  - name: email-check-new
+    method: POST
+    path: /auth/email-check/
+    jar: reset
+    json:
+      email: brand-new@example.com
+    expect_status: 200
+
+  # --- forgot-password --------------------------------------------------
+  - name: forgot-missing-email
+    method: POST
+    path: /auth/forgot-password/
+    jar: reset
+    json: {}
+    expect_status: 400
+
+  - name: forgot-invalid-email
+    method: POST
+    path: /auth/forgot-password/
+    jar: reset
+    json:
+      email: useremail.com
+    expect_status: 400
+
+  - name: forgot-unknown-user
+    method: POST
+    path: /auth/forgot-password/
+    jar: reset
+    json:
+      email: nobody@example.com
+    expect_status: 400
+
+  - name: forgot-app
+    method: POST
+    path: /auth/forgot-password/
+    jar: reset
+    json:
+      email: Forgot@Example.com
+    expect_status: 200
+
+  - name: forgot-space
+    method: POST
+    path: /auth/spaces/forgot-password/
+    jar: reset
+    json:
+      email: Forgot@Example.com
+    expect_status: 200
+
+  # The lookup is exact: the only row is `Forgot@Example.com`, so the
+  # lowercased address is USER_DOES_NOT_EXIST. `load_user_by_email` keeps the
+  # case even though every *entry point* lowercases its input.
+  - name: forgot-lowercase-miss
+    method: POST
+    path: /auth/forgot-password/
+    jar: reset
+    json:
+      email: forgot@example.com
+    expect_status: 400
+
+  # --- app reset error branches ----------------------------------------
+  - name: reset-app-bad-base64
+    method: POST
+    path: "/auth/reset-password/{{bad_base64_uidb64}}/{{reset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 302
+
+  - name: reset-app-missing-user
+    method: POST
+    path: "/auth/reset-password/{{missing_uidb64}}/{{reset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 302
+
+  - name: reset-app-wrong-token
+    method: POST
+    path: "/auth/reset-password/{{reset_uidb64}}/1-abcdef/"
+    jar: reset
+    form: {}
+    expect_status: 302
+
+  - name: reset-app-non-utf8-uid
+    method: POST
+    path: "/auth/reset-password/{{non_utf8_uidb64}}/{{reset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 302
+
+  - name: reset-app-not-a-uuid
+    method: POST
+    path: "/auth/reset-password/{{not_uuid_uidb64}}/{{reset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 500
+
+  - name: reset-app-no-password
+    method: POST
+    path: "/auth/reset-password/{{weak_uidb64}}/{{weak_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 302
+
+  - name: reset-app-empty-password
+    method: POST
+    path: "/auth/reset-password/{{weak_uidb64}}/{{weak_token}}/"
+    jar: reset
+    form:
+      password: ""
+    expect_status: 302
+
+  - name: reset-app-weak-password
+    method: POST
+    path: "/auth/reset-password/{{weak_uidb64}}/{{weak_token}}/"
+    jar: reset
+    form:
+      password: "123456"
+    expect_status: 302
+
+  # --- space reset error branches --------------------------------------
+  # `except DjangoUnicodeDecodeError` does not catch the ValueError.
+  - name: reset-space-bad-base64
+    method: POST
+    path: "/auth/spaces/reset-password/{{bad_base64_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 500
+
+  - name: reset-space-missing-user
+    method: POST
+    path: "/auth/spaces/reset-password/{{missing_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 500
+
+  - name: reset-space-not-a-uuid
+    method: POST
+    path: "/auth/spaces/reset-password/{{not_uuid_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 500
+
+  - name: reset-space-non-utf8-uid
+    method: POST
+    path: "/auth/spaces/reset-password/{{non_utf8_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 302
+
+  - name: reset-space-no-password
+    method: POST
+    path: "/auth/spaces/reset-password/{{autoset_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form: {}
+    expect_status: 302
+
+  - name: reset-space-weak-password
+    method: POST
+    path: "/auth/spaces/reset-password/{{autoset_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form:
+      password: "123456"
+    expect_status: 302
+
+  # --- space reset success ---------------------------------------------
+  - name: reset-space-success
+    method: POST
+    path: "/auth/spaces/reset-password/{{autoset_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form:
+      password: "{{strong_password}}"
+    expect_status: 302
+
+  - name: reset-space-reuse-token
+    method: POST
+    path: "/auth/spaces/reset-password/{{autoset_uidb64}}/{{autoset_token}}/"
+    jar: reset
+    form:
+      password: "{{strong_password}}"
+    expect_status: 302

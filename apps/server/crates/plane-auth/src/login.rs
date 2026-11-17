@@ -13,20 +13,22 @@
 //! 3. write `_auth_user_id`, `_auth_user_backend` and `_auth_user_hash`;
 //! 4. `rotate_token(request)` — a new CSRF secret, written by the CSRF
 //!    middleware's response phase;
-//! 5. send `user_logged_in`.
+//! 5. send `user_logged_in`; `AuthConfig.ready()` connects
+//!    `update_last_login` because `db.User.last_login` is a field
+//!    (`django/contrib/auth/apps.py:22-28`, `models.py:18-24`), so the receiver
+//!    writes `last_login = now()` with `update_fields=["last_login"]` — one
+//!    column, and **not** `updated_at`, even though `User.save()`/H30 run.
 //!
-//! Step 5 has **no receiver in Plane**: `django.contrib.auth.models.update_last_login`
-//! is not connected anywhere in `plane/` (grep for `user_logged_in` finds no
-//! `@receiver`). `last_login` is therefore *not* updated by logging in;
-//! `plane/authentication/adapter/base.py:229-247` writes `last_login_time`,
-//! `last_login_ip`, `last_login_uagent` and `last_login_medium` in its own
-//! `save_user_data`, which is a Phase 6 concern.
+//! `plane/authentication/adapter/base.py:229-247` writes the *other* login
+//! columns (`last_login_time`, `last_login_ip`, `last_login_uagent`,
+//! `last_login_medium`) in its own `save_user_data`.
 //!
 //! Plane's `user_login` (`plane/authentication/utils/login.py:13-27`) calls
 //! `login()`, optionally sets the admin expiry, writes `device_info =
 //! {"user_agent", "ip_address", "domain"}` and calls `session.save()`
 //! explicitly, so a row always exists even when the middleware would not save.
 
+use chrono::SubsecRound;
 use deadpool_postgres::Client;
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
@@ -172,7 +174,14 @@ pub async fn login(
     ctx.user = Some(plane_core::ids::UserId(user.id));
     // `rotate_token(request)`.
     csrf.rotate();
-    // `user_logged_in.send(...)`: no receiver in Plane (see module docs).
+    // `user_logged_in` -> `update_last_login`: `user.last_login = now()` then
+    // `save(update_fields=["last_login"])`. The receiver uses the in-memory
+    // instance, so H30's token rotation is not persisted by this statement.
+    let statement = crate::queries::UPDATE_USER_LAST_LOGIN
+        .prepare(client)
+        .await?;
+    let now = chrono::Utc::now().trunc_subsecs(6);
+    client.execute(&statement, &[&now, &user.id]).await?;
     Ok(())
 }
 

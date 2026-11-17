@@ -67,7 +67,7 @@ pub async fn handle(
     let result = match route {
         TestRoute::Whoami => whoami(state, ctx, auth, db).await,
         TestRoute::Login => login(state, ctx, auth, db).await,
-        TestRoute::CsrfToken => Ok(csrf_token(auth)),
+        TestRoute::CsrfToken => Ok(csrf_token(auth).await),
     };
     match result {
         Ok(resp) => resp,
@@ -136,12 +136,13 @@ async fn login(
         .await;
     {
         let mut session = auth.session.lock().await;
+        let mut csrf = auth.csrf.lock().await;
         user_login(
             client,
             &state.settings,
             ctx,
             &mut session,
-            &mut auth.csrf,
+            &mut csrf,
             &user,
             LoginFlags {
                 is_app: true,
@@ -159,8 +160,8 @@ async fn login(
 
 /// `django.middleware.csrf.get_token` behind the same JSON shape as
 /// `/auth/get-csrf-token/`.
-fn csrf_token(auth: &mut AuthContext) -> Resp {
-    let token = auth.csrf.get_token();
+async fn csrf_token(auth: &AuthContext) -> Resp {
+    let token = auth.csrf.lock().await.get_token();
     match json(200, &Object::new().field("csrf_token", token)) {
         Ok(resp) => resp,
         Err(_) => crate::handlers::server_error(),

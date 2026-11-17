@@ -305,6 +305,19 @@ plane_query! {
 }
 
 plane_query! {
+    /// `update_last_login` (`django/contrib/auth/models.py:18-24`), the
+    /// `user_logged_in` receiver `AuthConfig.ready()` connects
+    /// (`django/contrib/auth/apps.py:22-28`):
+    /// `user.last_login = timezone.now(); user.save(update_fields=["last_login"])`.
+    ///
+    /// `update_fields` means a single-column UPDATE: H30 runs in memory and
+    /// `updated_at` (`auto_now`) is **not** written.
+    UPDATE_USER_LAST_LOGIN = "auth_update_user_last_login",
+    "UPDATE users SET last_login = $1 WHERE id = $2",
+    []
+}
+
+plane_query! {
     /// `Adapter.save_user_data` (`adapter/base.py:231-251`) + H30 + `auto_now`:
     /// only the columns the method and the hook change are written. Django's
     /// full `save()` rewrites every column with its unchanged value, which is
@@ -640,6 +653,7 @@ pub static ALL_QUERIES: &[&Query] = &[
     &LOAD_USER_BY_EMAIL,
     &LOAD_USER_FULL_BY_EMAIL,
     &INSERT_USER,
+    &UPDATE_USER_LAST_LOGIN,
     &UPDATE_USER_LOGIN,
     &UPDATE_USER_SYNC,
     &INVITE_EXISTS_FOR_EMAIL,
