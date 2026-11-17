@@ -272,6 +272,43 @@ steps:
       X-Forwarded-For: 198.51.100.23
     expect_status: 302
 
+  # A **malformed** `csrftoken` cookie on a successful login. The callbacks are
+  # safe-method plain views, so `CsrfViewMiddleware.process_request` replaces
+  # the malformed cookie (`_add_new_csrf_cookie`, `csrf.py:400-414`) without
+  # rejecting the request, and `login()`'s `rotate_token` replaces it again;
+  # the response phase must still write **one** `Set-Cookie: csrftoken`
+  # (`csrf.py:505-517`). A handler that wrote its own cookie would emit two.
+  # The jar's session cookie is re-attached explicitly because an explicit
+  # `Cookie:` header replaces the jar's.
+  - name: auth-oauth-14a-gitlab-init-malformed-csrf
+    method: GET
+    path: "/auth/gitlab/"
+    jar: gl_bad_csrf
+    headers:
+      Host: "{{host}}"
+      X-Forwarded-For: 198.51.100.24
+    expect_status: 302
+    capture:
+      - name: gl_bad_csrf_state
+        source: regex
+        header: Location
+        pattern: "state=([0-9a-f]{32})"
+      - name: gl_bad_csrf_session
+        source: cookie
+        cookie: session-id
+
+  - name: auth-oauth-14b-gitlab-callback-malformed-csrf
+    method: GET
+    path: "/auth/gitlab/callback/"
+    query:
+      code: gitlab-signin
+      state: "{{gl_bad_csrf_state}}"
+    headers:
+      Host: "{{host}}"
+      Cookie: "session-id={{gl_bad_csrf_session}}; csrftoken=short"
+      X-Forwarded-For: 198.51.100.25
+    expect_status: 302
+
   # A token response without `access_token` reaches `accounts.access_token`
   # NOT NULL: `create_update_account` swallows the DatabaseError and the login
   # still succeeds.

@@ -6,12 +6,19 @@
 //!
 //! | Rust | Python | Routes |
 //! | --- | --- | --- |
+//! | [`email`] | `authentication/views/{app,space}/email.py` | 352-355 |
+//! | [`signout`] | `authentication/views/{app,space}/signout.py` | 356-357 |
+//! | [`csrf`] | `authentication/views/common.py:29-36` (`CSRFTokenEndpoint`) | 358 |
 //! | [`magic`] | `authentication/views/{app,space}/magic.py` | 359-364 |
 //! | [`oauth`] | `authentication/views/{app,space}/{google,github,gitlab,gitea}.py` | 365-376, 385-388 |
+//! | [`check`] | `authentication/views/{app,space}/check.py` | 377-378 |
+//! | [`password`] | `authentication/views/{app,space}/password_management.py`, `views/common.py:48-139` | 379-384 |
 //!
 //! The group is split by flow, one module per plan set (`plans/AUTH_FLOWS.md`
 //! §3): set A owns the session routes, set B the magic-code routes and set C
-//! the OAuth routes. Each set adds its module and its line to [`register`].
+//! the OAuth routes. Each set adds its module and its line to [`register`];
+//! the pieces more than one set needs live in [`support`] (one copy, not one
+//! per set).
 //!
 //! ## Magic link (set B)
 //!
@@ -55,14 +62,26 @@
 //!   case from a stored one only when `H30` has already lower-cased it; the
 //!   lookup itself is exact (`magic.py:157`).
 
+pub mod check;
+pub mod csrf;
+pub mod email;
 pub mod magic;
 pub mod oauth;
+pub mod password;
 pub mod queries;
+pub mod signout;
+pub(crate) mod support;
 
 use plane_drf::registry::{Registry, RegistryError};
 
-/// Register this group's handlers, in the order they were ported.
+/// Register every `/auth/` route this crate owns, in `routes.json`'s order.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    email::register(registry)?;
+    signout::register(registry)?;
+    csrf::register(registry)?;
+    magic::register(registry)?;
     oauth::register(registry)?;
-    magic::register(registry)
+    check::register(registry)?;
+    password::register(registry)?;
+    Ok(())
 }

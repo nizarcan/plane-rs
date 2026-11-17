@@ -1,0 +1,123 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth session set A — `/auth/{spaces/}email-check/` (377, 378):
+#
+#   POST  /auth/email-check/
+#   POST  /auth/spaces/email-check/
+#
+# Response is `{"existing": bool, "status": "MAGIC_CODE" | "CREDENTIAL"}`;
+# `MAGIC_CODE` needs SMTP configured **and** `ENABLE_MAGIC_LINK_LOGIN == "1"`
+# and, for an existing user, `is_password_autoset`. The template seeds
+# `EMAIL_HOST=""` and `ENABLE_MAGIC_LINK_LOGIN="0"`, so every status here is
+# `CREDENTIAL` (the magic-code half is in `auth-session-reset.yaml`).
+#
+# Covers: the instance gate, a missing key and a JSON `null` (EMAIL_REQUIRED),
+# a non-string value (`str(5)` then INVALID_EMAIL), an invalid address, an
+# existing credential user, an existing autoset user, a new address, and the
+# lower-strip normalisation for both JSON and form bodies.
+
+name: write-auth-session-check
+template_db: plane_tpl
+redis_db: [3, 4]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-session-check-fixture.sql"
+steps:
+  - name: check-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: check
+    expect_status: 200
+
+  - name: check-no-email
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json: {}
+    expect_status: 400
+
+  - name: check-null-email
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      email: null
+    expect_status: 400
+
+  - name: check-number-email
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      email: 5
+    expect_status: 400
+
+  - name: check-invalid-email
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      email: useremail.com
+    expect_status: 400
+
+  - name: check-existing-credential
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      email: check-credential@example.com
+    expect_status: 200
+
+  - name: check-existing-autoset
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      email: check-autoset@example.com
+    expect_status: 200
+
+  - name: check-new-address
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      email: new-address@example.com
+    expect_status: 200
+
+  # `str(email).lower().strip()`: the same address in another case and with
+  # spaces reaches the same row.
+  - name: check-case-folded-json
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      email: "  CHECK-AUTOSET@EXAMPLE.COM  "
+    expect_status: 200
+
+  - name: check-case-folded-form
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    form:
+      email: check-credential@example.com
+    expect_status: 200
+
+  - name: space-check-existing
+    method: POST
+    path: /auth/spaces/email-check/
+    jar: check
+    json:
+      email: check-credential@example.com
+    expect_status: 200
+
+  # A JSON list body: `request.data.get` is an `AttributeError` (500).
+  - name: check-list-body
+    method: POST
+    path: /auth/email-check/
+    jar: check
+    json:
+      - check-credential@example.com
+    expect_status: 500

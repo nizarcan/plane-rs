@@ -1,0 +1,86 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth session set A — `ENABLE_EMAIL_PASSWORD=0`
+# (`provider/credentials/email.py:27-38`):
+#
+#   POST  /auth/sign-in/                 (352)
+#   POST  /auth/sign-up/                 (353)
+#   POST  /auth/spaces/sign-in/          (354)
+#   POST  /auth/spaces/sign-up/          (355)
+#   POST  /auth/email-check/             (377)  unaffected: 200
+#   POST  /auth/forgot-password/         (379)  unaffected: SMTP_NOT_CONFIGURED
+#
+# The provider's constructor raises `EMAIL_PASSWORD_AUTHENTICATION_DISABLED`
+# before the existing-user lookup, so even a known address is refused. The
+# gate compares the configuration value with the exact string `"0"`; the
+# seeded value `"1"` keeps it enabled.
+
+name: write-auth-session-disabled
+template_db: plane_tpl
+redis_db: [3, 4]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/auth-session-disabled-fixture.sql"
+steps:
+  - name: disabled-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: disabled
+    expect_status: 200
+
+  - name: disabled-sign-in
+    method: POST
+    path: /auth/sign-in/
+    jar: disabled
+    form:
+      email: signin@example.com
+      password: Auth-Fixture-Passw0rd-2026!
+    expect_status: 302
+
+  - name: disabled-sign-up
+    method: POST
+    path: /auth/sign-up/
+    jar: disabled
+    form:
+      email: new-user@example.com
+      password: Diff-Test-Signup-2026-Str0ng!
+    expect_status: 302
+
+  - name: disabled-space-sign-in
+    method: POST
+    path: /auth/spaces/sign-in/
+    jar: disabled
+    form:
+      email: signin@example.com
+      password: Auth-Fixture-Passw0rd-2026!
+    expect_status: 302
+
+  - name: disabled-space-sign-up
+    method: POST
+    path: /auth/spaces/sign-up/
+    jar: disabled
+    form:
+      email: new-space-user@example.com
+      password: Diff-Test-Signup-2026-Str0ng!
+    expect_status: 302
+
+  # `email-check` does not read this flag.
+  - name: disabled-email-check
+    method: POST
+    path: /auth/email-check/
+    jar: disabled
+    json:
+      email: signin@example.com
+    expect_status: 200
+
+  # The instance is configured, but `EMAIL_HOST` is the template's empty value.
+  - name: disabled-forgot-password
+    method: POST
+    path: /auth/forgot-password/
+    jar: disabled
+    json:
+      email: signin@example.com
+    expect_status: 400

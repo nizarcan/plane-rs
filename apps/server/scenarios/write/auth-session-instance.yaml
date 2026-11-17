@@ -1,0 +1,112 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Auth session set A — the instance gate:
+#
+#   `Instance.objects.first()` is `None` or `is_setup_done` is false.
+#
+# The template database has one instance row with `is_setup_done = false`
+# (`dev/bootstrap.sh`); no fixture is applied here, which is the whole point.
+#
+#   POST  /auth/sign-in/             (352)  INSTANCE_NOT_CONFIGURED redirect
+#   POST  /auth/sign-up/             (353)  ditto
+#   POST  /auth/spaces/sign-in/      (354)  ditto
+#   POST  /auth/spaces/sign-up/      (355)  ditto
+#   POST  /auth/email-check/         (377)  400 JSON
+#   POST  /auth/spaces/email-check/  (378)  400 JSON
+#   POST  /auth/forgot-password/     (379)  400 JSON (the gate runs before SMTP)
+#   POST  /auth/spaces/forgot-password/ (381) 400 JSON
+#
+# The reset routes have **no** instance gate: `POST /auth/reset-password/…`
+# still decodes the id and answers INVALID_PASSWORD_TOKEN.
+
+name: write-auth-session-instance
+template_db: plane_tpl
+redis_db: [3, 4]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+vars:
+  bad_uidb64: MDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAw
+steps:
+  - name: gate-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: gate
+    expect_status: 200
+
+  - name: gate-sign-in
+    method: POST
+    path: /auth/sign-in/
+    jar: gate
+    form:
+      email: unconfigured@example.com
+      password: Diff-Test-Passw0rd-2026!
+    expect_status: 302
+
+  - name: gate-sign-up
+    method: POST
+    path: /auth/sign-up/
+    jar: gate
+    form:
+      email: unconfigured@example.com
+      password: Diff-Test-Passw0rd-2026!
+    expect_status: 302
+
+  - name: gate-space-sign-in
+    method: POST
+    path: /auth/spaces/sign-in/
+    jar: gate
+    form:
+      email: unconfigured@example.com
+      password: Diff-Test-Passw0rd-2026!
+    expect_status: 302
+
+  - name: gate-space-sign-up
+    method: POST
+    path: /auth/spaces/sign-up/
+    jar: gate
+    form:
+      email: unconfigured@example.com
+      password: Diff-Test-Passw0rd-2026!
+    expect_status: 302
+
+  - name: gate-email-check
+    method: POST
+    path: /auth/email-check/
+    jar: gate
+    json:
+      email: unconfigured@example.com
+    expect_status: 400
+
+  - name: gate-space-email-check
+    method: POST
+    path: /auth/spaces/email-check/
+    jar: gate
+    json:
+      email: unconfigured@example.com
+    expect_status: 400
+
+  - name: gate-forgot-password
+    method: POST
+    path: /auth/forgot-password/
+    jar: gate
+    json:
+      email: unconfigured@example.com
+    expect_status: 400
+
+  - name: gate-space-forgot-password
+    method: POST
+    path: /auth/spaces/forgot-password/
+    jar: gate
+    json:
+      email: unconfigured@example.com
+    expect_status: 400
+
+  # No instance gate on the reset view.
+  - name: gate-reset-password
+    method: POST
+    path: "/auth/reset-password/{{bad_uidb64}}/1-abcdef/"
+    jar: gate
+    form: {}
+    expect_status: 302

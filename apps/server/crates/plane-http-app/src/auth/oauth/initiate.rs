@@ -40,9 +40,9 @@ use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 
 use super::support::{
-    self, ProviderKind, Variant, base_host, error_params, query_get, redirect, required_base,
-    safe_redirect, validated_next_path, with_next_path,
+    self, ProviderKind, Variant, error_params, query_get, validated_next_path, with_next_path,
 };
+use crate::auth::support as shared;
 
 /// Register the eight initiate views, in `routes.json`'s order.
 pub(crate) fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -100,7 +100,7 @@ async fn initiate(
     let client = ctx.database().await?;
     let settings = ctx.settings;
     let secret_key = settings.secret_key.value();
-    let base = base_host(settings, variant)?;
+    let base = shared::base_host(settings, variant.login_flags())?;
 
     // `next_path = request.GET.get("next_path")`, read before the session is
     // touched and kept for the error redirects.
@@ -112,12 +112,7 @@ async fn initiate(
     {
         let mut store = ctx.session.lock().await;
         store
-            .set(
-                client,
-                secret_key,
-                "host",
-                base.clone().map_or(Json::Null, Json::Str),
-            )
+            .set(client, secret_key, "host", Json::Str(base.clone()))
             .await
             .map_err(|error| ViewError::Unknown(error.to_string()))?;
         if has_next_path && (variant.is_app() || provider == ProviderKind::Gitea) {
@@ -161,7 +156,7 @@ async fn initiate(
                     .await
                     .map_err(|error| ViewError::Unknown(error.to_string()))?;
             }
-            redirect(&auth_url)
+            shared::redirect(&auth_url)
         }
         Err(AdapterError::Auth(error)) => {
             error_redirect(settings, provider, variant, &base, next_path, &error)
@@ -222,7 +217,7 @@ pub(crate) fn error_redirect(
     settings: &plane_core::config::Settings,
     provider: ProviderKind,
     variant: Variant,
-    base: &Option<String>,
+    base: &str,
     next_path: Option<&str>,
     error: &AuthFlowError,
 ) -> Result<ViewResponse, ViewError> {
@@ -234,14 +229,13 @@ pub(crate) fn error_redirect(
         } else {
             params
         };
-        let base = required_base(base)?;
         let query = format!("?{}", urlencode(&params));
-        return redirect(&if variant.is_app() {
+        return shared::redirect(&if variant.is_app() {
             support::join(Some(base), &query)?
         } else {
             format!("{base}{query}")
         });
     }
-    let url = safe_redirect(settings, required_base(base)?, next_path, &params)?;
-    redirect(&url)
+    let url = shared::safe_redirect_url(settings, base, next_path, &params)?;
+    shared::redirect(&url)
 }

@@ -23,7 +23,7 @@
 //! [`AuthContext::resolve`] from its authentication step.
 
 use deadpool_postgres::Client;
-use plane_auth::{AuthError, CsrfState, RequestUser, SessionSlot, get_user};
+use plane_auth::{AuthError, CsrfSlot, CsrfState, RequestUser, SessionSlot, get_user};
 use plane_core::config::Settings;
 use plane_core::context::RequestContext;
 
@@ -85,7 +85,7 @@ pub struct AuthContext {
     /// to handlers, so `logout()` inside a view and the response phase see one
     /// `SessionStore`, exactly as `request.session` does in Django.
     pub session: SessionSlot,
-    pub csrf: CsrfState,
+    pub csrf: CsrfSlot,
     pub user: RequestUser,
     /// The lazy user has been evaluated (or [`AuthContext::resolve`] ran).
     pub resolved: bool,
@@ -102,7 +102,7 @@ impl AuthContext {
         let key = ctx.cookie(name).map(str::to_string);
         Self {
             session: SessionSlot::from_cookie(key),
-            csrf: CsrfState::default(),
+            csrf: CsrfSlot::new(CsrfState::default()),
             user: RequestUser::Anonymous,
             resolved: false,
             is_admin_path,

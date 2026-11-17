@@ -54,35 +54,33 @@ use plane_drf::policy::{MethodPolicy, PolicyTable, RoutePolicy, method_from_name
 use plane_drf::registry::Registry;
 
 /// Every module `register_all` calls, in `src/lib.rs`'s order, with the
-/// `deploy/route-groups.yaml` group whose routes that module must serve.
-const DOMAINS: &[(&str, &str)] = &[
-    ("meta", "meta"),
-    // Phase 6: the `/auth/` surface lives in this crate (see invariant 2).
-    // Sets A (session), B (magic) and C (OAuth) share `src/auth/` and add
-    // their own row, so this table's group is the flow the module serves.
-    ("auth", "auth-oauth"),
-    ("users_me", "users-me"),
-    ("assets", "assets"),
-    ("workspaces", "workspaces"),
-    ("analytics", "analytics"),
-    ("projects", "projects"),
-    ("states", "states"),
-    ("labels", "labels"),
-    ("estimates", "estimates"),
-    ("issues", "issues"),
-    ("cycles", "cycles"),
-    ("modules", "modules"),
-    ("views", "views"),
-    ("pages", "pages"),
-    ("intake", "intake"),
-    ("notifications", "notifications"),
-    ("search", "search"),
-    ("stickies", "stickies"),
-    ("webhooks", "webhooks"),
-    ("ai", "ai"),
-    // The three auth sets share `src/auth/`; each set registers only its own
-    // `route-groups.yaml` group, so the per-group check stays exact.
-    ("auth::magic", "auth-magic"),
+/// `deploy/route-groups.yaml` groups whose routes that module may serve.
+///
+/// Most modules serve exactly one group. The `/auth/` surface is one module
+/// because its three plan sets (session, magic, OAuth) share the `auth/`
+/// helpers and its single `register`; it therefore spans the three auth groups.
+const DOMAINS: &[(&str, &[&str])] = &[
+    ("auth", &["auth-session", "auth-magic", "auth-oauth"]),
+    ("meta", &["meta"]),
+    ("users_me", &["users-me"]),
+    ("assets", &["assets"]),
+    ("workspaces", &["workspaces"]),
+    ("analytics", &["analytics"]),
+    ("projects", &["projects"]),
+    ("states", &["states"]),
+    ("labels", &["labels"]),
+    ("estimates", &["estimates"]),
+    ("issues", &["issues"]),
+    ("cycles", &["cycles"]),
+    ("modules", &["modules"]),
+    ("views", &["views"]),
+    ("pages", &["pages"]),
+    ("intake", &["intake"]),
+    ("notifications", &["notifications"]),
+    ("search", &["search"]),
+    ("stickies", &["stickies"]),
+    ("webhooks", &["webhooks"]),
+    ("ai", &["ai"]),
 ];
 
 /// `apps/server/`, from `CARGO_MANIFEST_DIR` (`apps/server/crates/plane-http-app`).
@@ -109,9 +107,9 @@ fn register_all_registry() -> Registry {
 /// policy again per module: `routes.json` is embedded, and the cost is a few
 /// milliseconds in a test, against the alternative of a shared registry where a
 /// duplicate registration would hide which module failed.
-fn domain_registries() -> Vec<(&'static str, &'static str, Registry)> {
+fn domain_registries() -> Vec<(&'static str, &'static [&'static str], Registry)> {
     let mut registries = Vec::with_capacity(DOMAINS.len());
-    for (module, group) in DOMAINS {
+    for (module, groups) in DOMAINS {
         let mut registry = Registry::new(policy()).expect("Registry::new(routes.json)");
         register_module(module)(&mut registry).unwrap_or_else(|error| {
             panic!("{module}::register on a fresh registry failed: {error}")
@@ -119,7 +117,7 @@ fn domain_registries() -> Vec<(&'static str, &'static str, Registry)> {
         let registry = registry.finish().unwrap_or_else(|error| {
             panic!("{module}::register left an unusable registry: {error}")
         });
-        registries.push((*module, *group, registry));
+        registries.push((*module, *groups, registry));
     }
     registries
 }
@@ -129,8 +127,8 @@ fn domain_registries() -> Vec<(&'static str, &'static str, Registry)> {
 /// with `src/lib.rs`, and `register_all` is checked by invariant 1 regardless.
 fn register_module(module: &str) -> RegisterFn {
     match module {
-        "meta" => plane_http_app::meta::register,
         "auth" => plane_http_app::auth::register,
+        "meta" => plane_http_app::meta::register,
         "users_me" => plane_http_app::users_me::register,
         "assets" => plane_http_app::assets::register,
         "workspaces" => plane_http_app::workspaces::register,
@@ -150,7 +148,6 @@ fn register_module(module: &str) -> RegisterFn {
         "stickies" => plane_http_app::stickies::register,
         "webhooks" => plane_http_app::webhooks::register,
         "ai" => plane_http_app::ai::register,
-        "auth::magic" => plane_http_app::auth::magic::register,
         other => panic!("DOMAINS lists {other:?}, which register_all does not call"),
     }
 }
@@ -242,8 +239,8 @@ fn each_domain_registers_only_its_route_group() {
         });
     }
 
-    for (module, group_name, registry) in domain_registries() {
-        check_domain_groups(&groups, module, group_name, &registry);
+    for (module, group_names, registry) in domain_registries() {
+        check_domain_groups(&groups, module, group_names, &registry);
     }
 }
 
@@ -254,7 +251,12 @@ fn each_domain_registers_only_its_route_group() {
 /// served from two groups with disjoint actions, so a per-view check would
 /// refuse the `modules` module for a view that also owns an `issues` route,
 /// even though the actions it registers never reach that route.
-fn check_domain_groups(groups: &[RouteGroup], module: &str, group_name: &str, registry: &Registry) {
+fn check_domain_groups(
+    groups: &[RouteGroup],
+    module: &str,
+    group_names: &[&str],
+    registry: &Registry,
+) {
     for (view_name, view) in registry.views() {
         let is_viewset = view.family.is_viewset();
         let kind = if is_viewset { "action" } else { "method" };
@@ -280,13 +282,14 @@ fn check_domain_groups(groups: &[RouteGroup], module: &str, group_name: &str, re
                             "{module}::register registers {kind} {entry:?} on {view_name}: {error}"
                         )
                     });
-                assert_eq!(
-                    assigned, group_name,
+                assert!(
+                    group_names.contains(&assigned),
                     "{module}::register registers {kind} {entry:?} on {view_name}, but the route \
                      that dispatches it, {} ({}) is the {assigned:?} group in \
-                     deploy/route-groups.yaml, not {group_name:?}; move the handler to the \
-                     {assigned} module or fix the group's selectors",
-                    route.path_template, route.group
+                     deploy/route-groups.yaml, which {module} does not serve ({group_names:?}); \
+                     move the handler to the {assigned} module or fix the group's selectors",
+                    route.path_template,
+                    route.group
                 );
             }
         }
@@ -308,7 +311,7 @@ fn invariant_3_rejects_an_action_whose_route_is_in_another_group() {
     let registry = registry.finish().expect("finish");
 
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        check_domain_groups(&groups, "modules", "modules", &registry);
+        check_domain_groups(&groups, "modules", &["modules"], &registry);
     }))
     .expect_err("an action whose route is in another group must fail invariant 3");
     let message = failure
@@ -325,7 +328,7 @@ fn invariant_3_rejects_an_action_whose_route_is_in_another_group() {
         "modules::register registers action \"create_issue_modules\" on \
          plane.app.views.module.issue.ModuleIssueViewSet",
         "/api/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/modules/ (app)",
-        "is the \"issues\" group in deploy/route-groups.yaml, not \"modules\"",
+        "is the \"issues\" group in deploy/route-groups.yaml, which modules does not serve",
     ] {
         assert!(
             message.contains(expected),
@@ -351,7 +354,10 @@ fn every_rust_owned_app_route_method_is_registered() {
             view_module.insert(view_name.as_str(), module);
         }
     }
-    let group_module: BTreeMap<&str, &str> = DOMAINS.iter().copied().collect();
+    let group_module: BTreeMap<&str, &str> = DOMAINS
+        .iter()
+        .flat_map(|(module, groups)| groups.iter().map(move |group| (*group, *module)))
+        .collect();
 
     let rows = load_routes_md();
     let mut checked = 0usize;
@@ -612,12 +618,14 @@ fn load_route_groups() -> Vec<RouteGroup> {
             group.name
         );
     }
-    for (module, group_name) in DOMAINS {
-        assert!(
-            names.contains(*group_name),
-            "{}: module {module} maps to group {group_name:?}, which the file does not define",
-            path.display()
-        );
+    for (module, group_names) in DOMAINS {
+        for group_name in *group_names {
+            assert!(
+                names.contains(*group_name),
+                "{}: module {module} maps to group {group_name:?}, which the file does not define",
+                path.display()
+            );
+        }
     }
     groups
 }

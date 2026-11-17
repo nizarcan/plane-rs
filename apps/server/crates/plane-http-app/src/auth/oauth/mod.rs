@@ -34,8 +34,6 @@ use plane_drf::registry::{Registry, RegistryError};
 
 pub mod callback;
 pub mod initiate;
-pub mod queries;
-pub mod redirect_path;
 pub mod support;
 
 /// Register this flow's handlers, in `routes.json`'s order.

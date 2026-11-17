@@ -87,6 +87,10 @@ pub struct DispatchRequest<'a> {
     /// same store after the handler ran (Django's `request.session`), and a
     /// handler may `logout()` it.
     pub session: &'a SessionSlot,
+    /// `request.META["CSRF_COOKIE"]` (the layer-5 state), shared for the same
+    /// reason: `get_token` and `login()` update it and the middleware writes
+    /// the one cookie.
+    pub csrf: Option<&'a plane_auth::CsrfSlot>,
     /// The middleware's `request.user`, when something already evaluated it.
     pub preloaded_user: Option<RequestUser>,
 }
@@ -233,11 +237,18 @@ impl Runtime {
                 &mut view_request,
                 &mut conn,
                 request.session,
+                request.csrf,
                 request.preloaded_user,
                 &mut state,
             )
             .await;
 
+        // An exception that escapes `APIView.dispatch` is converted by Django's
+        // outer wrapper, so `finalize_response` — and therefore `Allow`, the
+        // `X-RateLimit-*` headers and content negotiation — never runs. That is
+        // the non-`APIException` path of a family without Plane's
+        // `handle_exception` override; a family handler catches it inside
+        // `dispatch` and *does* finalize the response it builds.
         let mut response = match result {
             Ok(response) => response,
             Err(error) => {
@@ -288,6 +299,7 @@ impl Runtime {
         request: &mut ViewRequest<'_>,
         conn: &mut Conn<'_>,
         session: &SessionSlot,
+        csrf: Option<&plane_auth::CsrfSlot>,
         preloaded_user: Option<RequestUser>,
         state: &mut RunState,
     ) -> Result<DrfResponse, ViewError> {
@@ -306,6 +318,7 @@ impl Runtime {
                 request,
                 method,
                 session,
+                csrf,
                 state,
                 self.redis.as_ref(),
                 self.celery.as_ref(),
@@ -547,6 +560,7 @@ impl Runtime {
             request,
             user: &auth.user,
             session,
+            csrf,
             action,
             view: &route.view,
             timezone: timezone.as_ref(),
@@ -574,6 +588,7 @@ impl Runtime {
         request: &mut ViewRequest<'_>,
         method: Method,
         session: &SessionSlot,
+        csrf: Option<&plane_auth::CsrfSlot>,
         state: &mut RunState,
         redis: Option<&plane_cache::Redis>,
         publisher: Option<&plane_jobs::celery::CeleryPublisher>,
@@ -606,6 +621,7 @@ impl Runtime {
             request,
             user: &anonymous,
             session,
+            csrf,
             action: None,
             view: &route.view,
             timezone: None,

@@ -1,13 +1,13 @@
 # The auth foundation as an HTTP contract: Django's plain `View` form flows
 # (masked CSRF token + cookie, session cookie, sign-out) and the DRF endpoints
-# they protect. Phase 6 replays this against `plane-api` once `/auth/` is ported;
-# until then it is a Django-vs-Django recording of exactly what those routes do.
+# they protect. Phase 6 replays this against `plane-api` (`auth-session-fixture.sql`
+# opens the instance gate; `POST /api/instances/admins/sign-up/` is a Phase 7
+# route and is not part of this scenario).
 #
 # It deliberately uses only the routes that exist in every deployment of this
-# branch: instance-admin sign-up (which needs no SMTP), email/password sign-up
-# and sign-in, `/auth/get-csrf-token/`, `/auth/sign-out/`, `/api/users/me/` and
-# `/api/instances/admins/me/`. No email is sent, so the scenario runs without a
-# mail server or a Celery worker.
+# branch: email/password sign-up and sign-in, `/auth/get-csrf-token/`,
+# `/auth/sign-out/` and `/api/users/me/`. No email is sent, so the scenario runs
+# without a mail server or a Celery worker.
 #
 # CSRF semantics covered (HTTP_CONTRACT §7):
 #   - a token from `/auth/get-csrf-token/` is a 64-character masked secret and
@@ -19,48 +19,13 @@
 name: auth-session
 template_db: plane_tpl
 vars:
-  admin_email: auth-scenario-admin@example.com
+  fixture_sql: "{repo}/apps/server/scenarios/auth-session-fixture.sql"
   user_email: auth-scenario-user@example.com
   # Strong enough for zxcvbn score >= 3 (plane/authentication/utils/password.py).
   password: Diff-Test-Passw0rd-2026!
 password_vars:
   - password
 steps:
-  # --- instance admin ----------------------------------------------------
-  - name: admin-csrf-token
-    method: GET
-    path: /auth/get-csrf-token/
-    jar: admin
-    expect_status: 200
-    capture:
-      - name: admin_csrf
-        source: json
-        pointer: /csrf_token
-
-  - name: admin-sign-up
-    method: POST
-    path: /api/instances/admins/sign-up/
-    jar: admin
-    form:
-      email: "{{admin_email}}"
-      password: "{{password}}"
-      first_name: Auth
-      last_name: Admin
-      company_name: Auth Scenario Inc
-      is_telemetry_enabled: "True"
-      csrfmiddlewaretoken: "{{admin_csrf}}"
-    expect_status: 302
-
-  - name: admin-me
-    method: GET
-    path: /api/instances/admins/me/
-    jar: admin
-    expect_status: 200
-    capture:
-      - name: admin_id
-        source: json
-        pointer: /id
-
   # --- regular user sign-up ---------------------------------------------
   - name: user-csrf-token
     method: GET

@@ -36,16 +36,15 @@ use plane_auth::auth_flow::providers::{
     GiteaProvider, GithubProvider, GitlabProvider, GoogleProvider,
 };
 use plane_auth::auth_flow::redirect::urlencode;
-use plane_auth::{AuthUser, CsrfState, user_login};
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 
-use super::redirect_path::get_redirection_path;
 use super::support::{
-    self, ProviderKind, Variant, base_host, error_params, json_truthy, query_get, redirect,
-    required_base, safe_redirect, space_success_redirect, validated_next_path, with_next_path,
+    self, ProviderKind, Variant, error_params, json_truthy, query_get, validated_next_path,
+    with_next_path,
 };
+use crate::auth::support as shared;
 
 /// Register the eight callback views, in `routes.json`'s order.
 pub(crate) fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -118,7 +117,7 @@ async fn callback(
     let secret_key = settings.secret_key.value();
     let code = query_get(ctx, "code");
     let state = query_get(ctx, "state");
-    let base = base_host(settings, variant)?;
+    let base = shared::base_host(settings, variant.login_flags())?;
 
     // `next_path = request.session.get("next_path")`, and — for the app Gitea
     // view — `host = request.session.get("host") or base_host(..., is_app=True)`
@@ -143,8 +142,9 @@ async fn callback(
     let next_path_str = next_path
         .as_ref()
         .and_then(|value| value.as_str().map(str::to_string));
+    // `host = request.session.get("host") or base_host(..., is_app=True)`.
     let gitea_host = match session_host.as_ref().and_then(|value| value.as_str()) {
-        Some(host) if !host.is_empty() => Some(host.to_string()),
+        Some(host) if !host.is_empty() => host.to_string(),
         _ => base.clone(),
     };
 
@@ -165,7 +165,7 @@ async fn callback(
             provider,
             variant,
             &base,
-            gitea_host.as_deref(),
+            &gitea_host,
             &next_path,
             Branch::StateMismatch,
             &AuthFlowError::new(provider_error_code(provider)),
@@ -177,7 +177,7 @@ async fn callback(
             provider,
             variant,
             &base,
-            gitea_host.as_deref(),
+            &gitea_host,
             &next_path,
             Branch::NoCode,
             &AuthFlowError::new(provider_error_code(provider)),
@@ -192,7 +192,7 @@ async fn callback(
         variant,
         code,
         &base,
-        gitea_host.as_deref(),
+        &gitea_host,
         next_path_truthy,
         next_path_str.as_deref(),
     )
@@ -204,7 +204,7 @@ async fn callback(
             provider,
             variant,
             &base,
-            gitea_host.as_deref(),
+            &gitea_host,
             &next_path,
             Branch::Exception,
             &error,
@@ -222,8 +222,8 @@ async fn authenticate(
     provider: ProviderKind,
     variant: Variant,
     code: &str,
-    base: &Option<String>,
-    gitea_host: Option<&str>,
+    base: &str,
+    gitea_host: &str,
     next_path_truthy: bool,
     next_path_str: Option<&str>,
 ) -> Result<ViewResponse, AdapterError> {
@@ -250,33 +250,25 @@ async fn authenticate(
         None
     };
     let mut adapter = OauthAdapter::new(provider_impl, Some(code.to_string()), sync_enabled);
-    let completed = adapter
+    let mut completed = adapter
         .authenticate(&adapter_context, callback, enable_signup)
         .await?;
-    let auth_user = AuthUser::from_user_row(&completed.user);
 
-    // `user_login(request=request, user=user, is_app=True/is_space=True)`.
-    let mut csrf = CsrfState::default();
-    let mut login_context = support::login_context(ctx.ctx);
-    {
-        let mut store = ctx.session.lock().await;
-        user_login(
-            client,
-            settings,
-            &mut login_context,
-            &mut store,
-            &mut csrf,
-            &auth_user,
-            variant.login_flags(),
-        )
+    // `user_login(request=request, user=user, is_app=True/is_space=True)`: the
+    // session and CSRF handles are the middleware's, so `login()`'s
+    // `rotate_token` makes layer 5 write the one `csrftoken` cookie.
+    shared::user_login(ctx, client, &mut completed.user, variant.login_flags())
         .await
-        .map_err(|error| AdapterError::Internal(error.to_string()))?;
-    }
+        .map_err(|error| AdapterError::Internal(format!("{error:?}")))?;
 
     // `get_redirection_path(user=user)`: the app variants only, and only when
     // the session has no `next_path`.
     let redirection_path = if variant.is_app() && !next_path_truthy {
-        Some(get_redirection_path(client, &completed.user).await?)
+        Some(
+            shared::redirection_path(client, &completed.user)
+                .await
+                .map_err(|error| AdapterError::Internal(format!("{error:?}")))?,
+        )
     } else {
         None
     };
@@ -291,15 +283,7 @@ async fn authenticate(
         redirection_path.as_deref(),
     )
     .map_err(|error| AdapterError::Internal(format!("{error:?}")))?;
-    let mut response =
-        redirect(&url).map_err(|error| AdapterError::Internal(format!("{error:?}")))?;
-    // `rotate_token(request)` inside `login()`, written by
-    // `CsrfViewMiddleware.process_response` (layer 5, which runs before the
-    // session layer in the response chain, so the cookie is first).
-    if let Some(cookie) = csrf.response_cookie(settings) {
-        response = response.with_header("Set-Cookie", cookie);
-    }
-    Ok(response)
+    shared::redirect(&url).map_err(|error| AdapterError::Internal(format!("{error:?}")))
 }
 
 /// The success redirect, one branch per view family.
@@ -308,8 +292,8 @@ fn success_redirect(
     settings: &plane_core::config::Settings,
     provider: ProviderKind,
     variant: Variant,
-    base: &Option<String>,
-    gitea_host: Option<&str>,
+    base: &str,
+    gitea_host: &str,
     next_path_truthy: bool,
     next_path_str: Option<&str>,
     redirection_path: Option<&str>,
@@ -323,10 +307,9 @@ fn success_redirect(
         } else {
             redirection_path.unwrap_or_default().to_string()
         };
-        return support::join(gitea_host, &path);
+        return support::join(Some(gitea_host), &path);
     }
     if !variant.is_app() {
-        let base = required_base(base)?;
         if provider == ProviderKind::Gitea {
             // `f"{base_host(...)}{str(validate_next_path(next_path)) if
             // next_path else ''}"` (`views/space/gitea.py:101-103`).
@@ -339,7 +322,7 @@ fn success_redirect(
         }
         // `validate_next_path(next_path)` then the concatenation
         // (`views/space/google.py:93-102`).
-        return space_success_redirect(
+        return shared::space_success_url(
             settings,
             base,
             if next_path_truthy {
@@ -354,7 +337,7 @@ fn success_redirect(
     } else {
         redirection_path
     };
-    safe_redirect(settings, required_base(base)?, path, &[])
+    shared::safe_redirect_url(settings, base, path, &[])
 }
 
 /// The `except AuthenticationException` half of every callback view.
@@ -363,8 +346,8 @@ fn callback_error(
     settings: &plane_core::config::Settings,
     provider: ProviderKind,
     variant: Variant,
-    base: &Option<String>,
-    gitea_host: Option<&str>,
+    base: &str,
+    gitea_host: &str,
     next_path: &Option<Json>,
     branch: Branch,
     error: &AuthFlowError,
@@ -385,16 +368,15 @@ fn callback_error(
         };
         let params = with_next_path(params, next_path_value.as_deref());
         let query = urlencode(&params);
-        let base = required_base(base)?;
-        return redirect(&if variant.is_app() {
-            support::join(gitea_host, &format!("?{query}"))?
+        return shared::redirect(&if variant.is_app() {
+            support::join(Some(gitea_host), &format!("?{query}"))?
         } else {
             format!("{base}?{query}")
         });
     }
     let next_path_str = next_path.as_ref().and_then(|value| value.as_str());
-    let url = safe_redirect(settings, required_base(base)?, next_path_str, &params)?;
-    redirect(&url)
+    let url = shared::safe_redirect_url(settings, base, next_path_str, &params)?;
+    shared::redirect(&url)
 }
 
 /// `AuthenticationException.authentication_error_code()` for the state and
