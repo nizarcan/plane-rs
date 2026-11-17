@@ -1066,8 +1066,20 @@ Dependency order: assets P0 → `users/me` P0 and workspace-core P0. All other P
 independent; each domain's sets start after its own P0. At most three builds run at once
 (the disk floor).
 
-Running: assets P0, estimates P0, exact related-queryset pk checks (`rs/pk-qs`). Queued
-next: the analytics P0.
+- Assets P0 (merged `594f1fda88`): `assets::support::{can_modify_asset,
+  sanitize_filename, upload_data, presign_upload_body}`, `assets/write_queries.rs` (the
+  `FILE_ASSET_*` statements lifted from `issues/write_attachment.rs`),
+  `assets/entities.rs` (`asset_delete`, error literals, cache-invalidation lists),
+  **H30** `plane_db::hooks::user::{before_save, new_token}`, `assets-fixture.sql`. The
+  `key` placeholder is now scoped to `POST *api/assets/*`. On the merge, all 30 write
+  scenarios plus `read/assets*` are clean DvR (the P0's full read sweep was 42/42);
+  982 tests. Upstream quirks noted: the `display_name` random fallback is dead code
+  (`len(split)` is always truthy); a NULL email 500s in `User.save`; a workspace admin who
+  isn't a project member gets no promotion in `can_modify_asset`.
+
+Running: estimates P0, exact related-queryset pk checks (`rs/pk-qs`), `users/me` P0.
+Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
+analytics P0, assets A/B/C, then each domain's sets.
 
 The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planned yet.
 - Follow-up: some related querysets filter more than `deleted_at`.
