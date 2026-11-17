@@ -4,6 +4,7 @@
 
 //! Unit and golden tests for the Celery publisher.
 
+mod export_args;
 mod golden;
 mod message;
 mod repr;

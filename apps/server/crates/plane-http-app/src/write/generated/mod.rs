@@ -71,6 +71,7 @@ pub struct ExtraKwarg {
     pub value: &'static str,
 }
 
+pub mod analytic_view_serializer;
 pub mod comment_reaction_serializer;
 pub mod cycle_user_properties_serializer;
 pub mod cycle_write_serializer;
