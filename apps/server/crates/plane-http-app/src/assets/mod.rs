@@ -22,6 +22,8 @@
 //! | [`v2`] | `plane/app/views/asset/v2.py` — workspace, project, static, check and download |
 //! | [`attachment`] | `plane/app/views/issue/attachment.py` — `IssueAttachmentV2Endpoint` |
 //! | [`support`] | `FileAsset`'s model rules, `issue_hidden_from_guest`, the presign call site |
+//! | [`entities`] | the write-only entity helpers: `asset_delete`, the shared `{"error": …}` literals, the invalidation key lists |
+//! | [`write_queries`] | the `file_assets` INSERT/UPDATE/lookup the write sets share |
 //!
 //! The six routes that answer `302` sign for the **request's** host
 //! (`request.scheme://request.get_host()`, `plane/settings/storage.py:42-54`),
@@ -37,14 +39,22 @@
 //! `v2.py` answer `POST`/`PATCH`/`DELETE` only — a `GET` there is a `405` the
 //! runtime derives from the route table — so they are not part of this group's
 //! reads.
+//!
+//! The shared write pieces land first, so the set files do not each port them:
+//! [`support`]'s `can_modify_asset`/`sanitize_filename`/presign bodies,
+//! [`write_queries`]'s `file_assets` statements and [`entities`]' error
+//! literals, `asset_delete` and invalidation key lists. `plans/ASSETS.md` set
+//! P0 owns them; sets A/B/C add one module each and call them.
 
 use plane_drf::registry::{Registry, RegistryError};
 
 pub mod attachment;
 pub mod base;
+pub mod entities;
 pub mod queries;
 pub mod support;
 pub mod v2;
+pub mod write_queries;
 
 /// Register this group's handlers, in the order they were ported.
 ///

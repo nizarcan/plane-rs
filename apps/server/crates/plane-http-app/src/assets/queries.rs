@@ -589,6 +589,32 @@ plane_query! {
     [("id", Uuid), ("issue_id", Uuid)]
 }
 
+plane_query! {
+    /// The project half of `can_modify_asset` (`plane/app/views/asset/v2.py:50-56`):
+    /// `ProjectMember.objects.filter(member=user, workspace_id=asset.workspace_id,
+    /// project_id=asset.project_id, is_active=True).values_list("role",
+    /// flat=True).first()`.
+    ///
+    /// The `PROJECT_MEMBER_ROLE` variant in `plane-permissions` joins on the
+    /// workspace **slug**; this one takes the asset's `workspace_id` because
+    /// `can_modify_asset` already has the row and no slug.
+    ///
+    /// `ProjectMember.Meta.ordering` is `("-created_at",)`
+    /// (`plane/db/models/project.py:305`), and `.first()` applies it, so the
+    /// statement ends with `ORDER BY pm."created_at" DESC LIMIT 1`.
+    ///
+    /// Bind order: `$1` member id, `$2` project id, `$3` workspace id.
+    PROJECT_MEMBER_ROLE_BY_IDS = "assets_project_member_role_by_ids",
+    "SELECT pm.\"role\" \
+     FROM project_members pm \
+     WHERE pm.\"deleted_at\" IS NULL AND pm.\"is_active\" \
+       AND pm.\"member_id\" = $1 AND pm.\"project_id\" = $2 \
+       AND pm.\"workspace_id\" = $3 \
+     ORDER BY pm.\"created_at\" DESC \
+     LIMIT 1",
+    [("role", Int2)]
+}
+
 /// Every catalogued statement of this group, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &FILE_ASSETS_BY_ASSET,
@@ -606,4 +632,5 @@ pub static ALL_QUERIES: &[&Query] = &[
     &ISSUE_OWNED_BY_USER_IN_WORKSPACE,
     &ISSUES_OWNED_BY_USER,
     &COMMENT_ISSUE_IDS,
+    &PROJECT_MEMBER_ROLE_BY_IDS,
 ];

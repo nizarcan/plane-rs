@@ -36,6 +36,7 @@ use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 
 use crate::common::client;
 
+use super::entities;
 use super::queries;
 use super::support;
 
@@ -98,10 +99,10 @@ fn workspace_file_asset_get<'a>(
             return Err(ViewError::ObjectDoesNotExist);
         };
         if !accessible(ctx, &asset).await? {
-            return no_access();
+            return entities::no_access();
         }
         if !asset.is_uploaded {
-            return not_found();
+            return entities::asset_not_found();
         }
         support::presigned_redirect(ctx, &asset, "attachment", None).await
     })
@@ -119,16 +120,11 @@ fn static_file_asset_get<'a>(
             return Err(ViewError::ObjectDoesNotExist);
         };
         if !asset.is_uploaded {
-            return not_found();
+            return entities::asset_not_found();
         }
         let entity_type = asset.entity_type.as_deref().unwrap_or_default();
         if !STATIC_ENTITY_TYPES.contains(&entity_type) {
-            return support::json_object(
-                400,
-                &Object::new()
-                    .field("error", "Invalid entity type.")
-                    .field("status", false),
-            );
+            return entities::invalid_entity_type();
         }
         // Inline only for an allow-listed image type, which `plane-storage`
         // re-checks against `settings.INLINE_SAFE_MIME_TYPES`
@@ -166,10 +162,10 @@ fn project_asset_get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespo
             return Err(ViewError::ObjectDoesNotExist);
         };
         if !accessible(ctx, &asset).await? {
-            return no_access();
+            return entities::no_access();
         }
         if !asset.is_uploaded {
-            return not_found();
+            return entities::asset_not_found();
         }
         support::presigned_redirect(ctx, &asset, "attachment", None).await
     })
@@ -210,10 +206,10 @@ fn workspace_asset_download_get<'a>(
             .await?;
         // The view catches `DoesNotExist` itself and answers its own 404.
         let Some(asset) = decode_optional(row)? else {
-            return not_found();
+            return entities::asset_not_found();
         };
         if !accessible(ctx, &asset).await? {
-            return no_access();
+            return entities::no_access();
         }
         support::presigned_redirect(ctx, &asset, "attachment", None).await
     })
@@ -234,10 +230,10 @@ fn project_asset_download_get<'a>(
             )
             .await?;
         let Some(asset) = decode_optional(row)? else {
-            return not_found();
+            return entities::asset_not_found();
         };
         if !accessible(ctx, &asset).await? {
-            return no_access();
+            return entities::no_access();
         }
         support::presigned_redirect(ctx, &asset, "attachment", None).await
     })
@@ -249,22 +245,6 @@ async fn accessible(ctx: &ViewCtx<'_>, asset: &FileAsset) -> Result<bool, ViewEr
     let user_id = support::user_id(ctx)?;
     let flags = support::accessible_assets(client, user_id, std::slice::from_ref(asset)).await?;
     Ok(flags.first().copied().unwrap_or(false))
-}
-
-/// `{"error": "You don't have access to this asset."}` (403).
-fn no_access() -> Result<ViewResponse, ViewError> {
-    support::json_object(
-        403,
-        &Object::new().field("error", "You don't have access to this asset."),
-    )
-}
-
-/// `{"error": "The requested asset could not be found."}` (404).
-fn not_found() -> Result<ViewResponse, ViewError> {
-    support::json_object(
-        404,
-        &Object::new().field("error", "The requested asset could not be found."),
-    )
 }
 
 /// Decode one `FileAsset` row, if the statement produced one.

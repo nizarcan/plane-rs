@@ -387,8 +387,8 @@ volatile_json_keys:
     mode: placeholder_if_new
     placeholder: asset
     shape: asset_key
-    request: "POST *attachments*"
-    why: "presigned POST field `key` is the newly generated FileAsset.asset"
+    request: "POST *api/assets/*"
+    why: "presigned POST field `key` is the newly generated FileAsset.asset on every v2 upload (plane/app/views/asset/v2.py:186,406,655 and the issue-attachment upload); legacy uploads 500 before the body is built"
   - name: policy
     placeholder: upload-policy
     shape: upload_policy
