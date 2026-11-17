@@ -580,8 +580,9 @@ pub(crate) fn not_found(object: &str) -> Result<ViewResponse, ViewError> {
     ))
 }
 
-/// `AnalyticViewSerializer(instance)`.
-fn serializer_for(view: &AnalyticView) -> AnalyticViewSerializer<'_> {
+/// `AnalyticViewSerializer(instance)`. Shared with the write handlers, which
+/// render the in-memory instance after an INSERT/UPDATE (`write.rs`).
+pub(super) fn serializer_for(view: &AnalyticView) -> AnalyticViewSerializer<'_> {
     AnalyticViewSerializer {
         id: view.id,
         created_at: view.created_at,

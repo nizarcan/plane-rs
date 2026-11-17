@@ -1,0 +1,794 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Analytics set A of plans/ANALYTICS_EXPORTS.md §3 — the stored views:
+#
+#   POST   /api/workspaces/{slug}/analytic-view/          (1, create)
+#   PATCH  /api/workspaces/{slug}/analytic-view/{pk}/     (2, partial_update)
+#   DELETE /api/workspaces/{slug}/analytic-view/{pk}/     (2, destroy)
+#
+# Covers, in the view's statement order (`plane/app/views/analytic/base.py:183-193`):
+#
+#   * permissions: `WorkSpaceAdminPermission` is ADMIN **or MEMBER**
+#     (`permissions/workspace.py:61-71`), so a member writes and a guest gets the
+#     403 for every pk, a missing one included; the permission runs before the
+#     body and before `get_object()`.
+#   * create: validation before the workspace lookup (an empty body is the
+#     `name` required error even for a workspace that does not exist), the
+#     `Workspace.objects.get(slug=…)` 404 through the **soft-deleted**
+#     `fix-deleted` workspace (the permission query's `workspaces` join is
+#     unfiltered, so the membership passes), the `query_dict` →
+#     `issue_filters(query_dict, "POST")` transform for every key group, the
+#     non-dict `query_dict` shapes that are a family 500 (`"state"` iterates as
+#     a substring; `5` is not iterable; `{"state": 5}` reaches `len(int)`) and
+#     the falsy ones that store `{}`, the writable `deleted_at`, the read-only
+#     `query`/`workspace`/`id` keys Django ignores, the overwritten
+#     `created_by`/`updated_by` (H01), the 255-character `name` bound, a form
+#     body's JSON-in-a-string `query_dict`, and a list body's
+#     `non_field_errors`.
+#   * PATCH: `get_object()` before validation, the `query_data` typo
+#     (`serializers/analytic.py:25`) that always stores `query = {}` and never
+#     recompiles `query_dict`, the full-row save (only the body's keys change),
+#     the body `created_by` that survives while `updated_by` becomes the caller,
+#     `deleted_at` writable through PATCH, the 404 for a missing, soft-deleted or
+#     other-workspace pk, and the 405 for PUT.
+#   * DELETE: H03's soft delete plus the `soft_delete_related_objects` cascade,
+#     204 with no body, then 404 on the second attempt and on GET; the same 404
+#     for a missing pk and for a live row of another workspace.
+#   * the `analytic_views` list before/after, which is where the soft deletes
+#     and the `query` rewrite become visible.
+#
+# Fixture: `analytic-views-fixture.sql` on top of `plane_fix_tpl` — a
+# soft-deleted view in `fix-workspace` and one in `fix-second`, a live view in
+# `fix-second`, and a live `fix-workspace` view whose `query` disagrees with its
+# `query_dict`. The template's own two views (`Default analytics`,
+# `Custom analytics`) stay untouched.
+
+name: write-analytic-views
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/analytic-views-fixture.sql"
+  ws: "fix-workspace"
+  ws2: "fix-second"
+  ws_deleted: "fix-deleted"
+  view_default: "2f962af1-706e-4dcd-98a5-58590863044f"
+  view_custom: "b69a00d5-8027-48ea-847a-42bb675024de"
+  view_seed_deleted: "b9f00000-0000-4000-8000-000000000001"
+  view_seed_second_deleted: "b9f00000-0000-4000-8000-000000000002"
+  view_seed_second_live: "b9f00000-0000-4000-8000-000000000003"
+  view_seed_stale: "b9f00000-0000-4000-8000-000000000004"
+  admin_id: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_id: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  missing: "00000000-0000-4000-8000-000000000123"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- permissions: guest / non-member / origin / anonymous ---------------
+  - name: av-01-post-guest
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qaguestpost"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: av-02-post-nonmember
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qanonmember"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: av-03-post-foreign-origin
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qaborigin"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  - name: av-04-post-unauthenticated
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qanoauth"
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+
+  # A guest never reaches `get_object()`: the permission class answers first,
+  # so a missing pk is a 403 rather than a 404.
+  - name: av-05-patch-guest
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json:
+      name: "qaguestpatch"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: av-06-patch-guest-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{missing}}/"
+    json:
+      name: "qaguestmissing"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: av-07-delete-guest
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: av-08-delete-guest-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{missing}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: av-09-patch-nonmember
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json:
+      name: "qanonmemberpatch"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: av-10-delete-nonmember
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  # --- create: validation before the workspace lookup ----------------------
+  - name: av-11-post-empty-object
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # No body and no Content-Type: DRF parses an empty form, so this is the same
+  # `name` required error.
+  - name: av-12-post-no-body
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # --- create: success shapes ---------------------------------------------
+  - name: av-13-post-minimal
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qaminimalx"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 201
+    capture:
+      - name: view_min
+        source: json
+        pointer: /id
+
+  # Every writable field plus every read-only one. `query_dict` exercises most
+  # of `issue_filters`' POST branches and the response renders their insertion
+  # order (`query`), not the `jsonb` column's.
+  - name: av-14-post-full
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qafullbody"
+      description: "written by the analytic-view harness"
+      query_dict:
+        state: "bbbbbbbb-0000-4000-8000-000000000001"
+        state_group: "started"
+        priority: ["urgent", "high"]
+        labels: null
+        assignees: ["{{member_id}}"]
+        cycle: null
+        module: "cccccccc-0000-4000-8000-000000000001"
+        subscriber: "{{admin_id}}"
+        created_by: "{{admin_id}}"
+        logged_by: "{{member_id}}"
+        name: "needle"
+        type: "active"
+        intake_status: "1"
+        inbox_status: "2"
+        sub_issue: "false"
+        start_target_date: "true"
+        start_date: "2026-03-01"
+        target_date: "2026-04-01"
+        created_at: ["2026-01-01;after"]
+        updated_at: ["3_months;before"]
+        completed_at: ["2026-05-01"]
+        project: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+      # read-only: every one of these is ignored
+      id: "77777777-7777-4777-8777-777777777777"
+      workspace: "88888888-8888-4888-8888-888888888888"
+      query: {"nonsense": true}
+      created_at: "2020-01-01T00:00:00Z"
+      updated_at: "2020-01-01T00:00:00Z"
+      # writable, but H01 overwrites both: `created_by` becomes the caller and
+      # `updated_by` stays null on a create.
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      unknown_key: "ignored"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+    capture:
+      - name: view_full
+        source: json
+        pointer: /id
+
+  # `deleted_at` is writable, so this inserts a row that is already gone: the
+  # 201 echoes it and no read returns it.
+  - name: av-15-post-pre-deleted
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qapredeleted"
+      deleted_at: "2026-02-03T04:05:06Z"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # --- create: the query_dict → query transform and its failure shapes ------
+  # A list is truthy, but no `ISSUE_FILTER` key is `in` it, so `query` is `{}`.
+  - name: av-16-post-query-dict-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qalistdict"
+      query_dict: [1, 2]
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # A string is truthy and `"state" in "state"` is True, so `filter_state` runs
+  # and `params.get` raises `AttributeError` — the family 500, and no row.
+  - name: av-17-post-query-dict-string
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qastringdict"
+      query_dict: "state"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `"state" in 5` raises `TypeError: argument of type 'int' is not iterable`.
+  - name: av-18-post-query-dict-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qaintdict"
+      query_dict: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `filter_state` runs `len(params.get("state"))` on an int.
+  - name: av-19-post-query-dict-state-int
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qastateint"
+      query_dict:
+        state: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  - name: av-20-post-query-dict-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qanulldict"
+      query_dict: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # Falsy: `{}` for `query`, and `false` stored in `query_dict`.
+  - name: av-21-post-query-dict-false
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qafalsedict"
+      query_dict: false
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  - name: av-22-post-name-too-long
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: av-23-post-body-list
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    body: '[{"name": "qalistbody"}]'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 400
+
+  # `fix-deleted` is soft-deleted but the admin is still a member of it, so the
+  # permission query passes and `Workspace.objects.get(slug=…)` is the 404.
+  - name: av-24-post-soft-deleted-workspace
+    method: POST
+    path: "/api/workspaces/{{ws_deleted}}/analytic-view/"
+    json:
+      name: "qadeletedws"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # A form body's `query_dict` is a JSON string; the JSON field parses it.
+  - name: av-25-post-form-query-dict
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    form:
+      name: "qaformview"
+      query_dict: '{"priority": "urgent"}'
+      description: "form body"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 201
+
+  # An empty string is `json.loads("")` → `ValueError`, so DRF's invalid-JSON
+  # detail is a 400.
+  - name: av-26-post-form-empty-query-dict
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    form:
+      name: "qaformempty"
+      query_dict: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # The collection has no PUT: the route table only maps GET and POST.
+  - name: av-27-put-collection
+    method: PUT
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qaputcollection"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  # --- PATCH -------------------------------------------------------------
+  # `{}` still recomputes `query` (`{}`) and bumps `updated_at`; `query_dict`
+  # and every other column keep their stored value.
+  - name: av-28-patch-empty
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: av-29-patch-partial-name
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json:
+      name: "qa patched name"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The full body: `created_by` is writable and survives, `updated_by` is
+  # overwritten with the caller, the read-only keys are ignored, and
+  # `query_dict` is stored verbatim without recompiling `query`.
+  - name: av-30-patch-full
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json:
+      name: "qa patched full"
+      description: "patched"
+      query_dict:
+        state_group: "started"
+        priority: ["urgent"]
+      created_by: "{{member_id}}"
+      updated_by: "{{member_id}}"
+      id: "77777777-7777-4777-8777-777777777777"
+      workspace: "88888888-8888-4888-8888-888888888888"
+      query: {"nonsense": true}
+      created_at: "2020-01-01T00:00:00Z"
+      updated_at: "2020-01-01T00:00:00Z"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # A `query_dict` the create path 500s on is accepted here: `update()` reads
+  # `query_data` (a typo) and never calls `issue_filters` with the body's value.
+  - name: av-31-patch-query-dict-500-shape
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json:
+      query_dict:
+        state: 5
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `deleted_at` is writable through PATCH too: the row disappears from every
+  # read without publishing a cascade (that is H03's destroy, not a save).
+  - name: av-32-patch-deleted-at
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json:
+      deleted_at: "2026-03-04T05:06:07Z"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The row is now soft-deleted, so the same pk is a 404 from here on.
+  - name: av-33-patch-after-soft-delete
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_stale}}/"
+    json:
+      name: "qa after delete"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: av-34-patch-name-too-long
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    json:
+      name: "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: av-35-patch-created-by-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    json:
+      created_by: "99999999-9999-4999-8999-999999999999"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: av-36-patch-missing
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{missing}}/"
+    json:
+      name: "qa missing"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: av-37-patch-seed-deleted
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_deleted}}/"
+    json:
+      name: "qa seed deleted"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # A live row of `fix-second`, reached through `fix-workspace`'s slug: the
+  # `workspaces` join makes it a 404 even though the pk exists.
+  - name: av-38-patch-foreign-workspace-row
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_second_live}}/"
+    json:
+      name: "qa foreign"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: av-39-patch-body-list
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    body: '["qa"]'
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 400
+
+  # The ws2 admin may patch its own workspace's row.
+  - name: av-40-patch-ws2-row
+    method: PATCH
+    path: "/api/workspaces/{{ws2}}/analytic-view/{{view_seed_second_live}}/"
+    json:
+      name: "qa second patched"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 200
+
+  - name: av-41-put-item
+    method: PUT
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    json:
+      name: "qa put item"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  # --- DELETE ------------------------------------------------------------
+  - name: av-42-delete-created
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: av-43-delete-again
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: av-44-delete-missing
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{missing}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: av-45-delete-seed-deleted
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_deleted}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: av-46-delete-foreign-workspace-row
+    method: DELETE
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_seed_second_live}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The cascade message (`soft_delete_related_objects` for `db`,`analyticview`)
+  # is drained and compared by the harness; the row is gone from every read.
+  - name: av-47-delete-second-live
+    method: DELETE
+    path: "/api/workspaces/{{ws2}}/analytic-view/{{view_seed_second_live}}/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 204
+
+  # --- reads after the writes --------------------------------------------
+  - name: av-48-get-list
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  - name: av-49-get-list-second
+    method: GET
+    path: "/api/workspaces/{{ws2}}/analytic-view/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+
+  - name: av-50-get-deleted
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_min}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The full-body create is still there, with `query` as `issue_filters` left
+  # it (the re-read renders the `jsonb` column's own key order).
+  - name: av-51-get-full
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_full}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # --- nullable / invalid field shapes -----------------------------------
+  # `created_by` is nullable on the serializer, so a PATCH may clear it (H01
+  # only rewrites `updated_by`).
+  - name: av-52-patch-created-by-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    json:
+      created_by: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: av-53-get-cleared-creator
+    method: GET
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `description` is `allow_blank` but not nullable.
+  - name: av-54-post-description-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qanulldesc"
+      description: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `DateTimeField` input validation, before either the INSERT or the UPDATE.
+  - name: av-55-post-deleted-at-invalid
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    json:
+      name: "qabaddate"
+      deleted_at: "not-a-date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: av-56-patch-deleted-at-invalid
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    json:
+      deleted_at: "not-a-date"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # DRF's `errors` rewrites a lone field-level `null` into the
+  # `non_field_errors` "No data provided" detail.
+  - name: av-57-post-body-null
+    method: POST
+    path: "/api/workspaces/{{ws}}/analytic-view/"
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 400
+
+  - name: av-58-patch-body-null
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/analytic-view/{{view_custom}}/"
+    body: "null"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: "application/json"
+    expect_status: 400
