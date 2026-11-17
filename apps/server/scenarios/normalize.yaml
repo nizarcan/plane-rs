@@ -413,9 +413,9 @@ volatile_json_keys:
     shape: upload_signature
     why: "presigned POST SigV4 signature"
   - name: x-amz-date
-    placeholder: upload-date
+    mode: sigv4_date
     shape: upload_date
-    why: "presigned POST signing date"
+    why: "presigned POST signing date: two targets sign at their own instants, so a step that straddles a second boundary differs by one second (DECISIONS.md D17 is the same rule for a presigned GET URL); the value is checked against the request window and replaced by one constant"
   - name: x-amz-credential
     placeholder: upload-credential
     shape: upload_credential

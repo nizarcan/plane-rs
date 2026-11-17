@@ -1072,8 +1072,67 @@ impl TargetNormalizer {
             RuleMode::SessionPayload => self.apply_session_payload(rule, value, path),
             RuleMode::Password => self.apply_password(rule, value, path),
             RuleMode::PresignedUrl => self.apply_presigned_url(rule, value, path),
+            RuleMode::Sigv4Date => self.apply_sigv4_date(rule, value, path),
             RuleMode::Drop => {}
         }
+    }
+
+    /// A SigV4 signing date (config `sigv4_date`): `YYYYMMDDTHHMMSSZ`.
+    ///
+    /// Two targets sign the same presigned POST at their own instants, so a
+    /// step that straddles a second boundary produces dates one second apart
+    /// (DECISIONS.md D17 is the same observation for a presigned GET URL, which
+    /// is compared by recomputing each side's signature). The date is parsed
+    /// and must fall inside the request window, then becomes `<sigv4-date>`:
+    /// the value cannot be compared byte-wise, but a stale or fabricated one
+    /// fails here.
+    fn apply_sigv4_date(&mut self, rule: &Rule, value: &mut Value, path: &str) {
+        let Value::String(text) = value else {
+            self.violations.push(Violation::new(
+                "sigv4-date",
+                path,
+                format!("expected a SigV4 date string, got {}", value_type(value)),
+            ));
+            return;
+        };
+        let text = text.clone();
+        self.check_shape(rule, &text, path);
+        let Ok(date) = chrono::NaiveDateTime::parse_from_str(&text, "%Y%m%dT%H%M%SZ") else {
+            self.violations.push(Violation::new(
+                "sigv4-date",
+                path,
+                format!("expected a SigV4 date, got {}", preview(&text)),
+            ));
+            return;
+        };
+        let date = date.and_utc();
+        match self.window {
+            Some((start, end)) => {
+                if date < start - Duration::seconds(1) || date > end + Duration::seconds(1) {
+                    self.violations.push(Violation::new(
+                        "sigv4-date",
+                        path,
+                        format!(
+                            "signing date {} is outside the request window {}..={}",
+                            date.to_rfc3339(),
+                            start.to_rfc3339(),
+                            end.to_rfc3339()
+                        ),
+                    ));
+                    return;
+                }
+            }
+            None => {
+                self.violations.push(Violation::new(
+                    "sigv4-date",
+                    path,
+                    "no request window is open for this step",
+                ));
+                return;
+            }
+        }
+        *value = Value::String("<sigv4-date>".to_string());
+        self.record("sigv4-date", &rule.why);
     }
 
     fn apply_placeholder(&mut self, rule: &Rule, value: &mut Value, label: &str, path: &str) {
@@ -1502,6 +1561,7 @@ impl TargetNormalizer {
                     RuleMode::UnixTime => "<epoch>",
                     RuleMode::HttpDate => "<http-date>",
                     RuleMode::PresignedUrl => "<presigned-url>",
+                    RuleMode::Sigv4Date => "<sigv4-date>",
                     RuleMode::Drop => "<dropped>",
                 }),
                 // Known fixture UUIDs are identical on both targets, so they

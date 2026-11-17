@@ -49,6 +49,12 @@
 --   issue ALPHA-010          d432015f-5a0f-4904-a2eb-d8bfea948a29
 --   page Alpha Project Page  a0eb70c7-531a-4fb1-bd48-6c746066c310
 --   draft "bulk edit labels" 568f87ef-9cd2-4104-b1d5-2b4e4e8ad4c4
+--
+-- Set A's additive rows (the workspace/project writes) use their own ids:
+--
+--   workspace member          e0a10000-0000-4000-8000-000000000001
+--   member's workspace logo   e0a00000-0000-4000-8000-00000000000e
+--   deleted-ws logo           e0a00000-0000-4000-8000-00000000000d
 
 -- ---------------------------------------------------------------------------
 -- Soft-deleted (restore, and the v1/v2 manager lookups)
@@ -236,3 +242,61 @@ VALUES
 UPDATE users
 SET cover_image_asset_id = 'e0a00000-0000-4000-8000-000000000002'
 WHERE id = '78100240-9cfd-4782-8627-25ab039c6e9a';
+
+-- ---------------------------------------------------------------------------
+-- Set A (routes 18/19/24/25/26) — additive only: no existing row is modified.
+-- ---------------------------------------------------------------------------
+
+-- A second workspace ADMIN who is **not** an `alpha` project member. The
+-- `WORKSPACE_LOGO` gate passes (`v2.py:371-380`) but `can_modify_asset` finds no
+-- project role and, unlike a workspace admin who *is* a member, gets no
+-- promotion (`v2.py:49-59`), so a project-bound upload is the 403
+-- `You don't have the required permissions.`. The JSON props are copied from
+-- the workspace's own admin row so the defaults match what Django writes.
+INSERT INTO workspace_members
+  (created_at, updated_at, id, role, created_by_id, member_id, workspace_id,
+   view_props, default_props, issue_props, is_active, explored_features,
+   getting_started_checklist, tips, company_role)
+SELECT '2026-01-01 00:00:13+00', '2026-01-01 00:00:13+00',
+       'e0a10000-0000-4000-8000-000000000001', 20,
+       wm.created_by_id, 'a69a1178-503e-4e62-a07b-f89c6af07687',
+       wm.workspace_id, wm.view_props, wm.default_props, wm.issue_props, TRUE,
+       wm.explored_features, wm.getting_started_checklist, wm.tips, NULL
+FROM workspace_members wm
+WHERE wm.workspace_id = 'a91c3d80-5ed0-40f3-92a8-a28c015f4388'
+  AND wm.member_id = 'd44ae570-3de4-4413-af08-f686bf5b7235'
+  AND wm.deleted_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- A `WORKSPACE_LOGO` uploaded by `member`, so 19 PATCH/DELETE can prove the
+-- rule is admin-only *including for the uploader* (`v2.py:45-46`).
+-- ---------------------------------------------------------------------------
+INSERT INTO file_assets
+  (created_at, updated_at, id, attributes, asset, created_by_id, updated_by_id,
+   workspace_id, is_deleted, deleted_at, is_archived, comment_id, entity_type,
+   external_id, external_source, is_uploaded, issue_id, page_id, project_id,
+   size, storage_metadata, user_id, draft_issue_id, entity_identifier)
+VALUES
+  ('2026-01-01 00:00:14+00', '2026-01-01 00:00:14+00',
+   'e0a00000-0000-4000-8000-00000000000e',
+   '{"name": "member-logo.png", "type": "image/png", "size": 512}',
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388/0000000000000000000000000000000e-member-logo.png',
+   '78100240-9cfd-4782-8627-25ab039c6e9a', NULL,
+   'a91c3d80-5ed0-40f3-92a8-a28c015f4388', FALSE, NULL,
+   FALSE, NULL, 'WORKSPACE_LOGO', NULL, NULL, TRUE,
+   NULL, NULL, NULL, 512, '{}', NULL, NULL, NULL),
+
+-- ---------------------------------------------------------------------------
+-- A `WORKSPACE_LOGO` inside the soft-deleted workspace `fix-deleted`: 19
+-- DELETE's `Workspace.objects.get(id=…)` (`v2.py:331`) is a `DoesNotExist` →
+-- 404 *after* the permission checks pass, while the asset lookup's
+-- `workspace__slug` join has no `workspaces.deleted_at` predicate.
+-- ---------------------------------------------------------------------------
+  ('2026-01-01 00:00:15+00', '2026-01-01 00:00:15+00',
+   'e0a00000-0000-4000-8000-00000000000d',
+   '{"name": "deleted-ws-logo.png", "type": "image/png", "size": 256}',
+   '4a495179-13e7-4373-921c-d9681a53ffd3/00000000000000000000000000000d-deleted-ws-logo.png',
+   'd44ae570-3de4-4413-af08-f686bf5b7235', NULL,
+   '4a495179-13e7-4373-921c-d9681a53ffd3', FALSE, NULL,
+   FALSE, NULL, 'WORKSPACE_LOGO', NULL, NULL, TRUE,
+   NULL, NULL, NULL, 256, '{}', NULL, NULL, NULL);

@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "key": "/api/workspaces/",
+      "value": "seeded-by-the-assets-workspace-scenario",
+      "timeout": null
+    },
+    {
+      "key": "/api/users/me/workspaces/:d44ae570-3de4-4413-af08-f686bf5b7235",
+      "value": "seeded-by-the-assets-workspace-scenario",
+      "timeout": null
+    },
+    {
+      "key": "/api/instances/",
+      "value": "{\"seeded\": true}",
+      "timeout": null
+    }
+  ]
+}
