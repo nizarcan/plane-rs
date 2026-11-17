@@ -1,0 +1,86 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Production images for the Rust background services: `plane-worker`,
+# `plane-beat` and the one-off `plane-migrator` that creates the
+# `plane_jobs` schema.
+#
+#   docker build -f apps/server/deploy/docker/Dockerfile.plane-jobs \
+#     --target worker -t plane-worker:latest .
+#   docker build -f apps/server/deploy/docker/Dockerfile.plane-jobs \
+#     --target beat -t plane-beat:latest .
+#   docker build -f apps/server/deploy/docker/Dockerfile.plane-jobs \
+#     --target migrator -t plane-migrator:latest .
+#
+# The build context is the repository root for the same reason as
+# `Dockerfile.plane-api` (the binaries embed one file from `apps/api` and cargo
+# resolves it from the real tree layout); its own ignore file keeps the rest of
+# the checkout out of the context. The builder stage is byte-identical to
+# `Dockerfile.plane-api`'s, so a machine that built that image reuses the cargo
+# caches and only links the three binaries here.
+#
+# The three stages are separate images on purpose: a worker does not carry the
+# scheduler, the linker-stripped binaries are 30-60 MB each, and the idle-memory
+# benchmark in BENCH.md quotes each image's size next to its container.
+
+ARG RUST_VERSION=1.99.1
+
+# ---------------------------------------------------------------------------
+# Builder
+# ---------------------------------------------------------------------------
+# Same base and packages as `Dockerfile.plane-api`. Keep the two stages in step:
+# aws-lc-rs needs cmake/perl/a C compiler, and lld links the binaries.
+FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        build-essential \
+        ca-certificates \
+        cmake \
+        lld \
+        perl \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build/apps/server
+
+COPY apps/server/Cargo.toml apps/server/Cargo.lock apps/server/routes.json ./
+COPY apps/server/crates ./crates
+COPY apps/server/bins ./bins
+COPY apps/api/templates/csrf_failure.html /build/apps/api/templates/csrf_failure.html
+
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
+
+# The release profile is the workspace's (fat LTO, one codegen unit,
+# panic=abort, strip). `cargo rustc` adds lld to the final compilation only, so
+# the dependency fingerprints stay identical to `Dockerfile.plane-api`'s and
+# the shared target cache mount is reused. Each invocation links one binary;
+# `cargo build` would link all three with GNU ld.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/apps/server/target \
+    cargo rustc --release --locked -p plane-worker -- -C link-arg=-fuse-ld=lld \
+    && cargo rustc --release --locked -p plane-beat -- -C link-arg=-fuse-ld=lld \
+    && cargo rustc --release --locked -p plane-migrator -- -C link-arg=-fuse-ld=lld \
+    && install -D -m 0755 /build/apps/server/target/release/plane-worker /out/plane-worker \
+    && install -D -m 0755 /build/apps/server/target/release/plane-beat /out/plane-beat \
+    && install -D -m 0755 /build/apps/server/target/release/plane-migrator /out/plane-migrator
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+# Distroless `cc` carries glibc, libgcc and the CA bundle (for S3, webhooks and
+# OAuth on the task paths) and nothing else. `:nonroot` is UID 65532 with no
+# home directory; these services write no state to disk, logs go to stdout.
+FROM gcr.io/distroless/cc-debian12:nonroot AS worker
+COPY --from=builder /out/plane-worker /usr/local/bin/plane-worker
+ENTRYPOINT ["/usr/local/bin/plane-worker"]
+
+FROM gcr.io/distroless/cc-debian12:nonroot AS beat
+COPY --from=builder /out/plane-beat /usr/local/bin/plane-beat
+ENTRYPOINT ["/usr/local/bin/plane-beat"]
+
+FROM gcr.io/distroless/cc-debian12:nonroot AS migrator
+COPY --from=builder /out/plane-migrator /usr/local/bin/plane-migrator
+ENTRYPOINT ["/usr/local/bin/plane-migrator"]
