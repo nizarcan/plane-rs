@@ -6,6 +6,9 @@
 #
 #   POST   …/modules/{module_id}/issues/                    (106)
 #   POST   …/issues/{issue_id}/modules/                     (105)
+#   GET    …/modules/{module_id}/issues/{issue_id}/         (107, guard 405)
+#   PUT    …/modules/{module_id}/issues/{issue_id}/         (107, guard 405)
+#   PATCH  …/modules/{module_id}/issues/{issue_id}/         (107, guard 405)
 #   DELETE …/modules/{module_id}/issues/{issue_id}/         (107)
 #   POST   …/modules/{module_id}/module-links/              (108)
 #   PUT    …/modules/{module_id}/module-links/{pk}/         (109)
@@ -397,6 +400,85 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 204
+
+  # The held PUT / PATCH (107). `ModuleIssueViewSet` implements only `destroy`
+  # of the generic actions and its only permission class is `BaseViewSet`'s
+  # `IsAuthenticated`, so the runtime's `BaseViewSet` guard answers 405 for both
+  # verbs — after authentication, before `get_object` and before the body. A
+  # member, a guest and a non-member all get the same 405, and a module/issue
+  # pair that does not exist never becomes a 404.
+  - name: wmod-27a-module-issue-put-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_008}}/"
+    json:
+      module: "{{module_planned}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  - name: wmod-27b-module-issue-patch-405
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_008}}/"
+    json:
+      module: "{{module_planned}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  - name: wmod-27c-module-issue-put-member-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_008}}/"
+    json: {}
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 405
+
+  # The guest is authenticated, so `IsAuthenticated` passes and the guard
+  # answers before any membership check could 403.
+  - name: wmod-27d-module-issue-put-guest-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_008}}/"
+    json: {}
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 405
+
+  - name: wmod-27e-module-issue-put-nonmember-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_008}}/"
+    json: {}
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 405
+
+  - name: wmod-27f-module-issue-put-unknown-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{unknown_module}}/issues/{{unknown_issue}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  - name: wmod-27g-module-issue-put-anonymous-401
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_planned}}/issues/{{issue_008}}/"
+    json: {}
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
 
   # --- module links: create (108) ------------------------------------------
   - name: wmod-28-link-create

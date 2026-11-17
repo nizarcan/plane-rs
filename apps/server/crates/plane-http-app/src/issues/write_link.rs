@@ -7,11 +7,18 @@
 //! | Route | Action | Python |
 //! | --- | --- | --- |
 //! | `POST …/issue-links/` | `create` | `:56-79` |
-//! | `PATCH …/issue-links/{pk}/` | `partial_update` | `:81-111` |
-//! | `DELETE …/issue-links/{pk}/` | `destroy` | `:113-126` |
+//! | `PUT …/issue-links/{pk}/` | `update` | DRF `UpdateModelMixin.update`, `:80-109` |
+//! | `PATCH …/issue-links/{pk}/` | `partial_update` | `:80-109` |
+//! | `DELETE …/issue-links/{pk}/` | `destroy` | `:111-126` |
 //!
-//! `PUT` is refused before dispatch by `BaseViewSet`'s guard (`routes.json`
-//! 75's `guard_actions.update`).
+//! `PUT` is **not** refused by `BaseViewSet`'s guard: the viewset declares
+//! `ProjectEntityPermission`, a real permission class, so
+//! `_resolved_action_is_authorized` returns at
+//! `plane/app/views/base.py:141-142` and DRF's `UpdateModelMixin.update` runs
+//! the **full** serializer (`rest_framework/mixins.py:63-75`). Only `PATCH`
+//! has a viewset implementation, so `PUT` is the generic mixin: `get_object()`
+//! through `get_queryset()`, `partial=False`, and a response built from the
+//! in-memory instance rather than a re-read.
 //!
 //! ## What Django does per action
 //!
@@ -44,7 +51,26 @@
 //! `current_instance = json.dumps(IssueLinkSerializer(issue_link).data)` —
 //! both *before* validation, so the prefix the serializer applies to `url` is
 //! not in them. The duplicate check in `update()` excludes the row itself.
-//! The crawl task re-runs only when the URL changed (`:90-92`).
+//! The crawl task re-runs only when the URL changed (`:90-92`). The response
+//! re-reads the row through `get_queryset()` (`:105-106`), so a PATCH that
+//! sets `deleted_at` is 404 — the `PUT` path below is not.
+//!
+//! **update** is DRF's mixin, unchanged:
+//!
+//! 1. `self.get_object()` — `get_queryset()`, which does filter membership and
+//!    `archived_at IS NULL`, so a row the PATCH path can still read is a 404
+//!    here (`generics.py:79-89`, `"No IssueLink matches the given query."`).
+//! 2. The **full** serializer (`partial=False`), so `url` is required.
+//! 3. `serializer.update`'s duplicate check with the body's `url`; it always
+//!    runs because `url` is required. Only the keys `validated_data` carries
+//!    are assigned, so an absent `title`/`metadata`/`deleted_at` keeps the
+//!    row's value.
+//! 4. `Response(serializer.data)` from the in-memory instance, so the
+//!    `metadata` key order is the body's (no `jsonb` round trip) and a PUT
+//!    that sets `deleted_at` still answers 200.
+//!
+//! No task is published by `update`: the crawl and the activity are
+//! `create`'s and `partial_update`'s only (`link.py:56-126`).
 //!
 //! **destroy** publishes `link.activity.deleted` with
 //! `requested_data=json.dumps({"link_id": str(pk)})` and the pre-delete
@@ -62,7 +88,7 @@
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use deadpool_postgres::Client;
-use plane_core::error::APPLICATION_JSON;
+use plane_core::error::{APPLICATION_JSON, ApiError};
 use plane_db::JsonText;
 use plane_db::hooks;
 use plane_db::models::issue::IssueLink;
@@ -87,12 +113,13 @@ use crate::write::Serializer;
 use crate::write::fields::{self, CharOptions, Detail, Raw};
 use crate::write::url::django_url_valid;
 
-/// Register the three actions on the view that already serves `list` and
+/// Register the four actions on the view that also serves `list` and
 /// `retrieve` (`sub_links.rs`).
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.issue.link.IssueLinkViewSet")?
         .action("create", create)?
+        .action("update", update)?
         .action("partial_update", partial_update)?
         .action("destroy", destroy)?;
     Ok(())
@@ -228,6 +255,120 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         };
         let body = common::render(ctx, &entry.serializer())?;
         Ok(ViewResponse::raw(201, APPLICATION_JSON, body))
+    })
+}
+
+// ---------------------------------------------------------------------------
+// update
+// ---------------------------------------------------------------------------
+
+/// `IssueLinkViewSet.update` — DRF's `UpdateModelMixin.update` with
+/// `partial=False` (`rest_framework/mixins.py:63-75`), which is route 75's
+/// `PUT`. The viewset implements only `partial_update`, so the guard's
+/// `project_implemented` is false; `ProjectEntityPermission` is what keeps the
+/// guard from refusing this action (`plane/app/views/base.py:141-142`).
+pub fn update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let client = client(ctx)?;
+        let slug = ctx.kwarg("slug").ok_or(ViewError::Key)?.to_owned();
+        let project_id = kwarg_uuid(ctx, "project_id")?;
+        let issue_id = kwarg_uuid(ctx, "issue_id")?;
+        let pk = kwarg_uuid(ctx, "pk")?;
+        let user = shared::user_id(ctx)?;
+        let now = write::now();
+
+        // `self.get_object()` (`mixins.py:65`): `get_queryset()` — membership,
+        // an active project membership and `archived_at IS NULL` — then
+        // `get_object_or_404`, whose `Http404` DRF re-raises as
+        // `NotFound(*(exc.args))` (`rest_framework/views.py:82-83`). The model
+        // name is `IssueLink` (`generics.py:87-89`).
+        let Some(previous) =
+            load_response_row(client, &slug, project_id, issue_id, user, pk).await?
+        else {
+            return Err(ViewError::Api(ApiError::not_found_detail(
+                "No IssueLink matches the given query.",
+            )));
+        };
+
+        // The **full** serializer: `url` is required, every other writable
+        // field keeps its row value when absent.
+        let data = ctx.data()?;
+        let mut serializer = Serializer::new(ctx, false)?;
+        let values = match read_body(&mut serializer, data, false)? {
+            Some(values) => match serializer.finish() {
+                Ok(_) => values,
+                Err(errors) => return Ok(errors.into_response()),
+            },
+            None => return Ok(serializer_error(serializer)),
+        };
+        let url = values
+            .url
+            .clone()
+            .expect("a full update always has a validated url");
+
+        // `IssueLinkSerializer.update`'s duplicate check (`:601-609`). Unlike
+        // `partial_update`'s it cannot be skipped: `url` is required here.
+        let statement = queries::LINK_URL_TAKEN_ELSEWHERE.prepare(client).await?;
+        let taken: bool = client
+            .query_one(&statement, &[&url, &issue_id, &pk])
+            .await?
+            .get(0);
+        if taken {
+            return Ok(error_body(400, "URL already exists for this Issue"));
+        }
+
+        // `serializer.save()` → `ModelSerializer.update`, which assigns only
+        // the keys `validated_data` carries, then `instance.save()`:
+        // `BaseModel.save` stamps `updated_by` and `auto_now` `updated_at`
+        // (`plane/db/models/base.py:23-45`).
+        let title = match &values.title {
+            Some(title) => title.clone(),
+            None => previous.link.title.clone(),
+        };
+        let metadata = match &values.metadata {
+            Some(metadata) => metadata.clone(),
+            None => previous.link.metadata.clone(),
+        };
+        let deleted_at = match &values.deleted_at {
+            Some(deleted_at) => *deleted_at,
+            None => previous.link.deleted_at,
+        };
+        let statement = queries::LINK_UPDATE.prepare(client).await?;
+        client
+            .execute(
+                &statement,
+                &[&title, &url, &metadata, &deleted_at, &now, &Some(user), &pk],
+            )
+            .await?;
+
+        // `Response(serializer.data)` from the in-memory instance
+        // (`mixins.py:75`): no re-read, so a PUT that sets `deleted_at` still
+        // answers 200, and `metadata` keeps the body's key order because it
+        // never round-trips through `jsonb`. No crawl and no activity task:
+        // `update` is DRF's mixin, not `partial_update` (`link.py:80-109`).
+        let updated = LinkRow {
+            link: IssueLink {
+                created_at: previous.link.created_at,
+                updated_at: now,
+                created_by_id: previous.link.created_by_id,
+                updated_by_id: Some(user),
+                deleted_at,
+                id: previous.link.id,
+                project_id: previous.link.project_id,
+                workspace_id: previous.link.workspace_id,
+                title,
+                url,
+                issue_id: previous.link.issue_id,
+                metadata,
+            },
+            created_by: previous.created_by,
+        };
+        let entry = LinkEntry {
+            link: &updated.link,
+            created_by: updated.created_by.as_ref().map(UserLiteRow::serializer),
+        };
+        let body = common::render(ctx, &entry.serializer())?;
+        Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
     })
 }
 

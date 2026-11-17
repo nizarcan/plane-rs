@@ -21,8 +21,9 @@
 //! | [`issue`] | `module/issue.py` — `ModuleIssueViewSet` |
 //! | [`workspace`] | `workspace/module.py` — `WorkspaceModulesEndpoint` |
 //!
-//! `+ GET …/modules/{module_id}/issues/{issue_id}/` is answered by the
-//! runtime's `BaseViewSet` guard (405), so it registers nothing.
+//! `GET`/`PUT`/`PATCH …/modules/{module_id}/issues/{issue_id}/` are answered by
+//! the runtime's `BaseViewSet` guard (405), so they register
+//! [`crate::cycles::base::guard_only`] and nothing else.
 //!
 //! The write verbs of `ModuleViewSet` (103/104), `ModuleUserPropertiesEndpoint`
 //! (112) and `ModuleArchiveUnarchiveEndpoint` (113, plus the 114/115 routes
@@ -71,8 +72,15 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.module.issue.ModuleIssueViewSet")?
         .action("list", issue::list)?
-        // `GET …/modules/{module_id}/issues/{issue_id}/`: the guard answers 405.
+        // `GET`/`PUT`/`PATCH …/modules/{module_id}/issues/{issue_id}/`: the
+        // viewset implements only `destroy` of the generic actions and declares
+        // no permission class but `BaseViewSet`'s `IsAuthenticated`, so the
+        // `BaseViewSet` guard answers 405 for all three (`routes.json` 107's
+        // `guard_actions`). A non-member gets the same 405: the permission
+        // class passes before the guard.
         .action("retrieve", crate::cycles::base::guard_only)?
+        .action("update", crate::cycles::base::guard_only)?
+        .action("partial_update", crate::cycles::base::guard_only)?
         // Set B: `POST modules/{module_id}/issues/` (106) and `DELETE
         // modules/{module_id}/issues/{issue_id}/` (107). Route 105
         // (`issues/{issue_id}/modules/`) belongs to the `issues` route group

@@ -7,6 +7,9 @@
 # `tools/scenarios/gen_write.py`, then curated: the Description row and the
 # H14/H15 sync, the role/creator matrix, the restricted guest, duplicates,
 # both activity shapes and the follow-up reads.
+#
+# `PUT …/comments/{pk}/` (route 82) is the held method: the viewset implements
+# only `partial_update`, so the `BaseViewSet` guard answers 405.
 
 name: write-issue-comments
 template_db: plane_fix_tpl
@@ -242,6 +245,72 @@ steps:
     origin: "http://evil.example"
     json: {"comment_html": "<p>x</p>"}
     expect_status: 403
+
+  # The held PUT (82). `IssueCommentViewSet` implements `partial_update` but not
+  # `update`, and its only permission class is `BaseViewSet`'s `IsAuthenticated`,
+  # so the runtime's `BaseViewSet` guard answers 405 for `PUT` — after
+  # authentication, before `get_object` and before the body is read. The action,
+  # not the caller, is refused: a member, a restricted guest and a non-member
+  # all get the same 405, and a missing comment id never becomes a 404.
+  - name: wc-20a-comment-put-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>put</p>"}
+    expect_status: 405
+
+  - name: wc-20b-comment-put-member-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/"
+    jar: member
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_member}}"
+    json: {"comment_html": "<p>put</p>"}
+    expect_status: 405
+
+  - name: wc-20c-comment-put-guest-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_guest}}/"
+    jar: guest
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_guest}}"
+    json: {"comment_html": "<p>put</p>"}
+    expect_status: 405
+
+  # 405 over 403: no membership permission class runs before the guard.
+  - name: wc-20d-comment-put-nonmember-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/"
+    jar: outsider
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_nonmember}}"
+    json: {"comment_html": "<p>put</p>"}
+    expect_status: 405
+
+  - name: wc-20e-comment-put-missing-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/00000000-0000-0000-0000-000000000000/"
+    jar: admin
+    headers:
+        Host: plane-fixture.test
+        Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>put</p>"}
+    expect_status: 405
+
+  - name: wc-20f-comment-put-anonymous-401
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/"
+    jar: anonymous
+    headers:
+        Host: plane-fixture.test
+    json: {"comment_html": "<p>put</p>"}
+    expect_status: 401
 
   - name: wc-21-comment-delete-author
     method: DELETE

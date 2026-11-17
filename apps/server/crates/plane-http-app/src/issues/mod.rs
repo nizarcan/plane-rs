@@ -96,6 +96,12 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.issue.comment.IssueCommentViewSet")?
         .action("create", write_comment::comment_create)?
+        // `PUT …/comments/{pk}/`: the viewset implements only `partial_update`
+        // and declares no permission class but `BaseViewSet`'s
+        // `IsAuthenticated`, so the `BaseViewSet` guard answers 405 (`routes.json`
+        // 82's `guard_actions.update`). A non-member gets the same 405: the
+        // permission class passes before the guard.
+        .action("update", write_issue::guard_only)?
         .action("partial_update", write_comment::comment_partial_update)?
         .action("destroy", write_comment::comment_destroy)?;
     registry

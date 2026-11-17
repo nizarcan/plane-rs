@@ -6,6 +6,7 @@
 #
 #   POST   …/issues/{issue_id}/sub-issues/                       (73)
 #   POST   …/issues/{issue_id}/issue-links/                      (74)
+#   PUT    …/issues/{issue_id}/issue-links/{pk}/                 (75)
 #   PATCH  …/issues/{issue_id}/issue-links/{pk}/                 (75)
 #   DELETE …/issues/{issue_id}/issue-links/{pk}/                 (75)
 #   POST   …/issues/{issue_id}/issue-subscribers/                (83)
@@ -26,6 +27,11 @@
 #   * links: the `http://` prefix on the raw url, `URLValidator`'s field error
 #     body, `deleted_at` being writable, and the 404 the `create` response
 #     query answers for an archived project;
+#   * link PUT: the full serializer (`url` required), `get_object()`'s
+#     `{"detail": "No IssueLink matches the given query."}` 404 (missing,
+#     archived project or an already soft-deleted row), the 200 a
+#     `deleted_at` PUT still answers because the body is in memory, and the
+#     absence of the crawl/activity tasks `PATCH` publishes;
 #   * subscribers: the duplicate POST is the family 400 (no pre-check), the
 #     `destroy`/`unsubscribe` lookups are `ObjectDoesNotExist` 404s;
 #   * relations: the reverse-type mapping, the mirrored rows and
@@ -59,6 +65,8 @@ vars:
   issue_080: "01a961e2-a656-4de9-9652-fd4a96debd66"
   issue_201_draft: "e069169e-25e6-4db6-a049-8e1141ca95d2"
   issue_gamma: "2039d0ab-2732-436d-8b51-eecfa854c8fe"
+  # GAMMA-000 in the archived GAM project (the admin is a GAM project admin).
+  issue_gamma_archived: "57f663a9-c4d7-4b66-b322-444bbc3d8e9f"
   issue_epsilon: "643eae10-3112-4c2f-aab2-f6d4aaaf4dd3"
   link_010: "20c1f9af-641b-44b2-b819-dabe6123bad1"
   user_admin: "d44ae570-3de4-4413-af08-f686bf5b7235"
@@ -479,6 +487,248 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 200
+
+  # --- links: full update (75 PUT) ------------------------------------------
+  # Route 75's `PUT` is **not** guard-refused: `ProjectEntityPermission` is a
+  # real permission class, so DRF's `UpdateModelMixin.update` runs with
+  # `partial=False` (`rest_framework/mixins.py:63-75`). `get_object()` uses
+  # `get_queryset()`, so a miss (or an archived project) is
+  # `{"detail": "No IssueLink matches the given query."}` rather than PATCH's
+  # `{"error": "The required object does not exist."}`, `url` is required, and
+  # the response is `serializer.data` from the **in-memory** instance.
+  - name: wirel-35a-link-put-url-only
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "https://example.test/put-one"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # The absent writable keys keep the row's values; `metadata` in the response
+  # is the *body's* order (`z` before `a`), because `serializer.data` never
+  # re-reads the `jsonb` column.
+  - name: wirel-35b-link-put-full
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "put-two.example.test/a"
+      title: "Put title"
+      metadata: {"z": 2, "a": ["x"]}
+      deleted_at: null
+      issue: "{{issue_010}}"
+      nope: 1
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-35c-link-put-no-url
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      title: "No url"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-35d-link-put-null-url
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: null
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-35e-link-put-blank-url
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: ""
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  - name: wirel-35f-link-put-invalid-url
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "http://bad host"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `data.get("url", "")` then `.startswith(...)`: an int is an AttributeError,
+  # which the family handler renders as 500 — after `get_object()` ran.
+  - name: wirel-35g-link-put-non-string-url
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: 42
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 500
+
+  # `link_full` still holds this url; the check excludes only the row itself.
+  - name: wirel-35h-link-put-duplicate
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "https://example.test/design?v=2#top"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 400
+
+  # `get_object()`'s miss: the detail 404, not the family's `{"error": …}`.
+  - name: wirel-35i-link-put-unknown
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{unknown_issue}}/"
+    json:
+      url: "https://example.test/unknown-put"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-35j-link-put-guest-denied
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "https://example.test/guest-put"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 403
+
+  - name: wirel-35k-link-put-nonmember-denied
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "https://example.test/outsider-put"
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 403
+
+  - name: wirel-35l-link-put-foreign-origin
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_minimal}}/"
+    json:
+      url: "https://example.test/origin-put"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    origin: "http://evil.example"
+    expect_status: 403
+
+  # An archived project is invisible to `get_queryset()`, so `PUT` 404s where
+  # PATCH's `IssueLink.objects` lookup would find the row. The create writes
+  # first and then 404s on its own response read, so the PUT below has a real
+  # row to miss.
+  - name: wirel-35m1-link-create-archived-project-put
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/issues/{{issue_gamma_archived}}/issue-links/"
+    json:
+      url: "https://example.test/archived-project-put"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: link_archived_put
+        source: db
+        table: issue_links
+        column: id
+    expect_status: 404
+
+  - name: wirel-35m2-link-put-archived-project
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_gamma_archived}}/issues/{{issue_gamma_archived}}/issue-links/{{link_archived_put}}/"
+    json:
+      url: "https://example.test/archived-project-put-2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: wirel-35n-link-list-after-put
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  # `deleted_at` is writable, and the in-memory response still answers 200 —
+  # the PATCH path would 404 on its post-save re-read.
+  - name: wirel-35o-link-create-for-put-delete
+    method: POST
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    json:
+      url: "https://example.test/put-delete"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    capture:
+      - name: link_put_deleted
+        source: json
+        pointer: "/id"
+    expect_status: 201
+
+  - name: wirel-35p-link-put-deleted-at
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_put_deleted}}/"
+    json:
+      url: "https://example.test/put-delete"
+      deleted_at: "2026-02-01T00:00:00Z"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-35q-link-list-after-put-delete
+    method: GET
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 200
+
+  - name: wirel-35r-link-put-deleted-at-again
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_003}}/issue-links/{{link_put_deleted}}/"
+    json:
+      url: "https://example.test/put-delete"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
 
   - name: wirel-36-link-delete
     method: DELETE
