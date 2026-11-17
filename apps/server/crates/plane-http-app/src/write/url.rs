@@ -22,7 +22,117 @@
 //! `URLValidator` last (`rest_framework/fields.py:326-327`, `:537-559`,
 //! `:806-814`). So `ftp://localhost` yields *two* messages, not the first one.
 
+use plane_drf::error::ViewError;
+use plane_drf::parsers::Data;
+
 use crate::write::fields::Detail;
+
+/// The in-place URL rewrite the three link serializers run in
+/// `to_internal_value`:
+///
+/// ```python
+/// url = data.get("url", "")
+/// if url and not url.startswith(("http://", "https://")):
+///     data["url"] = "http://" + url
+/// ```
+///
+/// `IssueLinkSerializer` (`plane/app/serializers/issue.py:576-582`),
+/// `ModuleLinkSerializer` (`plane/app/serializers/module.py:170-176`) and
+/// `WorkspaceUserLinkSerializer` (`plane/app/serializers/workspace.py:194-199`)
+/// all run it against `request.data` **before** DRF parses a single field, so
+/// the `AttributeError`s below precede every field error.
+///
+/// * A JSON body that is not a mapping has no `.get` (`'list' object has no
+///   attribute 'get'`) — the family 500, not DRF's "Expected a dictionary"
+///   field error, because the override runs first. `null` is the exception:
+///   DRF's `validate_empty_values` returns before `to_internal_value`, so it
+///   stays the 400 `{"non_field_errors": ["No data provided"]}`.
+/// * A truthy non-string `url` has no `.startswith` — the family 500.
+/// * A urlencoded body's `QueryDict` is immutable (`FormParser` builds it with
+///   `QueryDict(stream.read(), encoding=…)`), so a truthy scheme-less `url` is
+///   `AttributeError: This QueryDict instance is immutable` → the family 500.
+///   A multipart body is immutable too (`MultiPartParser._parse` clears
+///   `_mutable`), **unless** it carries a file part: DRF then replaces
+///   `request.data` with `QueryDict.copy()`, which is mutable, and the write
+///   succeeds. Both callers already prefix the value in memory, so this guard
+///   only has to decide whether Django would raise.
+///
+/// A missing, empty or already-schemed `url` never writes, so it is not an
+/// error on any body shape.
+pub fn guard_url_rewrite(data: &Data) -> Result<(), ViewError> {
+    let value = match data {
+        Data::Form(query) => {
+            // `request.data` merges `request.FILES` into the same mapping; a
+            // file part named `url` is therefore the value `data.get("url")`
+            // returns (a list in `MultiValueDict`, its last — the file — through
+            // `.get`), and it has no `.startswith`.
+            if query.is_file("url") {
+                return Err(ViewError::Unknown(
+                    "AttributeError: 'InMemoryUploadedFile' object has no attribute 'startswith'"
+                        .to_owned(),
+                ));
+            }
+            let Some(url) = query.get("url") else {
+                return Ok(());
+            };
+            if url.is_empty() || url.starts_with("http://") || url.starts_with("https://") {
+                return Ok(());
+            }
+            if query.is_mutable() {
+                return Ok(());
+            }
+            // `data["url"] = …` on the immutable `QueryDict`.
+            return Err(ViewError::Unknown(
+                "AttributeError: This QueryDict instance is immutable".to_owned(),
+            ));
+        }
+        // DRF's null short-circuit: `{"non_field_errors": ["No data provided"]}`.
+        Data::Json(plane_serde::pyjson::Value::Null) => return Ok(()),
+        Data::Json(plane_serde::pyjson::Value::Dict(object)) => match object.get("url") {
+            None => return Ok(()),
+            Some(value) => value,
+        },
+        // `data.get` on a scalar/array body.
+        Data::Json(other) => {
+            return Err(ViewError::Unknown(format!(
+                "AttributeError: '{}' object has no attribute 'get'",
+                python_type_name(other)
+            )));
+        }
+    };
+    use plane_serde::pyjson::Value as Json;
+    match value {
+        // Falsy values skip the rewrite and fail field validation instead.
+        Json::Null => Ok(()),
+        Json::Bool(false) => Ok(()),
+        Json::Str(text) if text.as_str().is_none_or(str::is_empty) => Ok(()),
+        Json::Int(number) if number.as_i64() == Some(0) => Ok(()),
+        Json::Float(number) if *number == 0.0 => Ok(()),
+        Json::List(items) if items.is_empty() => Ok(()),
+        Json::Dict(entries) if entries.is_empty() => Ok(()),
+        // A truthy string is rewritten in memory by the caller.
+        Json::Str(_) => Ok(()),
+        // A truthy non-string has no `.startswith`.
+        other => Err(ViewError::Unknown(format!(
+            "AttributeError: '{}' object has no attribute 'startswith'",
+            python_type_name(other)
+        ))),
+    }
+}
+
+/// `type(value).__name__` for the `AttributeError`s above.
+fn python_type_name(value: &plane_serde::pyjson::Value) -> &'static str {
+    use plane_serde::pyjson::Value as Json;
+    match value {
+        Json::Null => "NoneType",
+        Json::Bool(_) => "bool",
+        Json::Int(_) => "int",
+        Json::Float(_) => "float",
+        Json::Str(_) => "str",
+        Json::List(_) => "list",
+        Json::Dict(_) => "dict",
+    }
+}
 
 /// One validator declared on a `URLField`, in declaration order.
 ///
@@ -361,6 +471,66 @@ fn hostname_of(authority: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::django_url_valid;
+    use plane_drf::parsers::Data;
+
+    fn json(text: &str) -> Data {
+        Data::Json(plane_serde::pyjson::loads(text.as_bytes(), "utf-8").expect("json"))
+    }
+
+    fn form(text: &str) -> Data {
+        Data::Form(plane_drf::QueryDict::parse(text, None).expect("form"))
+    }
+
+    #[test]
+    fn the_url_rewrite_guard_raises_where_django_does() {
+        use plane_drf::error::ViewError;
+        // A JSON array has no `.get` (the override runs before DRF's
+        // "expected a dictionary" check).
+        assert!(matches!(
+            super::guard_url_rewrite(&json("[]")),
+            Err(ViewError::Unknown(message)) if message.contains("no attribute 'get'")
+        ));
+        // A truthy non-string url has no `.startswith`.
+        assert!(matches!(
+            super::guard_url_rewrite(&json(r#"{"url": 42}"#)),
+            Err(ViewError::Unknown(message)) if message.contains("no attribute 'startswith'")
+        ));
+        // Falsy values never write.
+        for body in [
+            r#"{"url": null}"#,
+            r#"{"url": false}"#,
+            r#"{"url": 0}"#,
+            r#"{"url": 0.0}"#,
+            r#"{"url": ""}"#,
+            r#"{"url": []}"#,
+            r#"{"url": {}}"#,
+        ] {
+            assert!(super::guard_url_rewrite(&json(body)).is_ok(), "{body}");
+        }
+        // A scheme-less string is rewritten in memory; null is DRF's
+        // "No data provided".
+        assert!(super::guard_url_rewrite(&json(r#"{"url": "a.example"}"#)).is_ok());
+        assert!(super::guard_url_rewrite(&json("null")).is_ok());
+        // A urlencoded body is immutable; a multipart one with a file part is
+        // copied mutable by DRF.
+        assert!(matches!(
+            super::guard_url_rewrite(&form("url=a.example")),
+            Err(ViewError::Unknown(message)) if message.contains("immutable")
+        ));
+        assert!(super::guard_url_rewrite(&form("url=https://a.example")).is_ok());
+        assert!(super::guard_url_rewrite(&form("url=")).is_ok());
+        let mut multipart = plane_drf::QueryDict::parse("url=a.example", None).expect("form");
+        multipart.mark_file(Some("attachment"));
+        assert!(super::guard_url_rewrite(&Data::Form(multipart)).is_ok());
+        // A file part named `url` is the value `request.data.get("url")`
+        // returns, and it has no `.startswith`.
+        let mut file_url = plane_drf::QueryDict::parse("title=x", None).expect("form");
+        file_url.mark_file(Some("url"));
+        assert!(matches!(
+            super::guard_url_rewrite(&Data::Form(file_url)),
+            Err(ViewError::Unknown(message)) if message.contains("no attribute 'startswith'")
+        ));
+    }
 
     /// Expected values recorded from Django 5.2's `URLValidator` on the same
     /// inputs (`apps/api/.venv`, CPython 3.12.13).

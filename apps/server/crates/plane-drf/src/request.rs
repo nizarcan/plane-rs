@@ -52,6 +52,18 @@ pub struct TooManyFields;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QueryDict {
     pairs: Vec<(String, String)>,
+    /// `QueryDict._mutable`, as the object DRF hands a view as `request.data`
+    /// sees it. A urlencoded body's `FormParser` result is immutable, and so is
+    /// a multipart body's `MultiPartParser` result (`_parse` clears `_mutable`
+    /// before returning, `django/http/multipartparser.py:364-365`) — but DRF
+    /// copies it when `request.FILES` is non-empty
+    /// (`rest_framework/request.py:289-291`) and `QueryDict.copy()` returns a
+    /// **mutable** copy, so a multipart body with at least one file part reaches
+    /// the view mutable. A handler that reproduces a serializer's in-place write
+    /// (`data["url"] = …`) needs the difference: the write is
+    /// `AttributeError: This QueryDict instance is immutable` on a urlencoded
+    /// body or a file-less multipart one, and succeeds with a file part.
+    mutable: bool,
     /// Whether a multipart body carried at least one file part. Django keeps
     /// the parsed files in `request.FILES` and merges them into `request.data`
     /// (`Request._load_data_and_files`), so `request.data` is a `QueryDict`
@@ -95,6 +107,7 @@ impl QueryDict {
         }
         Ok(Self {
             pairs,
+            mutable: false,
             files: false,
             file_keys: Vec::new(),
         })
@@ -106,6 +119,29 @@ impl QueryDict {
         self.pairs.push((key.into(), value.into()));
     }
 
+    /// `QueryDict.__setitem__` on a **mutable** dict: every value for `key` is
+    /// replaced by the single `value`, at the key's original position (or
+    /// appended when it was absent). Python's underlying `dict` keeps an
+    /// existing key's insertion position when its value is replaced.
+    pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        let key = key.into();
+        let value = value.into();
+        match self.pairs.iter().position(|(name, _)| *name == key) {
+            Some(index) => {
+                self.pairs.retain(|(name, _)| *name != key);
+                self.pairs.insert(index, (key, value));
+            }
+            None => self.pairs.push((key, value)),
+        }
+    }
+
+    /// Whether this `request.data` `QueryDict` accepts `__setitem__`:
+    /// `QueryDict._mutable`.
+    #[must_use]
+    pub fn is_mutable(&self) -> bool {
+        self.mutable
+    }
+
     /// Whether the multipart body had a file part
     /// (`request.FILES` non-empty, merged into `request.data` by DRF).
     #[must_use]
@@ -114,8 +150,14 @@ impl QueryDict {
     }
 
     /// Record a multipart file part and its field name.
+    ///
+    /// With `request.FILES` non-empty, DRF's `_load_data_and_files` replaces
+    /// `request.data` with a mutable copy (`rest_framework/request.py:289-291`;
+    /// Django's `QueryDict.copy()` returns a mutable dict), which is what lets a
+    /// serializer rewrite the body in place.
     pub fn mark_file(&mut self, name: Option<&str>) {
         self.files = true;
+        self.mutable = true;
         if let Some(name) = name {
             self.file_keys.push(name.to_owned());
         }

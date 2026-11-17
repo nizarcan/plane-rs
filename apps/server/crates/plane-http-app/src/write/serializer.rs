@@ -487,6 +487,16 @@ impl<'a> Serializer<'a> {
         Ok(serializer)
     }
 
+    /// [`Self::new`] over a form body the caller has rewritten in place, as
+    /// `data["url"] = …` does on a **mutable** (multipart) `request.data`.
+    /// `partial` and the html-input (`form = true`) rules are [`Self::new`]'s.
+    pub fn from_form(ctx: &ViewCtx<'_>, query: &'a plane_drf::QueryDict, partial: bool) -> Self {
+        let mut serializer = Self::empty(ctx, partial);
+        serializer.body = Some(Body::Form(query));
+        serializer.form = true;
+        serializer
+    }
+
     /// Start validating one value the request *contains* rather than the body
     /// itself: `IssueCreateSerializer(data=request.data.get("issue"), …)`
     /// (`plane/app/views/intake/base.py:261-269`, `:414-418`).

@@ -22,7 +22,11 @@
 //! read-only (`plane/app/serializers/module.py:156-168`), so the body can set
 //! `deleted_at`, `title`, `url` and `metadata`. `to_internal_value`
 //! (`:170-176`) prefixes `http://` onto the **raw** url string when it is
-//! truthy and does not already start with `http://`/`https://`, then the
+//! truthy and does not already start with `http://`/`https://` — **in place on
+//! `request.data`**, so a urlencoded or file-less multipart body's immutable
+//! `QueryDict` raises `AttributeError` (the family 500) before any field is
+//! parsed, while a multipart body with a file part is copied mutable (see
+//! [`guard_url_rewrite`]). Then the
 //! `URLField` runs `CharField` (max length 200 from the model) and Django's
 //! `URLValidator`. `validate_url` (`:178-186`) runs the same validator again
 //! and would render `{"url": {"error": "Invalid URL format."}}`; it is
@@ -81,7 +85,7 @@ use crate::issues::write_sub_queries::{RawField, raw_field};
 use crate::write;
 use crate::write::Serializer;
 use crate::write::fields::{self, CharOptions, Detail, Raw};
-use crate::write::url::django_url_valid;
+use crate::write::url::{django_url_valid, guard_url_rewrite};
 
 // ---------------------------------------------------------------------------
 // 108 — POST …/module-links/
@@ -99,6 +103,9 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         let now = write::now();
 
         let data = ctx.data()?;
+        // `to_internal_value`'s in-place rewrite runs before DRF parses
+        // any field, so its `AttributeError`s precede every field error.
+        guard_url_rewrite(data)?;
         let mut serializer = Serializer::new(ctx, false)?;
         let values = match read_body(&mut serializer, data, false)? {
             Some(values) => match serializer.finish() {
@@ -213,6 +220,9 @@ async fn update_impl(ctx: &ViewCtx<'_>, partial: bool) -> Result<ViewResponse, V
     };
 
     let data = ctx.data()?;
+    // `to_internal_value`'s in-place rewrite runs before DRF parses
+    // any field, so its `AttributeError`s precede every field error.
+    guard_url_rewrite(data)?;
     let mut serializer = Serializer::new(ctx, partial)?;
     let values = match read_body(&mut serializer, data, partial)? {
         Some(values) => match serializer.finish() {

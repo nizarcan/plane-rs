@@ -116,6 +116,7 @@ fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewEr
         let mut serializer: Serializer<'_> = match &prepared {
             PreparedBody::Original => Serializer::new(ctx, false)?,
             PreparedBody::Json(value) => Serializer::from_value(ctx, value, false),
+            PreparedBody::Form(query) => Serializer::from_form(ctx, query, false),
         };
         write::generated::workspace_user_link_serializer::validate(&mut serializer, client).await?;
         validate_url(&mut serializer);
@@ -208,6 +209,7 @@ fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse
         let mut serializer: Serializer<'_> = match &prepared {
             PreparedBody::Original => Serializer::new(ctx, true)?,
             PreparedBody::Json(value) => Serializer::from_value(ctx, value, true),
+            PreparedBody::Form(query) => Serializer::from_form(ctx, query, true),
         };
         write::generated::workspace_user_link_serializer::validate(&mut serializer, client).await?;
         validate_url(&mut serializer);
@@ -392,6 +394,10 @@ enum PreparedBody {
     /// Nothing to rewrite: the serializer reads the request's own body.
     Original,
     Json(Json),
+    /// A **mutable** form (multipart with a file part) after the in-place
+    /// rewrite: the caller owns the copy so it outlives the serializer that
+    /// borrows it.
+    Form(plane_drf::QueryDict),
 }
 
 /// `WorkspaceUserLinkSerializer.to_internal_value` (`serializers/workspace.py:
@@ -403,21 +409,28 @@ enum PreparedBody {
 ///     data["url"] = "http://" + url
 /// ```
 ///
-/// Three shapes reachable here, each with its own outcome:
+/// The shapes reachable here, each with its own outcome:
 ///
 /// * a JSON object with a truthy string `url` that has no scheme is rewritten;
 /// * a JSON body that is not a mapping has no `.get` → family 500;
 /// * a truthy non-string `url` has no `.startswith` → family 500;
-/// * a **form** body with a scheme-less `url` is the 500
+/// * a **urlencoded** body with a scheme-less `url` is the 500
 ///   `AttributeError: This QueryDict instance is immutable` — DRF hands the
 ///   parser's immutable `QueryDict` as `request.data`, so the in-place write
 ///   raises. A form URL that already carries a scheme, or has none at all,
-///   never writes and is validated normally.
+///   never writes and is validated normally;
+/// * a **multipart** body is immutable too unless it carries a file part: DRF
+///   then copies the parsed dict (`QueryDict.copy()` is mutable), so the write
+///   succeeds and the prefixed value is validated.
 ///
 /// A `null` body never reaches `to_internal_value` (DRF answers
 /// `{"non_field_errors": ["No data provided"]}` from `run_validation`), so it
 /// is [`PreparedBody::Original`].
 fn prepare_body(data: &Data) -> Result<PreparedBody, ViewError> {
+    // The shared `to_internal_value` guard: `data.get`/`.startswith`, a form's
+    // immutable `QueryDict` and a file part named `url` all raise before DRF
+    // reads a field.
+    crate::write::url::guard_url_rewrite(data)?;
     match data {
         Data::Form(query) => {
             let Some(url) = query.get("url") else {
@@ -426,10 +439,19 @@ fn prepare_body(data: &Data) -> Result<PreparedBody, ViewError> {
             if url.is_empty() || url.starts_with("http://") || url.starts_with("https://") {
                 return Ok(PreparedBody::Original);
             }
-            // `data["url"] = …` on the request's immutable `QueryDict`.
-            Err(ViewError::Unknown(
-                "AttributeError: This QueryDict instance is immutable".to_string(),
-            ))
+            if !query.is_mutable() {
+                // `data["url"] = …` on the request's immutable `QueryDict`
+                // (urlencoded, or multipart without a file part).
+                return Err(ViewError::Unknown(
+                    "AttributeError: This QueryDict instance is immutable".to_string(),
+                ));
+            }
+            // A multipart body with a file part reaches the view as a mutable
+            // copy: the write replaces the field's values and the serializer
+            // validates the copy.
+            let mut rewritten = query.clone();
+            rewritten.set("url", format!("http://{url}"));
+            Ok(PreparedBody::Form(rewritten))
         }
         Data::Json(Json::Dict(entries)) => {
             let Some(value) = entries.get("url") else {
@@ -586,6 +608,28 @@ mod tests {
         assert!(matches!(
             prepare_body(&json(r#"{"url": ""}"#)).expect("prepared"),
             PreparedBody::Original
+        ));
+    }
+
+    #[test]
+    fn a_scheme_less_url_is_rewritten_on_a_mutable_multipart_form() {
+        let mut query =
+            plane_drf::QueryDict::parse("url=probe.example/m&title=Link", None).expect("form");
+        // A file part is what makes DRF copy the parsed dict into a mutable
+        // `request.data`.
+        query.mark_file(Some("attachment"));
+        match prepare_body(&Data::Form(query)).expect("prepared") {
+            PreparedBody::Form(query) => {
+                assert_eq!(query.get("url"), Some("http://probe.example/m"));
+                // The rewrite replaces the value in place, as `__setitem__` does.
+                assert_eq!(query.get("title"), Some("Link"));
+            }
+            other => panic!("expected a rewritten form, got {other:?}"),
+        }
+        let immutable = plane_drf::QueryDict::parse("url=probe.example/m", None).expect("form");
+        assert!(matches!(
+            prepare_body(&Data::Form(immutable)),
+            Err(ViewError::Unknown(_))
         ));
     }
 

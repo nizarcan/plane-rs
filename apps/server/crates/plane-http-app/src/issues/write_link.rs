@@ -29,7 +29,12 @@
 //! exist."}`. The serializer then
 //!
 //! 1. prefixes `http://` when the **raw** `url` does not already start with
-//!    `http://`/`https://` (`to_internal_value`, `:577-583`),
+//!    `http://`/`https://` (`to_internal_value`, `:577-583`) — the write is
+//!    in place on `request.data`, so a urlencoded or file-less multipart
+//!    body's immutable `QueryDict` raises `AttributeError` (the family 500)
+//!    before any field is parsed; a multipart body with a file part is copied
+//!    mutable and the prefixed value is what the field validates (see
+//!    [`guard_url_rewrite`]),
 //! 2. runs `CharField`, then `validate_url`'s `URLValidator` (`:585-592`);
 //!    the field error is `{"url": {"error": "Invalid URL format."}}` — a dict
 //!    body, not a message list, because `validate_<field>` raised
@@ -111,7 +116,7 @@ use crate::common::{self, client, jobs};
 use crate::write;
 use crate::write::Serializer;
 use crate::write::fields::{self, CharOptions, Detail, Raw};
-use crate::write::url::django_url_valid;
+use crate::write::url::{django_url_valid, guard_url_rewrite};
 
 /// Register the four actions on the view that also serves `list` and
 /// `retrieve` (`sub_links.rs`).
@@ -151,6 +156,9 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         }
 
         let data = ctx.data()?;
+        // `to_internal_value`'s in-place rewrite runs before DRF parses
+        // any field, so its `AttributeError`s precede every field error.
+        guard_url_rewrite(data)?;
         let mut serializer = Serializer::new(ctx, false)?;
         let values = match read_body(&mut serializer, data, false)? {
             Some(values) => match serializer.finish() {
@@ -293,6 +301,9 @@ pub fn update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
         // The **full** serializer: `url` is required, every other writable
         // field keeps its row value when absent.
         let data = ctx.data()?;
+        // `to_internal_value`'s in-place rewrite runs before DRF parses
+        // any field, so its `AttributeError`s precede every field error.
+        guard_url_rewrite(data)?;
         let mut serializer = Serializer::new(ctx, false)?;
         let values = match read_body(&mut serializer, data, false)? {
             Some(values) => match serializer.finish() {
@@ -400,6 +411,9 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
         let current_instance = queries::django_json(&link_json(&previous, timezone, None))?;
 
         let data = ctx.data()?;
+        // `to_internal_value`'s in-place rewrite runs before DRF parses
+        // any field, so its `AttributeError`s precede every field error.
+        guard_url_rewrite(data)?;
         let mut serializer = Serializer::new(ctx, true)?;
         let values = match read_body(&mut serializer, data, true)? {
             Some(values) => match serializer.finish() {
