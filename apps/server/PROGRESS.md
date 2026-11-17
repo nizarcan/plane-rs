@@ -1226,8 +1226,27 @@ independent; each domain's sets start after its own P0. At most three builds run
     `MultipleObjectsReturned`, a 500; v1 delete/restore write only `is_deleted`; a filename
     over 255 chars is truncated, so `max_length=800` is dead.
 
-Running: (none). Merging: assets C. Queued: `users/me` A, workspace-core A/B/C,
-analytics A/B/C.
+- Assets C (merged `397edd5e6e`, flipped with this entry): 20/21
+  `rust(POST,PATCH,DELETE)`, 22 `rust(POST)`, 28 `rust(POST)`, and the held methods
+  76 DELETE, 77 POST, 78 PATCH/DELETE, 79 POST (attachment rows are now whole).
+  `write/assets-user.yaml` 71/71 in both directions; 7 contract tests reach these routes,
+  all pass. On the merge, the full read + write sweep is 79 files, 4304 steps clean; 1041
+  tests.
+  - The `asset_key` shape is `any_of: [workspace_asset_key, user_asset_key]` (route 20
+    keys have no workspace prefix).
+  - 28's `copy_object` targets MinIO via the request `Host`; `NoSuchKey` is swallowed on
+    both sides, so S3 objects are never compared.
+  - Upstream quirks kept:
+    - a `Host`-steered server-side copy;
+    - `copy_object` hides failures (200 with `is_uploaded=true`);
+    - a `WORKSPACE_LOGO` copy with no entity writes `workspace_id NULL`;
+    - `entity_asset_delete` leaves `users.avatar` stale;
+    - a confirm-twice soft-deletes the row it then updates;
+    - route 21 accepts any entity type;
+    - the collection DELETEs are `KeyError` 400s.
+- **The assets domain is fully on Rust** (13–30), with the attachment rows 76–79 whole.
+
+Running: (none). Queued: `users/me` A, workspace-core A/B/C, analytics A/B/C.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
