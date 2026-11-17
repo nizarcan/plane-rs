@@ -1049,6 +1049,27 @@ and only `verified` rows are Rust-owned.
   `rust(GET,POST,PATCH,DELETE)` (the other verbs are the covered TypeError 500s).
 - Harness note: a Django target on port 18080 equals `WEB_URL`, so the harness rewrites
   Celery `origin` on one side only. Don't assign 18080 to a harness `port_range`.
+
+### Phase 5: remaining app-surface writes — plans and queue (2026-11-17)
+
+62 app routes still had Django-owned write methods. Five read-only plans are committed:
+
+| plan | routes | P0 | sets |
+| --- | --- | --- | --- |
+| `plans/ASSETS.md` (`2390077ada`) | 13–28, held 76–79 | ~3 h, **owns H30** | A v2 workspace/project, B legacy, C user/duplicate/held |
+| `plans/ESTIMATES.md` (`ac957da4d4`) | 46–49 | ~2.5 h | A 46/47, B 48/49 |
+| `plans/ANALYTICS_EXPORTS.md` (`530df3339e`) | 1, 2, 4, 203, 233 | ~1.5 h | A 1/2, B 233, C 4/203 |
+| `plans/USERS_ME.md` (`8ab8b1ea7a`) | 162–172, 226/227 | needs the assets P0 (H30) | A profile/accounts/tokens, B email/deactivate |
+| `plans/WORKSPACES_CORE.md` (`74d7fcfc30`) | 138, 186–225 | needs the assets P0 (H30); shares cache/session pieces with `users/me` | A lifecycle, B members/invites, C preferences |
+
+Dependency order: assets P0 → `users/me` P0 and workspace-core P0. All other P0s are
+independent; each domain's sets start after its own P0. At most three builds run at once
+(the disk floor).
+
+Running: assets P0, estimates P0, exact related-queryset pk checks (`rs/pk-qs`). Queued
+next: the analytics P0.
+
+The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planned yet.
 - Follow-up: some related querysets filter more than `deleted_at`.
   `State.objects` (`StateManager`) also excludes triage, and `IssueManager` excludes
   triage/archived/draft issues and issues in archived projects. Only work-item create
