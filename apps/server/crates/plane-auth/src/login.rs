@@ -62,14 +62,14 @@ pub fn base_host(settings: &Settings, flags: LoginFlags) -> Result<String, AuthE
         ))?;
 
     if flags.is_admin {
-        let path = normalize_base_path(&settings.urls.admin_base_path, "/god-mode/");
+        let path = normalize_base_path(&settings.urls.admin_base_path);
         return match &settings.urls.admin_base_url {
             Some(url) => Ok(format!("{url}{path}")),
             None => Ok(format!("{base_origin}{path}")),
         };
     }
     if flags.is_space {
-        let path = normalize_base_path(&settings.urls.space_base_path, "/spaces/");
+        let path = normalize_base_path(&settings.urls.space_base_path);
         return match &settings.urls.space_base_url {
             Some(url) => Ok(format!("{url}{path}")),
             None => Ok(format!("{base_origin}{path}")),
@@ -86,12 +86,15 @@ pub fn base_host(settings: &Settings, flags: LoginFlags) -> Result<String, AuthE
 }
 
 /// The `isinstance(..., str)` / leading / trailing slash fix-ups in
-/// `base_host`.
-fn normalize_base_path(raw: &str, default: &str) -> String {
+/// `base_host` (`plane/utils/host.py:32-53`).
+///
+/// The Python substitutes its default **only** when the setting is not a
+/// `str` (`getattr(settings, "ADMIN_BASE_PATH", None)` → `None`); an empty
+/// string is a `str`, so it becomes `"/"` (not `"/god-mode/"`). `plane-core`
+/// already applies the environment default when the variable is unset, so the
+/// only job left is the two slash fix-ups.
+pub(crate) fn normalize_base_path(raw: &str) -> String {
     let mut path = raw.to_string();
-    if path.is_empty() {
-        path = default.to_string();
-    }
     if !path.starts_with('/') {
         path.insert(0, '/');
     }
@@ -324,12 +327,11 @@ mod tests {
 
     #[test]
     fn paths_are_normalized() {
-        assert_eq!(
-            normalize_base_path("/god-mode/", "/god-mode/"),
-            "/god-mode/"
-        );
-        assert_eq!(normalize_base_path("god-mode", "/god-mode/"), "/god-mode/");
-        assert_eq!(normalize_base_path("", "/spaces/"), "/spaces/");
-        assert_eq!(normalize_base_path("/x", "/spaces/"), "/x/");
+        assert_eq!(normalize_base_path("/god-mode/"), "/god-mode/");
+        assert_eq!(normalize_base_path("god-mode"), "/god-mode/");
+        // `""` is a `str`, so the Python `isinstance` default never runs and
+        // the result is `"/"` (`plane/utils/host.py:35-38`).
+        assert_eq!(normalize_base_path(""), "/");
+        assert_eq!(normalize_base_path("/x"), "/x/");
     }
 }
