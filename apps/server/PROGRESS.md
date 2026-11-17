@@ -1371,8 +1371,43 @@ independent; each domain's sets start after its own P0. At most three builds run
     - a NULL `LLM_PROVIDER` row is a 500;
     - the "not configured" state is logged as an exception on every call.
 
-Running: (none). Merging: fix-ups (`rs/fixups`). After it, every app-surface write route
-is on Rust; next is the benchmark re-measure.
+- Fix-ups (merged `bfb35c60f2`):
+  - `plane-drf` `QueryDict` tracks `request.data` mutability like DRF 3.18/Django 5.2:
+    urlencoded is immutable, multipart is immutable unless a file part makes DRF `copy()`
+    it;
+  - `write::url::guard_url_rewrite` reproduces the three serializers' in-place `url`
+    rewrite 500s (issue links 74/75, module links 108/109, quick links 218/219);
+  - `fields::python_float` matches CPython's `float()` (a 692-case golden), with DRF's
+    1000-char guard.
+
+  On the merge: 1104 tests; the full read + write sweep is 92 files, 4995 steps clean;
+  full contract run 965 passed, 21 failed (15 magic-link + the 6 in-process-mock tests
+  listed above).
+
+### Phase 5 exit (2026-11-17)
+
+**Every app-surface (`/api/` minus v1/public/instances) write route is on Rust.**
+`ROUTES.md`: 234 rows Rust-owned, 157 Django-owned. All Django-owned rows are in
+Phase 6/7 groups: `health` (1), `auth-session` (15), `auth-magic` (6), `auth-oauth`
+(16), `v1` (79), `public` (25), `instances` (14), `web` (1).
+
+Exit check:
+- differential tests with DB/Redis/Celery diffs green for every ported domain (92
+  scenario files, 4995 steps);
+- the contract suite green except 21 tests that are Django-only by construction (15
+  magic-link tests that also fail with `--backend django`; 6 that assert on mocks inside
+  Django's process);
+- side effects compared: Celery messages byte-identical (argsrepr/kwargsrepr strict),
+  Redis key membership, S3 presigns by SigV4 recomputation.
+
+Tasks stay Celery-owned (published byte-identically), as decided.
+
+Open follow-ups carried forward:
+- `chrono-tz` far-future DST;
+- the year-1 overflow 500 vs 400;
+- the `workspaces/rows.rs::logo_url` read divergence for dynamic-entity logos;
+- `FloatField`'s integer `OverflowError` branch;
+- the unsupported-LLM-model 400 has no scenario.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
@@ -1384,8 +1419,11 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
 
 ## Next three steps
 
-1. Pages: merge sets A, B and D as they finish.
-2. Then intake → notifications → favourites → webhooks → exports → analytics → search,
-   the same way.
-3. Re-measure the Phase 3 benchmark row on a quiet stack, now that work items, cycles,
-   modules and views are in.
+1. Re-measure the Phase 3 benchmark row on a quiet stack (50 requests per route, one load
+   level, under ~20 min), now with every app write on Rust. Add container numbers for
+   `plane-worker`/`plane-beat`.
+2. Phase 6 (auth flows): plan read-only first (`/auth/` routes, email/magic/password,
+   sign-out, four OAuth providers, app and space variants). The exit check is a browser
+   walk-through against the mixed backend.
+3. Phase 7 (v1/public/instances), planned the same way; then the final benchmark and the
+   environment revert (see "In flight").
