@@ -1422,8 +1422,12 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
 1. Re-measure the Phase 3 benchmark row on a quiet stack (50 requests per route, one load
    level, under ~20 min), now with every app write on Rust. Add container numbers for
    `plane-worker`/`plane-beat`.
-2. Phase 6 (auth flows): plan read-only first (`/auth/` routes, email/magic/password,
-   sign-out, four OAuth providers, app and space variants). The exit check is a browser
-   walk-through against the mixed backend.
+2. Phase 6 (auth flows): plan committed (`plans/AUTH_FLOWS.md`, with an orchestrator
+   revision). P0 first (possibly split P0a/P0b), then A session, B magic, C OAuth; plus a
+   small contract-runner fix (`EMAIL_HOST`, default Redis DB off 1). The plan explains the
+   15 magic-link contract failures: `/magic-generate/` answers 400 `SMTP_NOT_CONFIGURED`
+   because the runner's environment has no `EMAIL_HOST`. Builds start once the benchmark
+   re-measure has finished, so they don't load the measurement. The exit check is a
+   browser walk-through against the mixed backend.
 3. Phase 7 (v1/public/instances), planned the same way; then the final benchmark and the
    environment revert (see "In flight").
