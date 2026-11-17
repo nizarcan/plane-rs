@@ -5,6 +5,9 @@
 # Phase 5, cycles set B: cycle issues (33, 34) and the transfer (38).
 #
 #   POST   …/cycles/{cycle_id}/cycle-issues/                       (33)
+#   GET    …/cycles/{cycle_id}/cycle-issues/{issue_id}/            (34, guard 405)
+#   PUT    …/cycles/{cycle_id}/cycle-issues/{issue_id}/            (34, guard 405)
+#   PATCH  …/cycles/{cycle_id}/cycle-issues/{issue_id}/            (34, guard 405)
 #   DELETE …/cycles/{cycle_id}/cycle-issues/{issue_id}/            (34)
 #   POST   …/cycles/{cycle_id}/transfer-issues/                    (38)
 #
@@ -360,3 +363,88 @@ steps:
       Host: plane-fixture.test
       Cookie: "session-id={{session_admin}}"
     expect_status: 200
+
+  # --- the held PUT / PATCH (34) -------------------------------------------
+  # `CycleIssueViewSet` implements neither `update` nor `partial_update` and its
+  # only permission class is `BaseViewSet`'s `IsAuthenticated`, so the runtime's
+  # `BaseViewSet` guard answers 405 for both verbs — after authentication and
+  # the permission class, and before `get_object` or the body. A non-member and
+  # a guest therefore get the same 405, not a 403, and an anonymous caller gets
+  # the 401 from `IsAuthenticated`.
+  - name: wcyb-29-cycle-issue-put-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_009}}/"
+    json:
+      issue: "{{issue_009}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  - name: wcyb-30-cycle-issue-patch-405
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_009}}/"
+    json:
+      issue: "{{issue_009}}"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  # A project member reaches the guard as well; the verb is refused for the
+  # action, not for the caller.
+  - name: wcyb-31-cycle-issue-put-member-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_009}}/"
+    json: {}
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 405
+
+  # 405 over 403: the guard runs after `IsAuthenticated` but the viewset has no
+  # membership permission, so an outsider gets the same answer as a member.
+  - name: wcyb-32-cycle-issue-put-nonmember-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_009}}/"
+    json: {}
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 405
+
+  - name: wcyb-33-cycle-issue-patch-nonmember-405
+    method: PATCH
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_009}}/"
+    json: {}
+    jar: outsider
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    expect_status: 405
+
+  # Even a cycle issue that does not exist is no 404: the guard is reached
+  # before `get_object`.
+  - name: wcyb-34-cycle-issue-put-unknown-405
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{unknown_cycle}}/cycle-issues/{{issue_009}}/"
+    json: {}
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 405
+
+  - name: wcyb-35-cycle-issue-put-anonymous-401
+    method: PUT
+    path: "/api/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_sprint3}}/cycle-issues/{{issue_009}}/"
+    json: {}
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+    expect_status: 401
+

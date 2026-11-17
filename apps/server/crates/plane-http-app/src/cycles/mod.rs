@@ -20,9 +20,10 @@
 //! | [`issue`] | `cycle/issue.py` — `CycleIssueViewSet` |
 //! | [`workspace`] | `workspace/cycle.py` — `WorkspaceCyclesEndpoint` |
 //!
-//! `+ GET …/cycles/{cycle_id}/cycle-issues/{issue_id}/` and `+ GET
+//! `GET`/`PUT`/`PATCH …/cycles/{cycle_id}/cycle-issues/{issue_id}/` and `GET
 //! …/user-favorite-cycles/` are answered by the runtime's `BaseViewSet` guard
-//! (`405 {"detail": "Method \"GET\" not allowed."}`), so they register nothing.
+//! (`405 {"detail": "Method \"GET\" not allowed."}` for the first, the verb
+//! named in each), so they register [`base::guard_only`] and nothing else.
 
 use plane_drf::registry::{Registry, RegistryError};
 
@@ -58,8 +59,16 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .viewset("plane.app.views.cycle.issue.CycleIssueViewSet")?
         .action("list", issue::list)?
-        // `GET …/cycle-issues/{issue_id}/`: the guard answers 405.
-        .action("retrieve", base::guard_only)?;
+        // `GET`/`PUT`/`PATCH …/cycle-issues/{issue_id}/`: the viewset implements
+        // none of the three actions, declares only `IsAuthenticated`
+        // (`plane/app/views/cycle/issue.py:40-49`) and `routes.json` 34's
+        // `guard_actions` marks `retrieve`, `update` and `partial_update`
+        // mixin-provided, so the `BaseViewSet` guard answers
+        // `405 {"detail": "Method \"PUT\" not allowed."}` — also for a
+        // non-member, because the permission class passes first.
+        .action("retrieve", base::guard_only)?
+        .action("update", base::guard_only)?
+        .action("partial_update", base::guard_only)?;
     registry
         .viewset("plane.app.views.cycle.base.CycleFavoriteViewSet")?
         // `GET …/user-favorite-cycles/`: `ListModelMixin` with no authorizing
