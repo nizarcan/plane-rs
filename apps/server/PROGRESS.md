@@ -1182,9 +1182,22 @@ independent; each domain's sets start after its own P0. At most three builds run
     user lookup;
   - `user.last_workspace_id` is a silent no-op.
 
-Running: assets A (v2 workspace/project), assets B (legacy), `users/me` B
-(email/deactivate). Queued: `users/me` A, workspace-core A/B/C, assets C, analytics
-A/B/C.
+- Assets A (merged `889498570f`, flipped with this entry): 18/19/24/25
+  `rust(GET,POST,PATCH,DELETE)` (the wrong-verb TypeError 500s are covered), 26
+  `rust(POST)`. `write/assets-workspace.yaml` 88/88 in both directions; 20 contract tests
+  reach these routes, all pass. On the merge, the full read + write sweep is 75 files,
+  4124 steps clean; 1025 tests.
+  - Harness: `x-amz-date` is now `mode: sigv4_date` (checked against the step window,
+    then one constant). The per-value placeholder had let one second-boundary crossing
+    poison every later presign step.
+  - Upstream quirks kept: `entity_identifier` defaults to `False`, i.e. `UUID(int=0)`, an
+    FK violation and a 400; PATCH `attributes: null` publishes the metadata task, then
+    400s; every project-cover upload 500s (`project_id` bound twice); bulk `save_project_cover`
+    is unscoped and makes the oldest asset the cover; draft-issue entity types silently drop
+    the identifier.
+
+Running: assets B (legacy), `users/me` B (email/deactivate), assets C. Queued: `users/me` A,
+workspace-core A/B/C, analytics A/B/C.
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
