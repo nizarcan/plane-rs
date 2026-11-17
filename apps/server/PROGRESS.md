@@ -979,8 +979,23 @@ and only `verified` rows are Rust-owned.
   121's snooze branches; 121's bulk update writes `read_at` only; 122 for a user with two
   preference rows is a 500. Plan correction: every fixture issue is created by `admin`,
   not `member`.
-- Running: the exact `fromisoformat` + Django-fallback date/datetime parser
-  (`rs/iso-parse`).
+- Exact date/datetime parsing (merged `78d1f00f50`): `write/pyiso.rs` ports CPython
+  3.12's C `fromisoformat` (date and datetime), Django 5.2's `datetime_re`/`date_re`
+  fallback and `make_aware`/`valid_datetime`; `fields::{datetime, date}` keep their
+  signatures and add DRF's `enforce_timezone`.
+  - Golden corpus `tests/golden/datetime-parsing.json`: 1,272 inputs × UTC/Kolkata (plus
+    New York DST), regenerated with `tools/inventory/datetime_corpus.py`. An uncommitted
+    fuzz of 18,260 strings found 0 divergences.
+  - About 15 divergences fixed: basic format, week dates, any separator, offset seconds,
+    the `"iso-8601"` literal, a trailing `\n`, Unicode digits, DST-gap wall times, the
+    out-of-range check, and the date field's leading space.
+  - On the merge, all 27 write scenarios are clean DvR; 940 tests.
+- Remaining known divergences (unscheduled):
+  - a year-1 wall time east of UTC is a 500 in Django (uncaught `OverflowError`) and a
+    400 here;
+  - `chrono-tz` stops applying DST to far-future dates (2100+) where `zoneinfo` uses the
+    tzfile footer. This affects every zone conversion, not only parsing.
+- Favourites plan written (`plans/FAVORITES.md`): 212/213 only, one set, no P0.
 
 ## Next three steps
 
