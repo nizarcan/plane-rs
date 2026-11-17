@@ -55,7 +55,7 @@ use crate::random::get_random_string;
 use super::email::validate_email;
 use super::error::AuthErrorCode;
 use super::error::AuthFlowError;
-use super::password::{PasswordStrengthError, is_password_strong};
+use super::password::is_password_strong_async;
 
 /// A boxed provider future. The trait is object-safe so one
 /// `complete_login_or_signup` serves every provider.
@@ -285,14 +285,15 @@ pub async fn signup_allowed(
 
 /// `Adapter.validate_password` (`base.py:88-97`).
 ///
-/// The strength check is deliberately incomplete: see
-/// [`super::password`] for the crate's 100-character cap and the recorded
-/// corpus. A long password is a 500 today, not a weaker policy.
+/// zxcvbn runs on `spawn_blocking` (see [`super::password`]): a
+/// 128-character random-printable password takes about 0.6 s, which must not
+/// block a runtime worker.
 ///
 /// # Errors
 ///
-/// [`AuthErrorCode::PasswordTooWeak`], or the not-ported 500.
-pub fn validate_password(password: Option<&str>, email: &str) -> Result<(), AdapterError> {
+/// [`AuthErrorCode::PasswordTooWeak`], or the 500 Python raises for a missing
+/// password or a panic inside zxcvbn.
+pub async fn validate_password(password: Option<&str>, email: &str) -> Result<(), AdapterError> {
     let Some(password) = password else {
         // `is_password_strong(None)` is `TypeError: 'NoneType' object is not
         // subscriptable` in Python (`password.py:13`), a 500.
@@ -300,21 +301,16 @@ pub fn validate_password(password: Option<&str>, email: &str) -> Result<(), Adap
             "TypeError: 'NoneType' object is not subscriptable".to_string(),
         ));
     };
-    match is_password_strong(password) {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(AdapterError::Auth(AuthFlowError::with_email(
+    let strong = is_password_strong_async(password)
+        .await
+        .map_err(|error| AdapterError::Internal(error.to_string()))?;
+    if strong {
+        Ok(())
+    } else {
+        Err(AdapterError::Auth(AuthFlowError::with_email(
             AuthErrorCode::PasswordTooWeak,
             email,
-        ))),
-        Err(PasswordStrengthError::NotPorted { .. }) => Err(AdapterError::Internal(
-            PasswordStrengthError::NotPorted {
-                length: password
-                    .chars()
-                    .count()
-                    .min(super::password::ZXCVBN_MAX_LENGTH),
-            }
-            .to_string(),
-        )),
+        )))
     }
 }
 
@@ -676,7 +672,7 @@ pub async fn complete_login_or_signup(
                 .await
                 .map_err(AdapterError::internal)?
         } else {
-            validate_password(provider.code(), &email)?;
+            validate_password(provider.code(), &email).await?;
             make_password_async(Some(provider.code().unwrap_or_default().to_string()))
                 .await
                 .map_err(AdapterError::internal)?
@@ -1033,10 +1029,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn password_strength_is_the_python_policy() {
-        assert!(validate_password(Some("Tr0ub4dor&3xY9!qZ"), "a@b.com").is_ok());
-        let error = validate_password(Some("password"), "a@b.com").expect_err("weak");
+    #[tokio::test]
+    async fn password_strength_is_the_python_policy() {
+        assert!(
+            validate_password(Some("Tr0ub4dor&3xY9!qZ"), "a@b.com")
+                .await
+                .is_ok()
+        );
+        let error = validate_password(Some("password"), "a@b.com")
+            .await
+            .expect_err("weak");
         let AdapterError::Auth(error) = error else {
             panic!("not an auth error: {error:?}");
         };
@@ -1044,13 +1046,22 @@ mod tests {
         assert_eq!(error.payload, vec![("email".to_string(), json!("a@b.com"))]);
         // A missing code is Python's TypeError, not a weak-password error.
         assert!(matches!(
-            validate_password(None, "a@b.com"),
+            validate_password(None, "a@b.com").await,
             Err(AdapterError::Internal(_))
         ));
-        // A long password hits the not-ported path rather than a wrong answer.
+        // A long password is answered, not a 500: 200 `a`s score 0, and a
+        // strong 128-character tail is accepted.
         assert!(matches!(
-            validate_password(Some(&"a".repeat(200)), "a@b.com"),
-            Err(AdapterError::Internal(_))
+            validate_password(Some(&"a".repeat(200)), "a@b.com").await,
+            Err(AdapterError::Auth(_))
         ));
+        assert!(
+            validate_password(
+                Some(&format!("{}Tr0ub4dor&3xY9!qZ", "a".repeat(200))),
+                "a@b.com"
+            )
+            .await
+            .is_ok()
+        );
     }
 }

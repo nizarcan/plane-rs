@@ -12,82 +12,94 @@
 //!     return any(zxcvbn(window)["score"] >= 3 for window in windows)
 //! ```
 //!
-//! Python uses `zxcvbn==4.4.28` (`apps/api/pyproject.toml:67`). The Rust
-//! `zxcvbn` 3.1.1 crate is an independent port whose `zxcvbn()` silently
-//! truncates the password to its first **100 characters**
-//! (`zxcvbn-3.1.1/src/lib.rs:156-158`, "This prevents potential DoS attacks").
-//! Plane's window is 128, so the crate cannot answer for a window longer than
-//! 100.
+//! Python uses `zxcvbn==4.4.28` (`apps/api/pyproject.toml:67`), which scores
+//! the whole string. The Rust `zxcvbn` crate is an independent port that
+//! differed from Python in two ways:
 //!
-//! `tools/auth/zxcvbn_corpus.json` records 546 passwords (1 092 windows) from
-//! the real Python:
+//! 1. `zxcvbn()` silently truncated input to its first **100 characters**
+//!    (`zxcvbn-3.1.1/src/lib.rs:156-158`), while Plane's window is 128.
+//! 2. its `l33t_match` kept one-character matches; Python drops them
+//!    (`zxcvbn/matching.py:244`), which changed the base guesses of repeats of
+//!    `"1"` (5 instead of 12) and so the score of `"1" * 128` (0 instead
+//!    of 1).
 //!
-//! | window length | windows | score differences |
-//! | --- | --- | --- |
-//! | ≤ 100 | 830 | **0** |
-//! | > 100 | 262 | **33** |
+//! The crate is vendored at `apps/server/vendor/zxcvbn/` with exactly those
+//! two changes (`VENDORED.md`). `tools/auth/zxcvbn_corpus.json` records 742
+//! passwords — 1 484 first/last windows, 654 of them longer than 100
+//! characters — from the real Python; `tests/zxcvbn_corpus.rs` requires every
+//! window's **score** to match, not only the `>= 3` answer.
 //!
-//! Every difference is a window longer than the crate's cap; at least one
-//! password crosses the `score >= 3` boundary (3 of 546), so the crate is not
-//! a drop-in replacement for the policy. `tests/zxcvbn_corpus.rs` pins both
-//! counts.
-//!
-//! Until the matcher set is ported, [`is_password_strong`] answers with the
-//! crate **only where it is proven identical** (both windows ≤ 100 characters)
-//! and returns [`PasswordStrengthError::NotPorted`] otherwise, so a long
-//! password is a 500 rather than a weaker policy. The orchestrator decides
-//! whether to port `zxcvbn/matching.py` + `scoring.py` (~1 000 lines plus the
-//! frequency lists) or to accept a different policy for long passwords.
+//! zxcvbn's cost is not linear: a 128-character random-printable password
+//! takes about 0.6 s in a release build (Python took 0.4 s to 2.8 s for
+//! different 128-character random strings on the same machine), because every
+//! substring is looked up in every dictionary. [`is_password_strong`] is
+//! therefore also exposed as [`is_password_strong_async`], which runs the
+//! scoring on `spawn_blocking`; request paths use the async form.
+
+use tokio::task::JoinError;
 
 /// `ZXCVBN_MAX_LENGTH` (`password.py:11`).
 pub const ZXCVBN_MAX_LENGTH: usize = 128;
-/// The length the Rust crate scores (`zxcvbn-3.1.1/src/lib.rs:156-158`).
-pub const CRATE_MAX_LENGTH: usize = 100;
 /// The minimum score `is_password_strong` accepts.
 pub const MIN_SCORE: u8 = 3;
 
-/// `is_password_strong` could not be answered faithfully.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum PasswordStrengthError {
-    /// A window is longer than the crate's 100-character cap. This is the
-    /// deliberate not-implemented path: the Python matcher set has not been
-    /// ported, and the crate's answer is known to differ for these windows
-    /// (33 of 262 in the recorded corpus).
-    #[error(
-        "password strength is not ported for a {length}-character window: the Rust zxcvbn crate \
-         scores only the first 100 characters and differs from Python zxcvbn 4.4.28 beyond that"
-    )]
-    NotPorted {
-        /// The longer window's length, in code points.
-        length: usize,
-    },
+/// The first and last [`ZXCVBN_MAX_LENGTH`] code points of `password`.
+///
+/// Python slices the string twice; for input of at most 128 characters both
+/// windows are the whole password (compared twice by Python's set, once here).
+fn windows(password: &str) -> (String, String) {
+    if password.chars().count() <= ZXCVBN_MAX_LENGTH {
+        let whole = password.to_string();
+        return (whole.clone(), whole);
+    }
+    let first: String = password.chars().take(ZXCVBN_MAX_LENGTH).collect();
+    // Python's `password[-128:]` starts at most 128 code points from the end;
+    // walk back only that far instead of collecting the whole password.
+    let start = password
+        .char_indices()
+        .rev()
+        .nth(ZXCVBN_MAX_LENGTH - 1)
+        .map_or(0, |(index, _)| index);
+    (first, password[start..].to_string())
+}
+
+/// `zxcvbn(window)["score"]` for one of Plane's windows.
+fn score(window: &str) -> u8 {
+    zxcvbn::zxcvbn(window, &[]).score() as u8
+}
+
+fn is_strong_windows(first: &str, last: &str) -> bool {
+    // Python puts the two windows in a set, so for a password of at most 128
+    // characters (`first == last`) it scores once, and `any()` short-circuits.
+    score(first) >= MIN_SCORE || (first != last && score(last) >= MIN_SCORE)
 }
 
 /// `is_password_strong(password)` (`password.py:8-15`).
 ///
-/// The password is scored twice: its first 128 characters and its last 128.
-/// For a string at most 100 characters long both windows are the whole string
-/// and the crate matches Python on every recorded case; longer input needs the
-/// unported matchers.
+/// The password's first and last 128 characters are scored; when the password
+/// is at most 128 characters long both windows are the whole string and it is
+/// scored once, as Python's set does.
+///
+/// This blocks for the duration of zxcvbn (up to ~0.6 s for a
+/// 128-character random-printable password); request paths should use
+/// [`is_password_strong_async`].
+pub fn is_password_strong(password: &str) -> bool {
+    let (first, last) = windows(password);
+    is_strong_windows(&first, &last)
+}
+
+/// [`is_password_strong`] on the blocking pool, for async request paths.
+///
+/// Only the two 128-character windows are moved to the worker, never the whole
+/// password.
 ///
 /// # Errors
 ///
-/// [`PasswordStrengthError::NotPorted`] when either window exceeds 100
-/// characters. A caller maps it to the family's 500, exactly as an unexpected
-/// exception in Python's `zxcvbn` would.
-pub fn is_password_strong(password: &str) -> Result<bool, PasswordStrengthError> {
-    let characters: Vec<char> = password.chars().collect();
-    let first: String = characters.iter().take(ZXCVBN_MAX_LENGTH).collect();
-    let last: String = characters
-        .iter()
-        .skip(characters.len().saturating_sub(ZXCVBN_MAX_LENGTH))
-        .collect();
-    let longest = first.chars().count().max(last.chars().count());
-    if longest > CRATE_MAX_LENGTH {
-        return Err(PasswordStrengthError::NotPorted { length: longest });
-    }
-    let strong = |window: &str| zxcvbn::zxcvbn(window, &[]).score() as u8 >= MIN_SCORE;
-    Ok(strong(&first) || strong(&last))
+/// The [`JoinError`] of the blocking task (a panic inside zxcvbn). Python would
+/// let the panic escape as a 500; callers map it to their internal error.
+pub async fn is_password_strong_async(password: &str) -> Result<bool, JoinError> {
+    let (first, last) = windows(password);
+    tokio::task::spawn_blocking(move || is_strong_windows(&first, &last)).await
 }
 
 #[cfg(test)]
@@ -96,7 +108,7 @@ mod tests {
 
     #[test]
     fn a_strong_short_password_is_accepted() {
-        assert_eq!(is_password_strong("Tr0ub4dor&3xY9!qZ"), Ok(true));
+        assert!(is_password_strong("Tr0ub4dor&3xY9!qZ"));
     }
 
     #[test]
@@ -109,37 +121,47 @@ mod tests {
             "aaaaaaaa",
             "plane123",
         ] {
-            assert_eq!(is_password_strong(password), Ok(false), "{password:?}");
+            assert!(!is_password_strong(password), "{password:?}");
         }
     }
 
     #[test]
-    fn a_window_over_the_crates_cap_is_not_ported() {
-        let error = is_password_strong(&"a".repeat(101)).expect_err("over 100");
-        assert_eq!(error, PasswordStrengthError::NotPorted { length: 101 });
-        // 128 characters is Plane's own cap, still over the crate's.
-        assert!(is_password_strong(&"a".repeat(128)).is_err());
-        // Exactly 100 is inside the proven region.
-        assert!(is_password_strong(&"a".repeat(100)).is_ok());
+    fn a_window_over_128_characters_is_scored_at_the_window_length() {
+        // Exactly Plane's cap is scored whole; Python gives 128 ones score 1
+        // (1 537 guesses), the one-character l33t bug used to make it 0.
+        assert!(!is_password_strong(&"1".repeat(128)));
+        assert!(!is_password_strong(&"a".repeat(128)));
+        // 129 characters: both windows are 128, still answered.
+        assert!(!is_password_strong(&"a".repeat(129)));
     }
 
     #[test]
     fn the_windows_are_the_first_and_last_128_code_points() {
-        // A 200-character password: both windows are 128, so the answer is the
-        // not-implemented path regardless of the characters.
-        assert_eq!(
-            is_password_strong(&format!("{}x", "a".repeat(199))),
-            Err(PasswordStrengthError::NotPorted { length: 128 })
-        );
         // Unicode: `len` is code points, not bytes.
-        assert!(is_password_strong(&"😀".repeat(100)).is_ok());
-        assert!(is_password_strong(&"😀".repeat(101)).is_err());
+        assert!(!is_password_strong(&"😀".repeat(128)));
+        // Only the last 128 characters are strong: Python scores the first
+        // window 1 and the last window 3 for this recorded password.
+        let tail_strong = format!("{}xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!", "a".repeat(200));
+        assert!(is_password_strong(&tail_strong));
+        // ... and the other way round.
+        let head_strong = format!("xY9!xY9!xY9!xY9!xY9!xY9!xY9!xY9!{}", "a".repeat(200));
+        assert!(is_password_strong(&head_strong));
     }
 
-    #[test]
-    fn the_error_mentions_the_crate_cap_without_a_placeholder() {
-        let message = PasswordStrengthError::NotPorted { length: 128 }.to_string();
-        assert!(message.contains("100 characters"));
-        assert!(!message.to_lowercase().contains("todo"));
+    #[tokio::test]
+    async fn the_async_form_agrees_with_the_sync_form() {
+        let passwords = [
+            "Tr0ub4dor&3xY9!qZ".to_string(),
+            "password".to_string(),
+            "a".repeat(128),
+            "1".repeat(128),
+            format!("{}xY9!xY9!", "a".repeat(200)),
+        ];
+        for password in passwords {
+            let actual = is_password_strong_async(&password)
+                .await
+                .expect("zxcvbn did not panic");
+            assert_eq!(actual, is_password_strong(&password), "{password:?}");
+        }
     }
 }

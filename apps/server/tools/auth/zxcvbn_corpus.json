@@ -4369,6 +4369,1574 @@
    "first_score": 4,
    "last_score": 4,
    "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first": "ababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "last": "ababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc12",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc12",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc12",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassw",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassw",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassw",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwert",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwert",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwert",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "ababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "ababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123a",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123a",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123a",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswor",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswor",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswor",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyq",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyq",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyq",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123ab",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123ab",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123ab",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqw",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqw",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqw",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpassword",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "last": "ababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswo",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwerty",
+   "first_score": 0,
+   "last_score": 0,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "last": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "last": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "last": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababa",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123a",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123a",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123a",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswor",
+   "first": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswor",
+   "last": "passwordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswordpasswor",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyq",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyq",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyq",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "last": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "last": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123ab",
+   "first": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123ab",
+   "last": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123ab",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqw",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqw",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqw",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "9C6OcxKdyc5uvt1O9MxjPt0ykoKhsB2duy2Owe8VacF6g8tdSexUjLNqv7b5BPKvdIo3GiDI8BeJ1zwEEt7nrdcK1B7ABPEfDNUUV",
+   "first": "9C6OcxKdyc5uvt1O9MxjPt0ykoKhsB2duy2Owe8VacF6g8tdSexUjLNqv7b5BPKvdIo3GiDI8BeJ1zwEEt7nrdcK1B7ABPEfDNUUV",
+   "last": "9C6OcxKdyc5uvt1O9MxjPt0ykoKhsB2duy2Owe8VacF6g8tdSexUjLNqv7b5BPKvdIo3GiDI8BeJ1zwEEt7nrdcK1B7ABPEfDNUUV",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "X#z@K2r2RL,[L_dTCdw}}OjCn*Av_:bY({vU\\\\&ep{MB)oQ\"+;:37nK7B-Wl$AO!CE>sRj\\@_66YMv\\k^o(fk%1Kh8v\\`|t(6{M_R",
+   "first": "X#z@K2r2RL,[L_dTCdw}}OjCn*Av_:bY({vU\\\\&ep{MB)oQ\"+;:37nK7B-Wl$AO!CE>sRj\\@_66YMv\\k^o(fk%1Kh8v\\`|t(6{M_R",
+   "last": "X#z@K2r2RL,[L_dTCdw}}OjCn*Av_:bY({vU\\\\&ep{MB)oQ\"+;:37nK7B-Wl$AO!CE>sRj\\@_66YMv\\k^o(fk%1Kh8v\\`|t(6{M_R",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "rqnkeplkjieburmazgaszlxhtitphlwkvyqnmyhltxmqioyhpibslsxaswkoiicnpwwlwnkdokighrpzxcfvwmkiiaapltfoapitj",
+   "first": "rqnkeplkjieburmazgaszlxhtitphlwkvyqnmyhltxmqioyhpibslsxaswkoiicnpwwlwnkdokighrpzxcfvwmkiiaapltfoapitj",
+   "last": "rqnkeplkjieburmazgaszlxhtitphlwkvyqnmyhltxmqioyhpibslsxaswkoiicnpwwlwnkdokighrpzxcfvwmkiiaapltfoapitj",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "37084991948249094013407188834301179699489124782634976782698620150911681380639212460684900575558241876",
+   "first": "37084991948249094013407188834301179699489124782634976782698620150911681380639212460684900575558241876",
+   "last": "37084991948249094013407188834301179699489124782634976782698620150911681380639212460684900575558241876",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "{tDZ/v*1sW:*#V8O5YBlE2/G\"OZDAm{E8O\"!T?A9Gt*I7ET8[*@eOUm&C/,DSYYW/SG?*/Ofn;$MY>U;]DCTuz?O\"DX`@n8$-rqhL",
+   "first": "{tDZ/v*1sW:*#V8O5YBlE2/G\"OZDAm{E8O\"!T?A9Gt*I7ET8[*@eOUm&C/,DSYYW/SG?*/Ofn;$MY>U;]DCTuz?O\"DX`@n8$-rqhL",
+   "last": "{tDZ/v*1sW:*#V8O5YBlE2/G\"OZDAm{E8O\"!T?A9Gt*I7ET8[*@eOUm&C/,DSYYW/SG?*/Ofn;$MY>U;]DCTuz?O\"DX`@n8$-rqhL",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "VxpLIyH8Ma8ShbqQ5YrDFJsISC0glGQCEHNfOqMkngPJLW40XDYLZRaWCYa6MfaZdB6eirf4BsVY4RTyHTxbVPDOxCwYazsTUgoX7q",
+   "first": "VxpLIyH8Ma8ShbqQ5YrDFJsISC0glGQCEHNfOqMkngPJLW40XDYLZRaWCYa6MfaZdB6eirf4BsVY4RTyHTxbVPDOxCwYazsTUgoX7q",
+   "last": "VxpLIyH8Ma8ShbqQ5YrDFJsISC0glGQCEHNfOqMkngPJLW40XDYLZRaWCYa6MfaZdB6eirf4BsVY4RTyHTxbVPDOxCwYazsTUgoX7q",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "DYD`-O.4xnDX1&Okdl%A;iTx#M5y/UEmW'eJCS)Bb6&Lrl![a8HCSf`&V{xD^[4bv?0#N(;_-NYkR4p]'D|)p&Yx+uqqz,:5}b7]JF",
+   "first": "DYD`-O.4xnDX1&Okdl%A;iTx#M5y/UEmW'eJCS)Bb6&Lrl![a8HCSf`&V{xD^[4bv?0#N(;_-NYkR4p]'D|)p&Yx+uqqz,:5}b7]JF",
+   "last": "DYD`-O.4xnDX1&Okdl%A;iTx#M5y/UEmW'eJCS)Bb6&Lrl![a8HCSf`&V{xD^[4bv?0#N(;_-NYkR4p]'D|)p&Yx+uqqz,:5}b7]JF",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "poioyextbotazkzieqoidqwejryyzhqexxdvqelyxjwwciiweotqlpxaeaojumbhgqnmuwaavctuctlidxfoakdjikrcnyxslvopxx",
+   "first": "poioyextbotazkzieqoidqwejryyzhqexxdvqelyxjwwciiweotqlpxaeaojumbhgqnmuwaavctuctlidxfoakdjikrcnyxslvopxx",
+   "last": "poioyextbotazkzieqoidqwejryyzhqexxdvqelyxjwwciiweotqlpxaeaojumbhgqnmuwaavctuctlidxfoakdjikrcnyxslvopxx",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "108961885887470504105112786052880881352350811663126844283965013079892579615033840304889338069012161574",
+   "first": "108961885887470504105112786052880881352350811663126844283965013079892579615033840304889338069012161574",
+   "last": "108961885887470504105112786052880881352350811663126844283965013079892579615033840304889338069012161574",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "*P&0E/,$tOt8m5e<*n6u0)FqZo\"OF1cEr+lo(8.2/S.v\\tqn=2cXT1jM/67`gl&rB,=E\"/<Df8N!inSE3Y/89dmz<v\"9IAJi%gij,,",
+   "first": "*P&0E/,$tOt8m5e<*n6u0)FqZo\"OF1cEr+lo(8.2/S.v\\tqn=2cXT1jM/67`gl&rB,=E\"/<Df8N!inSE3Y/89dmz<v\"9IAJi%gij,,",
+   "last": "*P&0E/,$tOt8m5e<*n6u0)FqZo\"OF1cEr+lo(8.2/S.v\\tqn=2cXT1jM/67`gl&rB,=E\"/<Df8N!inSE3Y/89dmz<v\"9IAJi%gij,,",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "9La7mznpTdthMQyiBAxChsSgBGATF7PSAC0VMTyjMjduMZ5jo7frHeXUgowSjvn74Npm1tKnRAhzcoj8QA1FOYLfCyhd5XfeywPVTyS",
+   "first": "9La7mznpTdthMQyiBAxChsSgBGATF7PSAC0VMTyjMjduMZ5jo7frHeXUgowSjvn74Npm1tKnRAhzcoj8QA1FOYLfCyhd5XfeywPVTyS",
+   "last": "9La7mznpTdthMQyiBAxChsSgBGATF7PSAC0VMTyjMjduMZ5jo7frHeXUgowSjvn74Npm1tKnRAhzcoj8QA1FOYLfCyhd5XfeywPVTyS",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Nh}xnl=d$EXK(k$HH-H9hM?7>=E;M03~Zz|P5aZp1PcOkkSXGUN}CsL#G-{,Enb9U$mVG,kiAO9?^McZp;p-P1V/a't\"P:sO6W}bey+",
+   "first": "Nh}xnl=d$EXK(k$HH-H9hM?7>=E;M03~Zz|P5aZp1PcOkkSXGUN}CsL#G-{,Enb9U$mVG,kiAO9?^McZp;p-P1V/a't\"P:sO6W}bey+",
+   "last": "Nh}xnl=d$EXK(k$HH-H9hM?7>=E;M03~Zz|P5aZp1PcOkkSXGUN}CsL#G-{,Enb9U$mVG,kiAO9?^McZp;p-P1V/a't\"P:sO6W}bey+",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "jqfhivaaaagoktzvdlhwctevbkbuaqjrexhogfndfvuieeaixophzccuaovpbfamvciuguiedsglvkufqfpexnixpmoxvyrgitbwbcp",
+   "first": "jqfhivaaaagoktzvdlhwctevbkbuaqjrexhogfndfvuieeaixophzccuaovpbfamvciuguiedsglvkufqfpexnixpmoxvyrgitbwbcp",
+   "last": "jqfhivaaaagoktzvdlhwctevbkbuaqjrexhogfndfvuieeaixophzccuaovpbfamvciuguiedsglvkufqfpexnixpmoxvyrgitbwbcp",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "3258359496045405855499370653545834893748574245320307976020151696795824690477502642862602934801278799442",
+   "first": "3258359496045405855499370653545834893748574245320307976020151696795824690477502642862602934801278799442",
+   "last": "3258359496045405855499370653545834893748574245320307976020151696795824690477502642862602934801278799442",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "u=q@|uOzpmG$e)Bp*]g.[-sTNje8l]Vf:o9u4:T(:dqgdU9RrhG@~J,UtWj[J+?6]~bQq^C,CF\";\"%#@s$9>~qK_SQ*#3SbWxN@fi{?",
+   "first": "u=q@|uOzpmG$e)Bp*]g.[-sTNje8l]Vf:o9u4:T(:dqgdU9RrhG@~J,UtWj[J+?6]~bQq^C,CF\";\"%#@s$9>~qK_SQ*#3SbWxN@fi{?",
+   "last": "u=q@|uOzpmG$e)Bp*]g.[-sTNje8l]Vf:o9u4:T(:dqgdU9RrhG@~J,UtWj[J+?6]~bQq^C,CF\";\"%#@s$9>~qK_SQ*#3SbWxN@fi{?",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "IhXUhEy1FqtsSupYHcdYDzh0U1wKj9rpVrAfjc3OSlO1E4kiAKI0TMxcO1sbdz6f3U1crZv1QmYsyZurWjb5uiYKj3jSy7vcq2mPNHUmvr8LOi",
+   "first": "IhXUhEy1FqtsSupYHcdYDzh0U1wKj9rpVrAfjc3OSlO1E4kiAKI0TMxcO1sbdz6f3U1crZv1QmYsyZurWjb5uiYKj3jSy7vcq2mPNHUmvr8LOi",
+   "last": "IhXUhEy1FqtsSupYHcdYDzh0U1wKj9rpVrAfjc3OSlO1E4kiAKI0TMxcO1sbdz6f3U1crZv1QmYsyZurWjb5uiYKj3jSy7vcq2mPNHUmvr8LOi",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "MEgi~Kk:IlGRZ>Xnpl3T9<}i_oc~MlKUY\"wAKm;Ehra@_^vI'7_rZ*4OOl=ov<\"(aS:9=j'Kl2u58fU1+4+5F'Db\"M}?U\"H}@:\\AGWa#W~oXJ;",
+   "first": "MEgi~Kk:IlGRZ>Xnpl3T9<}i_oc~MlKUY\"wAKm;Ehra@_^vI'7_rZ*4OOl=ov<\"(aS:9=j'Kl2u58fU1+4+5F'Db\"M}?U\"H}@:\\AGWa#W~oXJ;",
+   "last": "MEgi~Kk:IlGRZ>Xnpl3T9<}i_oc~MlKUY\"wAKm;Ehra@_^vI'7_rZ*4OOl=ov<\"(aS:9=j'Kl2u58fU1+4+5F'Db\"M}?U\"H}@:\\AGWa#W~oXJ;",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "junwjcfrxusoulhhwczlaawkvxzhrjkrbpimwoafnabsfmbbewtweulhghqhuybyqvslsciiwmplfdxvhiiltclyqnaukvkvpxdaxenpnzxcvq",
+   "first": "junwjcfrxusoulhhwczlaawkvxzhrjkrbpimwoafnabsfmbbewtweulhghqhuybyqvslsciiwmplfdxvhiiltclyqnaukvkvpxdaxenpnzxcvq",
+   "last": "junwjcfrxusoulhhwczlaawkvxzhrjkrbpimwoafnabsfmbbewtweulhghqhuybyqvslsciiwmplfdxvhiiltclyqnaukvkvpxdaxenpnzxcvq",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "41014748239670036069205328046273364521433447570042960475933144381020727507429548123634088217572913377865606697",
+   "first": "41014748239670036069205328046273364521433447570042960475933144381020727507429548123634088217572913377865606697",
+   "last": "41014748239670036069205328046273364521433447570042960475933144381020727507429548123634088217572913377865606697",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "to*+|s}[ApZV6dE+ik:]x:cJg91q>IA~vTD6$}P?>E%4I;2qna2e!tG=~w9p\"5=DH\\KE7lChMd8VhxK{j;2c=)P=,G!_cln2(ALoYMfxb[{1n]",
+   "first": "to*+|s}[ApZV6dE+ik:]x:cJg91q>IA~vTD6$}P?>E%4I;2qna2e!tG=~w9p\"5=DH\\KE7lChMd8VhxK{j;2c=)P=,G!_cln2(ALoYMfxb[{1n]",
+   "last": "to*+|s}[ApZV6dE+ik:]x:cJg91q>IA~vTD6$}P?>E%4I;2qna2e!tG=~w9p\"5=DH\\KE7lChMd8VhxK{j;2c=)P=,G!_cln2(ALoYMfxb[{1n]",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "sNiB2iouLtP5l4kFoAjn06WGfbpsnxdmoGfa0hzilZVXjQM4RKK3zvnYsaxxNZxgepHHvxzHo0rSv9R6lI5jydplNVdPwrPSvAxJN3IXh9mJcI9FqlONtpiL",
+   "first": "sNiB2iouLtP5l4kFoAjn06WGfbpsnxdmoGfa0hzilZVXjQM4RKK3zvnYsaxxNZxgepHHvxzHo0rSv9R6lI5jydplNVdPwrPSvAxJN3IXh9mJcI9FqlONtpiL",
+   "last": "sNiB2iouLtP5l4kFoAjn06WGfbpsnxdmoGfa0hzilZVXjQM4RKK3zvnYsaxxNZxgepHHvxzHo0rSv9R6lI5jydplNVdPwrPSvAxJN3IXh9mJcI9FqlONtpiL",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "&6:|WGIiey}i,2$B@bb5\"Zt}+-P}$#:.P1W(8>7;/$KEgj7ErP[6+6hmfx8)c@DcB^+C>ISf)phq=J.l^qIQ@=j5KGCvQZ2^itYyp&Q^6lKlk:?H,[g2i>Ky",
+   "first": "&6:|WGIiey}i,2$B@bb5\"Zt}+-P}$#:.P1W(8>7;/$KEgj7ErP[6+6hmfx8)c@DcB^+C>ISf)phq=J.l^qIQ@=j5KGCvQZ2^itYyp&Q^6lKlk:?H,[g2i>Ky",
+   "last": "&6:|WGIiey}i,2$B@bb5\"Zt}+-P}$#:.P1W(8>7;/$KEgj7ErP[6+6hmfx8)c@DcB^+C>ISf)phq=J.l^qIQ@=j5KGCvQZ2^itYyp&Q^6lKlk:?H,[g2i>Ky",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ptcqfzbdxglocixmujsnrhaphumgdgojnftguaomtzfedicvzwminlqegcypmvborfinquygijueiwccmkzqmpqsndbfdeftnhfiewzpvcizdgvguuflxnth",
+   "first": "ptcqfzbdxglocixmujsnrhaphumgdgojnftguaomtzfedicvzwminlqegcypmvborfinquygijueiwccmkzqmpqsndbfdeftnhfiewzpvcizdgvguuflxnth",
+   "last": "ptcqfzbdxglocixmujsnrhaphumgdgojnftguaomtzfedicvzwminlqegcypmvborfinquygijueiwccmkzqmpqsndbfdeftnhfiewzpvcizdgvguuflxnth",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "287827619174041440867929334399463342123408404499015543689705283210991206158646534848036511767884819135827696646224759262",
+   "first": "287827619174041440867929334399463342123408404499015543689705283210991206158646534848036511767884819135827696646224759262",
+   "last": "287827619174041440867929334399463342123408404499015543689705283210991206158646534848036511767884819135827696646224759262",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": ".kNMAqw|dI&\"XtE_X\\f7z#t;D2~[Tv;KW</-qid<Bs1;hR{B\\a]++ARr:J4a70r*EE;fBxu]4xO7'R5kQDIc:n[|\\7xHD@y[OY~-}VO|.{/V3{1>J{>{nCu~",
+   "first": ".kNMAqw|dI&\"XtE_X\\f7z#t;D2~[Tv;KW</-qid<Bs1;hR{B\\a]++ARr:J4a70r*EE;fBxu]4xO7'R5kQDIc:n[|\\7xHD@y[OY~-}VO|.{/V3{1>J{>{nCu~",
+   "last": ".kNMAqw|dI&\"XtE_X\\f7z#t;D2~[Tv;KW</-qid<Bs1;hR{B\\a]++ARr:J4a70r*EE;fBxu]4xO7'R5kQDIc:n[|\\7xHD@y[OY~-}VO|.{/V3{1>J{>{nCu~",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Nni2hFHkySwg33hYRS39MHy7SwWBt75w8NpfMeYw2vpj2I3Sc2nqxM2PKESfBkYna5LKmTZ7UbwHSTa37IcMr6ZXC6N2QVDRYbSCaMI5tM0VQ45cKNHreQ0XWxaBoP",
+   "first": "Nni2hFHkySwg33hYRS39MHy7SwWBt75w8NpfMeYw2vpj2I3Sc2nqxM2PKESfBkYna5LKmTZ7UbwHSTa37IcMr6ZXC6N2QVDRYbSCaMI5tM0VQ45cKNHreQ0XWxaBoP",
+   "last": "Nni2hFHkySwg33hYRS39MHy7SwWBt75w8NpfMeYw2vpj2I3Sc2nqxM2PKESfBkYna5LKmTZ7UbwHSTa37IcMr6ZXC6N2QVDRYbSCaMI5tM0VQ45cKNHreQ0XWxaBoP",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "29IdZixUI]F]H]1O^~FUkwlpX^(|%'}0~EEq6`5S+:cG/+75|6O4Z>+^qut1<tCc@eheVlg=8r2j*F^FRe,>a~NM5Aw7e**@-(MF'?|(zVO]/TK]\"eE^;+5.0,-\\9!",
+   "first": "29IdZixUI]F]H]1O^~FUkwlpX^(|%'}0~EEq6`5S+:cG/+75|6O4Z>+^qut1<tCc@eheVlg=8r2j*F^FRe,>a~NM5Aw7e**@-(MF'?|(zVO]/TK]\"eE^;+5.0,-\\9!",
+   "last": "29IdZixUI]F]H]1O^~FUkwlpX^(|%'}0~EEq6`5S+:cG/+75|6O4Z>+^qut1<tCc@eheVlg=8r2j*F^FRe,>a~NM5Aw7e**@-(MF'?|(zVO]/TK]\"eE^;+5.0,-\\9!",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "mpxcqvwsgsioxsatgwnvuwpsfoczqsxxwnvyyiirpfirduhaocbwnupnrgupwhnqomvcjgckhzlyhopgixugcodtfckdabmmyfpvgnobmcqtutjtasrdvxeyykhxjh",
+   "first": "mpxcqvwsgsioxsatgwnvuwpsfoczqsxxwnvyyiirpfirduhaocbwnupnrgupwhnqomvcjgckhzlyhopgixugcodtfckdabmmyfpvgnobmcqtutjtasrdvxeyykhxjh",
+   "last": "mpxcqvwsgsioxsatgwnvuwpsfoczqsxxwnvyyiirpfirduhaocbwnupnrgupwhnqomvcjgckhzlyhopgixugcodtfckdabmmyfpvgnobmcqtutjtasrdvxeyykhxjh",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "562428335255242856766616784455953221850960934443234287451784438163385871577825379686207237710448912791928717358979245441191906",
+   "first": "562428335255242856766616784455953221850960934443234287451784438163385871577825379686207237710448912791928717358979245441191906",
+   "last": "562428335255242856766616784455953221850960934443234287451784438163385871577825379686207237710448912791928717358979245441191906",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "%kiA[;n2_qu2@Sm)f@-p.du2<uZW#Un#%Sh]g+yH-H@GOTBeL_jb007?;wL_@@sqg@*>\\s(WjqJX'[!P0f46Ff6\\6En_uoa*f\"e\"8/SJ[hM`l*?A%/yV<'Q9D+QyUP",
+   "first": "%kiA[;n2_qu2@Sm)f@-p.du2<uZW#Un#%Sh]g+yH-H@GOTBeL_jb007?;wL_@@sqg@*>\\s(WjqJX'[!P0f46Ff6\\6En_uoa*f\"e\"8/SJ[hM`l*?A%/yV<'Q9D+QyUP",
+   "last": "%kiA[;n2_qu2@Sm)f@-p.du2<uZW#Un#%Sh]g+yH-H@GOTBeL_jb007?;wL_@@sqg@*>\\s(WjqJX'[!P0f46Ff6\\6En_uoa*f\"e\"8/SJ[hM`l*?A%/yV<'Q9D+QyUP",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "O6gDhDL188gmLU2wDf18y44wcLJGDZdU2UOFdJxZyVtSE77l4X62ATGsh7fWLr9i7CHJlzPrbA8zlSBmvnAmRBxel4tRzmzXdwMzJyAwCAP4mVHX5KPZCuBOMt0o0eW",
+   "first": "O6gDhDL188gmLU2wDf18y44wcLJGDZdU2UOFdJxZyVtSE77l4X62ATGsh7fWLr9i7CHJlzPrbA8zlSBmvnAmRBxel4tRzmzXdwMzJyAwCAP4mVHX5KPZCuBOMt0o0eW",
+   "last": "O6gDhDL188gmLU2wDf18y44wcLJGDZdU2UOFdJxZyVtSE77l4X62ATGsh7fWLr9i7CHJlzPrbA8zlSBmvnAmRBxel4tRzmzXdwMzJyAwCAP4mVHX5KPZCuBOMt0o0eW",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": ".78C*aapiq97?3/3~E6AF>FV`BCYCxwq&lXjTUeC9Rw+5=MJS_N+rcq],NGA1T?1D(\"cf:1CR/{{-qX>cIETk@T7k2RuM'!e:vt4VaNX:vM}$jVO~b9l?q$YoIbNx>#",
+   "first": ".78C*aapiq97?3/3~E6AF>FV`BCYCxwq&lXjTUeC9Rw+5=MJS_N+rcq],NGA1T?1D(\"cf:1CR/{{-qX>cIETk@T7k2RuM'!e:vt4VaNX:vM}$jVO~b9l?q$YoIbNx>#",
+   "last": ".78C*aapiq97?3/3~E6AF>FV`BCYCxwq&lXjTUeC9Rw+5=MJS_N+rcq],NGA1T?1D(\"cf:1CR/{{-qX>cIETk@T7k2RuM'!e:vt4VaNX:vM}$jVO~b9l?q$YoIbNx>#",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "ztdowjuubayhasoqkwnbileteoeuwpsazyixhziynatgkvlsjaaepjxdxpjdfmtrmepdkecrccbyrurarsypuorheoygidbsirqdrwrxltdkguhbnkzhipbnuaijwnj",
+   "first": "ztdowjuubayhasoqkwnbileteoeuwpsazyixhziynatgkvlsjaaepjxdxpjdfmtrmepdkecrccbyrurarsypuorheoygidbsirqdrwrxltdkguhbnkzhipbnuaijwnj",
+   "last": "ztdowjuubayhasoqkwnbileteoeuwpsazyixhziynatgkvlsjaaepjxdxpjdfmtrmepdkecrccbyrurarsypuorheoygidbsirqdrwrxltdkguhbnkzhipbnuaijwnj",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "9816907907046841400273705759755935281486380638407985741280965912501038445528728297221852178674750372940682521270676920321330707",
+   "first": "9816907907046841400273705759755935281486380638407985741280965912501038445528728297221852178674750372940682521270676920321330707",
+   "last": "9816907907046841400273705759755935281486380638407985741280965912501038445528728297221852178674750372940682521270676920321330707",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "w`@o&\\,tV0&Gf*_(~~*S3H:-7Ai0NfF<3[K~)fJ~r0*p>L7*}\\:C95U.xMx+Sk15V,R\"X>S=5=1>hq*$c4HZV1pYRVN7Hibq@5%g?I[tX#H)?B3-wz)_N<}}}Do)yNP",
+   "first": "w`@o&\\,tV0&Gf*_(~~*S3H:-7Ai0NfF<3[K~)fJ~r0*p>L7*}\\:C95U.xMx+Sk15V,R\"X>S=5=1>hq*$c4HZV1pYRVN7Hibq@5%g?I[tX#H)?B3-wz)_N<}}}Do)yNP",
+   "last": "w`@o&\\,tV0&Gf*_(~~*S3H:-7Ai0NfF<3[K~)fJ~r0*p>L7*}\\:C95U.xMx+Sk15V,R\"X>S=5=1>hq*$c4HZV1pYRVN7Hibq@5%g?I[tX#H)?B3-wz)_N<}}}Do)yNP",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "pzfgPBp0fPZLQjaHAJlw0j3bnOEmUop3mDDywOftNO5tfkTbuPOE412FmBrcyMukouZbySSk2o860F8G4OHMfQv82Hc8pqZFFdSJB9MMT2EPUJe5qOmz4KluLsY7XEfy",
+   "first": "pzfgPBp0fPZLQjaHAJlw0j3bnOEmUop3mDDywOftNO5tfkTbuPOE412FmBrcyMukouZbySSk2o860F8G4OHMfQv82Hc8pqZFFdSJB9MMT2EPUJe5qOmz4KluLsY7XEfy",
+   "last": "pzfgPBp0fPZLQjaHAJlw0j3bnOEmUop3mDDywOftNO5tfkTbuPOE412FmBrcyMukouZbySSk2o860F8G4OHMfQv82Hc8pqZFFdSJB9MMT2EPUJe5qOmz4KluLsY7XEfy",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "CIWakv]vTlTsAs`~K*K!/B<uEx4{[gY89%<\\*G*J/![G`&_V/xFvNluy9S;m[M~P'cBM9WM6x\"(3MDph37wEH3tU7;508TMv5CA`v_9(wLX_D9$YdYwyqL6@ae@S^P7D",
+   "first": "CIWakv]vTlTsAs`~K*K!/B<uEx4{[gY89%<\\*G*J/![G`&_V/xFvNluy9S;m[M~P'cBM9WM6x\"(3MDph37wEH3tU7;508TMv5CA`v_9(wLX_D9$YdYwyqL6@ae@S^P7D",
+   "last": "CIWakv]vTlTsAs`~K*K!/B<uEx4{[gY89%<\\*G*J/![G`&_V/xFvNluy9S;m[M~P'cBM9WM6x\"(3MDph37wEH3tU7;508TMv5CA`v_9(wLX_D9$YdYwyqL6@ae@S^P7D",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "nraaymbdlgfyjxrwdakxseqqzljtirqevtkhwhohxfosbzwiamoozajgzmabiyhjhskphfjmilszqwdtajpvegxqzfsartjatahavicehpkeewcniuoxpufkqssssgys",
+   "first": "nraaymbdlgfyjxrwdakxseqqzljtirqevtkhwhohxfosbzwiamoozajgzmabiyhjhskphfjmilszqwdtajpvegxqzfsartjatahavicehpkeewcniuoxpufkqssssgys",
+   "last": "nraaymbdlgfyjxrwdakxseqqzljtirqevtkhwhohxfosbzwiamoozajgzmabiyhjhskphfjmilszqwdtajpvegxqzfsartjatahavicehpkeewcniuoxpufkqssssgys",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "41407969492405568055402634676837660273316041388060685364183129084181111297835183259920944719168529061754018547814883273720730734",
+   "first": "41407969492405568055402634676837660273316041388060685364183129084181111297835183259920944719168529061754018547814883273720730734",
+   "last": "41407969492405568055402634676837660273316041388060685364183129084181111297835183259920944719168529061754018547814883273720730734",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "U('B.EN'VfcD<pk.yguQOgiia6Ql_pJ;!PV8{.e|&Q(3ho-1UC:/ruGakh>D[z(@%Tw\"f6m<F0Xfuggh-=\"D!T0]+{A@9p[o/E`Qm0pAl.G\\sO:tNu45q?>s|Q\\AH^w:",
+   "first": "U('B.EN'VfcD<pk.yguQOgiia6Ql_pJ;!PV8{.e|&Q(3ho-1UC:/ruGakh>D[z(@%Tw\"f6m<F0Xfuggh-=\"D!T0]+{A@9p[o/E`Qm0pAl.G\\sO:tNu45q?>s|Q\\AH^w:",
+   "last": "U('B.EN'VfcD<pk.yguQOgiia6Ql_pJ;!PV8{.e|&Q(3ho-1UC:/ruGakh>D[z(@%Tw\"f6m<F0Xfuggh-=\"D!T0]+{A@9p[o/E`Qm0pAl.G\\sO:tNu45q?>s|Q\\AH^w:",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jo",
+   "first": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jo",
+   "last": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jo",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jo",
+   "first": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jo",
+   "last": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jo",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10",
+   "first": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10",
+   "last": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harl",
+   "first": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harl",
+   "last": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harl",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harl",
+   "first": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harl",
+   "last": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harl",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer",
+   "first": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer",
+   "last": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-",
+   "first": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-",
+   "last": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger ",
+   "first": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger ",
+   "last": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan1",
+   "first": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan1",
+   "last": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan1",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-letmein",
+   "first": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-letmein",
+   "last": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-letmein",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger Letmein",
+   "first": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger Letmein",
+   "last": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger Letmein",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan12_harle",
+   "first": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan12_harle",
+   "last": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan12_harle",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-letmein-",
+   "first": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-letmein-",
+   "last": "password-monkey-dragon-football-sunshine-princess-superman-starwars-master-shadow-michael-jennifer-jordan-harley-ranger-letmein-",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger Letmein ",
+   "first": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger Letmein ",
+   "last": "Password Monkey Dragon Football Sunshine Princess Superman Starwars Master Shadow Michael Jennifer Jordan Harley Ranger Letmein ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan12_harley",
+   "first": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan12_harley",
+   "last": "password0_monkey1_dragon2_football3_sunshine4_princess5_superman6_starwars7_master8_shadow9_michael10_jennifer11_jordan12_harley",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopa",
+   "first": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopa",
+   "last": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopa",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPA",
+   "first": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPA",
+   "last": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPA",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklz",
+   "first": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklz",
+   "last": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZ",
+   "first": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZ",
+   "last": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234",
+   "first": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234",
+   "last": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234",
+   "first": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234",
+   "last": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890q",
+   "first": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890q",
+   "last": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890q",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890Q",
+   "first": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890Q",
+   "last": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890Q",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qa",
+   "first": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qa",
+   "last": "qwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qazwsxedcqwertyuiopasdfghjklzxcvbnm1234567890qa",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QA",
+   "first": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QA",
+   "last": "QWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QAZWSXEDCQWERTYUIOPASDFGHJKLZXCVBNM1234567890QA",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-0",
+   "first": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-0",
+   "last": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-0",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-0",
+   "first": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-0",
+   "last": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-0",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/1",
+   "first": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/1",
+   "last": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/1",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/1",
+   "first": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/1",
+   "last": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/1",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.",
+   "first": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.",
+   "last": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.",
+   "first": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.",
+   "last": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.02.2020",
+   "first": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.02.2020",
+   "last": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.02.2020",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.02.2020",
+   "first": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.02.2020",
+   "last": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.02.2020",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.02.2020,",
+   "first": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.02.2020,",
+   "last": "2024-01-01,31/12/1999,01.02.2020,1990-05-17T12:30:00,2017-11-17,17/11/2017,11-17-2017,20231231,2024-01-01,31/12/1999,01.02.2020,",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.02.2020T",
+   "first": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.02.2020T",
+   "last": "2024-01-01T31/12/1999T01.02.2020T1990-05-17T12:30:00T2017-11-17T17/11/2017T11-17-2017T20231231T2024-01-01T31/12/1999T01.02.2020T",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3r",
+   "first": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3r",
+   "last": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3r",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3r",
+   "first": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3r",
+   "last": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3r",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub",
+   "first": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub",
+   "last": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub",
+   "first": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub",
+   "last": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up",
+   "first": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up",
+   "last": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up",
+   "first": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up",
+   "last": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3",
+   "first": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3",
+   "last": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3",
+   "first": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3",
+   "last": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t",
+   "first": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t",
+   "last": "p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t-m0nk3y-dr@g0n-st@rw@rs-p@ssw0rd-l33tsp3@k-h4ck3rm4n-tr0ub4d0r&3-5up3r53cr3t",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t",
+   "first": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t",
+   "last": "p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t!m0nk3y!dr@g0n!st@rw@rs!p@ssw0rd!l33tsp3@k!h4ck3rm4n!tr0ub4d0r&3!5up3r53cr3t",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abc",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abc",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abc",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz012",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz012",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz012",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijkl",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijkl",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijkl",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zy",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zy",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zy",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuv",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuv",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuv",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqpo",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqpo",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqpo",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz012",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz012",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz012",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjih",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjih",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjih",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihg",
+   "first": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihg",
+   "last": "abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihgfedcba9876543210abcdefghijklmnopqrstuvwxyz0123456789zyxwvutsrqponmlkjihg",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密",
+   "first": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密",
+   "last": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀",
+   "first": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀",
+   "last": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパス",
+   "first": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパス",
+   "last": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパス",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀é",
+   "first": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀é",
+   "last": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀é",
+   "first_score": 2,
+   "last_score": 2,
+   "strong": false
+  },
+  {
+   "password": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلم",
+   "first": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلم",
+   "last": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلم",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥",
+   "first": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥",
+   "last": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码",
+   "first": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码",
+   "last": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ",
+   "first": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ",
+   "last": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ",
+   "first_score": 3,
+   "last_score": 3,
+   "strong": true
+  },
+  {
+   "password": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码п",
+   "first": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码п",
+   "last": "密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码парольパスワード비밀번호كلمةالسر密码п",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥",
+   "first": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥",
+   "last": "😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥😀éΩ🔥",
+   "first_score": 1,
+   "last_score": 1,
+   "strong": false
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4xxxxxxxxxxxx",
+   "first": "aaaaaaaaaaaaaaaaaaaaTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4",
+   "last": "aaaaaaaaTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4xxxxxxxxxxxx",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "aaaaaaaaaaaaaaaaaaaaTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first": "aaaaaaaaaaaaaaaaaaaaTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4",
+   "last": "!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "11111111111111111111Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4xxxxxxxxxxxx",
+   "first": "11111111111111111111Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4",
+   "last": "11111111Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4xxxxxxxxxxxx",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "11111111111111111111Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first": "11111111111111111111Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4",
+   "last": "!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyTr0ub4doxxxxxxxxxxxx",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyTr0ub4do",
+   "last": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyTr0ub4doxxxxxxxxxxxx",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first": "qwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyTr0ub4do",
+   "last": "!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dorxxxxxxxxxxxx",
+   "first": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor",
+   "last": "Y9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dorxxxxxxxxxxxx",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZaaaaaaaaaaaazzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor",
+   "last": "&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZaaaaaaaaaaaazzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZ111111111111zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor",
+   "last": "&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZ111111111111zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first": "Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor",
+   "last": "r0ub4dor&3xY9!qZqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyqwertyzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZ",
+   "first": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀Tr0ub4dor&3xY9!qZTr0ub4dor&3",
+   "last": "r&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZ",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码Tr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZ",
+   "first": "密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码密码",
+   "last": "r&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZTr0ub4dor&3xY9!qZ",
+   "first_score": 1,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveE",
+   "first": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveE",
+   "last": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveE",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-na",
+   "first": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-na",
+   "last": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-na",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGr",
+   "first": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGr",
+   "last": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGr",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelr",
+   "first": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelr",
+   "last": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelr",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIv",
+   "first": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIv",
+   "last": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIv",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-",
+   "first": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-",
+   "last": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIvanJudyM",
+   "first": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIvanJudyM",
+   "last": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIvanJudyM",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-niemtel",
+   "first": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-niemtel",
+   "last": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-niemtel",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIvanJudyMa",
+   "first": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIvanJudyMa",
+   "last": "CorrectHorseBatteryStapleCoffeeGuitarSummerWinterSpringAutumnLondonParisTokyoBerlinAliceBobCarolDaveEveFrankGraceHeidiIvanJudyMa",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-niemtel-",
+   "first": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-niemtel-",
+   "last": "drowssap-yeknom-nogard-llabtoof-enihsnus-ssecnirp-namrepus-srawrats-retsam-wodahs-leahcim-refinnej-nadroj-yelrah-regnar-niemtel-",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13",
+   "first": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13",
+   "last": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bo",
+   "first": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bo",
+   "last": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bo",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16",
+   "first": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16",
+   "last": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16dave17e",
+   "first": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16dave17e",
+   "last": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16dave17e",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16dave17ev",
+   "first": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16dave17ev",
+   "last": "correct0horse1battery2staple3coffee4guitar5summer6winter7spring8autumn9london10paris11tokyo12berlin13alice14bob15carol16dave17ev",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "JyeUFCbaSndTQdPutTPYhgKJcKsgeulQBXfUrxAVKxojGcOkhIoTxUwbKWSdFzZrZYIebTthXjtOujvjDWsEGNeKhFeIHXNXOLzBS",
+   "first": "JyeUFCbaSndTQdPutTPYhgKJcKsgeulQBXfUrxAVKxojGcOkhIoTxUwbKWSdFzZrZYIebTthXjtOujvjDWsEGNeKhFeIHXNXOLzBS",
+   "last": "JyeUFCbaSndTQdPutTPYhgKJcKsgeulQBXfUrxAVKxojGcOkhIoTxUwbKWSdFzZrZYIebTthXjtOujvjDWsEGNeKhFeIHXNXOLzBS",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "5%2\"#1?({?@$*@!27200_1\\`']|`$]@')@)8#_/{!]5,%_+$>*.<@!$8=0;8;82`26}:@;&3}?<<49,6\";.0_\"`='\"%+${,9+8?{\\",
+   "first": "5%2\"#1?({?@$*@!27200_1\\`']|`$]@')@)8#_/{!]5,%_+$>*.<@!$8=0;8;82`26}:@;&3}?<<49,6\";.0_\"`='\"%+${,9+8?{\\",
+   "last": "5%2\"#1?({?@$*@!27200_1\\`']|`$]@')@)8#_/{!]5,%_+$>*.<@!$8=0;8;82`26}:@;&3}?<<49,6\";.0_\"`='\"%+${,9+8?{\\",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "NTDSQopmXvXHlYasfsnTSiDLBqIRZqqaBHgraJnzPrsOKnfJYUHzNKXsWUeeCZkkRUSoDSeQMotHeSjacgLXFDMiVzwmcDWReuqGyKrZNBboHbGMOppVxKNZQECGpGlh",
+   "first": "NTDSQopmXvXHlYasfsnTSiDLBqIRZqqaBHgraJnzPrsOKnfJYUHzNKXsWUeeCZkkRUSoDSeQMotHeSjacgLXFDMiVzwmcDWReuqGyKrZNBboHbGMOppVxKNZQECGpGlh",
+   "last": "NTDSQopmXvXHlYasfsnTSiDLBqIRZqqaBHgraJnzPrsOKnfJYUHzNKXsWUeeCZkkRUSoDSeQMotHeSjacgLXFDMiVzwmcDWReuqGyKrZNBboHbGMOppVxKNZQECGpGlh",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
+  },
+  {
+   "password": "{:0$?0[+%}\\~+(>'_%2]?^4^%_`95<`|{8/(>{+1%;%&{-.[@[4)?8=+_;[<~5_5!8^?=(=^24';<?23!5_$&4|]{2#|80|_@'`/39~/{+?'@8%0,'6.)$$|'-39?*58",
+   "first": "{:0$?0[+%}\\~+(>'_%2]?^4^%_`95<`|{8/(>{+1%;%&{-.[@[4)?8=+_;[<~5_5!8^?=(=^24';<?23!5_$&4|]{2#|80|_@'`/39~/{+?'@8%0,'6.)$$|'-39?*58",
+   "last": "{:0$?0[+%}\\~+(>'_%2]?^4^%_`95<`|{8/(>{+1%;%&{-.[@[4)?8=+_;[<~5_5!8^?=(=^24';<?23!5_$&4|]{2#|80|_@'`/39~/{+?'@8%0,'6.)$$|'-39?*58",
+   "first_score": 4,
+   "last_score": 4,
+   "strong": true
   }
  ]
 }

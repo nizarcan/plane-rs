@@ -19,7 +19,9 @@ Writes:
   `PasswordResetTokenGenerator` and `urlsafe_base64_{encode,decode}` at fixed
   keys, users and timestamps.
 * `tools/auth/zxcvbn_corpus.json` — `plane.authentication.utils.password.
-  is_password_strong` for 512 passwords (first/last 128-character windows).
+  is_password_strong` for the unique passwords below (first/last
+  128-character windows). 196 of them were added for the 101-128-character
+  shapes the vendored crate needed to be proven on.
 
 Nothing here is imported by the product; `--check` is not implemented because
 the corpora pin CPython 3.12.13 / Django 5.2.17, which the venv already fixes.
@@ -518,6 +520,131 @@ def reset_corpus():
 # ---------------------------------------------------------------------------
 
 
+def long_window_cases(rng, words):
+    """Passwords whose 128-character windows are 101-128 characters.
+
+    P0a's original corpus had 262 windows above 100 characters, but they were
+    mostly random strings and long repeats. This generates 202 more, one per
+    shape at the boundary lengths (196 survive the corpus-wide dedupe because
+    6 are already covered), so the vendored crate's raised cap is exercised on
+    dictionary words, keyboard walks, dates, repeats, l33t, sequences, Unicode
+    and random input, at 101, 102, 103, 110, 120, 126, 127 and 128 code
+    points.
+    """
+    boundary = [101, 102, 103, 110, 120, 126, 127, 128]
+    five = [101, 110, 120, 127, 128]
+
+    def repeat_to(unit, length):
+        return (unit * (length // len(unit) + 1))[:length]
+
+    def join_to(pieces, length, separator):
+        value = ""
+        index = 0
+        while len(value) < length:
+            piece = pieces[index % len(pieces)]
+            value = piece if not value else value + separator + piece
+            index += 1
+        return value[:length]
+
+    cases = []
+
+    # Repeats: one-character and multi-character bases, including the `"1"`
+    # case where a one-character l33t match changed the base guesses.
+    for length in boundary:
+        for unit in ["a", "1", "Z", "!", "ab", "abc123", "password", "qwerty"]:
+            cases.append(repeat_to(unit, length))
+
+    # Random input, one per alphabet and boundary length.
+    alphabets = [
+        string.ascii_letters + string.digits,
+        string.ascii_letters + string.digits + string.punctuation,
+        string.ascii_lowercase,
+        string.digits,
+        string.printable[:94],
+    ]
+    for length in boundary:
+        for alphabet in alphabets:
+            cases.append("".join(rng.choice(alphabet) for _ in range(length)))
+
+    # Dictionary words, in three shapes.
+    common = [
+        "password", "monkey", "dragon", "football", "sunshine", "princess",
+        "superman", "starwars", "master", "shadow", "michael", "jennifer",
+        "jordan", "harley", "ranger", "letmein", "welcome", "admin", "secret",
+        "iloveyou", "trustno1", "correct", "horse", "battery", "staple",
+    ]
+    for length in five:
+        cases.append(join_to(common, length, "-"))
+        cases.append(join_to([word.capitalize() for word in common], length, " "))
+        cases.append(
+            join_to([f"{word}{index}" for index, word in enumerate(common)], length, "_")
+        )
+
+    # Keyboard walks.
+    walks = ["qwertyuiop", "asdfghjkl", "zxcvbnm", "1234567890", "qazwsxedc"]
+    for length in five:
+        cases.append(join_to(walks, length, ""))
+        cases.append(join_to([walk.upper() for walk in walks], length, ""))
+
+    # Dates, with and without times, in common formats.
+    dates = [
+        "2024-01-01", "31/12/1999", "01.02.2020", "1990-05-17T12:30:00",
+        "2017-11-17", "17/11/2017", "11-17-2017", "20231231",
+    ]
+    for length in five:
+        cases.append(join_to(dates, length, ","))
+        cases.append(join_to(dates, length, "T"))
+
+    # l33t substitutions.
+    l33t = ["p@ssw0rd", "l33tsp3@k", "h4ck3rm4n", "tr0ub4d0r&3", "5up3r53cr3t",
+            "m0nk3y", "dr@g0n", "st@rw@rs"]
+    for length in five:
+        cases.append(join_to(l33t, length, "-"))
+        cases.append(join_to(l33t, length, "!"))
+
+    # Sequences, ascending and descending.
+    sequences = [
+        "abcdefghijklmnopqrstuvwxyz", "0123456789", "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "zyxwvutsrqponmlkjihgfedcba", "9876543210",
+    ]
+    for length in five:
+        cases.append(join_to(sequences, length, ""))
+        cases.append(join_to(sequences[:2] + sequences[3:], length, ""))
+
+    # Unicode windows: code points, not bytes.
+    unicode_units = ["密码", "пароль", "パスワード", "비밀번호", "كلمةالسر"]
+    for length in five:
+        cases.append(join_to(unicode_units, length, ""))
+        cases.append(join_to(["😀", "é", "Ω", "🔥"], length, ""))
+
+    # Mixed shapes with two different 128-character windows.
+    strong = "Tr0ub4dor&3xY9!qZ"
+    for head, tail in [("a", strong), ("1", strong), ("qwerty", strong),
+                       (strong, "a"), (strong, "1"), (strong, "qwerty")]:
+        cases.append((head * 20 + tail * 12)[:128].ljust(140, "x"))
+        cases.append((head * 20 + tail * 12 + "z" * 40))
+    cases.append("😀" * 100 + strong * 8)
+    cases.append("密码" * 100 + strong * 8)
+
+    # CamelCase and reversed words.
+    for length in five:
+        cases.append(join_to([word.capitalize() for word in words], length, ""))
+        cases.append(join_to([word[::-1] for word in common], length, "-"))
+
+    # Numbers interleaved with letters.
+    for length in five:
+        cases.append(join_to([f"{word}{index}" for index, word in enumerate(words)], length, ""))
+
+    # Letters-only and punctuation-plus-digits random, at both boundaries.
+    for length in [101, 128]:
+        cases.append("".join(rng.choice(string.ascii_letters) for _ in range(length)))
+        cases.append("".join(rng.choice(string.digits + string.punctuation) for _ in range(length)))
+
+    assert len(cases) == 202, len(cases)
+    assert len(set(cases)) == 200, "duplicate long-window cases"
+    return cases
+
+
 def zxcvbn_corpus():
     path = os.path.join(REPO, "apps", "api", "plane", "authentication", "utils", "password.py")
     spec = importlib.util.spec_from_file_location("plane_password", path)
@@ -618,7 +745,15 @@ def zxcvbn_corpus():
             value += rng.choice(["!", "!!", "?", "#", "$", "&", "*"])
         composed.append(value)
 
-    all_cases = weak + fixture + random_cases + unicode_cases + long_cases + composed
+    all_cases = (
+        weak
+        + fixture
+        + random_cases
+        + unicode_cases
+        + long_cases
+        + composed
+        + long_window_cases(rng, words)
+    )
     seen = set()
     unique = []
     for password in all_cases:

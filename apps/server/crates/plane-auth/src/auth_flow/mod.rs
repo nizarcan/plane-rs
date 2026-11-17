@@ -32,7 +32,7 @@ pub use adapter::{
 };
 pub use email::validate_email;
 pub use error::{ALL as ALL_AUTH_ERROR_CODES, AuthErrorCode, AuthFlowError};
-pub use password::{PasswordStrengthError, is_password_strong};
+pub use password::{is_password_strong, is_password_strong_async};
 pub use redirect::{
     PyValueError, RedirectionPath, allowed_hosts, get_safe_redirect_url, settings_allowed_hosts,
     space_redirect_url, url_has_allowed_host_and_scheme, url_has_allowed_host_and_scheme_https,
