@@ -1468,6 +1468,61 @@ independent; each domain's sets start after its own P0. At most three builds run
   - "redirect to last workspace" is dead;
   - the signup invite check is case-sensitive.
 
+### Phase 6: auth sets A, B and C (2026-11-17)
+
+- Structure: the handlers live in `plane-http-app/src/auth/`, not a new crate. Three
+  parallel sets each creating one would collide. `tests/registry.rs` allows the `auth`
+  group in `plane-http-app`.
+- Set C, OAuth (`c62cea9a7b`, merged `fc9ad829f9`):
+  - all 16 routes (365–376, 385–388);
+  - four `OAuthProvider` impls, with a 48-case claim golden from the real Python
+    provider classes;
+  - `tools/auth/fake_provider.py` and `run-oauth-scenario.sh`;
+  - scenarios: `write/auth-oauth.yaml` 55/55 DvR (full GitLab/Gitea round trips),
+    `auth-oauth-unconfigured.yaml` 8/8, `read/auth-oauth.yaml` 21/21.
+
+  Google/GitHub *success* callbacks are not end to end (that needs an HTTPS MITM; the
+  next step).
+- Set B, magic link (`d914fa145d`, merged `4955005af6`, unverified): 359–364. Six
+  scenarios (generate 24, sign-in 31, throttle 6, smtp-off 5, disabled 4, unconfigured 3)
+  clean in both directions. Shared fixes:
+  - `plane-drf`: a re-raised handler error carries no `Allow`/`X-RateLimit-*`;
+  - testkit `fixture_redis` `"encoding": "raw"`;
+  - contract plugin: `.url` on redirects, cookie-jar sync, and tests that patch
+    `AuthenticationThrottle.rate` in-process are served by Django, with the reason logged.
+- Set A, session and password (`23f3e246f8`, being integrated): 352–358 and 377–384.
+  `scenarios/auth-session.yaml` 12/12 DvR, plus eight `write/auth-session-*.yaml`
+  (155 steps). Adds `plane_auth::CsrfSlot` and `ViewCtx::csrf`. Its own contract run was
+  983 passed, 3 failed.
+- Corrections to the plan and the P0, found by the harness:
+  - Django's `update_last_login` receiver *does* run on every `login()`. A one-column
+    `last_login` UPDATE was added; B and C both found it.
+  - requests 2.33's `JSONDecodeError` is a `RequestException`, so a non-JSON provider
+    body is an error redirect, not a 500.
+  - change/set-password re-login flushes the session (its key **changes**).
+  - `@invalidate_cache` runs *before* the view.
+- Integration: B and C merged cleanly; their duplicate `last_login` statement was
+  deduped. A conflicts in 7 files, with semantic duplicates:
+  - three `get_redirection_path` helpers;
+  - two profile `get_or_create` helpers;
+  - CSRF cookie writes that should use A's `CsrfSlot`;
+  - the contract-plugin features twice.
+
+  An integration agent is consolidating them in `rs/auth-merge`. Routes are flipped only
+  after its full verification.
+- Contract with B+C on Rust: 981 passed, 5 failed. New: `test_without_data` and
+  `test_email_validity`. Over HTTP, Django answers an uncaught `ValidationError` 500
+  (`views/app/magic.py:51-53`), which Rust reproduces; the tests only pass in-process.
+- Upstream bugs kept:
+  - magic-generate's invalid email is a 500 (unlike `/email-check/`);
+  - space reset 500s on a bad uidb64;
+  - the app reset's `EXPIRED_PASSWORD_TOKEN` branch is dead;
+  - space reset URLs double the slash;
+  - app Gitea lands on `/onboarding` (an unvalidated slug through `urljoin`);
+  - forgot-password does an exact email lookup.
+- Incident: set B once ran `pkill -f target/debug/plane-api`. Set A reports no run was
+  affected. Briefs already require kill-by-PID; noted again.
+
 ### Phase 5 exit (2026-11-17)
 
 **Every app-surface (`/api/` minus v1/public/instances) write route is on Rust.**
