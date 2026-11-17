@@ -88,8 +88,8 @@ They were produced by counting `path()` calls, which is not the same as counting
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
 | 0 | `/api/workspaces/{slug}/analytics/` | GET | `plane.app.views.analytic.base.AnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
-| 1 | `/api/workspaces/{slug}/analytic-view/` | GET:list, POST:create | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | rust(GET) | verified |
-| 2 | `/api/workspaces/{slug}/analytic-view/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | rust(GET) | verified |
+| 1 | `/api/workspaces/{slug}/analytic-view/` | GET:list, POST:create | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | rust(GET,POST) | verified |
+| 2 | `/api/workspaces/{slug}/analytic-view/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.app.views.analytic.base.AnalyticViewViewset` | WorkSpaceAdminPermission | rust(GET,PATCH,DELETE) | verified |
 | 3 | `/api/workspaces/{slug}/saved-analytic-view/{analytic_id}/` | GET | `plane.app.views.analytic.base.SavedAnalyticEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER;WORKSPACE) | rust(GET) | verified |
 | 4 | `/api/workspaces/{slug}/export-analytics/` | POST | `plane.app.views.analytic.base.ExportAnalyticsEndpoint` | IsAuthenticated; POST allow(ADMIN,MEMBER;WORKSPACE) | django | not-started |
 | 5 | `/api/workspaces/{slug}/default-analytics/` | GET | `plane.app.views.analytic.base.DefaultAnalyticsEndpoint` | IsAuthenticated; GET allow(ADMIN,MEMBER,GUEST;WORKSPACE) | rust(GET) | verified |

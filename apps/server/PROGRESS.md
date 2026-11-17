@@ -1246,8 +1246,16 @@ independent; each domain's sets start after its own P0. At most three builds run
     - the collection DELETEs are `KeyError` 400s.
 - **The assets domain is fully on Rust** (13–30), with the attachment rows 76–79 whole.
 
-Running: `users/me` A, workspace-core A, analytics A. Queued: workspace-core B/C,
-analytics B/C; then ai-assistant (51/52) and the held 34/75/82/107 methods (unplanned).
+- Analytics A (merged `d4e0477fa8`, flipped with this entry): 1 `rust(GET,POST)`, 2
+  `rust(GET,PATCH,DELETE)`. `write/analytic-views.yaml` 58/58 in both directions; 1044
+  tests.
+  - Upstream quirks kept: PATCH always stores `query = {}` (the `query_data` typo);
+    writable `deleted_at` can soft-delete without the cascade publish; PATCH keeps a
+    body's `created_by`; `WorkSpaceAdminPermission` admits members.
+  - Plan correction: a 256-char name is a 400, not a 500.
+
+Running: `users/me` A, workspace-core A, analytics B (233). Queued: workspace-core B/C,
+analytics C; then ai-assistant (51/52) and the held 34/75/82/107 methods (unplanned).
 Queued: workspace-core P0 (after `users/me` P0, to reuse its session/cache pieces), the
 analytics P0, assets A/B/C, then each domain's sets.
 
