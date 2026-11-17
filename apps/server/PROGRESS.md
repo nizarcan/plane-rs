@@ -1523,6 +1523,46 @@ independent; each domain's sets start after its own P0. At most three builds run
 - Incident: set B once ran `pkill -f target/debug/plane-api`. Set A reports no run was
   affected. Briefs already require kill-by-PID; noted again.
 
+### Phase 6: auth routes on Rust (2026-11-17)
+
+- Integration (merged `6601764857`): the conflicts with set A were resolved and the
+  duplicates consolidated, one copy each:
+  - `update_last_login`;
+  - the `plane-drf` re-raised-error header fix;
+  - `get_redirection_path` (`auth::support::redirection_path`);
+  - profile `get_or_create` (`auth_flow::profile_for_user`);
+  - `base_host`, `request.POST`, `@throttle_auth_redirect`, the redirect builders;
+  - the contract plugin's `.url`, cookie sync and in-process-patch detector.
+
+  All three sets' CSRF cookie writes go through A's `plane_auth::CsrfSlot`. A new OAuth
+  step pins one `Set-Cookie: csrftoken` for a malformed incoming cookie; C's local write
+  had emitted two.
+- Verified on `6601764857`:
+  - 1183 tests, testkit 184; schema_check (http-app, auth);
+  - **every read + write scenario plus `auth-session.yaml`: 110 files, 5253 steps clean**;
+    `auth-oauth.yaml` 57/57 through the fake provider;
+  - contract (`--assume-rust` for 352–364 and 377–384) **983 passed, 3 failed**.
+- **New contract baseline: 3 failures**, all in-process mocks:
+  - 2 `test_legacy_file_asset_post_readonly_app`;
+  - 1 `test_workspace_app.py::test_create_workspace_valid_data`.
+
+  Tests that patch Django in-process are served by Django, with the reason printed in
+  the run report:
+  - 9 `TestAuthenticationThrottle`;
+  - 3 `test_password_strength_input_bound_app`;
+  - 2 magic-generate `ValidationError`-propagation tests;
+  - the 3 email-change tests;
+  - the pre-existing `S3Storage`-mock list.
+- **Flipped with this entry, 33 of 37 `/auth/` rows**: 352–357, 359–364, 377–384
+  `rust(POST)`; 358, 365, 367, 369, 371, 373–376, 385–388 `rust(GET)`. **Held on
+  Django: 366, 368, 370, 372** (the Google/GitHub callbacks). Their success path has only
+  the claim golden; they flip after an HTTPS-intercept fake provider covers them end to
+  end.
+- Phase 6 left:
+  1. the Google/GitHub intercept test, then flip 366/368/370/372;
+  2. the exit check: every flow walked in a browser against the mixed backend (dev proxy
+     `127.0.0.1:18080`).
+
 ### Phase 5 exit (2026-11-17)
 
 **Every app-surface (`/api/` minus v1/public/instances) write route is on Rust.**
@@ -1567,12 +1607,8 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      only a "starting" log line. The broker connection was not confirmed, so re-check
      with `rabbitmqctl list_connections` during the idle window at the final benchmark.
      The Celery comparison is cross-environment (native macOS RSS) and only indicative.
-2. Phase 6 (auth flows): plan committed (`plans/AUTH_FLOWS.md`, with an orchestrator
-   revision). P0 first (possibly split P0a/P0b), then A session, B magic, C OAuth; plus a
-   small contract-runner fix (`EMAIL_HOST`, default Redis DB off 1). The plan explains the
-   15 magic-link contract failures: `/magic-generate/` answers 400 `SMTP_NOT_CONFIGURED`
-   because the runner's environment has no `EMAIL_HOST`. Builds start once the benchmark
-   re-measure has finished, so they don't load the measurement. The exit check is a
-   browser walk-through against the mixed backend.
+2. Phase 6 (auth flows): 33/37 routes on Rust. Left: the Google/GitHub callback intercept
+   test (then flip 366/368/370/372), and the browser walk-through of every flow against
+   the mixed backend (the exit check).
 3. Phase 7 (v1/public/instances), planned the same way; then the final benchmark and the
    environment revert (see "In flight").

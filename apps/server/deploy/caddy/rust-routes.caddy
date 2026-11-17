@@ -89,9 +89,9 @@
 # | stickies | `PLANE_RS_GROUP_STICKIES` | 2 | 9 | yes |
 # | webhooks | `PLANE_RS_GROUP_WEBHOOKS` | 4 | 17 | yes |
 # | ai | `PLANE_RS_GROUP_AI` | 2 | 4 | yes |
-# | auth-session | `PLANE_RS_GROUP_AUTH_SESSION` | 15 | 31 | no |
-# | auth-magic | `PLANE_RS_GROUP_AUTH_MAGIC` | 6 | 12 | no |
-# | auth-oauth | `PLANE_RS_GROUP_AUTH_OAUTH` | 16 | 48 | no |
+# | auth-session | `PLANE_RS_GROUP_AUTH_SESSION` | 15 | 31 | yes |
+# | auth-magic | `PLANE_RS_GROUP_AUTH_MAGIC` | 6 | 12 | yes |
+# | auth-oauth | `PLANE_RS_GROUP_AUTH_OAUTH` | 16 | 48 | yes |
 # | v1 | `PLANE_RS_GROUP_V1` | 79 | 297 | no |
 # | public | `PLANE_RS_GROUP_PUBLIC` | 25 | 88 | no |
 # | instances | `PLANE_RS_GROUP_INSTANCES` | 14 | 43 | no |
@@ -488,5 +488,54 @@ handle @plane_rs_webhooks {
 	CEL
 }
 handle @plane_rs_ai {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# auth-session: Sign in, sign up, sign out, CSRF, email check and password management.
+# 15 route(s), 31 endpoint x method pair(s); PLANE_RS_GROUP_AUTH_SESSION=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_auth_session {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_AUTH_SESSION} == "" ? "rust" : {env.PLANE_RS_GROUP_AUTH_SESSION}) == "rust"
+		&& (
+			(method("POST") && (path_regexp(r"^/auth/sign-in/$") || path_regexp(r"^/auth/sign-up/$") || path_regexp(r"^/auth/spaces/sign-in/$") || path_regexp(r"^/auth/spaces/sign-up/$") || path_regexp(r"^/auth/sign-out/$") || path_regexp(r"^/auth/spaces/sign-out/$") || path_regexp(r"^/auth/email-check/$") || path_regexp(r"^/auth/spaces/email-check/$") || path_regexp(r"^/auth/forgot-password/$") || path_regexp(r"^/auth/reset-password/[^/]+/[^/]+/$") || path_regexp(r"^/auth/spaces/forgot-password/$") || path_regexp(r"^/auth/spaces/reset-password/[^/]+/[^/]+/$") || path_regexp(r"^/auth/change-password/$") || path_regexp(r"^/auth/set-password/$")))
+			|| 			(method("GET") && (path_regexp(r"^/auth/get-csrf-token/$")))
+		)
+	CEL
+}
+handle @plane_rs_auth_session {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# auth-magic: Magic-link sign in, sign up and link generation, app and space.
+# 6 route(s), 12 endpoint x method pair(s); PLANE_RS_GROUP_AUTH_MAGIC=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_auth_magic {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_AUTH_MAGIC} == "" ? "rust" : {env.PLANE_RS_GROUP_AUTH_MAGIC}) == "rust"
+		&& (
+			(method("POST") && (path_regexp(r"^/auth/magic-generate/$") || path_regexp(r"^/auth/magic-sign-in/$") || path_regexp(r"^/auth/magic-sign-up/$") || path_regexp(r"^/auth/spaces/magic-generate/$") || path_regexp(r"^/auth/spaces/magic-sign-in/$") || path_regexp(r"^/auth/spaces/magic-sign-up/$")))
+		)
+	CEL
+}
+handle @plane_rs_auth_magic {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# auth-oauth: OAuth and OIDC sign in for Google, GitHub, GitLab and Gitea.
+# 16 route(s), 48 endpoint x method pair(s); PLANE_RS_GROUP_AUTH_OAUTH=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_auth_oauth {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_AUTH_OAUTH} == "" ? "rust" : {env.PLANE_RS_GROUP_AUTH_OAUTH}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/auth/google/$") || path_regexp(r"^/auth/spaces/google/$") || path_regexp(r"^/auth/github/$") || path_regexp(r"^/auth/spaces/github/$") || path_regexp(r"^/auth/gitlab/$") || path_regexp(r"^/auth/gitlab/callback/$") || path_regexp(r"^/auth/spaces/gitlab/$") || path_regexp(r"^/auth/spaces/gitlab/callback/$") || path_regexp(r"^/auth/gitea/$") || path_regexp(r"^/auth/gitea/callback/$") || path_regexp(r"^/auth/spaces/gitea/$") || path_regexp(r"^/auth/spaces/gitea/callback/$")))
+		)
+	CEL
+}
+handle @plane_rs_auth_oauth {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }
