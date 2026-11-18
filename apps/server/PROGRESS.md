@@ -1744,12 +1744,28 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      - Follow-ups: the `background_color` shape rule fires inside JSON-Schema
        `properties` (blocks JSON renderings in scenarios); `OPTIONS /api/schema/` renders
        JSON where Django renders YAML; testkit can't gunzip an empty gzip HEAD body.
-   - v1 set D session 1 committed on its branch (`486cf19590`, not merged): the lxml
-     normaliser (70/70 + 720/720 recorded cases) and search (315/327, not yet
-     scenario-verified). Session 2 running.
+   - **Public set A (reads) merged (`fe8dedcf0e`).** Every GET of 234–256: agent DvR
+     `read/public.yaml` 68/68, new `read/public-extra.yaml` 29/29 (page board,
+     mismatched-identity board, flags-off board); schema_check 736 statements; contract
+     (`--assume-rust 234–256 --methods GET`) 986 passed / 0 failed.
+     - **Row 248 GET must not flip yet**: `sub_group_by` and the m2m group fields
+       (`labels__id`, `assignees__id`, `issue_module__module_id`) and `state__group`
+       answer an explicit not-implemented 500 (their paginator variants,
+       `paginator.py:334-389,567-632`, aren't ported). Everything else on 248 is
+       verified.
+     - Upstream kept: #237/#255 always 500, #241/#245 always `[]`, #238 repeats each
+       reaction once per vote with the voter's avatar, 248 uses `entity_identifier` as
+       the project, 236 omits `sub_issues_count`.
+     - Merge conflict with P0b in `plane-http-app` `lib.rs`/`tests/registry.rs`
+       resolved as the union (groups `app|auth|public|schema`).
+   - v1 set D on its branch (not merged): `486cf19590` (lxml normaliser, search),
+     `a829f0f945` (v1 `IssueSerializer`; every GET of 315–339, POST 317/329,
+     PATCH/DELETE 318/330 DvR-clean; table generator `lxml_html_tables.py --check`).
+     Its read evidence was run from `/tmp` files; session 3 makes them tracked
+     scenarios, then ports the sub-resource writes.
 
-   Running: v1 set D session 2 (`rs/v1-d`, ports 18010/18110, Redis 3/4), public set A
-   (`rs/pub-a`, 18020/18120, Redis 5/6), instances set C (`rs/inst-c`, 18030/18130,
+   Running: v1 set D session 3 (`rs/v1-d`, ports 18010/18110, Redis 3/4), public set B
+   (`rs/pub-b`, 18020/18120, Redis 5/6), instances set C (`rs/inst-c`, 18030/18130,
    Redis 7/8, SMTP 18410–18419); the orchestrator's verification of `fef26adcb9`. Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
