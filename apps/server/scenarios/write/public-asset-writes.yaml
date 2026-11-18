@@ -1,0 +1,474 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Public asset writes, routes 255-258 (`plans/PUBLIC_INSTANCES.md` set B):
+#
+#   POST/PATCH/DELETE /api/public/assets/v2/anchor/{anchor}/                     (255)
+#   POST/PATCH/DELETE /api/public/assets/v2/anchor/{anchor}/{pk}/                (256)
+#   POST              /api/public/assets/v2/anchor/{anchor}/restore/{pk}/        (257)
+#   POST              /api/public/assets/v2/anchor/{anchor}/{entity_id}/bulk/    (258)
+#
+# Uses `public-writes-fixture.sql`, which adds a member-owned
+# `COMMENT_DESCRIPTION` asset bound to the member's own EXTERNAL comment
+# (`b2000000-…0011`) and a soft-deleted one (`b2000000-…0012`). The Alpha
+# fixture's own comment image (`f5dbcf9e`) belongs to the admin.
+#
+# `storage_metadata` is `{}` on every fixture asset, so a PATCH publishes
+# `get_asset_object_metadata`; the presigned POST fields are normalised by
+# `scenarios/normalize.yaml` (`policy`, `x-amz-signature`, `x-amz-date`,
+# `x-amz-credential`, `key`).
+
+name: write-public-asset-writes
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/public-writes-fixture.sql"
+  anchor_alpha: "fixture-anchor-alpha"
+  anchor_beta: "fixture-anchor-beta"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  comment_member: "d8fa6287-ddd7-4303-b743-02986ecbac94"
+  comment_guest: "eaacf1d0-6afc-4972-b0b6-649452ffd341"
+  asset_admin_comment: "f5dbcf9e-5373-4f44-a51c-a50b8a0395a5"
+  asset_admin_issue_description: "666a24d5-adf9-4b02-8c5c-ce1440ac11e9"
+  asset_member: "b2000000-0000-4000-8000-000000000011"
+  asset_member_deleted: "b2000000-0000-4000-8000-000000000012"
+  unknown_uuid: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # -------------------------------------------------------------------------
+  # 255 POST — the upload
+  # -------------------------------------------------------------------------
+
+  # The unbound upload (`entity_identifier` "") keeps `comment_id` NULL; the
+  # clamped size lands in both `attributes["size"]` and `size`.
+  - name: pa-01-upload-unbound
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "public-shot.png", "type": "image/png", "size": 2048, "entity_type": "COMMENT_DESCRIPTION", "entity_identifier": ""}
+    expect_status: 200
+
+  # The member's own EXTERNAL comment: the upload binds to it.
+  - name: pa-02-upload-bound-own-comment
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "bound.png", "type": "image/webp", "size": 512, "entity_type": "COMMENT_DESCRIPTION", "entity_identifier": "{{comment_member}}"}
+    expect_status: 200
+
+  # Somebody else's comment on the same board is a 404, not a 403.
+  - name: pa-03-upload-foreign-comment
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "foreign.png", "type": "image/png", "size": 512, "entity_type": "COMMENT_DESCRIPTION", "entity_identifier": "{{comment_guest}}"}
+    expect_status: 404
+
+  # An INTERNAL comment is outside `_is_own_board_comment` even for its author
+  # (the admin owns `2ae9869b-…`); the guest's EXTERNAL comment is not the
+  # admin's.
+  - name: pa-04-upload-admin-foreign-comment
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"name": "admin.png", "type": "image/png", "size": 512, "entity_type": "COMMENT_DESCRIPTION", "entity_identifier": "{{comment_guest}}"}
+    expect_status: 404
+
+  - name: pa-05-upload-missing-entity-type
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "no-entity.png", "type": "image/png", "size": 512}
+    expect_status: 400
+
+  - name: pa-06-upload-wrong-entity-type
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "issue.png", "type": "image/png", "size": 512, "entity_type": "ISSUE_DESCRIPTION"}
+    expect_status: 400
+
+  - name: pa-07-upload-bad-mime
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "notes.txt", "type": "text/plain", "size": 512, "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 400
+
+  # `int()`'s ValueError is caught here (unlike the app routes): 400.
+  - name: pa-08-upload-bad-size
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "bad-size.png", "type": "image/png", "size": "abc", "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 400
+
+  # `int(null)` is a TypeError → the same 400.
+  - name: pa-09-upload-null-size
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "null-size.png", "type": "image/png", "size": null, "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 400
+
+  # `max(1, min(-5, limit))` → 1.
+  - name: pa-10-upload-negative-size
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "tiny.png", "type": "image/png", "size": -5, "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 200
+
+  # `min(99999999, FILE_SIZE_LIMIT)` → the limit, stored in both columns.
+  - name: pa-11-upload-huge-size
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "huge.png", "type": "image/gif", "size": 99999999, "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 200
+
+  # `sanitize_filename` strips the path and the separators.
+  - name: pa-12-upload-sanitised-name
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "../../etc/pass wd.jpg", "type": "image/jpg", "size": 10, "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 200
+
+  # POST on the single-asset route: the view takes no `pk` → TypeError → 500.
+  - name: pa-13-upload-on-detail-route
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "x.png", "type": "image/png", "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 500
+
+  - name: pa-14-upload-comments-disabled
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_beta}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "x.png", "type": "image/png", "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 400
+
+  - name: pa-15-upload-unknown-anchor
+    method: POST
+    path: "/api/public/assets/v2/anchor/does-not-exist/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"name": "x.png", "type": "image/png", "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 404
+
+  - name: pa-16-upload-anonymous
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.20
+    json: {"name": "x.png", "type": "image/png", "entity_type": "COMMENT_DESCRIPTION"}
+    expect_status: 401
+
+  # -------------------------------------------------------------------------
+  # 255/256 PATCH
+  # -------------------------------------------------------------------------
+
+  # The admin's own upload: `is_uploaded` flips, the attributes are replaced
+  # and the metadata task is published (storage_metadata is `{}`).
+  - name: pa-20-patch-own
+    method: PATCH
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_admin_comment}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"attributes": {"name": "renamed.png", "size": 4096, "type": "image/png"}}
+    expect_status: 204
+
+  # The body may omit `attributes`: the stored value stays.
+  - name: pa-21-patch-no-attributes
+    method: PATCH
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 204
+
+  # A miss is a 404, never a 403.
+  - name: pa-22-patch-foreign-asset
+    method: PATCH
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 404
+
+  # A soft-deleted asset is invisible to `FileAsset.objects`.
+  - name: pa-23-patch-soft-deleted-asset
+    method: PATCH
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_member_deleted}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 404
+
+  - name: pa-24-patch-unknown-asset
+    method: PATCH
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{unknown_uuid}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 404
+
+  # PATCH on the collection has no `pk` → TypeError → 500.
+  - name: pa-25-patch-collection
+    method: PATCH
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 500
+
+  # A non-mapping body fails `request.data.get` **after** the lookup → 500.
+  - name: pa-26-patch-list-body
+    method: PATCH
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_admin_issue_description}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '[]'
+    expect_status: 500
+
+  # -------------------------------------------------------------------------
+  # 255/256 DELETE
+  # -------------------------------------------------------------------------
+
+  - name: pa-30-delete-own
+    method: DELETE
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: pa-31-delete-again
+    method: DELETE
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: pa-32-delete-foreign
+    method: DELETE
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{asset_admin_comment}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: pa-33-delete-collection
+    method: DELETE
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 500
+
+  - name: pa-34-delete-comments-disabled
+    method: DELETE
+    path: "/api/public/assets/v2/anchor/{{anchor_beta}}/{{asset_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # -------------------------------------------------------------------------
+  # 257 restore
+  # -------------------------------------------------------------------------
+
+  # The soft-deleted fixture row is found through `FileAsset.all_objects`.
+  - name: pa-40-restore-soft-deleted
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/restore/{{asset_member_deleted}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  # Restoring the asset deleted in pa-30.
+  - name: pa-41-restore-just-deleted
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/restore/{{asset_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: pa-42-restore-foreign
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/restore/{{asset_admin_comment}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  - name: pa-43-restore-unknown
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/restore/{{unknown_uuid}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # -------------------------------------------------------------------------
+  # 258 bulk rebind
+  # -------------------------------------------------------------------------
+
+  # The member's own comment + their own comment image: one UPDATE.
+  - name: pa-50-bulk-ok
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{comment_member}}/bulk/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"asset_ids": ["{{asset_member_deleted}}"]}
+    expect_status: 204
+
+  # The admin's asset is not the member's → nothing resolves → 404.
+  - name: pa-51-bulk-foreign-asset
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{comment_member}}/bulk/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"asset_ids": ["{{asset_admin_issue_description}}"]}
+    expect_status: 404
+
+  # The admin owns no EXTERNAL comment on this board.
+  - name: pa-52-bulk-foreign-comment
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{comment_guest}}/bulk/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"asset_ids": ["{{asset_admin_comment}}"]}
+    expect_status: 404
+
+  - name: pa-53-bulk-empty
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{comment_member}}/bulk/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"asset_ids": []}
+    expect_status: 400
+
+  - name: pa-54-bulk-comments-disabled
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_beta}}/{{comment_member}}/bulk/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"asset_ids": ["{{asset_member}}"]}
+    expect_status: 400
+
+  # An invalid UUID in `id__in` is Django's ValidationError → 400
+  # `{"error": "Please provide valid detail"}`.
+  - name: pa-55-bulk-bad-uuid
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{comment_member}}/bulk/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"asset_ids": ["not-a-uuid"]}
+    expect_status: 400
+
+  # A string `asset_ids` is iterated per character by `id__in`, and each
+  # character fails UUID parsing → the same 400.
+  - name: pa-56-bulk-non-list
+    method: POST
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/{{comment_member}}/bulk/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"asset_ids": "x"}
+    expect_status: 400

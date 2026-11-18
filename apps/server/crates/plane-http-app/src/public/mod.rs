@@ -28,9 +28,20 @@
 //! * [`issue_query`] — `ProjectIssuesPublicEndpoint` and
 //!   `IssueRetrievePublicEndpoint`.
 //!
-//! The write halves of 234-245 and 255-258 belong to set B and stay
-//! unregistered here: one Django view can serve both verbs, and the registry
-//! answers a method with no handler with the pipeline's 501.
+//! Set B adds the write verbs; each module registers them on the view that
+//! already serves the corresponding read, because one Django view can serve
+//! both:
+//!
+//! * [`intake_write`] — routes 234/235 `create` and 236
+//!   `partial_update`/`destroy` on `IntakeIssuePublicViewSet`;
+//! * [`comments_write`] — routes 239 `create` and 240
+//!   `partial_update`/`destroy` on `IssueCommentPublicViewSet`;
+//! * [`reactions_write`] — routes 241-244 on the two reaction viewsets;
+//! * [`votes_write`] — route 245's `create`/`destroy` on
+//!   `IssueVotePublicViewSet`;
+//! * [`assets_write`] — routes 255/256 `post`/`patch`/`delete`,
+//!   `AssetRestoreEndpoint.post` (257) and `EntityBulkAssetEndpoint.post`
+//!   (258).
 //!
 //! Two shared behaviours live in the runtime, not here:
 //!
@@ -51,15 +62,20 @@ use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_serializers::RenderCtx;
 
 pub mod assets_read;
+pub mod assets_write;
 pub mod board;
 pub mod board_read;
+pub mod comments_write;
 pub mod intake_read;
+pub mod intake_write;
 pub mod issue_list;
 pub mod issue_query;
 pub mod lists;
 pub mod meta;
 pub mod project;
 pub mod queries;
+pub mod reactions_write;
+pub mod votes_write;
 
 /// Register this group's handlers, in route order.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -69,6 +85,11 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     meta::register(registry)?;
     lists::register(registry)?;
     assets_read::register(registry)?;
+    assets_write::register(registry)?;
+    comments_write::register(registry)?;
+    intake_write::register(registry)?;
+    reactions_write::register(registry)?;
+    votes_write::register(registry)?;
     Ok(())
 }
 

@@ -472,8 +472,11 @@ volatile_json_keys:
     mode: placeholder_if_new
     placeholder: asset
     shape: asset_key
-    request: "POST *api/assets/*"
-    why: "presigned POST field `key` is the newly generated FileAsset.asset on every v2 upload (plane/app/views/asset/v2.py:186,406,655 and the issue-attachment upload); legacy uploads 500 before the body is built"
+    # `*api/*assets/*` also covers the public upload (`POST
+    # /api/public/assets/v2/anchor/{anchor}/`, plane/space/views/asset.py:149-166),
+    # whose asset key is the same `${workspace_id}/${uuid4().hex}-${name}`.
+    request: "POST *api/*assets/*"
+    why: "presigned POST field `key` is the newly generated FileAsset.asset on every v2 upload (plane/app/views/asset/v2.py:186,406,655, plane/space/views/asset.py:149 and the issue-attachment upload); legacy uploads 500 before the body is built"
   # The v1 issue-attachment upload builds the same key inline
   # (`plane/api/views/issue.py:2094-2096`: f"{workspace.id}/{uuid4().hex}-{name}")
   # and returns it twice: the presigned POST's `fields.key` and the

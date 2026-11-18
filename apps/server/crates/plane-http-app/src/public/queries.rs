@@ -887,6 +887,573 @@ plane_query! {
     ]
 }
 
+// ---------------------------------------------------------------------------
+// Set B: the public writes
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `ProjectMember.objects.filter(project_id=…, member=…, is_active=True)
+    /// .exists()` — the "add the user for workspace tracking" guard every
+    /// public create runs before `ProjectPublicMember.objects.get_or_create`
+    /// (`plane/space/views/issue.py:321-329`, `:442-450`, `:539-547`,
+    /// `:643-650`; `intake.py` does not run it).
+    ///
+    /// Bind order: `$1` project id, `$2` member id.
+    PUBLIC_ACTIVE_PROJECT_MEMBER = "public_active_project_member",
+    "SELECT 1 FROM project_members pm \
+     WHERE pm.deleted_at IS NULL AND pm.project_id = $1 AND pm.member_id = $2 \
+       AND pm.is_active LIMIT 1",
+    [("?column?", Int4)]
+}
+
+plane_query! {
+    /// `ProjectPublicMember.objects.get_or_create(project_id=…, member=…)`'s
+    /// lookup (`plane/db/models/project.py:370-390`): the manager filters
+    /// `deleted_at IS NULL`, the unique constraint covers the live rows.
+    ///
+    /// Bind order: `$1` project id, `$2` member id.
+    PUBLIC_PUBLIC_MEMBER_LOOKUP = "public_public_member_lookup",
+    "SELECT ppm.id FROM project_public_members ppm \
+     WHERE ppm.deleted_at IS NULL AND ppm.project_id = $1 AND ppm.member_id = $2 \
+     LIMIT 1",
+    [("id", Uuid)]
+}
+
+plane_query! {
+    /// `ProjectPublicMember.objects.get_or_create(...)`'s create branch:
+    /// `ProjectBaseModel.save` derives the workspace from the project and
+    /// `UserAuditModel.save` stamps the request user (H01).
+    ///
+    /// Bind order: created_at, updated_at, created_by, id, project, workspace,
+    /// member.
+    PUBLIC_PUBLIC_MEMBER_INSERT = "public_public_member_insert",
+    "INSERT INTO project_public_members \
+     (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id, \
+      project_id, workspace_id, member_id) \
+     VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7)",
+    []
+}
+
+// ---------------------------------------------------------------------------
+// Votes (route 245's POST/DELETE)
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `IssueVote.objects.get_or_create(actor_id=…, project_id=…,
+    /// issue_id=…)`'s lookup (`plane/space/views/issue.py:637-641`). The
+    /// soft-deletion manager supplies `deleted_at IS NULL`; the model's
+    /// `ordering = ("-created_at",)` applies to a plain `.get()` too.
+    ///
+    /// Bind order: `$1` actor id, `$2` project id, `$3` issue id.
+    PUBLIC_VOTE_FOR_ACTOR = "public_vote_for_actor",
+    "SELECT v.\"id\" FROM issue_votes v \
+     WHERE v.\"deleted_at\" IS NULL AND v.\"actor_id\" = $1 \
+       AND v.\"project_id\" = $2 AND v.\"issue_id\" = $3 \
+     ORDER BY v.\"created_at\" DESC LIMIT 1",
+    [("id", Uuid)]
+}
+
+plane_query! {
+    /// `IssueVote.objects.get_or_create(...)`'s create branch
+    /// (`plane/space/views/issue.py:637-641`): `ProjectBaseModel.save` derives
+    /// the workspace from the project and `vote` starts at the model default.
+    ///
+    /// Bind order: created_at, updated_at, created_by, id, project, workspace,
+    /// actor, issue, vote.
+    PUBLIC_VOTE_INSERT = "public_vote_insert",
+    "INSERT INTO issue_votes \
+     (created_at, updated_at, created_by_id, updated_by_id, deleted_at, id, \
+      project_id, workspace_id, actor_id, issue_id, vote) \
+     VALUES ($1, $2, $3, NULL, NULL, $4, $5, $6, $7, $8, $9)",
+    []
+}
+
+plane_query! {
+    /// `IssueVote.vote = …; issue_vote.save()` — a full-row save with H01's
+    /// `updated_by`/`updated_at`.
+    ///
+    /// Bind order: every column but the id, then the id.
+    PUBLIC_VOTE_UPDATE = "public_vote_update",
+    "UPDATE issue_votes SET created_at = $1, updated_at = $2, \
+       created_by_id = $3, updated_by_id = $4, deleted_at = $5, id = $6, \
+       project_id = $7, workspace_id = $8, actor_id = $9, issue_id = $10, \
+       vote = $11 \
+     WHERE id = $12",
+    []
+}
+
+plane_query! {
+    /// The vote row plus its actor for `IssueVoteSerializer`'s
+    /// `actor_detail` (`plane/app/serializers/issue.py:698-704`), with the
+    /// same user projection `sub_queries::ISSUE_REACTIONS` uses.
+    ///
+    /// Bind order: `$1` vote id.
+    PUBLIC_VOTE_BY_ID = "public_vote_by_id",
+    "SELECT v.\"created_at\", v.\"updated_at\", v.\"created_by_id\", \
+       v.\"updated_by_id\", v.\"deleted_at\", v.\"id\", v.\"project_id\", \
+       v.\"workspace_id\", v.\"issue_id\", v.\"actor_id\", v.\"vote\", \
+       u.id, u.first_name, u.last_name, u.avatar, u.is_bot, u.display_name, \
+       ua.id, ua.entity_type, ua.project_id, ua.issue_id, uaw.slug \
+     FROM issue_votes v \
+     LEFT JOIN users u ON (u.id = v.actor_id) \
+     LEFT JOIN file_assets ua ON (ua.id = u.avatar_asset_id) \
+     LEFT JOIN workspaces uaw ON (uaw.id = ua.workspace_id) \
+     WHERE v.\"deleted_at\" IS NULL AND v.\"id\" = $1 LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("project_id", Uuid),
+        ("workspace_id", Uuid),
+        ("issue_id", Uuid),
+        ("actor_id", Uuid),
+        ("vote", Int4),
+        ("id", Uuid),
+        ("first_name", Varchar),
+        ("last_name", Varchar),
+        ("avatar", Text),
+        ("is_bot", Bool),
+        ("display_name", Varchar),
+        ("id", Uuid),
+        ("entity_type", Varchar),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
+        ("slug", Varchar),
+    ]
+}
+
+plane_query! {
+    /// `IssueVote.objects.get(issue_id=…, actor_id=…, project_id=…,
+    /// workspace_id=…)` — the destroy lookup
+    /// (`plane/space/views/issue.py:667-672`).
+    ///
+    /// Bind order: `$1` issue id, `$2` actor id, `$3` project id,
+    /// `$4` workspace id.
+    PUBLIC_VOTE_TARGET = "public_vote_target",
+    "SELECT v.\"id\", v.\"vote\" FROM issue_votes v \
+     WHERE v.\"deleted_at\" IS NULL AND v.\"issue_id\" = $1 \
+       AND v.\"actor_id\" = $2 AND v.\"project_id\" = $3 \
+       AND v.\"workspace_id\" = $4 LIMIT 1",
+    [("id", Uuid), ("vote", Int4)]
+}
+
+// ---------------------------------------------------------------------------
+// Intake writes (routes 234-236's POST/PATCH/DELETE)
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `State.triage_objects.filter(project_id=…, workspace_id=…).first()` —
+    /// the create's triage lookup (`plane/space/views/intake.py:138-140`).
+    /// `TriageStateManager` filters `group='triage'`, the soft-deletion
+    /// manager adds `deleted_at IS NULL` and `Meta.ordering=("sequence",)`
+    /// makes `.first()` the lowest sequence.
+    ///
+    /// Bind order: `$1` project id, `$2` workspace id.
+    PUBLIC_TRIAGE_STATE = "public_triage_state",
+    "SELECT s.\"id\" FROM states s \
+     WHERE s.\"deleted_at\" IS NULL AND s.\"group\" = 'triage' \
+       AND s.\"project_id\" = $1 AND s.\"workspace_id\" = $2 \
+     ORDER BY s.\"sequence\" ASC LIMIT 1",
+    [("id", Uuid)]
+}
+
+plane_query! {
+    /// `IntakeIssue.objects.get(pk=…, workspace_id=…, project_id=…,
+    /// intake_id=…)` — the public PATCH/DELETE lookup
+    /// (`plane/space/views/intake.py:197-202`, `:280-285`).
+    ///
+    /// Bind order: `$1` pk, `$2` workspace id, `$3` project id, `$4` intake id.
+    PUBLIC_INTAKE_LINK_BY_PK = "public_intake_link_by_pk",
+    "SELECT ii.\"issue_id\", ii.\"created_by_id\" FROM intake_issues ii \
+     WHERE ii.\"deleted_at\" IS NULL AND ii.\"id\" = $1 \
+       AND ii.\"workspace_id\" = $2 AND ii.\"project_id\" = $3 \
+       AND ii.\"intake_id\" = $4 LIMIT 1",
+    [("issue_id", Uuid), ("created_by_id", Uuid)]
+}
+
+plane_query! {
+    /// `Issue.objects.get(pk=intake_issue.issue_id, workspace_id=…,
+    /// project_id=…)` on the public PATCH path
+    /// (`plane/space/views/intake.py:213-217`). `Issue.objects` is the plain
+    /// soft-deletion manager (not `issue_objects`), so a triage/archived row
+    /// resolves.
+    ///
+    /// Bind order: `$1` issue id, `$2` workspace id, `$3` project id.
+    PUBLIC_ISSUE_ROW_BY_PK = "public_issue_row_by_pk",
+    "SELECT issues.\"created_at\", issues.\"updated_at\", \
+       issues.\"created_by_id\", issues.\"updated_by_id\", \
+       issues.\"deleted_at\", issues.\"id\", issues.\"project_id\", \
+       issues.\"workspace_id\", issues.\"parent_id\", issues.\"state_id\", \
+       issues.\"point\", issues.\"estimate_point_id\", issues.\"name\", \
+       issues.\"description_json\", issues.\"description_html\", \
+       issues.\"description_stripped\", issues.\"description_binary\", \
+       issues.\"priority\", issues.\"start_date\", issues.\"target_date\", \
+       issues.\"sequence_id\", issues.\"sort_order\", issues.\"completed_at\", \
+       issues.\"archived_at\", issues.\"is_draft\", \
+       issues.\"external_source\", issues.\"external_id\", issues.\"type_id\" \
+     FROM issues \
+     WHERE issues.\"deleted_at\" IS NULL AND issues.\"id\" = $1 \
+       AND issues.\"workspace_id\" = $2 AND issues.\"project_id\" = $3 LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("project_id", Uuid),
+        ("workspace_id", Uuid),
+        ("parent_id", Uuid),
+        ("state_id", Uuid),
+        ("point", Int4),
+        ("estimate_point_id", Uuid),
+        ("name", Varchar),
+        ("description_json", Jsonb),
+        ("description_html", Text),
+        ("description_stripped", Text),
+        ("description_binary", Bytea),
+        ("priority", Varchar),
+        ("start_date", Date),
+        ("target_date", Date),
+        ("sequence_id", Int4),
+        ("sort_order", Float8),
+        ("completed_at", Timestamptz),
+        ("archived_at", Date),
+        ("is_draft", Bool),
+        ("external_source", Varchar),
+        ("external_id", Varchar),
+        ("type_id", Uuid),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Assets (routes 255-258)
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `FileAsset.objects.filter(id=…, workspace=…, project_id=…,
+    /// created_by=request.user).first()` — the public PATCH/DELETE/bulk lookup
+    /// (`plane/space/views/asset.py:185-190`, `:212-217`, `:280-285`).
+    ///
+    /// `FileAsset.objects` is the soft-deletion manager, so a soft-deleted
+    /// asset is a miss (404 `The requested asset could not be found.`).
+    ///
+    /// Bind order: `$1` id, `$2` workspace id, `$3` project id,
+    /// `$4` created_by id.
+    PUBLIC_ASSET_FOR_USER = "public_asset_for_user",
+    "SELECT fa.\"created_at\", fa.\"updated_at\", fa.\"created_by_id\", \
+       fa.\"updated_by_id\", fa.\"deleted_at\", fa.\"id\", \
+       fa.\"attributes\", fa.\"asset\", fa.\"user_id\", fa.\"workspace_id\", \
+       fa.\"draft_issue_id\", fa.\"project_id\", fa.\"issue_id\", \
+       fa.\"comment_id\", fa.\"page_id\", fa.\"entity_type\", \
+       fa.\"entity_identifier\", fa.\"is_deleted\", fa.\"is_archived\", \
+       fa.\"external_id\", fa.\"external_source\", fa.\"size\", \
+       fa.\"is_uploaded\", fa.\"storage_metadata\" \
+     FROM file_assets fa \
+     WHERE fa.\"deleted_at\" IS NULL AND fa.\"id\" = $1 \
+       AND fa.\"workspace_id\" = $2 AND fa.\"project_id\" = $3 \
+       AND fa.\"created_by_id\" = $4 LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("attributes", Jsonb),
+        ("asset", Varchar),
+        ("user_id", Uuid),
+        ("workspace_id", Uuid),
+        ("draft_issue_id", Uuid),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
+        ("comment_id", Uuid),
+        ("page_id", Uuid),
+        ("entity_type", Varchar),
+        // `entity_identifier` is a `CharField` on `FileAsset`
+        // (`plane/db/models/asset.py:38`), unlike the `UUIDField`s around it.
+        ("entity_identifier", Varchar),
+        ("is_deleted", Bool),
+        ("is_archived", Bool),
+        ("external_id", Varchar),
+        ("external_source", Varchar),
+        ("size", Float8),
+        ("is_uploaded", Bool),
+        ("storage_metadata", Jsonb),
+    ]
+}
+
+plane_query! {
+    /// The restore lookup, through `FileAsset.all_objects`
+    /// (`plane/space/views/asset.py:239-244`): a soft-deleted row resolves.
+    ///
+    /// Bind order: `$1` id, `$2` workspace id, `$3` project id,
+    /// `$4` created_by id.
+    PUBLIC_ASSET_FOR_USER_ANY_STATE = "public_asset_for_user_any_state",
+    "SELECT fa.\"created_at\", fa.\"updated_at\", fa.\"created_by_id\", \
+       fa.\"updated_by_id\", fa.\"deleted_at\", fa.\"id\", \
+       fa.\"attributes\", fa.\"asset\", fa.\"user_id\", fa.\"workspace_id\", \
+       fa.\"draft_issue_id\", fa.\"project_id\", fa.\"issue_id\", \
+       fa.\"comment_id\", fa.\"page_id\", fa.\"entity_type\", \
+       fa.\"entity_identifier\", fa.\"is_deleted\", fa.\"is_archived\", \
+       fa.\"external_id\", fa.\"external_source\", fa.\"size\", \
+       fa.\"is_uploaded\", fa.\"storage_metadata\" \
+     FROM file_assets fa \
+     WHERE fa.\"id\" = $1 AND fa.\"workspace_id\" = $2 \
+       AND fa.\"project_id\" = $3 AND fa.\"created_by_id\" = $4 LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("attributes", Jsonb),
+        ("asset", Varchar),
+        ("user_id", Uuid),
+        ("workspace_id", Uuid),
+        ("draft_issue_id", Uuid),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
+        ("comment_id", Uuid),
+        ("page_id", Uuid),
+        ("entity_type", Varchar),
+        // `entity_identifier` is a `CharField` on `FileAsset`
+        // (`plane/db/models/asset.py:38`), unlike the `UUIDField`s around it.
+        ("entity_identifier", Varchar),
+        ("is_deleted", Bool),
+        ("is_archived", Bool),
+        ("external_id", Varchar),
+        ("external_source", Varchar),
+        ("size", Float8),
+        ("is_uploaded", Bool),
+        ("storage_metadata", Jsonb),
+    ]
+}
+
+plane_query! {
+    /// `asset.save(update_fields=["attributes", "is_uploaded"])`
+    /// (`plane/space/views/asset.py:202`) — a two-column update: no
+    /// `updated_at`, no audit.
+    ///
+    /// Bind order: `$1` attributes, `$2` is_uploaded, `$3` id.
+    PUBLIC_ASSET_UPDATE_UPLOAD = "public_asset_update_upload",
+    "UPDATE file_assets SET attributes = $1, is_uploaded = $2 WHERE id = $3",
+    []
+}
+
+plane_query! {
+    /// `asset.is_deleted = True; asset.deleted_at = timezone.now();
+    /// asset.save(update_fields=["is_deleted", "deleted_at"])`
+    /// (`plane/space/views/asset.py:221-224`).
+    ///
+    /// Bind order: `$1` deleted_at, `$2` id.
+    PUBLIC_ASSET_DELETE = "public_asset_delete",
+    "UPDATE file_assets SET is_deleted = true, deleted_at = $1 WHERE id = $2",
+    []
+}
+
+plane_query! {
+    /// `asset.is_deleted = False; asset.deleted_at = None;
+    /// asset.save(update_fields=["is_deleted", "deleted_at"])`
+    /// (`plane/space/views/asset.py:247-249`).
+    ///
+    /// Bind order: `$1` id.
+    PUBLIC_ASSET_RESTORE = "public_asset_restore",
+    "UPDATE file_assets SET is_deleted = false, deleted_at = NULL WHERE id = $1",
+    []
+}
+
+plane_query! {
+    /// `FileAsset.objects.filter(id__in=asset_ids, workspace=…,
+    /// project_id=…, created_by=…).first()` — the bulk route's existence check
+    /// (`plane/space/views/asset.py:280-294`).
+    ///
+    /// Bind order: `$1` ids, `$2` workspace id, `$3` project id,
+    /// `$4` created_by id.
+    PUBLIC_ASSET_PICK_FOR_USER = "public_asset_pick_for_user",
+    "SELECT fa.\"id\" FROM file_assets fa \
+     WHERE fa.\"deleted_at\" IS NULL AND fa.\"id\" = ANY($1::uuid[]) \
+       AND fa.\"workspace_id\" = $2 AND fa.\"project_id\" = $3 \
+       AND fa.\"created_by_id\" = $4 \
+     ORDER BY fa.\"created_at\" DESC LIMIT 1",
+    [("id", Uuid)]
+}
+
+plane_query! {
+    /// `assets.filter(entity_type=COMMENT_DESCRIPTION,
+    /// created_by=request.user).update(comment_id=entity_id)`
+    /// (`plane/space/views/asset.py:297-300`) — one UPDATE over the caller's
+    /// comment-description assets among the requested ids.
+    ///
+    /// Bind order: `$1` comment id, `$2` ids, `$3` workspace id,
+    /// `$4` project id, `$5` created_by id.
+    PUBLIC_ASSET_REBIND = "public_asset_rebind",
+    "UPDATE file_assets SET comment_id = $1 \
+     WHERE file_assets.\"deleted_at\" IS NULL \
+       AND file_assets.\"id\" = ANY($2::uuid[]) \
+       AND file_assets.\"workspace_id\" = $3 \
+       AND file_assets.\"project_id\" = $4 \
+       AND file_assets.\"created_by_id\" = $5 \
+       AND file_assets.\"entity_type\" = 'COMMENT_DESCRIPTION'",
+    []
+}
+
+// ---------------------------------------------------------------------------
+// Comments (routes 239/240's POST/PATCH/DELETE)
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `IssueComment.objects.get(pk=…, issue_id=…, project_id=…,
+    /// workspace_id=…, access="EXTERNAL", actor=request.user)` — the public
+    /// PATCH/DELETE lookup (`plane/space/views/issue.py:343-350`, `:377-384`).
+    ///
+    /// The projection is the app comment view's
+    /// (`issues::write_comment_queries::COMMENT_ROW_BY_ID`), which is what
+    /// `CommentRow::from_row` decodes: the 20 comment columns, the `IssueFlat`
+    /// block, the `ProjectLite` block (+ its cover asset), the `WorkspaceLite`
+    /// block (+ its logo asset) and the `UserLite` block (+ its avatar asset).
+    ///
+    /// Bind order: `$1` pk, `$2` workspace id, `$3` project id, `$4` issue id,
+    /// `$5` actor id.
+    PUBLIC_COMMENT_ROW_BY_ID = "public_comment_row_by_id",
+    "SELECT c.created_at, c.updated_at, c.created_by_id, c.updated_by_id, \
+       c.deleted_at, c.id, c.project_id, c.workspace_id, c.comment_stripped, \
+       c.comment_json, c.comment_html, c.description_id, c.attachments, \
+       c.issue_id, c.actor_id, c.access, c.external_source, c.external_id, \
+       c.edited_at, c.parent_id, \
+       i.id, i.name, i.description_json, i.description_html, i.priority, \
+       i.start_date, i.target_date, i.sequence_id, i.sort_order, i.is_draft, \
+       pj.id, pj.identifier, pj.name, pj.cover_image, pj.logo_props, \
+       pj.description, \
+       pca.id, pca.entity_type, pca.project_id, pca.issue_id, pcaw.slug, \
+       w.name, w.slug, w.id, w.logo, \
+       wla.id, wla.entity_type, wla.project_id, wla.issue_id, wlaw.slug, \
+       u.id, u.first_name, u.last_name, u.avatar, u.is_bot, u.display_name, \
+       ua.id, ua.entity_type, ua.project_id, ua.issue_id, uaw.slug \
+     FROM issue_comments c \
+     INNER JOIN issues i ON (i.id = c.issue_id) \
+     INNER JOIN projects pj ON (pj.id = c.project_id) \
+     INNER JOIN workspaces w ON (w.id = c.workspace_id) \
+     LEFT JOIN file_assets pca ON (pca.id = pj.cover_image_asset_id) \
+     LEFT JOIN workspaces pcaw ON (pcaw.id = pca.workspace_id) \
+     LEFT JOIN file_assets wla ON (wla.id = w.logo_asset_id) \
+     LEFT JOIN workspaces wlaw ON (wlaw.id = wla.workspace_id) \
+     LEFT JOIN users u ON (u.id = c.actor_id) \
+     LEFT JOIN file_assets ua ON (ua.id = u.avatar_asset_id) \
+     LEFT JOIN workspaces uaw ON (uaw.id = ua.workspace_id) \
+     WHERE c.deleted_at IS NULL AND c.id = $1 AND c.workspace_id = $2 \
+       AND c.project_id = $3 AND c.issue_id = $4 AND c.access = 'EXTERNAL' \
+       AND c.actor_id = $5 LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("project_id", Uuid),
+        ("workspace_id", Uuid),
+        ("comment_stripped", Text),
+        ("comment_json", Jsonb),
+        ("comment_html", Text),
+        ("description_id", Uuid),
+        ("attachments", ArrayOf(Varchar)),
+        ("issue_id", Uuid),
+        ("actor_id", Uuid),
+        ("access", Varchar),
+        ("external_source", Varchar),
+        ("external_id", Varchar),
+        ("edited_at", Timestamptz),
+        ("parent_id", Uuid),
+        ("id", Uuid),
+        ("name", Varchar),
+        ("description_json", Jsonb),
+        ("description_html", Text),
+        ("priority", Varchar),
+        ("start_date", Date),
+        ("target_date", Date),
+        ("sequence_id", Int4),
+        ("sort_order", Float8),
+        ("is_draft", Bool),
+        ("id", Uuid),
+        ("identifier", Varchar),
+        ("name", Varchar),
+        ("cover_image", Text),
+        ("logo_props", Jsonb),
+        ("description", Text),
+        ("id", Uuid),
+        ("entity_type", Varchar),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
+        ("slug", Varchar),
+        ("name", Varchar),
+        ("slug", Varchar),
+        ("id", Uuid),
+        ("logo", Text),
+        ("id", Uuid),
+        ("entity_type", Varchar),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
+        ("slug", Varchar),
+        ("id", Uuid),
+        ("first_name", Varchar),
+        ("last_name", Varchar),
+        ("avatar", Text),
+        ("is_bot", Bool),
+        ("display_name", Varchar),
+        ("id", Uuid),
+        ("entity_type", Varchar),
+        ("project_id", Uuid),
+        ("issue_id", Uuid),
+        ("slug", Varchar),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Reactions (routes 241-244's POST/DELETE)
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `IssueReaction.objects.get(workspace_id=…, project_id=…, issue_id=…,
+    /// reaction=…, actor=…)` — the public destroy lookup
+    /// (`plane/space/views/issue.py:474-480`). The app route joins
+    /// `workspaces` by slug; this URL has no slug, so the board's id is bound
+    /// directly.
+    ///
+    /// Bind order: `$1` workspace id, `$2` project id, `$3` issue id,
+    /// `$4` reaction, `$5` actor id.
+    PUBLIC_ISSUE_REACTION_TARGET = "public_issue_reaction_target",
+    "SELECT r.\"id\", r.\"reaction\" FROM issue_reactions r \
+     WHERE r.\"deleted_at\" IS NULL AND r.\"workspace_id\" = $1 \
+       AND r.\"project_id\" = $2 AND r.\"issue_id\" = $3 \
+       AND r.\"reaction\" = $4 AND r.\"actor_id\" = $5 LIMIT 1",
+    [("id", Uuid), ("reaction", Text)]
+}
+
+plane_query! {
+    /// `CommentReaction.objects.get(project_id=…, workspace_id=…,
+    /// comment_id=…, comment__access="EXTERNAL", reaction=…, actor=…)` — the
+    /// public destroy lookup (`plane/space/views/issue.py:576-583`). The
+    /// `comment__access` filter is a plain INNER JOIN: Django does not apply
+    /// `IssueComment`'s soft-deletion manager to a related lookup, so a
+    /// soft-deleted comment still satisfies it.
+    ///
+    /// Bind order: `$1` project id, `$2` workspace id, `$3` comment id,
+    /// `$4` reaction, `$5` actor id.
+    PUBLIC_COMMENT_REACTION_TARGET = "public_comment_reaction_target",
+    "SELECT r.\"id\", r.\"reaction\" FROM comment_reactions r \
+     INNER JOIN issue_comments c ON c.\"id\" = r.\"comment_id\" \
+     WHERE r.\"deleted_at\" IS NULL AND r.\"project_id\" = $1 \
+       AND r.\"workspace_id\" = $2 AND r.\"comment_id\" = $3 \
+       AND c.\"access\" = 'EXTERNAL' AND r.\"reaction\" = $4 \
+       AND r.\"actor_id\" = $5 LIMIT 1",
+    [("id", Uuid), ("reaction", Text)]
+}
+
 /// Every statement in this catalog, for `tests/schema_check.rs`.
 pub const ALL_QUERIES: &[&Query] = &[
     &PUBLISHED_BOARD_BY_ANCHOR,
@@ -913,6 +1480,27 @@ pub const ALL_QUERIES: &[&Query] = &[
     &PUBLIC_INTAKE_LABELS,
     &PUBLIC_INTAKE_ASSIGNEES,
     &PUBLIC_INTAKE_LINKS,
+    &PUBLIC_ACTIVE_PROJECT_MEMBER,
+    &PUBLIC_PUBLIC_MEMBER_LOOKUP,
+    &PUBLIC_PUBLIC_MEMBER_INSERT,
+    &PUBLIC_VOTE_FOR_ACTOR,
+    &PUBLIC_VOTE_INSERT,
+    &PUBLIC_VOTE_UPDATE,
+    &PUBLIC_VOTE_BY_ID,
+    &PUBLIC_VOTE_TARGET,
+    &PUBLIC_ISSUE_REACTION_TARGET,
+    &PUBLIC_COMMENT_REACTION_TARGET,
+    &PUBLIC_COMMENT_ROW_BY_ID,
+    &PUBLIC_TRIAGE_STATE,
+    &PUBLIC_INTAKE_LINK_BY_PK,
+    &PUBLIC_ISSUE_ROW_BY_PK,
+    &PUBLIC_ASSET_FOR_USER,
+    &PUBLIC_ASSET_FOR_USER_ANY_STATE,
+    &PUBLIC_ASSET_UPDATE_UPLOAD,
+    &PUBLIC_ASSET_DELETE,
+    &PUBLIC_ASSET_RESTORE,
+    &PUBLIC_ASSET_PICK_FOR_USER,
+    &PUBLIC_ASSET_REBIND,
 ];
 
 #[cfg(test)]

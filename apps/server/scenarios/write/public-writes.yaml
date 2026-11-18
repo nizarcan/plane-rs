@@ -1,0 +1,812 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Public-board writes, routes 234-236 and 239-245 (`plans/PUBLIC_INSTANCES.md`
+# set B):
+#
+#   POST   /api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/          (234)
+#   POST   /api/public/anchor/{anchor}/intakes/{intake_id}/inbox-issues/           (235)
+#   PATCH  /api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/{pk}/     (236)
+#   DELETE /api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/{pk}/     (236)
+#   POST   /api/public/anchor/{anchor}/issues/{issue_id}/comments/                  (239)
+#   PATCH  /api/public/anchor/{anchor}/issues/{issue_id}/comments/{pk}/            (240)
+#   DELETE /api/public/anchor/{anchor}/issues/{issue_id}/comments/{pk}/            (240)
+#   POST   /api/public/anchor/{anchor}/issues/{issue_id}/reactions/                (241)
+#   DELETE /api/public/anchor/{anchor}/issues/{issue_id}/reactions/{code}/         (242)
+#   POST   /api/public/anchor/{anchor}/comments/{comment_id}/reactions/            (243)
+#   DELETE /api/public/anchor/{anchor}/comments/{comment_id}/reactions/{code}/     (244)
+#   POST   /api/public/anchor/{anchor}/issues/{issue_id}/votes/                    (245)
+#   DELETE /api/public/anchor/{anchor}/issues/{issue_id}/votes/                    (245)
+#
+# Every step runs against the rich fixture's published Alpha board (all three
+# flags on, an intake, EXTERNAL comments by the guest and the member) and its
+# Beta board (all flags off, no board intake), plus `fixture-anchor-gamma`
+# from `public-writes-fixture.sql` (archived project, intake, no live triage
+# state). The `public-asset-writes.yaml` scenario covers 255-258 with the same
+# fixture file.
+#
+# The public payloads are the interest: the comment body is reduced to
+# `comment_html`/`comment_json`, reactions accept `created_by`, votes accept any
+# integer (the model's choices are not validated) and every activity uses the
+# seven base kwargs.
+
+name: write-public-writes
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/public-writes-fixture.sql"
+  anchor_alpha: "fixture-anchor-alpha"
+  anchor_beta: "fixture-anchor-beta"
+  anchor_gamma: "fixture-anchor-gamma"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  intake_alpha: "826885ac-00cd-47cd-b54a-77a52004021c"
+  intake_beta: "d32f147b-0b3c-4086-a617-2fe4ec3f4b27"
+  intake_gamma: "b2000000-0000-4000-8000-000000000001"
+  intake_issue_alpha_pending: "948e3274-b8af-4243-a428-31044e7b08e4"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_alpha_draft: "e069169e-25e6-4db6-a049-8e1141ca95d2"
+  issue_alpha_archived: "e956b8e9-1f3f-408d-98b1-b33fc15ce144"
+  issue_beta: "047fdba5-0218-4794-b8a7-3b2dcb254b96"
+  comment_member: "d8fa6287-ddd7-4303-b743-02986ecbac94"
+  comment_guest: "eaacf1d0-6afc-4972-b0b6-649452ffd341"
+  comment_admin_internal: "2ae9869b-6925-4521-9807-834d714eaef4"
+  unknown_uuid: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_member: "a7958842604943378a7445ec36f78c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_guest: "265b170d93e240ae9f69ebfe4baaa558000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  session_nonmember: "1f63a433ad114a38858866feb53deea5000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+steps:
+  # -------------------------------------------------------------------------
+  # Intake create (234/235)
+  # -------------------------------------------------------------------------
+
+  # The happy path: a triage state exists in Alpha, the description is
+  # sanitised (`nh3` keeps the `<strong>`), the issue gets the triage state and
+  # the H10/H11 columns, then the link row. 200, not 201.
+  - name: pw-01-intake-create-ok
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"issue": {"name": "Public intake one", "description_html": "<p>hello <strong>world</strong></p>", "description_json": {"type": "doc"}, "priority": "high"}}
+    expect_status: 200
+
+  # `inbox-issues/` is the same handler (one view, two patterns).
+  - name: pw-02-intake-create-inbox-alias
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/inbox-issues/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {"issue": {"name": "From the inbox alias", "priority": "urgent"}}
+    expect_status: 200
+
+  # A sanitised body: `<script>` and the event handler are stripped, the rest
+  # stays, and `description_stripped` follows the sanitised html.
+  - name: pw-03-intake-create-sanitised
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Sanitised body", "description_html": "<p>ok</p><script>alert(1)</script><img src=x onerror=alert(1)>"}}
+    expect_status: 200
+
+  - name: pw-04-intake-create-no-name
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"description_html": "<p>x</p>"}}
+    expect_status: 400
+
+  - name: pw-05-intake-create-missing-issue
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: pw-06-intake-create-bad-priority
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Bad priority", "priority": "now"}}
+    expect_status: 400
+
+  # A non-mapping `issue` is `issue.get` on a `str` → AttributeError → 500.
+  - name: pw-07-intake-create-string-issue
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": "not-an-object"}
+    expect_status: 500
+
+  # The URL intake must be the board's own: Beta's intake on Alpha's board.
+  - name: pw-08-intake-create-wrong-intake
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_beta}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Wrong intake"}}
+    expect_status: 400
+
+  # The Beta board has no `intake_id`.
+  - name: pw-09-intake-create-board-without-intake
+    method: POST
+    path: "/api/public/anchor/{{anchor_beta}}/intakes/{{intake_beta}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "No intake"}}
+    expect_status: 400
+
+  - name: pw-10-intake-create-unknown-anchor
+    method: POST
+    path: "/api/public/anchor/does-not-exist/intakes/{{intake_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Unknown anchor"}}
+    expect_status: 404
+
+  - name: pw-11-intake-create-anonymous
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: anon
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.10
+    json: {"issue": {"name": "Anonymous"}}
+    expect_status: 401
+
+  # The Gamma board has an intake and no live Triage state, so the fallback
+  # runs: H19 sets sequence 55000+15000 and `is_triage` stays false.
+  - name: pw-12-intake-create-triage-fallback
+    method: POST
+    path: "/api/public/anchor/{{anchor_gamma}}/intakes/{{intake_gamma}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Gamma public item"}}
+    expect_status: 200
+
+  # A form body's `issue` is a string, so `.get` raises → 500.
+  - name: pw-13-intake-create-form-body
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      issue: "name=form"
+    expect_status: 500
+
+  # -------------------------------------------------------------------------
+  # Intake PATCH / DELETE (236)
+  # -------------------------------------------------------------------------
+
+  - name: pw-14-intake-patch-ok
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Renamed from the public board", "description_html": "<p>edited</p>"}}
+    expect_status: 200
+
+  # The creator check: the link was created by the admin.
+  - name: pw-15-intake-patch-not-creator
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"issue": {"name": "Member rename"}}
+    expect_status: 400
+
+  # `request.data.pop("issue", False)` on a QueryDict → AttributeError → 500.
+  - name: pw-16-intake-patch-form-body
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      issue: ""
+    expect_status: 500
+
+  # A body without `issue` is `False`, and `False.get` → AttributeError → 500.
+  - name: pw-17-intake-patch-missing-issue-key
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"name": "top level"}
+    expect_status: 500
+
+  - name: pw-18-intake-patch-wrong-intake
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_beta}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Wrong intake"}}
+    expect_status: 404
+
+  - name: pw-19-intake-patch-unknown-link
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{unknown_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"name": "Missing"}}
+    expect_status: 404
+
+  # The reduction keeps only `name`/`description_html`/`description_json`, so
+  # `priority` is ignored (the issue keeps its stored value).
+  - name: pw-20-intake-patch-ignores-extra-keys
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"issue": {"priority": "urgent", "description_json": {"type": "doc", "content": []}}}
+    expect_status: 200
+
+  - name: pw-21-intake-delete-not-creator
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 400
+
+  - name: pw-22-intake-delete-ok
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: pw-23-intake-delete-again
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/intakes/{{intake_alpha}}/intake-issues/{{intake_issue_alpha_pending}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # -------------------------------------------------------------------------
+  # Comment create (239)
+  # -------------------------------------------------------------------------
+
+  # `access` is dropped by `_public_comment_content` and forced to EXTERNAL.
+  - name: pw-30-comment-create-ok
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"comment_html": "<p>public hello</p>", "comment_json": {"type": "doc"}, "access": "INTERNAL", "actor": "00000000-0000-4000-8000-000000000000"}
+    expect_status: 201
+
+  # An empty body keeps the model defaults (`<p></p>`, `{}`).
+  - name: pw-31-comment-create-empty
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 201
+
+  # `comment_html: null` is a field error, not a 500.
+  - name: pw-32-comment-create-null-html
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": null}
+    expect_status: 400
+
+  # An issue outside the board's project is not writable through the board.
+  - name: pw-33-comment-create-foreign-issue
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_beta}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 404
+
+  # `Issue.issue_objects` excludes drafts and archived items.
+  - name: pw-34-comment-create-draft-issue
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_draft}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 404
+
+  - name: pw-35-comment-create-archived-issue
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_archived}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 404
+
+  - name: pw-36-comment-create-comments-disabled
+    method: POST
+    path: "/api/public/anchor/{{anchor_beta}}/issues/{{issue_beta}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 400
+
+  # A non-member caller gets a `project_public_members` row for tracking.
+  - name: pw-37-comment-create-nonmember
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: {"comment_html": "<p>outsider</p>"}
+    expect_status: 201
+
+  # A non-mapping body fails `_public_comment_content` → 500.
+  - name: pw-38-comment-create-list-body
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+      Content-Type: application/json
+    body: '["comment_html"]'
+    expect_status: 500
+
+  - name: pw-39-comment-create-anonymous
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: anon2
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.11
+    json: {"comment_html": "<p>x</p>"}
+    expect_status: 401
+
+  # A form body works: `QueryDict.__contains__`/`[]` are supported.
+  - name: pw-40-comment-create-form
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    form:
+      comment_html: "<p>form comment</p>"
+    expect_status: 201
+
+  # -------------------------------------------------------------------------
+  # Comment PATCH / DELETE (240)
+  # -------------------------------------------------------------------------
+
+  # The member's own EXTERNAL comment; `edited_at` is **not** written.
+  - name: pw-41-comment-patch-own
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"comment_html": "<p>edited publicly</p>"}
+    expect_status: 200
+
+  # Someone else's comment is indistinguishable from a missing one.
+  - name: pw-42-comment-patch-not-actor
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>admin edit</p>"}
+    expect_status: 404
+
+  # An INTERNAL comment is outside the public scope even for its author.
+  - name: pw-43-comment-patch-internal
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_admin_internal}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>internal edit</p>"}
+    expect_status: 404
+
+  - name: pw-44-comment-patch-unknown
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{unknown_uuid}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"comment_html": "<p>missing</p>"}
+    expect_status: 404
+
+  # A body with no writable keys still saves the untouched instance.
+  - name: pw-45-comment-patch-empty-body
+    method: PATCH
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_guest}}/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 200
+
+  - name: pw-46-comment-delete-not-actor
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_member}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: pw-47-comment-delete-own
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 204
+
+  - name: pw-48-comment-delete-again
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_member}}/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    expect_status: 404
+
+  # -------------------------------------------------------------------------
+  # Issue reactions (241/242)
+  # -------------------------------------------------------------------------
+
+  # The admin already reacted `thumbs_up` to this issue: a duplicate is an
+  # uncaught IntegrityError → the family 400.
+  - name: pw-60-issue-reaction-duplicate
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"reaction": "thumbs_up"}
+    expect_status: 400
+
+  - name: pw-61-issue-reaction-create-nonmember
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: {"reaction": "tada"}
+    expect_status: 201
+
+  # `created_by` is a writable field on this serializer; H01 overwrites it.
+  - name: pw-62-issue-reaction-writable-audit
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"reaction": "rocket", "created_by": "{{unknown_uuid}}"}
+    expect_status: 400
+
+  - name: pw-63-issue-reaction-missing
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {}
+    expect_status: 400
+
+  - name: pw-64-issue-reaction-blank
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"reaction": ""}
+    expect_status: 400
+
+  - name: pw-65-issue-reaction-disabled
+    method: POST
+    path: "/api/public/anchor/{{anchor_beta}}/issues/{{issue_beta}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"reaction": "smile"}
+    expect_status: 400
+
+  - name: pw-66-issue-reaction-foreign-issue
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_beta}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"reaction": "smile"}
+    expect_status: 404
+
+  - name: pw-67-issue-reaction-delete
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/thumbs_up/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: pw-68-issue-reaction-delete-again
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/thumbs_up/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # The guest's `smile` is not the admin's to delete.
+  - name: pw-69-issue-reaction-delete-not-actor
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/smile/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # -------------------------------------------------------------------------
+  # Comment reactions (243/244)
+  # -------------------------------------------------------------------------
+
+  - name: pw-70-comment-reaction-create
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/comments/{{comment_guest}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"reaction": "rocket"}
+    expect_status: 201
+
+  - name: pw-71-comment-reaction-duplicate
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/comments/{{comment_guest}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"reaction": "rocket"}
+    expect_status: 400
+
+  # An INTERNAL comment is outside `_comment_in_board_scope`.
+  - name: pw-72-comment-reaction-internal-comment
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/comments/{{comment_admin_internal}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"reaction": "rocket"}
+    expect_status: 404
+
+  - name: pw-73-comment-reaction-disabled
+    method: POST
+    path: "/api/public/anchor/{{anchor_beta}}/comments/{{comment_guest}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"reaction": "rocket"}
+    expect_status: 400
+
+  - name: pw-74-comment-reaction-delete
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/comments/{{comment_guest}}/reactions/rocket/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: pw-75-comment-reaction-delete-not-actor
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/comments/{{comment_guest}}/reactions/thumbs_up/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    expect_status: 404
+
+  # -------------------------------------------------------------------------
+  # Votes (245)
+  # -------------------------------------------------------------------------
+
+  # A brand-new vote for a non-member: the get_or_create insert, the public
+  # member row, then the full `save()` that writes `vote`.
+  - name: pw-80-vote-create-new
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: nonmember
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_nonmember}}"
+    json: {"vote": -1}
+    expect_status: 201
+
+  # The admin's vote already exists; `vote` is written raw, so `2` is accepted
+  # although the model lists only -1/1.
+  - name: pw-81-vote-create-existing
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {"vote": 2}
+    expect_status: 201
+
+  # No body key → the model default 1.
+  - name: pw-82-vote-create-default
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: guest
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_guest}}"
+    json: {}
+    expect_status: 201
+
+  - name: pw-83-vote-create-disabled
+    method: POST
+    path: "/api/public/anchor/{{anchor_beta}}/issues/{{issue_beta}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 400
+
+  - name: pw-84-vote-create-foreign-issue
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_beta}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json: {}
+    expect_status: 404
+
+  # `IntegerField.get_prep_value` raises ValueError → 500.
+  - name: pw-85-vote-create-bad-value
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"vote": "abc"}
+    expect_status: 500
+
+  # A NULL fails the NOT NULL constraint → the family 400.
+  - name: pw-86-vote-create-null
+    method: POST
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: member
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_member}}"
+    json: {"vote": null}
+    expect_status: 400
+
+  - name: pw-87-vote-delete-own
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 204
+
+  - name: pw-88-vote-delete-again
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  # `destroy` does not read `is_votes_enabled`, but the lookup is still scoped
+  # to the board's project: the admin has no vote on the Beta issue.
+  - name: pw-89-vote-delete-foreign-issue
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_beta}}/issues/{{issue_beta}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    expect_status: 404
+
+  - name: pw-90-vote-delete-anonymous
+    method: DELETE
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: anon3
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.12
+    expect_status: 401
