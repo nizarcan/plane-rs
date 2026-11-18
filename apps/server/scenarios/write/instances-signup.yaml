@@ -1,0 +1,140 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Instances set C — the one-time admin sign-up (268).
+#
+# The fixture removes the template's `instance_admins` rows and clears
+# `is_setup_done`, which is what the guard at `admin.py:219-249` reads. The
+# visible order is: throttle -> instance exists -> `is_setup_done or
+# InstanceAdmin.objects.exists()` -> required fields (5155) -> email (5160) ->
+# existing user (5180) -> zxcvbn strength (5165) -> the locked transaction
+# (ADMIN_ALREADY_EXIST 5150 again) -> user + profile + instance admin + the
+# instance row -> `user_login(is_admin=True)` and `urljoin(base, "general/")`.
+
+name: write-instances-signup
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+  ADMIN_BASE_URL: http://127.0.0.1:18080
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/write/instances-signup-fixture.sql"
+  existing_email: fix.member2@example.com
+  new_email: diff-admin@example.com
+  new_password: Diff-Admin-Passw0rd-2026!
+password_vars:
+  - new_password
+steps:
+  - name: signup-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: signup
+    expect_status: 200
+
+  # `not email or not password or not first_name` -> 5155; the payload carries
+  # `False` for a missing field, i.e. `False` in the redirect query.
+  - name: signup-required
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: signup
+    form: {}
+    expect_status: 302
+
+  - name: signup-required-first-name
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: signup
+    form:
+      email: "{{new_email}}"
+      password: "{{new_password}}"
+    expect_status: 302
+
+  # `validate_email` -> 5160 with the five-key payload.
+  - name: signup-invalid-email
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: signup
+    form:
+      email: not-an-email
+      password: "{{new_password}}"
+      first_name: Diff
+    expect_status: 302
+
+  # `User.objects.filter(email=email).exists()` -> 5180.
+  - name: signup-existing-user
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: signup
+    form:
+      email: "{{existing_email}}"
+      password: "{{new_password}}"
+      first_name: Diff
+      last_name: Admin
+      company_name: Diff Company
+      is_telemetry_enabled: "True"
+    expect_status: 302
+
+  # `is_password_strong` -> 5165.
+  - name: signup-weak-password
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: signup
+    form:
+      email: "{{new_email}}"
+      password: password
+      first_name: Diff
+    expect_status: 302
+
+  # Success: one transaction writes `users`, `user_notification_preferences`,
+  # `profiles`, `instance_admins` and the instance row, then logs the admin in.
+  - name: signup-success
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: signup
+    form:
+      email: "{{new_email}}"
+      password: "{{new_password}}"
+      first_name: Diff
+      last_name: Admin
+      company_name: Diff Company
+      is_telemetry_enabled: "True"
+    expect_status: 302
+    capture:
+      - name: signup_session
+        source: cookie
+        cookie: admin-session-id
+
+  - name: signup-session
+    method: GET
+    path: /api/instances/admins/session/
+    jar: signup
+    headers:
+      Host: plane-fixture.test
+      Cookie: "admin-session-id={{signup_session}}"
+    expect_status: 200
+
+  # The guard's second run -> 5150, no writes.
+  - name: signup-second
+    method: POST
+    path: /api/instances/admins/sign-up/
+    jar: signup
+    form:
+      email: second-admin@example.com
+      password: "{{new_password}}"
+      first_name: Second
+      last_name: Admin
+      company_name: Second Company
+      is_telemetry_enabled: "True"
+    expect_status: 302
+
+  # The instance body reflects the write (`instance_name`, `is_setup_done`,
+  # `is_telemetry_enabled`).
+  - name: signup-instance-body
+    method: GET
+    path: /api/instances/
+    jar: signup
+    headers:
+      Host: plane-fixture.test
+      Cookie: "admin-session-id={{signup_session}}"
+    expect_status: 200

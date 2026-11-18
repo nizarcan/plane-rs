@@ -105,6 +105,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     ai::register(registry)?;
     openapi::register(registry)?;
     public::register(registry)?;
+    instances::register(registry)?;
     Ok(())
 }
 

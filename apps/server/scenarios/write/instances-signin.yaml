@@ -1,0 +1,162 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Instances set C — the admin sign-in flow (267).
+#
+# The template's instance is configured (`is_setup_done` does not gate
+# sign-in) and has the fixture's users, one of which is an `InstanceAdmin`
+# with `role=5`: `admin.py:355` tests truthiness without a role filter, so that
+# row signs in. The gates run bot -> inactive -> password -> membership
+# (`admin.py:309-399`); every failure is a 302 to `base_host(is_admin=True)`
+# carrying `error_code`/`error_message`/`email` in that order.
+#
+# The throttle is `@throttle_auth_redirect(is_admin=True)` and runs before
+# everything, so the scenario raises the rate to keep the gates reachable.
+
+name: write-instances-signin
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+target_env:
+  AUTHENTICATION_RATE_LIMIT: "1000/minute"
+  ADMIN_BASE_URL: http://127.0.0.1:18080
+vars:
+  admin_email: fix.admin@example.com
+  member_email: fix.member@example.com
+  guest_email: fix.guest@example.com
+  bot_email: fix.bot@example.com
+  inactive_email: fix.inactive@example.com
+  unknown_email: nobody@example.com
+  password: Fix-Template-Passw0rd-2026!
+password_vars:
+  - password
+steps:
+  - name: signin-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: signin
+    expect_status: 200
+
+  # `request.POST.get("email", False)` / `password` -> 5170.
+  - name: signin-required
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form: {}
+    expect_status: 302
+
+  - name: signin-required-password
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form:
+      email: "{{admin_email}}"
+    expect_status: 302
+
+  # `validate_email` -> 5160.
+  - name: signin-invalid-email
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form:
+      email: not-an-email
+      password: "{{password}}"
+    expect_status: 302
+
+  # `User.objects.filter(email=email).first()` is None -> 5185.
+  - name: signin-unknown
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form:
+      email: "{{unknown_email}}"
+      password: "{{password}}"
+    expect_status: 302
+
+  # `user.is_bot` -> 5175 (`ADMIN_AUTHENTICATION_FAILED`).
+  - name: signin-bot
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form:
+      email: "{{bot_email}}"
+      password: "{{password}}"
+    expect_status: 302
+
+  # `not user.is_active` -> 5190, no payload.
+  - name: signin-inactive
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form:
+      email: "{{inactive_email}}"
+      password: "{{password}}"
+    expect_status: 302
+
+  # `user.check_password` -> 5175.
+  - name: signin-wrong-password
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form:
+      email: "{{admin_email}}"
+      password: wrong-password
+    expect_status: 302
+
+  # No `InstanceAdmin` row -> 5175.
+  - name: signin-not-an-admin
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: signin
+    form:
+      email: "{{guest_email}}"
+      password: "{{password}}"
+    expect_status: 302
+
+  - name: member-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: member
+    expect_status: 200
+
+  # The role-5 `InstanceAdmin` row passes the truthiness test (a Django bug
+  # kept as-is, `admin.py:355`).
+  - name: signin-role-five-admin
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: member
+    form:
+      email: "{{member_email}}"
+      password: "{{password}}"
+    expect_status: 302
+
+  - name: admin-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: admin
+    expect_status: 200
+
+  # Success: the full `user.save()` rotates `users.token`, then
+  # `user_login(is_admin=True)` writes the session and the admin cookie.
+  - name: signin-success
+    method: POST
+    path: /api/instances/admins/sign-in/
+    jar: admin
+    form:
+      email: "{{admin_email}}"
+      password: "{{password}}"
+    expect_status: 302
+    capture:
+      - name: admin_session
+        source: cookie
+        cookie: admin-session-id
+
+  # The new admin session is authenticated (admin.py:364-375).
+  - name: signin-session
+    method: GET
+    path: /api/instances/admins/session/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "admin-session-id={{admin_session}}"
+    expect_status: 200
