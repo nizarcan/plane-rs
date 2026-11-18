@@ -1966,9 +1966,36 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      `instances::mail` code), minijinja templates, `difftest task`, and
      `recent_visited_task` switched end to end.
 
-   Running: harness clean-up (`rs/harness-fix`, 18040/18140, Redis 9/10), Phase 7 gaps
-   (`rs/p7-gaps`, 18010/18110, Redis 3/4), Phase 8 P0 (`rs/p8-p0`, 18020/18120, Redis
-   5/6). Then the final benchmark and the environment
+   - **Harness clean-up merged (`5aad07a43f`).**
+     - Testkit: `{}` = one path segment (`*` still crosses `/`); a scope without a
+       wildcard matches the path and ignores the query; `json_key_exclusions`;
+       `saferepr` truncation reconciled by its final-token rule; an empty gzip HEAD
+       body isn't decoded; the SigV4 date echoed inside a logged response body is
+       placeholdered. Testkit 197 tests.
+     - Narrowed in `normalize.yaml`: the v1 unordered `$.results` rule (46 v1 GETs →
+       307 GET only), the asset `Location`/`key`/`asset` rules, `secret_key`,
+       `workspaces.slug` on DELETE (63 routes → 187), the invitation `token` rules, the
+       OAuth `state` text (excluded `get-csrf-token`), `$.counts`, project-stats; set
+       B's broad `$.upload_data.fields.key` path rule removed. With ordering compared,
+       every v1 list still passes.
+     - **Two Rust bugs found and fixed:** `HEAD` on DRF views answered 405 where Django
+       binds `head` to `get` (`django/views/generic/base.py:126-129`), on every route
+       without an `http_method_names` override (affected flipped app routes since
+       Phase 3); the v1 intake PATCH `intake.activity.created` kept `issue` in
+       `requested_data` and rendered `current_instance` before the save
+       (`api/views/intake.py:359,432-442`).
+     - New `Location` rules for the three attachment-detail redirects (D17). The
+       folded `Message-ID` (Python folds when `len("Message-ID: "+value) > 78`)
+       escaped the corpus mask; masks fixed, and a golden case pins Rust's folding,
+       which was already right.
+     - Sweep race: a stale `throttle_anon_127.0.0.1` key from the previous file can
+       expire between the two baseline snapshots; flush the run's Redis DBs between
+       files.
+     - `lxml_html_tables.py --check` added to CI.
+
+   Running: Phase 7 gaps (`rs/p7-gaps`, 18010/18110, Redis 3/4), Phase 8 P0
+   (`rs/p8-p0`, 18020/18120, Redis 5/6); the orchestrator's verification of
+   `5aad07a43f`, which gates flipping every v1 row (273–351). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
