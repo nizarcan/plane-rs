@@ -9,24 +9,12 @@
 #
 # Not in this scenario, and why:
 #
-# * The JSON renderings (`?format=json`, `Accept: application/json`,
-#   `Accept: application/vnd.oai.openapi+json`). The document is a JSON-Schema
-#   object, so the harness's name-keyed rules fire on its *definitions*
-#   (`components.schemas.*.properties.background_color` is an object, not a
-#   colour) and the step fails on a shape violation rather than a difference.
-#   `crates/plane-http-app/src/openapi/schema.rs` serves the same committed
-#   bytes for the JSON renderers, `negotiate::select_renderer_from` is unit
-#   tested over the four renderer specs, and `tools/openapi/check.py` verifies
-#   the committed JSON document against Django.
 # * `?lang=de` on the schema route: Django runs the generator under
 #   `translation.override("de")`, which translates DRF's own strings, so the
 #   document really differs from the committed default-language artefact. The
 #   Rust handler refuses it explicitly instead of serving the wrong language
 #   (an upstream client never sends it; the two HTML pages do accept it and
 #   are covered below).
-# * `HEAD /api/schema/`: the harness tries to gunzip the (empty) HEAD body of a
-#   response that advertises `Content-Encoding: gzip`, and fails the step on
-#   both targets. That framing is the generic pipeline's, not this route's.
 #
 # Django only mounts these three routes when `ENABLE_DRF_SPECTACULAR=1`
 # (`plane/urls.py:27-40`), so the flag is set for both targets. The document is
@@ -51,6 +39,58 @@ steps:
     headers:
       Host: plane-fixture.test
       X-Forwarded-For: 198.51.100.61
+  # `?format=json` picks the first JSON renderer
+  # (`application/vnd.oai.openapi+json`); the two `Accept`s reach each JSON
+  # renderer explicitly. The document is a JSON-Schema object, so
+  # `json_key_exclusions` keeps the name-keyed rules off its `properties` maps
+  # (the value there is a schema definition, not a field value).
+  - name: schema-format-json
+    method: GET
+    path: "/api/schema/"
+    query:
+      format: json
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.62
+  - name: schema-accept-json
+    method: GET
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.63
+      Accept: application/json
+  - name: schema-accept-openapi-json
+    method: GET
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.64
+      Accept: application/vnd.oai.openapi+json
+  # The fourth renderer's own media type, which no `?format=` value reaches.
+  - name: schema-accept-yaml
+    method: GET
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.65
+      Accept: application/yaml
+  # HEAD is Django's `get`: `View.setup` binds `head` to `get` when the class
+  # has no `head` of its own (`django/views/generic/base.py:126-129`), so the
+  # status and headers are the GET's and the body is empty. The response still
+  # advertises `Content-Encoding: gzip` (Django's `GZipMiddleware` sets the
+  # header before the server drops the body), which is the case the harness's
+  # body decoder must not try to gunzip.
+  - name: schema-head
+    method: HEAD
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.66
   # The two HTML pages. `Cross-Origin-Opener-Policy: unsafe-none` is the view's
   # own header on the Swagger page (`drf_spectacular/views.py:155-158`).
   - name: schema-swagger-ui

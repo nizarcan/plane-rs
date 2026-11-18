@@ -680,6 +680,27 @@ steps:
       status: 2
     expect_status: 200
 
+  # An ADMIN edits the nested issue in the same request. The issue serializer
+  # runs first and publishes `issue.activity.updated`, whose `current_instance`
+  # is long enough for Celery's `kwargsrepr` (`saferepr`'s 1024-character
+  # budget) to cut inside the serialised issue; the harness compares the repr
+  # through its truncation rule, not by bytes. The intake serializer's own
+  # activity then carries the body **after** `request.data.pop("issue")` and
+  # the issue's post-save state (`plane/api/views/intake.py:415-452`).
+  - name: intake-patch-nested-issue
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      status: -2
+      issue:
+        name: "Harness intake nested rename"
+        priority: "urgent"
+    expect_status: 200
+
   # An ADMIN accepts the item: the issue moves from the Triage state to the
   # project's default state.
   - name: intake-patch-accept

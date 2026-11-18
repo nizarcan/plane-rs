@@ -10,7 +10,9 @@
 //! `Message-ID` are the two generated headers; the corpus masks them to
 //! `<DATE>`/`<MESSAGE-ID>` and this test passes the same strings, so every
 //! other byte (header order, encoded words, folding, MIME shell, transfer
-//! encoding and body) is compared exactly.
+//! encoding and body) is compared exactly. One case records a fixed long
+//! `Message-ID` instead of masking it, so the fold after the header name
+//! (`Message-ID: ` + CRLF + one leading space + the value) is pinned too.
 //!
 //! Regenerate the corpus after a Django or drf/email-behaviour change:
 //!
@@ -37,6 +39,10 @@ struct Case {
     to: Vec<String>,
     cc: Vec<String>,
     reply_to: Vec<String>,
+    /// `Some` only for the folding case: the exact fixed `Message-ID` the
+    /// corpus recorded (the generated ones are masked to `<MESSAGE-ID>`).
+    #[serde(default)]
+    message_id: Option<String>,
     /// `None` for the two cases Django rejects with `BadHeaderError`.
     bytes: Option<String>,
     error: Option<String>,
@@ -74,8 +80,9 @@ fn message_bytes_match_django() {
         };
         match &case.bytes {
             Some(expected) => {
+                let message_id = case.message_id.as_deref().unwrap_or("<MESSAGE-ID>");
                 let actual = message
-                    .as_bytes("<DATE>", "<MESSAGE-ID>")
+                    .as_bytes("<DATE>", message_id)
                     .unwrap_or_else(|error| panic!("{}: {error}", case.name));
                 assert_eq!(
                     String::from_utf8(actual).expect("utf-8"),
@@ -92,8 +99,9 @@ fn message_bytes_match_django() {
                     "case {} has neither bytes nor a BadHeaderError",
                     case.name
                 );
+                let message_id = case.message_id.as_deref().unwrap_or("<MESSAGE-ID>");
                 let error = message
-                    .as_bytes("<DATE>", "<MESSAGE-ID>")
+                    .as_bytes("<DATE>", message_id)
                     .expect_err(&format!("{}: expected BadHeaderError", case.name));
                 assert!(
                     matches!(error, MailError::BadHeader(_)),

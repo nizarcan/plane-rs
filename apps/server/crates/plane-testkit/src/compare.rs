@@ -656,9 +656,13 @@ fn canonical_placeholders(value: &str) -> String {
 /// out the tail is cut and its position depends on how wide the harness's
 /// placeholders came out on each side. An untruncated pair is compared
 /// exactly (after the normal placeholder substitution). When either side is
-/// truncated, only the common prefix before the truncation marker is
-/// compared: it is rewritten to the shorter prefix on both sides, so the
-/// shifted tail cannot differ. An early mismatch survives and is reported.
+/// truncated, the repr is compared up to the divergence only if that
+/// divergence lies inside the **final** repr token — the one the cut produced:
+/// a truncated repr can end in the middle of a value, and a complete
+/// placeholder on one side is then compared against a raw random prefix on the
+/// other. Everything before the final token is still compared byte for byte;
+/// the truncated token's content is already compared by the message's own
+/// `args`/`kwargs` body, which the structural comparison does in full.
 fn reconcile_repr_headers(a_value: &mut Value, b_value: &mut Value) {
     let (Value::Array(a_messages), Value::Array(b_messages)) = (a_value, b_value) else {
         return;
@@ -684,11 +688,69 @@ fn reconcile_repr_headers(a_value: &mut Value, b_value: &mut Value) {
             }
             let a_prefix = canonical_placeholders(a_prefix.unwrap_or(a_text));
             let b_prefix = canonical_placeholders(b_prefix.unwrap_or(b_text));
-            let length = a_prefix.chars().count().min(b_prefix.chars().count());
-            *a = Value::String(a_prefix.chars().take(length).collect());
-            *b = Value::String(b_prefix.chars().take(length).collect());
+            let common = common_prefix_chars(&a_prefix, &b_prefix);
+            let shorter = a_prefix.chars().count().min(b_prefix.chars().count());
+            // One prefix being a prefix of the other is the ordinary case: the
+            // shorter side was cut earlier. Otherwise the first difference
+            // must fall inside the final token, which is where a cut can land
+            // in the middle of a (random) value.
+            let inside_final_token =
+                common >= final_token_start(&a_prefix).min(final_token_start(&b_prefix));
+            if common != shorter && !inside_final_token {
+                continue;
+            }
+            let kept: String = a_prefix.chars().take(common).collect();
+            *a = Value::String(kept.clone());
+            *b = Value::String(kept);
         }
     }
+}
+
+/// The number of leading characters two strings share.
+fn common_prefix_chars(a: &str, b: &str) -> usize {
+    a.chars()
+        .zip(b.chars())
+        .take_while(|(left, right)| left == right)
+        .count()
+}
+
+/// The start (in characters) of the last top-level token of a Python repr.
+///
+/// Separators (`(`, `[`, `{`, `,`, `:`) count only when they are outside a
+/// quoted string and at most one container deep, so a separator inside the
+/// `current_instance` JSON string does not split it into tokens. A cut that
+/// lands inside that final token is what makes the two sides' placeholders
+/// diverge at the tail.
+fn final_token_start(text: &str) -> usize {
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut start = 0usize;
+    for (index, character) in text.chars().enumerate() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '(' | '[' | '{' => {
+                depth += 1;
+                if depth == 1 {
+                    start = index + 1;
+                }
+            }
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            ',' | ':' if depth <= 1 => start = index + 1,
+            _ => {}
+        }
+    }
+    start
 }
 
 fn queue_groups(messages: &[CeleryMessage]) -> BTreeMap<String, Vec<&CeleryMessage>> {
@@ -1191,5 +1253,68 @@ mod tests {
             repr_before_truncation("('x', <id:10>, ...}"),
             Some("('x', <id:10>")
         );
+    }
+
+    #[test]
+    fn final_token_start_ignores_separators_inside_a_quoted_value() {
+        // The JSON string's own `, ` and `: ` are not repr separators.
+        let repr = "{'type': 'x', 'current_instance': '{\"id\": \"1\", \"name\": \"n\"}'}";
+        assert_eq!(
+            final_token_start(repr),
+            repr.rfind(": '").expect("separator") + 1
+        );
+        // A list of uuids: the last element starts after `, `.
+        let repr = "('3f2a1b4c-0000-4000-8000-000000000001', '3f2a1b4c-0000-40";
+        assert_eq!(
+            final_token_start(repr),
+            repr.rfind(", '").expect("separator") + 1
+        );
+    }
+
+    fn repr_message(repr: &str) -> CeleryMessage {
+        let mut message = celery_message("t", json!([]));
+        message
+            .headers
+            .insert("kwargsrepr".to_string(), json!(repr));
+        message
+    }
+
+    #[test]
+    fn a_truncated_repr_may_diverge_inside_its_final_value() {
+        let prefix = format!(
+            "{{'type': 'issue.activity.updated', 'current_instance': '{}",
+            "x".repeat(900)
+        );
+        // One side has a complete placeholder where the other was cut in the
+        // middle of the raw value the placeholder came from.
+        let a = format!("{prefix}<id:1>tail of the value', ...}}");
+        let b = format!("{prefix}3f2a1b4c-0000-4000-8000-abcdef012345', ...}}");
+        assert!(
+            compare_celery(&[repr_message(&a)], &[repr_message(&b)]).is_empty(),
+            "a cut inside the final quoted value must not differ"
+        );
+    }
+
+    #[test]
+    fn a_truncated_repr_still_compares_everything_before_the_cut() {
+        let tail = "x".repeat(900);
+        let a = format!(
+            "{{'type': 'issue.activity.updated', 'current_instance': '{tail}<id:1>tail', ...}}"
+        );
+        // The same cut, but the task name differs before the final token.
+        let b = format!(
+            "{{'type': 'intake.activity.created', 'current_instance': '{tail}3f2a1b4c-0000-4000-8000-abcdef012345', ...}}"
+        );
+        assert_eq!(
+            compare_celery(&[repr_message(&a)], &[repr_message(&b)]).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn untruncated_reprs_are_compared_exactly() {
+        let a = repr_message("{'epoch': <epoch>, 'x': 1}");
+        let b = repr_message("{'epoch': <epoch>, 'x': 2}");
+        assert_eq!(compare_celery(&[a], &[b]).len(), 1);
     }
 }

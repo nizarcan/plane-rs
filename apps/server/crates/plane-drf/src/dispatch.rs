@@ -990,11 +990,11 @@ mod tests {
         assert!(!route.is_allowed_method(&Method::POST));
         assert!(route.is_allowed_method(&Method::GET));
         assert!(route.is_allowed_method(&Method::DELETE));
-        // `http_method_names` here lists `head`, but no DRF class defines a
-        // `head` handler, so `getattr(self, "head", http_method_not_allowed)`
-        // is the 405 (`django/views/generic/base.py:134-144`). OPTIONS is
-        // implicit on a DRF view (`rest_framework/views.py:531-538`).
-        assert!(!route.is_allowed_method(&Method::HEAD));
+        // `http_method_names` here lists `head` and the class has `get`, so
+        // `View.setup` binds `head` to `get` (`django/views/generic/base.py:
+        // 126-129`) and HEAD is a 200. OPTIONS is implicit on a DRF view
+        // (`rest_framework/views.py:531-538`).
+        assert!(route.is_allowed_method(&Method::HEAD));
         assert!(route.is_allowed_method(&Method::OPTIONS));
         let response = render_api(metadata::method_not_allowed(route, &Method::POST));
         assert_eq!(response.status, 405);

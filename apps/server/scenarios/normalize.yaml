@@ -9,6 +9,15 @@
 # A rule is applied per target, so target A's generated value only ever
 # becomes the same placeholder as target B's independently generated value.
 #
+# `request:` is a glob over the step's `METHOD path?query`:
+#
+#   * `*` matches any run of characters, including `/`;
+#   * `{}` matches exactly one path segment (one or more non-`/` characters),
+#     so a rule written for `.../projects/{}/` cannot reach a deeper route;
+#   * a scope with no wildcard at all matches the method and path and ignores
+#     a query string (an exact route scope names an endpoint, not a query);
+#     add a wildcard when the query itself is what the rule is about.
+#
 # Two rules make the comparison strict rather than forgiving:
 #
 #   * Every volatile value becomes a typed placeholder from one per-target
@@ -212,16 +221,43 @@ volatile_headers:
   # to two of thirteen steps per run straddle a second boundary. DECISIONS.md
   # D17: everything else is byte-identical, and each side's signature is
   # recomputed with that target's own credentials and date.
+  #
+  # Only the GETs that answer a redirect are in scope
+  # (`plane/app/views/asset/v2.py:494-522,741-747,984-990,1019-1025`): `{}` is
+  # one route parameter, so this cannot reach the attachment lists or any other
+  # asset route.
   - name: Location
     mode: presigned_url
-    request: "*api/assets/*"
+    request: "GET /api/assets/v2/workspaces/{}*"
     why: "asset downloads redirect to a presigned S3 URL; D17 verifies each side's SigV4 signature with its own X-Amz-Date (plane/settings/storage.py:114-151)"
+  - name: Location
+    mode: presigned_url
+    request: "GET /api/assets/v2/static/*"
+    why: "static asset downloads redirect to a presigned S3 URL (plane/app/views/asset/v2.py:525-564); D17 verifies each side's signature"
   # The public board's asset download is the same redirect
   # (`plane/space/views/asset.py:76-85`), one path prefix deeper.
   - name: Location
     mode: presigned_url
-    request: "*api/public/assets/*"
+    request: "GET /api/public/assets/v2/anchor/{}*"
     why: "public asset downloads redirect to a presigned S3 URL; D17 verifies each side's SigV4 signature with its own X-Amz-Date (plane/space/views/asset.py:76-85)"
+  # The v1 attachment detail GET redirects to the same kind of presigned S3 GET
+  # URL (`plane/api/views/issue.py:2309-2334`); the `issues/` and `work-items/`
+  # aliases share the handler. The list routes answer JSON without a
+  # `Location`, so only the two detail routes are in scope.
+  - name: Location
+    mode: presigned_url
+    request: "GET /api/v1/workspaces/{}/projects/{}/issues/{}/issue-attachments/{}/"
+    why: "the v1 issue-attachment detail redirects to a presigned S3 URL (plane/api/views/issue.py:2309-2334); D17 verifies each side's signature"
+  - name: Location
+    mode: presigned_url
+    request: "GET /api/v1/workspaces/{}/projects/{}/work-items/{}/attachments/{}/"
+    why: "the v1 work-item attachment detail is the same presigned redirect (plane/api/views/issue.py:2309-2334); D17 verifies each side's signature"
+  # The app's attachment detail GET takes the same branch
+  # (`plane/app/views/issue/attachment.py:205-234`).
+  - name: Location
+    mode: presigned_url
+    request: "GET /api/workspaces/{}/projects/{}/issues/{}/issue-attachments/{}/"
+    why: "the app issue-attachment detail redirects to a presigned S3 URL (plane/app/views/issue/attachment.py:205-234); D17 verifies each side's signature"
   - name: X-RateLimit-Reset
     mode: unix_time
     why: "int(now + throttle duration), an absolute Unix timestamp (plane/api/views/base.py:123-136)"
@@ -334,10 +370,11 @@ unordered_json_paths:
   # which the fixture leaves at its default 65535 for every row; equal sort keys
   # have no order Postgres guarantees, and Rust's statement is not byte-identical
   # SQL. Compare the page as a multiset (D16). `?order_by=` still sorts, but the
-  # response shape is the same envelope, so one rule covers both.
+  # response shape is the same envelope, so one rule covers both — the scope
+  # names the list route itself, and `{}` is one route parameter.
   - path: "$.results"
     mode: array
-    request: "GET /api/v1/workspaces/*/projects/*"
+    request: "GET /api/v1/workspaces/{}/projects/"
     why: "plane/api/views/project.py:177-201 orders by a tied `sort_order` subquery; D16 compares the page as a multiset"
 
   # `ProjectSummaryAPIEndpoint` builds `counts` from a Python set
@@ -345,7 +382,7 @@ unordered_json_paths:
   # order (D16), so the object is compared by key set and value.
   - path: "$.counts"
     mode: object_keys
-    request: "*projects/*/summary*"
+    request: "GET /api/v1/workspaces/{}/projects/{}/summary/"
     why: "plane/api/views/project.py:733-739 iterates a set; D16 compares the key set"
 
   # A row that an issue contributes to more than one group is the *same dict*
@@ -382,7 +419,7 @@ unordered_json_paths:
   # still compared by key.
   - path: "$.*"
     mode: object_keys
-    request: "*project-stats*"
+    request: "GET /api/workspaces/{}/project-stats/"
     why: "plane/app/views/analytic/base.py:420-427 builds the row keys from set(...) & valid_fields; D16 compares the key set"
 
   # Single m2m group: the group keys of the response are set order too.
@@ -485,17 +522,37 @@ volatile_json_keys:
     mode: placeholder_if_new
     placeholder: asset
     shape: asset_key
-    request: "*api/assets/v2/*attachments*"
+    request: "POST /api/assets/v2/workspaces/{}/projects/{}/issues/{}/attachments/"
     why: "FileAsset.asset = workspace/uuid4().hex-filename (plane/db/models/asset.py:20-25); a fixture key stays literal"
+  # The presigned POST's `key` field is the newly generated FileAsset.asset of
+  # every v2 upload (`plane/app/views/asset/v2.py:186,406,655`), the public
+  # upload (`plane/space/views/asset.py:149`) and the two v1 asset routes
+  # (`plane/api/views/asset.py:152,325,572`). One rule per route family: `{}`
+  # is one route parameter, so the v1 rule cannot reach a project-scoped list.
   - name: key
     mode: placeholder_if_new
     placeholder: asset
     shape: asset_key
-    # `*api/*assets/*` also covers the public upload (`POST
-    # /api/public/assets/v2/anchor/{anchor}/`, plane/space/views/asset.py:149-166),
-    # whose asset key is the same `${workspace_id}/${uuid4().hex}-${name}`.
-    request: "POST *api/*assets/*"
-    why: "presigned POST field `key` is the newly generated FileAsset.asset on every v2 upload (plane/app/views/asset/v2.py:186,406,655, plane/space/views/asset.py:149 and the issue-attachment upload); legacy uploads 500 before the body is built"
+    request: "POST /api/assets/v2/*"
+    why: "presigned POST field `key` is the newly generated FileAsset.asset on every app v2 upload (plane/app/views/asset/v2.py:186,406,655)"
+  - name: key
+    mode: placeholder_if_new
+    placeholder: asset
+    shape: asset_key
+    request: "POST /api/public/assets/v2/*"
+    why: "presigned POST field `key` of the public upload (plane/space/views/asset.py:149-166); the key is the same ${workspace_id}/${uuid4().hex}-${name}"
+  - name: key
+    mode: placeholder_if_new
+    placeholder: asset
+    shape: asset_key
+    request: "POST /api/v1/assets/user-assets*"
+    why: "presigned POST field `key` of the v1 user-asset uploads, 273/275 (plane/api/views/asset.py:152,325)"
+  - name: key
+    mode: placeholder_if_new
+    placeholder: asset
+    shape: asset_key
+    request: "POST /api/v1/workspaces/{}/assets/"
+    why: "presigned POST field `key` of the v1 generic workspace-asset upload, 277 (plane/api/views/asset.py:572)"
   # The v1 issue-attachment upload builds the same key inline
   # (`plane/api/views/issue.py:2094-2096`: f"{workspace.id}/{uuid4().hex}-{name}")
   # and returns it twice: the presigned POST's `fields.key` and the
@@ -504,13 +561,13 @@ volatile_json_keys:
     mode: placeholder_if_new
     placeholder: asset
     shape: asset_key
-    request: "POST */api/v1/workspaces/*/projects/*/issues/*/issue-attachments/"
+    request: "POST /api/v1/workspaces/{}/projects/{}/issues/{}/issue-attachments/"
     why: "v1 issue-attachment upload: FileAsset.asset = workspace/uuid4().hex-filename (plane/api/views/issue.py:2094-2096, plane/db/models/asset.py:20-25); the file_assets.asset DB rule covers the inserted row"
   - name: key
     mode: placeholder_if_new
     placeholder: asset
     shape: asset_key
-    request: "POST */api/v1/workspaces/*/projects/*/issues/*/issue-attachments/"
+    request: "POST /api/v1/workspaces/{}/projects/{}/issues/{}/issue-attachments/"
     why: "presigned POST field `key` is the newly generated FileAsset.asset on the v1 issue-attachment upload (plane/api/views/issue.py:2094-2096,2119-2121)"
   - name: policy
     placeholder: upload-policy
@@ -551,7 +608,7 @@ volatile_json_keys:
     mode: placeholder
     placeholder: webhook-secret
     shape: webhook_secret
-    request: "*webhooks*"
+    request: "* /api/workspaces/{}/webhooks*"
     why: "generated HMAC secret: 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
   # `create` calls `generate_random_name()` eagerly and stores it when the body
   # carries no `name` (plane/app/views/estimate/base.py:29-31, :66), so the
@@ -639,17 +696,9 @@ volatile_json_paths:
   # `EMAIL_PORT` is a per-target listener port in `instances-email.yaml`
   # (`tools/mail/run-smtp-scenario.sh` points each backend at its own
   # `fake_smtp.py`), so the PATCH response's decrypted value differs by design.
-  # `upload_data.fields.key` of the v1 asset uploads (273/275/277): the same
-  # `uuid4().hex`-prefixed key the v2 uploads return. The named `key` rule is
-  # scoped to the app and v1 issue-attachment uploads, and this harness build
-  # keeps only the last rule per name (PROGRESS "Normaliser rule collision"), so
-  # the v1 set adds a path rule with its own scope instead of a fourth `key`.
-  - path: "$.upload_data.fields.key"
-    request: "POST /api/v1/*"
-    mode: placeholder_if_shape
-    placeholder: asset
-    shape: asset_key
-    why: "presigned POST field `key` is the newly generated FileAsset.asset (plane/api/views/asset.py:152,572; plane/db/models/asset.py:20-25)"
+  # The v1 asset uploads' `upload_data.fields.key` is the named `key` rule above
+  # (`POST /api/v1/assets/user-assets*` and
+  # `POST /api/v1/workspaces/{}/assets/`), so no path rule is needed here.
   # The v1 generic-asset GET answers a presigned S3 **GET URL in the body**
   # (`plane/api/views/asset.py:456-472`), not in a `Location` header, so the
   # `Location` rule above cannot apply. Django (boto3) and `plane-storage` sign
@@ -658,7 +707,7 @@ volatile_json_paths:
   # verifies each side's signature with its own date and requires every other
   # byte to match.
   - path: "$.asset_url"
-    request: "GET /api/v1/workspaces/*/assets/*"
+    request: "GET /api/v1/workspaces/{}/assets/{}/"
     mode: presigned_url
     why: "the v1 generic-asset GET embeds a presigned S3 URL (plane/api/views/asset.py:456-472, plane/settings/storage.py:114-151); D17 verifies each side's SigV4 signature"
   - path: "$[*].value"
@@ -667,6 +716,17 @@ volatile_json_paths:
     placeholder: smtp-port
     shape: smtp_port
     why: "per-target fake SMTP listener port written by the email-credential scenario"
+
+# Document paths at which the name-keyed `volatile_json_keys` rules must not
+# fire. `properties` is JSON-Schema's field-definition map: the value under
+# `...properties.background_color` is a schema object (`{"type": "string"}`),
+# not a colour, so a name rule would record a shape violation on both targets
+# of `GET /api/schema/?format=json`. The exclusion is by document path and
+# applies to every name-keyed rule, so adding a rule for a field that also has
+# a schema definition does not re-break the OpenAPI step.
+json_key_exclusions:
+  - path: "$.**.properties.*"
+    why: "a JSON-Schema `properties` map holds field definitions (objects), not field values (drf-spectacular's OpenAPI document)"
 
 # Regexes over every string the normaliser rewrites (JSON values, Celery
 # reprs, Redis values and response text). A rule must name its request: an
@@ -696,11 +756,24 @@ volatile_text_patterns:
   # by every initiate view and copied into the provider URL's `state=` and into
   # the session payload (`plane/authentication/views/app/google.py:46`,
   # `.../space/google.py:41`, and the GitHub/GitLab/Gitea siblings). Scoped to
-  # the OAuth routes so a 32-hex value anywhere else is still compared.
+  # the four provider families (initiate and callback, app and space) so a
+  # 32-hex value on `/auth/get-csrf-token/` or anywhere else is still compared.
   - pattern: '\b[0-9a-f]{32}\b'
     placeholder: oauth-state
-    request: "GET /auth/*"
+    request: "GET /auth/*google*"
     why: "OAuth state is uuid.uuid4().hex (plane/authentication/views/app/google.py:46)"
+  - pattern: '\b[0-9a-f]{32}\b'
+    placeholder: oauth-state
+    request: "GET /auth/*github*"
+    why: "OAuth state is uuid.uuid4().hex (plane/authentication/views/app/github.py)"
+  - pattern: '\b[0-9a-f]{32}\b'
+    placeholder: oauth-state
+    request: "GET /auth/*gitlab*"
+    why: "OAuth state is uuid.uuid4().hex (plane/authentication/views/app/gitlab.py)"
+  - pattern: '\b[0-9a-f]{32}\b'
+    placeholder: oauth-state
+    request: "GET /auth/*gitea*"
+    why: "OAuth state is uuid.uuid4().hex (plane/authentication/views/app/gitea.py)"
   - pattern: '\b[0-9]{6}\b'
     placeholder: email-code
     request: "POST /api/users/me/email/generate-code/"
@@ -816,7 +889,7 @@ volatile_db_columns:
     mode: placeholder_if_new
     placeholder: deleted-workspace-slug
     shape: deleted_workspace_slug
-    request: "DELETE /api/workspaces/*/"
+    request: "DELETE /api/workspaces/{}/"
     why: "Workspace.delete appends __<int(deleted_at.timestamp())> (plane/db/models/workspace.py:156-176); the epoch is the request instant"
   # 188 mints one JWT per requested e-mail (`plane/app/views/workspace/invite.py:90-99`),
   # so the inserted row's token differs between the two targets. The glob covers
@@ -831,8 +904,17 @@ volatile_db_columns:
     column: token
     placeholder: invite-token
     shape: invite_token
-    request: "POST /api/workspaces/*/invitations/"
+    request: "POST /api/workspaces/{}/invitations/"
     why: "WorkspaceMemberInvite.token = jwt.encode({email, timestamp}, SECRET_KEY, HS256) on create (plane/app/views/workspace/invite.py:90-99)"
+  # The project invitation create mints the same JWT into the same table
+  # (`plane/app/views/project/invite.py:90-99`); an exact route scope of its own
+  # keeps the rule off every other invite write.
+  - table: workspace_member_invites
+    column: token
+    placeholder: invite-token
+    shape: invite_token
+    request: "POST /api/workspaces/{}/projects/{}/invitations/"
+    why: "project invitation create writes the same PyJWT (plane/app/views/project/invite.py:90-99)"
   - table: labels
     column: color
     mode: placeholder_if_new
@@ -864,7 +946,7 @@ volatile_db_columns:
     mode: placeholder
     placeholder: webhook-secret
     shape: webhook_secret
-    request: "*webhooks*"
+    request: "* /api/workspaces/{}/webhooks*"
     why: "Webhook.secret_key = generate_token(): 'plane_wh_' + uuid4().hex (plane/db/models/webhook.py:17-18)"
   # The DB half of the `name` rule above: the INSERT carries the generated
   # name, and the same raw value gets the same placeholder in the response

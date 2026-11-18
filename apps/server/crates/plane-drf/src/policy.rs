@@ -620,11 +620,18 @@ impl RoutePolicy {
         if !self.http_method_names.contains(method) {
             return false;
         }
-        // DRF's `APIView` (and Django's `View`) define `options`; no DRF class
-        // defines `head`, so HEAD is a 405 on every DRF row (`getattr(self,
-        // "head", self.http_method_not_allowed)`).
+        // DRF's `APIView` (and Django's `View`) define `options`; OPTIONS is
+        // implicit on a DRF view.
         if *method == Method::OPTIONS {
             return self.implicit_methods.contains(&Method::OPTIONS);
+        }
+        // `View.setup` binds `head` to `get` when the class has no `head` of
+        // its own (`django/views/generic/base.py:126-129`), so a row whose
+        // `http_method_names` lists `head` answers HEAD whenever it registers
+        // GET. A route built with an explicit `http_method_names` without
+        // `head` (the v1 views) is still a 405 above.
+        if *method == Method::HEAD {
+            return self.methods.iter().any(|entry| entry.method == Method::GET);
         }
         self.methods.iter().any(|entry| entry.method == *method)
     }

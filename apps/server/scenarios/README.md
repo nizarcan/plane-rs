@@ -255,6 +255,12 @@ Only values that are genuinely random or clock-based are rewritten. The table
 lives in `normalize.yaml`; every rule and every shape has a `why` that is copied
 into the report. The policy has three layers.
 
+A rule that names a request uses a glob over the step's `METHOD path?query`:
+`*` matches any run of characters (including `/`), `{}` matches exactly one
+path segment, and a scope with no wildcard matches the path with any query
+string. The scopes are kept as tight as the rule: an exact route scope never
+reaches a deeper route or another verb.
+
 ### 1. Typed placeholders, never erasure
 
 A volatile value becomes a typed placeholder from a per-target map:

@@ -244,6 +244,11 @@ fn insert(headers: &mut HeaderMap, name: &str, value: &str) -> Result<()> {
 
 /// Decode a gzip body exactly once. Any other encoding is an error: the
 /// harness must fail loudly rather than compare compressed bytes.
+///
+/// A HEAD response has no body but still advertises the `Content-Encoding` its
+/// GET would use (`django/middleware/gzip.py` sets the header regardless of
+/// the request method), and a 204 may carry one too. An empty wire body is not
+/// a gzip stream: it decodes to itself.
 pub fn decode_body(wire: &[u8], content_encoding: Option<&str>) -> Result<Vec<u8>> {
     let Some(encoding) = content_encoding else {
         return Ok(wire.to_vec());
@@ -254,6 +259,9 @@ pub fn decode_body(wire: &[u8], content_encoding: Option<&str>) -> Result<Vec<u8
     }
     if encoding != "gzip" && encoding != "x-gzip" {
         bail!("unsupported Content-Encoding {encoding:?}");
+    }
+    if wire.is_empty() {
+        return Ok(Vec::new());
     }
     let mut decoder = flate2::read::GzDecoder::new(wire);
     let mut decoded = Vec::with_capacity(wire.len() * 3);
@@ -349,6 +357,19 @@ mod tests {
             body
         );
         assert_eq!(decode_body(body, None).expect("decode"), body);
+    }
+
+    #[test]
+    fn an_empty_head_body_is_not_gunzipped() {
+        // HEAD advertises the GET's Content-Encoding but sends no body.
+        assert_eq!(
+            decode_body(&[], Some("gzip")).expect("empty body"),
+            Vec::<u8>::new()
+        );
+        assert_eq!(
+            decode_body(&[], Some("x-gzip")).expect("empty body"),
+            Vec::<u8>::new()
+        );
     }
 
     #[test]
