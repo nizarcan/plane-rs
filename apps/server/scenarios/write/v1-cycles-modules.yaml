@@ -1,0 +1,167 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Write scenario for the v1 cycle and module routes of set C:
+#
+#   285  POST   pr/cycles/{cycle_id}/archive/          (cycles.rs)
+#   287  DELETE pr/archived-cycles/{cycle_id}/unarchive/
+#   281  DELETE pr/cycles/{pk}/                        (admin-or-creator only)
+#   304  POST   pr/modules/{pk}/archive/
+#   306  DELETE pr/archived-modules/{pk}/unarchive/
+#   301  DELETE pr/modules/{pk}/                    (project admin only)
+#
+# The creates, PATCHes, the bulk work-item moves and the transfer endpoint are
+# not ported yet (see `plans/V1_API.md` §4 set C); the routes they own stay on
+# Django, so this file does not touch them.
+#
+#   ./target/debug/difftest run --scenario scenarios/write/v1-cycles-modules.yaml \
+#     --a django --b rust --targets /tmp/targets-v1c.yaml \
+#     --a-redis-db 5 --b-redis-db 6
+
+name: write-v1-cycles-modules
+template_db: plane_fix_tpl
+redis_db: [5, 6]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  # Alpha Sprint 1: end_date 2026-08-16, so it is completed and archivable.
+  cycle_alpha_completed: "e6f4b40f-2492-4a1e-97f1-d84204ff65c1"
+  # Alpha Sprint 2: end_date 2026-12-06, still running — archive must 400.
+  cycle_alpha_current: "9a27989a-e695-46c7-a9a9-0497f31e7d16"
+  # Alpha Sprint 3: created by the admin, so a member DELETE is a 403.
+  cycle_alpha_future: "1df0c827-94ce-419f-b6ed-4e69b69769ae"
+  # Alpha Completed: status "completed", so it is archivable.
+  module_alpha_completed: "e03eff9f-ec87-4133-bee9-474d29c4d397"
+  # Alpha In Progress: status "in-progress" — archive must 400.
+  module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
+  # Alpha Paused: created by the admin, so the admin may delete it.
+  module_alpha_paused: "3dd8a2b9-d24e-4946-b348-e17e2e9676ac"
+  api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
+  api_token_member2: "3333333333333333333333333333333333333333333333333333333333333333"
+steps:
+  # --- cycles -----------------------------------------------------------
+  - name: v1c-w01-cycle-archive-running-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/archive/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 400
+  # A member passes `ProjectEntityPermission` on an unsafe method, so the
+  # archive itself is allowed (only the delete is creator/admin-gated).
+  - name: v1c-w02-cycle-archive-member
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/archive/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 204
+  - name: v1c-w03-cycle-archive
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/archive/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+  - name: v1c-w04-archived-cycles-after-archive
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1c-w05-cycle-unarchive
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/archived-cycles/{{cycle_alpha_completed}}/unarchive/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+  - name: v1c-w06-cycle-delete-member-403
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_future}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 403
+  - name: v1c-w07-cycle-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_future}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+  - name: v1c-w08-cycle-delete-missing-404
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_future}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+  # --- modules ----------------------------------------------------------
+  - name: v1c-w09-module-archive-running-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_in_progress}}/archive/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 400
+  - name: v1c-w10-module-archive
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_completed}}/archive/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 204
+  - name: v1c-w11-archived-modules-after-archive
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1c-w12-module-unarchive
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/archived-modules/{{module_alpha_completed}}/unarchive/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 204
+  - name: v1c-w13-module-delete-member-403
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_paused}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 403
+  - name: v1c-w14-module-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_paused}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 204
+  - name: v1c-w15-module-list-after-delete
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"

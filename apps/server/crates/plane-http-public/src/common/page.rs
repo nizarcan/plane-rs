@@ -34,7 +34,9 @@
 use plane_drf::error::ViewError;
 use plane_drf::view::ViewCtx;
 use plane_query::Json;
-use plane_query::paginator::{MAX_LIMIT, OffsetPage, PageQuery, ceil_div, envelope};
+use plane_query::paginator::{
+    Cursor, MAX_LIMIT, OffsetPage, OffsetWindow, PageQuery, ceil_div, envelope,
+};
 
 /// Parse `?per_page=`/`?cursor=` the way `BasePaginator.paginate` does.
 ///
@@ -105,6 +107,31 @@ pub fn page(page: &OffsetPage, results: Json) -> Json {
         ceil_div(page.total, page.window.limit),
         results,
     )
+}
+
+/// The same envelope with an already-rendered `results` array.
+///
+/// A handler that renders each row through its own serializer (a manual
+/// serializer, `expand=` resolutions, an issue bundle) cannot use [`page`]'s
+/// `Json` path without re-parsing the bytes, so it builds the array in place.
+#[must_use]
+pub fn page_with_bytes(
+    total: i64,
+    window: &OffsetWindow,
+    next: &Cursor,
+    prev: &Cursor,
+    count: usize,
+    results: &[u8],
+) -> Vec<u8> {
+    let total_pages = ceil_div(total, window.limit);
+    let head = format!(
+        "{{\"grouped_by\":null,\"sub_grouped_by\":null,\"total_count\":{total},\"next_cursor\":\"{next}\",\"prev_cursor\":\"{prev}\",\"next_page_results\":{},\"prev_page_results\":{},\"count\":{count},\"total_pages\":{total_pages},\"total_results\":{total},\"extra_stats\":null,\"results\":",
+        next.has_results, prev.has_results,
+    );
+    let mut body = head.into_bytes();
+    body.extend_from_slice(results);
+    body.push(b'}');
+    body
 }
 
 /// `QueryError` → the DRF error the request answers with.
