@@ -71,21 +71,21 @@ const ROLE_GUEST: i16 = 5;
 const HTML_UTF8: &str = "text/html; charset=utf-8";
 
 /// The caller's `request.user.id`.
-pub(crate) fn user_id(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
+pub fn user_id(ctx: &ViewCtx<'_>) -> Result<Uuid, ViewError> {
     ctx.user
         .id()
         .ok_or(ViewError::Api(ApiError::NotAuthenticated))
 }
 
 /// `view.kwargs["<name>"]` (`KeyError` → 400 `The required key does not exist.`).
-pub(crate) fn kwarg<'a>(ctx: &'a ViewCtx<'a>, name: &str) -> Result<&'a str, ViewError> {
+pub fn kwarg<'a>(ctx: &'a ViewCtx<'a>, name: &str) -> Result<&'a str, ViewError> {
     ctx.kwarg(name).ok_or(ViewError::Key)
 }
 
 /// A UUID URL kwarg. The router already enforces Django's `<uuid:…>` converter,
 /// so a parse failure is unreachable; the variant keeps the Python mapping
 /// (`ValidationError` → 400) if it ever is not.
-pub(crate) fn uuid_kwarg(ctx: &ViewCtx<'_>, name: &str) -> Result<Uuid, ViewError> {
+pub fn uuid_kwarg(ctx: &ViewCtx<'_>, name: &str) -> Result<Uuid, ViewError> {
     let value = kwarg(ctx, name)?;
     Uuid::parse_str(value).map_err(|_| ViewError::Validation)
 }
@@ -117,7 +117,7 @@ pub(crate) fn uuid_kwarg(ctx: &ViewCtx<'_>, name: &str) -> Result<Uuid, ViewErro
 ///
 /// The Python accepts `None` and non-strings and returns `None`; callers pass
 /// the already-extracted body string, so `None` is the "not a string" answer.
-pub(crate) fn sanitize_filename(filename: &str) -> Option<String> {
+pub fn sanitize_filename(filename: &str) -> Option<String> {
     let cleaned: String = filename
         .chars()
         .filter(|character| !character.is_ascii_control())
@@ -164,7 +164,7 @@ pub(crate) fn sanitize_filename(filename: &str) -> Option<String> {
     dead_code,
     reason = "the assets write sets (plans/ASSETS.md A/B/C) call it; P0 lands it first"
 )]
-pub(crate) async fn can_modify_asset(
+pub async fn can_modify_asset(
     client: &Client,
     user_id: Uuid,
     asset: &FileAsset,
@@ -251,10 +251,10 @@ fn decide(
 /// (the `Content-Disposition` filename) and `type` (the inline MIME type) are
 /// ever read, so this decodes them with `serde_json` instead of building a
 /// `plane_serde` value tree.
-pub(super) struct Attributes(serde_json::Map<String, serde_json::Value>);
+pub struct Attributes(serde_json::Map<String, serde_json::Value>);
 
 impl Attributes {
-    pub(super) fn parse(text: &str) -> Self {
+    pub fn parse(text: &str) -> Self {
         match serde_json::from_str::<serde_json::Value>(text) {
             Ok(serde_json::Value::Object(map)) => Self(map),
             // A non-object decodes like an empty dict: `isinstance` checks in
@@ -266,7 +266,7 @@ impl Attributes {
     /// `attributes.get("name")`, as the storage helper accepts it: only a
     /// non-empty `str` is used, anything else becomes a random name
     /// (`plane/settings/storage.py:104-112`).
-    pub(super) fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<&str> {
         self.0
             .get("name")
             .and_then(serde_json::Value::as_str)
@@ -274,14 +274,14 @@ impl Attributes {
     }
 
     /// `attributes.get("type")`.
-    pub(crate) fn mime_type(&self) -> Option<&str> {
+    pub fn mime_type(&self) -> Option<&str> {
         self.0.get("type").and_then(serde_json::Value::as_str)
     }
 }
 
 /// The storage client, built once per process from `Settings` (see the module
 /// docs for why this is not on `ViewCtx`).
-pub(crate) fn storage(settings: &Settings) -> Result<&'static Storage, ViewError> {
+pub fn storage(settings: &Settings) -> Result<&'static Storage, ViewError> {
     static STORAGE: OnceLock<Result<Storage, String>> = OnceLock::new();
     match STORAGE.get_or_init(|| {
         Storage::from_process_env(&settings.storage).map_err(|error| error.to_string())
@@ -306,7 +306,7 @@ pub(crate) fn storage(settings: &Settings) -> Result<&'static Storage, ViewError
 /// The key is `view.asset` and the filename `view.attributes["name"]`; the
 /// disposition and the optional `Content-Type` pin come from the caller, as in
 /// the Python.
-pub(crate) async fn presigned_redirect(
+pub async fn presigned_redirect(
     ctx: &ViewCtx<'_>,
     asset: &FileAsset,
     disposition: &str,
@@ -341,7 +341,7 @@ pub(super) fn redirect(location: &str) -> ViewResponse {
 
 /// `asset.attributes.get("type")`, the `content_type` pin of a presigned
 /// `generate_presigned_url` call.
-pub(crate) fn attribute_type(asset: &FileAsset) -> Option<String> {
+pub fn attribute_type(asset: &FileAsset) -> Option<String> {
     Attributes::parse(asset.attributes.as_str())
         .mime_type()
         .map(str::to_owned)
@@ -356,7 +356,7 @@ pub(crate) fn attribute_type(asset: &FileAsset) -> Option<String> {
 /// `x-amz-signature` follow the client-side fields
 /// (`crates/plane-storage/src/storage.rs:465-471`), and the harness compares
 /// the order.
-pub(crate) fn upload_data(post: &PresignedPost) -> Json {
+pub fn upload_data(post: &PresignedPost) -> Json {
     let mut fields = PyDict::new();
     for (key, value) in &post.fields {
         fields.insert(
@@ -405,7 +405,7 @@ pub(crate) fn upload_data(post: &PresignedPost) -> Json {
     dead_code,
     reason = "the assets write sets (plans/ASSETS.md A/B) call it; P0 lands it first"
 )]
-pub(crate) fn presign_upload_body(
+pub fn presign_upload_body(
     asset: &FileAsset,
     workspace_slug: Option<&str>,
     post: &PresignedPost,
@@ -436,7 +436,7 @@ pub(crate) fn presign_upload_body(
 }
 
 /// A JSON object built in the view (`Response({...})`), in dict order.
-pub(crate) fn json_object(status: u16, object: &Object) -> Result<ViewResponse, ViewError> {
+pub fn json_object(status: u16, object: &Object) -> Result<ViewResponse, ViewError> {
     let body = plane_serde::to_vec(plane_serde::Dialect::Drf, object)
         .map_err(|error| ViewError::Unknown(format!("rendering the response failed: {error}")))?;
     Ok(ViewResponse::raw(status, APPLICATION_JSON, body))
@@ -549,7 +549,7 @@ enum Restricted {
 /// N+1. Here the membership lookup is one statement for the whole page and the
 /// issue-ownership lookup one more, while the single-asset routes keep the same
 /// two round trips Django makes.
-pub(super) async fn accessible_assets(
+pub async fn accessible_assets(
     client: &Client,
     user_id: Uuid,
     assets: &[FileAsset],
@@ -682,7 +682,7 @@ pub(super) async fn accessible_assets(
 
 /// `issue_hidden_from_guest(request, slug, project_id, issue_id)`
 /// (`plane/app/permissions/base.py:106-141`).
-pub(crate) async fn issue_hidden_from_guest(
+pub async fn issue_hidden_from_guest(
     client: &Client,
     slug: &str,
     project_id: Uuid,

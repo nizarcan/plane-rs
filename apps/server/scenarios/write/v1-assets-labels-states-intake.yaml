@@ -1,0 +1,746 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Set B write scenario: assets (273–278), labels (290/291), states (312/313)
+# and intake (288/289). The reads are in
+# `scenarios/read/v1-assets-labels-states-intake.yaml`; both share the
+# `redis_db` indexes and `PYTHONHASHSEED`.
+#
+# Every step runs Django vs Django until the routes flip to Rust, then Django
+# vs Rust. `PYTHONHASHSEED` is pinned because the serializer error lists and the
+# intake's `writable_data` iterate Python sets/dicts.
+name: write-v1-assets-labels-states-intake
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  label_alpha_feature: "4e684b34-0406-4516-96ce-361f9f3f1665"
+  state_alpha_backlog: "5943efbb-5e08-4133-bf4a-e9547a8691ec"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  intake_issue_pending: "27a64497-44aa-446b-8136-8197010dea71"
+  intake_issue_accepted: "b112d8ba-70d1-4161-9fd1-51714c353f9a"
+  admin_avatar_asset: "f9d1f1c9-fb2b-4924-b517-5781c46d2ba4"
+  api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
+  api_token_member2: "3333333333333333333333333333333333333333333333333333333333333333"
+steps:
+  # -- assets 273/274: user assets ---------------------------------------
+  - name: user-asset-post-avatar
+    method: POST
+    path: "/api/v1/assets/user-assets/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness-avatar.png"
+      type: "image/png"
+      size: 2048
+      entity_type: "USER_AVATAR"
+    capture:
+      - name: user_asset
+        source: db
+        table: file_assets
+        column: id
+    expect_status: 200
+
+  - name: user-asset-post-cover-server
+    method: POST
+    path: "/api/v1/assets/user-assets/server/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness-cover.jpg"
+      type: "image/jpeg"
+      size: 100
+      entity_type: "USER_COVER"
+    expect_status: 200
+
+  - name: user-asset-post-bad-entity
+    method: POST
+    path: "/api/v1/assets/user-assets/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "x.png"
+      type: "image/png"
+      size: 10
+      entity_type: "WORKSPACE_LOGO"
+    expect_status: 400
+
+  - name: user-asset-post-bad-type
+    method: POST
+    path: "/api/v1/assets/user-assets/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    json:
+      name: "x.pdf"
+      type: "application/pdf"
+      size: 10
+      entity_type: "USER_AVATAR"
+    expect_status: 400
+
+  - name: user-asset-post-null-size
+    method: POST
+    path: "/api/v1/assets/user-assets/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "x.png"
+      type: "image/png"
+      size: null
+      entity_type: "USER_AVATAR"
+    expect_status: 500
+
+  - name: user-asset-patch-confirm
+    method: PATCH
+    path: "/api/v1/assets/user-assets/{{user_asset}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      attributes:
+        name: "harness-avatar.png"
+        type: "image/png"
+        size: 4096
+    expect_status: 204
+
+  # Another user's asset is outside the route's `user_id=` scope.
+  - name: user-asset-patch-foreign
+    method: PATCH
+    path: "/api/v1/assets/user-assets/{{user_asset}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      attributes: {}
+    expect_status: 404
+
+  - name: user-asset-patch-unknown
+    method: PATCH
+    path: "/api/v1/assets/user-assets/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      attributes: {}
+    expect_status: 404
+
+  # The fixture's admin avatar: the delete nulls `users.avatar_asset_id` and
+  # runs H30 (the token rotation is a `users.token` placeholder).
+  - name: user-asset-delete-fixture-avatar
+    method: DELETE
+    path: "/api/v1/assets/user-assets/{{admin_avatar_asset}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+
+  - name: user-asset-delete-created
+    method: DELETE
+    path: "/api/v1/assets/user-assets/{{user_asset}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 204
+
+  - name: user-asset-delete-again
+    method: DELETE
+    path: "/api/v1/assets/user-assets/{{user_asset}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 404
+
+  # -- assets 277/278: generic assets ------------------------------------
+  - name: generic-asset-post
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/assets/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness-spec.pdf"
+      type: "application/pdf"
+      size: 4096
+      project_id: "{{project_alpha}}"
+      external_id: "harness-asset-1"
+      external_source: "harness-v1"
+    capture:
+      - name: generic_asset
+        source: db
+        table: file_assets
+        column: id
+    expect_status: 200
+
+  - name: generic-asset-post-duplicate-external
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/assets/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness-spec.pdf"
+      type: "application/pdf"
+      size: 4096
+      project_id: "{{project_alpha}}"
+      external_id: "harness-asset-1"
+      external_source: "harness-v1"
+    expect_status: 409
+
+  - name: generic-asset-post-missing-name
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/assets/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      type: "application/pdf"
+      size: 10
+      project_id: "{{project_alpha}}"
+    expect_status: 400
+
+  - name: generic-asset-post-bad-type
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/assets/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    json:
+      name: "x.exe"
+      type: "application/x-msdownload2"
+      size: 10
+      project_id: "{{project_alpha}}"
+    expect_status: 400
+
+  - name: generic-asset-post-missing-project
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/assets/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "x.pdf"
+      type: "application/pdf"
+      size: 10
+    expect_status: 400
+
+  - name: generic-asset-post-unknown-project
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/assets/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "x.pdf"
+      type: "application/pdf"
+      size: 10
+      project_id: "00000000-0000-4000-8000-000000000000"
+    expect_status: 404
+
+  # Epsilon is in the same workspace and the member is not one of its project
+  # members.
+  - name: generic-asset-post-not-project-member
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/assets/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "x.pdf"
+      type: "application/pdf"
+      size: 10
+      project_id: "{{project_epsilon}}"
+    expect_status: 403
+
+  - name: generic-asset-patch-confirm
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/assets/{{generic_asset}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      is_uploaded: true
+    expect_status: 204
+
+  # A null `is_uploaded` is a NOT NULL violation: the family's 400.
+  - name: generic-asset-patch-null
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/assets/{{generic_asset}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      is_uploaded: null
+    expect_status: 400
+
+  - name: generic-asset-patch-unknown
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/assets/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      is_uploaded: true
+    expect_status: 404
+
+  # -- labels 290/291 ----------------------------------------------------
+  - name: label-post
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness-label"
+      color: "#123456"
+      description: "created by the v1 harness"
+    capture:
+      - name: label_new
+        source: db
+        table: labels
+        column: id
+    expect_status: 201
+
+  - name: label-post-duplicate-name
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness-label"
+      color: "#123456"
+    expect_status: 409
+
+  - name: label-post-missing-name
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      color: "#123456"
+    expect_status: 400
+
+  - name: label-post-member-forbidden
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness-member-label"
+    expect_status: 403
+
+  - name: label-post-external
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "harness-label-external"
+      external_id: "harness-label-ext"
+      external_source: "harness-v1"
+    capture:
+      - name: label_external
+        source: db
+        table: labels
+        column: id
+    expect_status: 201
+
+  - name: label-post-external-duplicate
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "harness-label-external-2"
+      external_id: "harness-label-ext"
+      external_source: "harness-v1"
+    expect_status: 409
+
+  - name: label-patch
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/{{label_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness-label-renamed"
+      color: "#654321"
+      sort_order: 1234.5
+    expect_status: 200
+
+  # The external-id guard runs before the save and reports the URL object.
+  - name: label-patch-external-conflict
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/{{label_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      external_id: "harness-label-ext"
+      external_source: "harness-v1"
+    expect_status: 409
+
+  - name: label-patch-unknown
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "nope"
+    expect_status: 404
+
+  - name: label-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/{{label_external}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+
+  - name: label-delete-again
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/{{label_external}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+
+  # -- states 312/313 ----------------------------------------------------
+  - name: state-post
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "Harness Review"
+      color: "#0F766E"
+      group: "started"
+    capture:
+      - name: state_new
+        source: db
+        table: states
+        column: id
+    expect_status: 200
+
+  # `default: true` clears the project's other default states in the same
+  # request (Backlog, the fixture's default).
+  - name: state-post-default
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "Harness Default"
+      color: "#7C3AED"
+      default: true
+    expect_status: 200
+
+  - name: state-post-duplicate-name
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "Harness Review"
+      color: "#0F766E"
+    expect_status: 409
+
+  - name: state-post-triage
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "Harness Triage"
+      color: "#111111"
+      group: "triage"
+    expect_status: 400
+
+  - name: state-post-member-forbidden
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "Harness Member"
+      color: "#222222"
+    expect_status: 403
+
+  - name: state-patch
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "Harness Review Renamed"
+      sequence: 123456.5
+    expect_status: 200
+
+  - name: state-patch-triage
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_new}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      group: "triage"
+    expect_status: 400
+
+  - name: state-patch-unknown
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "nope"
+    expect_status: 404
+
+  # Backlog carries the fixture's issues.
+  - name: state-delete-non-empty
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_alpha_backlog}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 400
+
+  - name: state-delete-default
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_alpha_todo}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 400
+
+  - name: state-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+
+  - name: state-delete-again
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+
+  # -- intake 288/289 ----------------------------------------------------
+  - name: intake-post
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      issue:
+        name: "harness intake item"
+        description_html: "<p>submitted by the v1 harness</p>"
+        priority: "high"
+    capture:
+      - name: intake_issue
+        source: db
+        table: intake_issues
+        column: issue_id
+    expect_status: 201
+
+  - name: intake-post-missing-name
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      issue:
+        description_html: "<p>no name</p>"
+    expect_status: 400
+
+  - name: intake-post-bad-priority
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    json:
+      issue:
+        name: "harness bad priority"
+        priority: "critical"
+    expect_status: 400
+
+  - name: intake-post-no-intake-view
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_epsilon}}/intake-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issue:
+        name: "harness epsilon intake"
+    expect_status: 400
+
+  # The permission class resolves the project before the view runs, so a
+  # missing project is a 403, not the family 404.
+  - name: intake-post-unknown-project
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/00000000-0000-4000-8000-000000000000/intake-issues/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      issue:
+        name: "harness unknown project"
+    expect_status: 403
+
+  # A MEMBER (role 15) is not `> 15`, so the intake serializer never runs and
+  # the only write is the response: the link is unchanged.
+  - name: intake-patch-member-attributes-ignored
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      status: 2
+    expect_status: 200
+
+  # An ADMIN accepts the item: the issue moves from the Triage state to the
+  # project's default state.
+  - name: intake-patch-accept
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      status: 1
+      source: "IN_APP"
+    expect_status: 200
+
+  - name: intake-patch-unknown
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      status: 2
+    expect_status: 404
+
+  # Accepted (status 1) links keep the issue.
+  - name: intake-delete-accepted
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+
+  # Pending (status -2) links also soft-delete the issue.
+  - name: intake-delete-pending
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_pending}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 204
+
+  - name: intake-delete-unknown
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 404
+
+  # The soft-deleted issue is no longer a member of the issue list, and the
+  # accepted item's issue survives.
+  - name: intake-detail-accepted-still-there
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_accepted}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 200
