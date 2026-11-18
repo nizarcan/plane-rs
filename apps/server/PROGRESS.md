@@ -1723,7 +1723,15 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      logos 404 there); `clear_cache` runs `FLUSHDB` on every API start, wiping throttle
      and magic-link keys. Phase 8 must port that too.
 
-   Running: nothing; builds wait for disk (15 GB free, macOS update being prepared). Then the final benchmark and the environment
+   - 2026-11-18: Colima disk trimmed and the owner's unused containers, volumes, images
+     and build cache removed (owner's choice): 16 → 56 GB free after the macOS update.
+     The restart cleared `/tmp`: `/tmp/plane-verify` was re-added as a git worktree and
+     `/tmp/targets-orch.yaml` regenerated (ports 18800–18849 django, 18850–18899 rust).
+     The owner's `vmif` container exited at the restart and was left stopped.
+
+   Running: v1 set D (`rs/v1-d`, ports 18010/18110, Redis 3/4), public set A
+   (`rs/pub-a`, 18020/18120, Redis 5/6), public/instances P0b (`rs/pub-p0b`,
+   18030/18130, Redis 7/8, SMTP 18410–18419); the orchestrator's mixed contract run. Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
