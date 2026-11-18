@@ -1,0 +1,33 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-mail"
+description = "Django-compatible e-mail: message bytes, SMTP session, templates and plain text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+deadpool-postgres.workspace = true
+dns-lookup.workspace = true
+futures-util = { workspace = true, features = ["io"] }
+gethostname.workspace = true
+getrandom.workspace = true
+lettre.workspace = true
+minijinja.workspace = true
+plane-auth = { path = "../plane-auth" }
+plane-core = { path = "../plane-core" }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "rt", "time"] }
+
+[lints]
+workspace = true

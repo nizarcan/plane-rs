@@ -206,6 +206,7 @@ fn scalar(key: &str, value: &OptionValue) -> Result<String, DbError> {
 }
 
 /// Primary and optional replica pools.
+#[derive(Clone)]
 pub struct DbPools {
     primary: Pool,
     replica: Option<Pool>,

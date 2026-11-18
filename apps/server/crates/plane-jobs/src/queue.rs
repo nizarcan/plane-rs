@@ -159,6 +159,40 @@ impl Job {
         self.retry_jitter = jitter;
         self
     }
+
+    /// The Rust-owned representation of a typed Celery message.
+    ///
+    /// The payload is `{"args": [...], "kwargs": {...}}` with Python runtime
+    /// values (a `uuid.UUID` is its string, `json.dumps` text stays a string),
+    /// so a switch from `.delay()` to the Postgres queue is transport-only and
+    /// a handler can be tested against both representations
+    /// (`plans/CUTOVER.md` §2 "Payload equivalence").
+    ///
+    /// The task's retry policy is applied from [`crate::policy`]: neither the
+    /// Celery message nor the call site carries it.
+    #[cfg(feature = "celery")]
+    #[must_use]
+    pub fn from_message(message: &crate::celery::Message) -> Self {
+        let args: Vec<serde_json::Value> = message
+            .args()
+            .iter()
+            .map(crate::celery::args::TaskArg::python_value)
+            .collect();
+        let kwargs: serde_json::Map<String, serde_json::Value> = message
+            .kwargs()
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), value.python_value()))
+            .collect();
+        let mut job = Self::new(message.task()).payload(serde_json::json!({
+            "args": args,
+            "kwargs": kwargs,
+        }));
+        let policy = crate::policy::policy(message.task());
+        job.max_retries = policy.max_retries;
+        job.retry_backoff_seconds = policy.retry_backoff_seconds;
+        job.retry_jitter = policy.retry_jitter;
+        job
+    }
 }
 
 /// A claimed row. `attempts` includes the attempt that is about to run.
@@ -427,5 +461,43 @@ mod tests {
         assert_eq!(job.max_retries, 0);
         assert_eq!(job.retry_backoff_seconds, 0);
         assert!(job.retry_jitter);
+    }
+
+    /// `plans/CUTOVER.md` §2(b): the queue payload is the Celery message's
+    /// `(args, kwargs)` with Python runtime values, so switching the transport
+    /// cannot change what the handler sees.
+    #[cfg(feature = "celery")]
+    #[test]
+    fn from_message_keeps_python_values_and_the_task_policy() {
+        use crate::celery::args::TaskArg;
+        use crate::celery::tasks::{RecentVisitedTask, recent_visited_task};
+
+        let user = Uuid::nil();
+        let project = Uuid::max();
+        let message = recent_visited_task(RecentVisitedTask::ProjectKeyed {
+            slug: "acme".to_string(),
+            project_id: Some(TaskArg::uuid(project)),
+            entity_name: "project".to_string(),
+            entity_identifier: TaskArg::uuid(user),
+            user_id: TaskArg::uuid(user),
+        });
+        let job = Job::from_message(&message);
+        assert_eq!(job.task, message.task());
+        assert_eq!(
+            job.payload,
+            serde_json::json!({
+                "args": [],
+                "kwargs": {
+                    "slug": "acme",
+                    "project_id": project.hyphenated().to_string(),
+                    "entity_name": "project",
+                    "entity_identifier": user.hyphenated().to_string(),
+                    "user_id": user.hyphenated().to_string(),
+                },
+            })
+        );
+        assert_eq!(job.max_retries, 0);
+        assert_eq!(job.retry_backoff_seconds, 0);
+        assert!(!job.retry_jitter);
     }
 }

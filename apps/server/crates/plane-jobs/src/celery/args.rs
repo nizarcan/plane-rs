@@ -61,6 +61,38 @@ pub enum TaskArg {
 }
 
 impl TaskArg {
+    /// The Python runtime value as plain JSON: the shape a Rust handler reads
+    /// from [`crate::queue::Job::payload`].
+    ///
+    /// The wire form is different for a UUID (`KombuUuid`'s `{"__type__": …}`
+    /// envelope) and identical for everything else. A handler never wants the
+    /// envelope: Python's `uuid.UUID` argument is a UUID object, so its str
+    /// form is what a task body passes to the ORM.
+    #[must_use]
+    pub fn python_value(&self) -> serde_json::Value {
+        match self {
+            TaskArg::Null => serde_json::Value::Null,
+            TaskArg::Bool(value) => serde_json::Value::Bool(*value),
+            TaskArg::Int(value) => serde_json::Value::Number((*value).into()),
+            TaskArg::Float(value) => serde_json::Number::from_f64(*value)
+                .map_or(serde_json::Value::Null, serde_json::Value::Number),
+            TaskArg::Str(value) | TaskArg::JsonText(value) => {
+                serde_json::Value::String(value.clone())
+            }
+            TaskArg::Uuid(value) => serde_json::Value::String(value.hyphenated().to_string()),
+            TaskArg::List(items) => {
+                serde_json::Value::Array(items.iter().map(TaskArg::python_value).collect())
+            }
+            TaskArg::Map(entries) => serde_json::Value::Object(
+                entries
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.python_value()))
+                    .collect(),
+            ),
+            TaskArg::Json(value) => serde_json::to_value(value).unwrap_or(serde_json::Value::Null),
+        }
+    }
+
     /// A Python `str`.
     #[must_use]
     pub fn str(value: impl Into<String>) -> Self {
