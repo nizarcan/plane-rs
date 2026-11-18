@@ -1851,9 +1851,27 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
         "connection refused". Agents reminded to kill only PIDs they started. Rerun
         with `PLANE_RS_CONTRACT_REDIS_DB=12`.
 
-   Running: v1 set A (`rs/v1-a`, ports 18010/18110, Redis 3/4), v1 set C (`rs/v1-c`,
-   18020/18120, Redis 5/6), the SMTP/MIME/normaliser fix (`rs/fix-smtp-mime`,
-   18040/18140, Redis 9/10, SMTP 18410–18419). Then the final benchmark and the environment
+   - **v1 set A merged (`3974ef0b62`, verification pending)**: 292–298, 307 GET,
+     308, 309 GET, 310, 311, 314, 340–351. Agent: new `read/v1-admin.yaml` 64/64,
+     `write/v1-admin.yaml` 38/38; set D's scenarios still clean; contract `api/` 311/0;
+     1255 tests. **Not ported (stay Django): 307 POST (project create), 309
+     PATCH/DELETE.** Shared changes: `plane-drf` honours `http_method_names` (HEAD/
+     OPTIONS 405 on those views), `bins/plane-api/src/routes.rs` applies DRF's
+     `drf_format_suffix` (strips the `.`), `normalize.yaml` rules scoped.
+     - Upstream kept: v1 invitation create succeeds with `token=""` (the plan said it
+       400s: `CharField` default); inherited invitation `PUT` always 400s (missing
+       `context["slug"]`); project summary counts drafts/archived issues
+       (`Issue.objects`); `ProjectDetail` omits `sort_order`; `ProjectSummary` has
+       its own 404 body and builds `counts` from a set; v1 project list order ties on
+       `sort_order` (normalised as a multiset).
+     - The agent once used `pgrep -f '^./target/debug/plane-api$'` + `kill` on its own
+       probe, before the reminder. The pattern wouldn't match the contract runner's
+       absolute-path binary, so the 18290 SIGTERM's origin is still unknown.
+
+   Running: v1 set B (`rs/v1-b`, ports 18010/18110, Redis 3/4, contract Redis 11),
+   v1 set C (`rs/v1-c`, 18020/18120, Redis 5/6, contract Redis 15), the
+   SMTP/MIME/normaliser fix (`rs/fix-smtp-mime`, 18040/18140, Redis 9/10, contract
+   Redis 2, SMTP 18410–18419). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
