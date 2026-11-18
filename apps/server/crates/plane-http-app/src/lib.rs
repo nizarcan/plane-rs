@@ -104,6 +104,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     webhooks::register(registry)?;
     ai::register(registry)?;
     openapi::register(registry)?;
+    public::register(registry)?;
     Ok(())
 }
 

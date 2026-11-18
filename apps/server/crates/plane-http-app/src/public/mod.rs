@@ -13,12 +13,24 @@
 //!
 //! * [`board`] — the deploy-board resolution every view starts with, its 404s
 //!   and the write-scope predicates (`PUBLIC_INSTANCES.md` §2a);
-//! * [`queries`] — the statements [`board`] prepares.
+//! * [`queries`] — the statements [`board`] and the handlers prepare;
+//! * [`board_read`] — the reads that only need the board row
+//!   (`WorkspaceProjectDeployBoardEndpoint`, `WorkspaceProjectAnchorEndpoint`,
+//!   and the intake-issue list/retrieve: set A);
+//! * [`meta`] — `ProjectMetaDataEndpoint` and
+//!   `ProjectDeployBoardPublicSettingsEndpoint`;
+//! * [`lists`] — the five `{id, name}`-style list endpoints (cycles, modules,
+//!   states, labels, members);
+//! * [`project`] — the public comment list/retrieve and the reaction/vote
+//!   lists (set A's GET halves of 239-245);
+//! * [`assets_read`] — the asset `GET`s (`assets/v2/anchor/{anchor}/` and
+//!   `assets/v2/anchor/{anchor}/{pk}/`);
+//! * [`issue_query`] — `ProjectIssuesPublicEndpoint` and
+//!   `IssueRetrievePublicEndpoint`.
 //!
-//! The routes themselves are not registered yet: `register_all`
-//! (`crate::register_all`) does not call a `public::register` until the first
-//! handler exists, which is why every `/api/public/` path still answers the
-//! pipeline's 501.
+//! The write halves of 234-245 and 255-258 belong to set B and stay
+//! unregistered here: one Django view can serve both verbs, and the registry
+//! answers a method with no handler with the pipeline's 501.
 //!
 //! Two shared behaviours live in the runtime, not here:
 //!
@@ -32,5 +44,87 @@
 //!   (`plane/space/views/base.py:91-124`) is the family error type the
 //!   dispatcher already renders (`ApiError::FamilyServerError`).
 
+use chrono_tz::Tz;
+use plane_drf::error::ViewError;
+use plane_drf::registry::{Registry, RegistryError};
+use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_serializers::RenderCtx;
+
+pub mod assets_read;
 pub mod board;
+pub mod board_read;
+pub mod intake_read;
+pub mod issue_list;
+pub mod issue_query;
+pub mod lists;
+pub mod meta;
+pub mod project;
 pub mod queries;
+
+/// Register this group's handlers, in route order.
+pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
+    board_read::register(registry)?;
+    issue_query::register(registry)?;
+    project::register(registry)?;
+    meta::register(registry)?;
+    lists::register(registry)?;
+    assets_read::register(registry)?;
+    Ok(())
+}
+
+/// The context a serializer renders under on this surface.
+///
+/// None of the serializers the group renders is a `DynamicBaseSerializer`
+/// (`DeployBoardSerializer`, `ProjectLiteSerializer`,
+/// `IssueStateIntakeSerializer`, `IssueCommentSerializer` and their nested
+/// serializers are plain `BaseSerializer`s, `SERIALIZERS.md`), and the group's
+/// base classes (`plane/space/views/base.py`) do not extend Plane's dynamic
+/// view base, so `?fields=` and `?expand=` never reach a serializer here. The
+/// context is therefore the timezone and nothing else.
+pub fn plain_context<'a>(ctx: &'a ViewCtx<'a>) -> RenderCtx<'a> {
+    let timezone: &'a Tz = match ctx.timezone {
+        Some(timezone) => timezone,
+        None => &chrono_tz::UTC,
+    };
+    RenderCtx::new(timezone, None, &[])
+}
+
+/// `DeployBoard.workspace.slug` — the FK read every board-scoped view makes
+/// (`plane/space/views/cycle.py:24`, `issue.py:118,695`). A soft-deleted
+/// workspace is `Workspace.DoesNotExist` → the family 404.
+pub async fn workspace_slug(
+    client: &deadpool_postgres::Client,
+    workspace_id: uuid::Uuid,
+) -> Result<String, ViewError> {
+    let statement = queries::WORKSPACE_SLUG.prepare(client).await?;
+    let row = client.query_opt(&statement, &[&workspace_id]).await?;
+    row.map(|row| row.get(0))
+        .ok_or(ViewError::ObjectDoesNotExist)
+}
+
+/// `Response(status=200)` of an already-rendered body.
+pub fn ok(body: Vec<u8>) -> ViewResponse {
+    ViewResponse::raw(200, plane_core::error::APPLICATION_JSON, body)
+}
+
+/// A handler that only ever raises: the ported 500 of a view whose Python
+/// always raises (see [`board_read::workspace_project_deploy_board`]).
+pub fn always_server_error<'a>(
+    reason: &'static str,
+) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move { Err(ViewError::Unknown(reason.to_owned())) })
+}
+
+#[cfg(test)]
+mod tests {
+    use plane_query::json::Json;
+
+    /// `JSONRenderer.render(None)` is the empty body, and the DRF dialect
+    /// reproduces that only at depth 0 — which is why a field value must be
+    /// rendered at depth 1 (`issue_query::value_bytes`).
+    #[test]
+    fn a_top_level_null_is_the_empty_body() {
+        assert_eq!(Json::Null.to_drf(), b"");
+        assert_eq!(Json::opt_uuid(None).to_drf(), b"");
+    }
+}

@@ -37,7 +37,7 @@ pub mod lists;
 pub mod queries;
 pub mod row;
 
-mod sub_resources;
+pub(crate) mod sub_resources;
 /// The issue-core write routes (`plans/WORK_ITEMS.md` set A).
 ///
 /// `pub(crate)` since the intake-issue create/PATCH sets reuse the shared

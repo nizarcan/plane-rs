@@ -203,6 +203,12 @@ volatile_headers:
     mode: presigned_url
     request: "*api/assets/*"
     why: "asset downloads redirect to a presigned S3 URL; D17 verifies each side's SigV4 signature with its own X-Amz-Date (plane/settings/storage.py:114-151)"
+  # The public board's asset download is the same redirect
+  # (`plane/space/views/asset.py:76-85`), one path prefix deeper.
+  - name: Location
+    mode: presigned_url
+    request: "*api/public/assets/*"
+    why: "public asset downloads redirect to a presigned S3 URL; D17 verifies each side's SigV4 signature with its own X-Amz-Date (plane/space/views/asset.py:76-85)"
   - name: X-RateLimit-Reset
     mode: unix_time
     why: "int(now + throttle duration), an absolute Unix timestamp (plane/api/views/base.py:123-136)"

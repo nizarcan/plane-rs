@@ -1,0 +1,278 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Public board reads — the branches `scenarios/read/public.yaml` cannot reach
+# with `plane_fix_tpl` alone (`plans/PUBLIC_INSTANCES.md` §5, "Fixture needs").
+#
+# `fixture_sql` adds two boards (`public-extra-fixture.sql`):
+#
+#   * `extra-anchor-page` — a **page** board (`entity_name = 'page'`) whose
+#     `project_id` is Alpha Platform. `PUBLIC_INSTANCES.md` §5 records that a
+#     published page board carries a project id, so the routes that resolve the
+#     board without an `entity_name` filter (`cycles/`, `issues/`,
+#     `issues/{id}/`, `assets/v2/anchor/{anchor}/{pk}/`) answer that project's
+#     rows, while `meta/` — which looks the project up by `entity_identifier` —
+#     is the view's own 404.
+#   * `extra-anchor-mismatch` — a project board whose `entity_identifier` is
+#     the *other* fixture project. `DeployBoardAnchorMixin.initial`
+#     (`plane/space/views/base.py:47-59`) answers `{"detail": "Not found."}`
+#     for **every** route of the group before a handler runs, including the
+#     `AllowAny` ones.
+#
+# The beta board (`fixture-anchor-beta`, every flag off) is in the template and
+# pins the disabled-feature answers: an empty `votes/`/`reactions/` list and
+# `[]` for the comments when the board has comments disabled.
+
+name: read-public-extra
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/read/public-extra-fixture.sql"
+  anchor_page: "extra-anchor-page"
+  anchor_mismatch: "extra-anchor-mismatch"
+  anchor_alpha: "fixture-anchor-alpha"
+  anchor_beta: "fixture-anchor-beta"
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  comment_alpha: "d8fa6287-ddd7-4303-b743-02986ecbac94"
+  description_asset_0: "666a24d5-adf9-4b02-8c5c-ce1440ac11e9"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # --- the page board -----------------------------------------------------
+  # `meta/` looks the project up by `entity_identifier`, which is a page id
+  # here: the view's own 404.
+  - name: public-extra-meta-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/meta/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.30
+  # `settings/` only needs the board row.
+  - name: public-extra-settings-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/settings/"
+    jar: anon2
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.31
+  # The five `.values()` lists resolve the board without `entity_name`.
+  - name: public-extra-cycles-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/cycles/"
+    jar: anon3
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.32
+  - name: public-extra-modules-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/modules/"
+    jar: anon4
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.33
+  - name: public-extra-states-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/states/"
+    jar: anon5
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.34
+  - name: public-extra-labels-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/labels/"
+    jar: anon6
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.35
+  - name: public-extra-members-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/members/"
+    jar: anon7
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.36
+  # The issue list uses `entity_identifier` as its project: for this board that
+  # is the page id, so the list is empty (not a 404).
+  - name: public-extra-issues-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/issues/"
+    jar: anon8
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.37
+  # `issues/{pk}/` uses `board.project_id` (not `entity_identifier`), so the
+  # same anchor answers Alpha Platform's issue.
+  - name: public-extra-issue-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/issues/{{issue_alpha_commented}}/"
+    jar: anon9
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.38
+  # The asset GET is the route that reaches a page board's project.
+  - name: public-extra-comments-page-board
+    method: GET
+    path: "/api/public/anchor/{{anchor_page}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: anon10
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.39
+  - name: public-extra-asset-page-board
+    method: GET
+    path: "/api/public/assets/v2/anchor/{{anchor_page}}/{{description_asset_0}}/"
+    jar: anon11
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.40
+
+  # --- the anchor-mismatch board: the mixin's 404 on every route ----------
+  - name: public-extra-mismatch-meta
+    method: GET
+    path: "/api/public/anchor/{{anchor_mismatch}}/meta/"
+    jar: anon12
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.41
+  - name: public-extra-mismatch-settings
+    method: GET
+    path: "/api/public/anchor/{{anchor_mismatch}}/settings/"
+    jar: anon13
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.42
+  - name: public-extra-mismatch-issues
+    method: GET
+    path: "/api/public/anchor/{{anchor_mismatch}}/issues/"
+    jar: anon14
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.43
+  - name: public-extra-mismatch-issue
+    method: GET
+    path: "/api/public/anchor/{{anchor_mismatch}}/issues/{{issue_alpha_commented}}/"
+    jar: anon15
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.44
+  - name: public-extra-mismatch-comments
+    method: GET
+    path: "/api/public/anchor/{{anchor_mismatch}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: anon16
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.45
+  # An `IsAuthenticated` write route still answers 401 before the mixin's 404
+  # (check_permissions runs first), so this step sends the session.
+  - name: public-extra-mismatch-votes-authenticated
+    method: GET
+    path: "/api/public/anchor/{{anchor_mismatch}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+
+  # --- the disabled beta board -------------------------------------------
+  - name: public-extra-beta-settings
+    method: GET
+    path: "/api/public/anchor/{{anchor_beta}}/settings/"
+    jar: anon17
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.46
+  - name: public-extra-beta-meta
+    method: GET
+    path: "/api/public/anchor/{{anchor_beta}}/meta/"
+    jar: anon18
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.47
+  - name: public-extra-beta-issues
+    method: GET
+    path: "/api/public/anchor/{{anchor_beta}}/issues/"
+    jar: anon19
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.48
+
+  # --- the ported Django bugs -------------------------------------------
+  # 237: the URL binds `slug`, the handler declares `anchor` — always a 500.
+  - name: public-extra-project-boards-500
+    method: GET
+    path: "/api/public/workspaces/{{ws}}/project-boards/"
+    jar: anon20
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.49
+  # 255: the collection asset URL has no `pk`, the handler requires one.
+  - name: public-extra-asset-collection-500
+    method: GET
+    path: "/api/public/assets/v2/anchor/{{anchor_alpha}}/"
+    jar: anon21
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.50
+  # 241/245 resolve a board by kwargs the route does not bind: always `[]` for
+  # an authenticated caller.
+  - name: public-extra-issue-reactions-always-empty
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/reactions/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issue-votes-always-empty
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/votes/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # A comment that belongs to the board's issue but is not `EXTERNAL` is not
+  # reachable through the public board: the comment `retrieve` is DRF's 404.
+  - name: public-extra-comment-404
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/{{issue_alpha_commented}}/comments/00000000-0000-0000-0000-000000000001/"
+    jar: anon22
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.51
+  # An issue outside the board's project is `null`, not a 404 (`.first()`).
+  - name: public-extra-issue-outside-project
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/00000000-0000-0000-0000-000000000002/"
+    jar: anon23
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.52
+  # A page out of range: the envelope's cursors and counts.
+  - name: public-extra-issues-page-two
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      per_page: "3"
+      cursor: "3:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # An unknown board for a `filter(...).first()` route: the view's own 404.
+  - name: public-extra-cycles-unknown-anchor
+    method: GET
+    path: "/api/public/anchor/no-such-anchor/cycles/"
+    jar: anon24
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.53
+  # An unknown board for a `.get()` route: the family 404 body.
+  - name: public-extra-settings-unknown-anchor
+    method: GET
+    path: "/api/public/anchor/no-such-anchor/settings/"
+    jar: anon25
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.54
