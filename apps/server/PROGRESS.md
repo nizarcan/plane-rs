@@ -1814,10 +1814,28 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        case-sensitive.
      - Merge: the registry overlap with public A resolved as the union.
 
-   Running: v1 set A (`rs/v1-a`, ports 18010/18110, Redis 3/4), public set B
-   (`rs/pub-b`, 18020/18120, Redis 5/6), the SMTP/MIME fix (`rs/fix-smtp-mime`,
-   18040/18140, Redis 9/10, SMTP 18410–18419); the orchestrator's verification of
-   `9c62db7af0` (v1 set D). Then the final benchmark and the environment
+   - **Public set B (writes) merged (`0a09a1a74c`, verification pending)**: write verbs
+     of 234–236, 239–245, 255–258. Agent: new `write/public-writes.yaml` 69/69 and
+     `write/public-asset-writes.yaml` 39/39 (+ `public-writes-fixture.sql`); public
+     reads unchanged; write sweep 65 files / 3064 steps, read sweep 46 / 2248; 1242
+     tests. Fixed set A's `FILE_ASSET_FOR_BOARD` (`entity_identifier` declared `uuid`,
+     column is `varchar`). `normalize.yaml` `key` rule widened to `POST *api/*assets/*`
+     (merge conflict with v1 set D's attachment rules resolved by keeping both).
+     - Upstream kept: comment create forces `EXTERNAL`; duplicate issue reaction is an
+       uncaught `IntegrityError` → 400; `IssueReactionSerializer` lets the client set
+       `created_by`; votes accept `vote=2`, and a `null` vote 400s leaving the inserted
+       row; public intake create answers 200 and publishes the activity before the
+       intake row; intake PATCH keeps only name/description and publishes before
+       `save()`; urlencoded intake PATCH is a 500 (immutable QueryDict); upload misses
+       `OverflowError`; bulk rebind checks only one id.
+   - **Contract runs must not share a Redis DB.** `tools/contract/run.sh` defaults to
+     Redis DB 15 (`PLANE_RS_CONTRACT_REDIS_DB`); concurrent agent runs collided on
+     throttle keys, which explains the extra `test_authentication` throttle failures
+     sets B and C reported. Assigned: orchestrator 12, v1 A 11, fix 2, v1 C 15.
+
+   Running: v1 set A (`rs/v1-a`, ports 18010/18110, Redis 3/4), v1 set C (`rs/v1-c`,
+   18020/18120, Redis 5/6), the SMTP/MIME fix (`rs/fix-smtp-mime`, 18040/18140, Redis
+   9/10, SMTP 18410–18419); the orchestrator's verification of `9c62db7af0` (v1 set D). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
