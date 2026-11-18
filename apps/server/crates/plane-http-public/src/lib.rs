@@ -70,6 +70,8 @@
 
 pub mod common;
 pub mod issue_subresources;
+pub mod issue_subresources_queries;
+pub mod issue_subresources_write;
 pub mod issues;
 pub mod issues_queries;
 pub mod search;
@@ -83,6 +85,7 @@ use plane_drf::registry::{Registry, RegistryError};
 /// add one line each, alphabetically by module.
 pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     issue_subresources::register(registry)?;
+    issue_subresources_write::register(registry)?;
     issues::register(registry)?;
     search::register(registry)?;
     Ok(())

@@ -151,7 +151,7 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
 
 /// `UserLiteSerializer` data (`plane/api/serializers/user.py:13-40`): the v1
 /// user shape has `email` and no `is_bot`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct UserLiteOwned {
     pub id: Uuid,
     pub first_name: String,
@@ -177,7 +177,7 @@ impl UserLiteOwned {
 }
 
 /// `LabelSerializer` data (`plane/api/serializers/issue.py:401-430`).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LabelOwned {
     pub id: Uuid,
     pub created_at: DateTime<Utc>,
@@ -218,14 +218,14 @@ impl LabelOwned {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct WorkspaceOwned {
     pub name: String,
     pub slug: String,
     pub id: Uuid,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ProjectOwned {
     pub id: Uuid,
     pub identifier: String,
@@ -238,7 +238,7 @@ pub struct ProjectOwned {
     pub archived_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StateOwned {
     pub id: Uuid,
     pub name: String,
@@ -246,7 +246,7 @@ pub struct StateOwned {
     pub group: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EstimatePointOwned {
     pub id: Uuid,
     pub created_at: DateTime<Utc>,
@@ -263,7 +263,7 @@ pub struct EstimatePointOwned {
 }
 
 /// `(id, sequence_id, project_id)` of the parent, for `IssueLiteSerializer`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ParentOwned {
     pub id: Uuid,
     pub sequence_id: i64,
@@ -698,30 +698,30 @@ async fn load_bundles(
     // The base `expand=` mapper (`plane/api/serializers/base.py:98-136`).
     if requested("workspace") {
         let wanted = unique(bundles.iter().map(|bundle| bundle.issue.workspace_id));
-        let mut rows = load_workspaces(client, &wanted).await?;
+        let rows = load_workspaces(client, &wanted).await?;
         for bundle in &mut bundles {
-            bundle.workspace = rows.remove(&bundle.issue.workspace_id);
+            bundle.workspace = rows.get(&bundle.issue.workspace_id).cloned();
         }
     }
     if requested("project") {
         let wanted = unique(bundles.iter().map(|bundle| bundle.issue.project_id));
-        let mut rows = load_projects(client, &wanted).await?;
+        let rows = load_projects(client, &wanted).await?;
         for bundle in &mut bundles {
-            bundle.project = rows.remove(&bundle.issue.project_id);
+            bundle.project = rows.get(&bundle.issue.project_id).cloned();
         }
     }
     if requested("state") {
         let wanted = unique(bundles.iter().filter_map(|bundle| bundle.issue.state_id));
-        let mut rows = load_states(client, &wanted).await?;
+        let rows = load_states(client, &wanted).await?;
         for bundle in &mut bundles {
-            bundle.state = bundle.issue.state_id.and_then(|id| rows.remove(&id));
+            bundle.state = bundle.issue.state_id.and_then(|id| rows.get(&id).cloned());
         }
     }
     if requested("parent") {
         let wanted = unique(bundles.iter().filter_map(|bundle| bundle.issue.parent_id));
-        let mut rows = load_parents(client, &wanted).await?;
+        let rows = load_parents(client, &wanted).await?;
         for bundle in &mut bundles {
-            bundle.parent = bundle.issue.parent_id.and_then(|id| rows.remove(&id));
+            bundle.parent = bundle.issue.parent_id.and_then(|id| rows.get(&id).cloned());
         }
     }
     if requested("created_by") {
@@ -730,9 +730,12 @@ async fn load_bundles(
                 .iter()
                 .filter_map(|bundle| bundle.issue.created_by_id),
         );
-        let mut rows = load_users(client, &wanted).await?;
+        let rows = load_users(client, &wanted).await?;
         for bundle in &mut bundles {
-            bundle.created_by = bundle.issue.created_by_id.and_then(|id| rows.remove(&id));
+            bundle.created_by = bundle
+                .issue
+                .created_by_id
+                .and_then(|id| rows.get(&id).cloned());
         }
     }
     if requested("updated_by") {
@@ -741,9 +744,12 @@ async fn load_bundles(
                 .iter()
                 .filter_map(|bundle| bundle.issue.updated_by_id),
         );
-        let mut rows = load_users(client, &wanted).await?;
+        let rows = load_users(client, &wanted).await?;
         for bundle in &mut bundles {
-            bundle.updated_by = bundle.issue.updated_by_id.and_then(|id| rows.remove(&id));
+            bundle.updated_by = bundle
+                .issue
+                .updated_by_id
+                .and_then(|id| rows.get(&id).cloned());
         }
     }
     if requested("estimate_point") {
@@ -752,12 +758,12 @@ async fn load_bundles(
                 .iter()
                 .filter_map(|bundle| bundle.issue.estimate_point_id),
         );
-        let mut rows = load_estimate_points(client, &wanted).await?;
+        let rows = load_estimate_points(client, &wanted).await?;
         for bundle in &mut bundles {
             bundle.estimate_point = bundle
                 .issue
                 .estimate_point_id
-                .and_then(|id| rows.remove(&id));
+                .and_then(|id| rows.get(&id).cloned());
         }
     }
     Ok(bundles)
@@ -1182,9 +1188,11 @@ async fn load_estimate_points(
     }
     let rows = client
         .query(
-            "SELECT id, created_at, updated_at, deleted_at, key, description, \
-                    value, created_by_id, updated_by_id, project_id, \
-                    workspace_id, estimate_id \
+            // `key` is an `IntegerField` (int4); [`EstimatePointOwned`] stores
+            // the value as i64 because the serializer renders it as a number.
+            "SELECT id, created_at, updated_at, deleted_at, key::bigint, \
+                    description, value, created_by_id, updated_by_id, \
+                    project_id, workspace_id, estimate_id \
              FROM estimate_points WHERE id = ANY($1) AND deleted_at IS NULL",
             &[&ids],
         )
@@ -1338,6 +1346,10 @@ fn expansion_values<'a>(bundle: &'a IssueBundle, requested: &[&'a str]) -> Vec<E
                         ("estimate", DrfValue::Uuid(point.estimate)),
                     ])
                 }),
+            // Not in the 14-name mapper: `getattr(instance, "<name>_id",
+            // None)` (`base.py:139`). `type` is the one ISSUE_FIELDS name with
+            // such an attribute (`type_id`); every other name is `None`.
+            "type" => bundle.issue.type_id.map_or(DrfValue::Null, DrfValue::Uuid),
             // Handled by the serializer itself; the value only satisfies the
             // emitted-base-field check.
             _ => DrfValue::Null,
@@ -2136,7 +2148,7 @@ fn apply_patch(issue: &mut Issue, validated: &Validated, extra: &WriteExtra) {
 // Celery publishers for the v1 write views
 // ---------------------------------------------------------------------------
 
-async fn publish_issue_activity(
+pub(crate) async fn publish_issue_activity(
     ctx: &ViewCtx<'_>,
     call: plane_jobs::celery::tasks::IssueActivityCall,
 ) -> Result<(), ViewError> {
@@ -2152,7 +2164,7 @@ async fn publish_issue_activity(
     Ok(())
 }
 
-fn activity_base(
+pub(crate) fn activity_base(
     activity_type: &str,
     requested_data: plane_jobs::celery::args::TaskArg,
     actor_id: Uuid,
@@ -2172,7 +2184,7 @@ fn activity_base(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn publish_model_activity(
+pub(crate) async fn publish_model_activity(
     ctx: &ViewCtx<'_>,
     model_name: &str,
     model_id: &str,
@@ -2352,13 +2364,13 @@ fn writable_data(ctx: &ViewCtx<'_>, patch: bool) -> Result<plane_serde::pyjson::
     }
 }
 
-fn dumps(value: &plane_serde::pyjson::Value) -> Result<String, ViewError> {
+pub(crate) fn dumps(value: &plane_serde::pyjson::Value) -> Result<String, ViewError> {
     let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, value)
         .map_err(|error| ViewError::Unknown(error.to_string()))?;
     String::from_utf8(bytes).map_err(|error| ViewError::Unknown(error.to_string()))
 }
 
-fn base_host(ctx: &ViewCtx<'_>) -> Result<String, ViewError> {
+pub(crate) fn base_host(ctx: &ViewCtx<'_>) -> Result<String, ViewError> {
     plane_auth::base_host(
         ctx.settings,
         plane_auth::LoginFlags {

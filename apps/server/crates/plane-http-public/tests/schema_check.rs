@@ -27,11 +27,18 @@ struct Catalog {
 }
 
 fn catalogs() -> Vec<Catalog> {
-    vec![Catalog {
-        domain: "issues",
-        source: "issues_queries.rs",
-        queries: plane_http_public::issues_queries::ALL_QUERIES,
-    }]
+    vec![
+        Catalog {
+            domain: "issues",
+            source: "issues_queries.rs",
+            queries: plane_http_public::issues_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "issue_subresources",
+            source: "issue_subresources_queries.rs",
+            queries: plane_http_public::issue_subresources_queries::ALL_QUERIES,
+        },
+    ]
 }
 
 fn collect_query_files(root: &Path, relative: &Path, out: &mut Vec<String>) {

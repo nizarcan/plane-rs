@@ -237,7 +237,7 @@ const LINK_FROM: &str = "FROM issue_links \
                        WHERE p.id = issue_links.project_id \
                          AND p.archived_at IS NOT NULL)";
 
-fn issue_link_serializer(link: &IssueLink) -> IssueLinkSerializer<'_> {
+pub(crate) fn issue_link_serializer(link: &IssueLink) -> IssueLinkSerializer<'_> {
     IssueLinkSerializer {
         id: link.id,
         created_at: link.created_at,
@@ -371,26 +371,38 @@ fn comment_serializer<'a>(
     row: &'a CommentRow,
     attachments: &'a [&'a str],
 ) -> IssueCommentSerializer<'a> {
+    comment_fields(&row.comment, FieldValue::value(row.is_member), attachments)
+}
+
+/// The same serializer without the `is_member` annotation: the write views
+/// re-read the row through the default manager (`IssueComment.objects.get`),
+/// so `BooleanField(read_only=True)` gets no attribute and DRF skips the key
+/// (`issue.py:1620-1625`, `:1760-1765`).
+pub(crate) fn comment_fields<'a>(
+    comment: &'a IssueComment,
+    is_member: FieldValue<bool>,
+    attachments: &'a [&'a str],
+) -> IssueCommentSerializer<'a> {
     IssueCommentSerializer {
-        id: row.comment.id,
-        is_member: FieldValue::value(row.is_member),
-        created_at: row.comment.created_at,
-        updated_at: row.comment.updated_at,
-        deleted_at: row.comment.deleted_at,
-        comment_html: &row.comment.comment_html,
+        id: comment.id,
+        is_member,
+        created_at: comment.created_at,
+        updated_at: comment.updated_at,
+        deleted_at: comment.deleted_at,
+        comment_html: &comment.comment_html,
         attachments,
-        access: &row.comment.access,
-        external_source: row.comment.external_source.as_deref(),
-        external_id: row.comment.external_id.as_deref(),
-        edited_at: row.comment.edited_at,
-        created_by: row.comment.created_by_id,
-        updated_by: row.comment.updated_by_id,
-        project: row.comment.project_id,
-        workspace: row.comment.workspace_id,
-        description: row.comment.description_id,
-        issue: row.comment.issue_id,
-        actor: row.comment.actor_id,
-        parent: row.comment.parent_id,
+        access: &comment.access,
+        external_source: comment.external_source.as_deref(),
+        external_id: comment.external_id.as_deref(),
+        edited_at: comment.edited_at,
+        created_by: comment.created_by_id,
+        updated_by: comment.updated_by_id,
+        project: comment.project_id,
+        workspace: comment.workspace_id,
+        description: comment.description_id,
+        issue: comment.issue_id,
+        actor: comment.actor_id,
+        parent: comment.parent_id,
     }
 }
 
@@ -631,7 +643,7 @@ pub fn activity_detail<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRes
 // Attachments (325/337, 326/338)
 // ---------------------------------------------------------------------------
 
-fn attachment_serializer(asset: &FileAsset) -> IssueAttachmentSerializer<'_> {
+pub(crate) fn attachment_serializer(asset: &FileAsset) -> IssueAttachmentSerializer<'_> {
     IssueAttachmentSerializer {
         id: asset.id,
         created_at: asset.created_at,
