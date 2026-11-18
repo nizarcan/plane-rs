@@ -1790,10 +1790,34 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        Django row never is. P0b's schema rows 392/393 were `django | verified`;
        corrected to `in-progress` with 391.
    - ROUTES.md now: 291 rows Rust, 103 Django.
+   - **Instances set C merged (`0e40133b71`, verification pending)**, routes 259–272.
+     Agent: `read/instances.yaml` 30/30; new `write/instances-{write,signin,signup,
+     email}.yaml` 25/25, 14/14, 10/10, 10/10; `tools/mail/run-smtp-scenario.sh` (fake
+     SMTP + `compare_smtp_logs.py`) HTTP and SMTP logs equal in 5 modes; read sweep
+     2184 steps clean; 1239 tests. Contract 979/7: the 3 baseline + 4 throttle/
+     magic-code tests that pass alone (shared Redis-15 throttle state) — to confirm in
+     the orchestrator run.
+     - **Route 270 held**: sender vs recipient refusal collapse into the generic 400
+       (D23's lettre `send_raw`), so 2 SMTP modes differ in the error message. Fix
+       running (`rs/fix-smtp-mime`): drive MAIL/RCPT/DATA separately, port
+       `getfqdn` for EHLO and `Message-ID`.
+     - `normalize.yaml`: one rule per DB column, so the two `instance_configurations.
+       value` rules were merged (a second rule silently replaced the Fernet one).
+     - Gaps: 272 POST drops a body `logo_asset`; 259 PATCH validation is hand-written
+       (DRF datetime formats incomplete); Python `int()`/`float()` edge syntax
+       approximate; lowercase `is_telemetry_enabled` (a plain-view 500 HTML page) not
+       in a scenario.
+     - Upstream kept: cache hit drops `Cache-Control`; admin POST/DELETE never
+       invalidate the admin list; 260 DELETE / 264 are `TypeError` 500s; sign-in has
+       no role filter; sign-out swallows every exception; `disable-email-feature`
+       turns every exception into a 400; `RESTRICTED_WORKSPACE_SLUGS` is
+       case-sensitive.
+     - Merge: the registry overlap with public A resolved as the union.
 
    Running: v1 set A (`rs/v1-a`, ports 18010/18110, Redis 3/4), public set B
-   (`rs/pub-b`, 18020/18120, Redis 5/6), instances set C (`rs/inst-c`, 18030/18130,
-   Redis 7/8, SMTP 18410–18419). Then the final benchmark and the environment
+   (`rs/pub-b`, 18020/18120, Redis 5/6), the SMTP/MIME fix (`rs/fix-smtp-mime`,
+   18040/18140, Redis 9/10, SMTP 18410–18419); the orchestrator's verification of
+   `9c62db7af0` (v1 set D). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
