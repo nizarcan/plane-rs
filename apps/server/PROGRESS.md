@@ -1868,8 +1868,25 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        probe, before the reminder. The pattern wouldn't match the contract runner's
        absolute-path binary, so the 18290 SIGTERM's origin is still unknown.
 
-   Running: v1 set B (`rs/v1-b`, ports 18010/18110, Redis 3/4, contract Redis 11),
-   v1 set C (`rs/v1-c`, 18020/18120, Redis 5/6, contract Redis 15), the
+   - **v1 set C part 1 merged (`e9e8abf2a8`, verification pending)**: every GET of
+     279–287/299–306, cycle/module DELETE, archive/unarchive (17 of 26 method pairs).
+     Agent: new `read/v1-cycles-modules.yaml` 67/67, `write/v1-cycles-modules.yaml`
+     15/15; set D's scenarios still clean; schema_check 73 statements. Its contract run
+     sent 0 requests to Rust (partial flips), so it isn't evidence. Reuses set D's
+     renderer (`issues.rs` helpers made `pub(crate)`). `lib.rs` overlap with set A
+     resolved as the sorted union. The agent left two servers (18020 gunicorn, 18120
+     plane-api) running on dropped DBs; the orchestrator stopped them after checking
+     their cwd was the v1-c worktree.
+     - Upstream kept: `ModuleSerializer` appends `members` even when `fields=` drops it;
+       module DELETE needs a *project* admin, cycle DELETE also a workspace admin;
+       archived-cycles `total_estimates` has no `FILTER`; through-table issue lists use
+       plain `.order_by()` (duplicate rows for m2m keys, unranked priority).
+   - Remaining v1 writes in one session (`rs/v1-c2`): 279 POST, 281 PATCH, 282 POST,
+     283 DELETE, 284 POST, 299 POST, 301 PATCH, 302 POST, 303 DELETE (set C) and 307
+     POST, 309 PATCH/DELETE (set A).
+
+   Running: v1 set B (`rs/v1-b`, ports 18010/18110, Redis 3/4, contract Redis 11), v1
+   remaining writes (`rs/v1-c2`, 18020/18120, Redis 5/6, contract Redis 15), the
    SMTP/MIME/normaliser fix (`rs/fix-smtp-mime`, 18040/18140, Redis 9/10, contract
    Redis 2, SMTP 18410–18419). Then the final benchmark and the environment
    revert (see "In flight").
