@@ -175,6 +175,19 @@ shapes:
   # plane/api/serializers/project.py:40-68: random.choice over the 28 icons
   # `ProjectCreateSerializer.PROJECT_ICON_DEFAULT_ICONS` lists. The value only
   # ever appears as `logo_props.icon.name` on a v1 project create.
+  # The SMTP check runs one `fake_smtp.py` listener per target so each
+  # backend's transcript and message bytes can be compared
+  # (`tools/mail/run-smtp-scenario.sh`). The port is a per-target variable, so
+  # the `instance_configurations` row that carries it can never agree; only the
+  # port-shaped value is placeholdered.
+  smtp_port:
+    pattern: '^18[0-9]{3}$'
+    why: "per-target fake SMTP port written by tools/mail/run-smtp-scenario.sh"
+  # Either a Fernet token or the per-target fake-SMTP port. See the
+  # `instance_configurations.value` rule for why the two share one shape.
+  instance_config_value:
+    pattern: '^(?:gAAAAA[A-Za-z0-9_-]{92,}={0,2}|18[0-9]{3})$'
+    why: "encrypted instance-configuration ciphertext, or the email scenario's per-target EMAIL_PORT"
   project_icon_name:
     pattern: '^(?:home|apps|settings|star|favorite|done|check_circle|add_task|create_new_folder|dataset|terminal|key|rocket|public|quiz|mood|gavel|eco|diamond|forest|bolt|sync|cached|library_add|view_timeline|view_kanban|empty_dashboard|cycle)$'
     why: "random.choice(PROJECT_ICON_DEFAULT_ICONS): 28 editor icon names (plane/api/serializers/project.py:40-68,157)"
@@ -563,6 +576,15 @@ volatile_json_paths:
     placeholder: colour
     shape: hex_colour
     why: "random.choice(PROJECT_ICON_DEFAULT_COLORS) on every v1 project create (plane/api/serializers/project.py:30-39,152-160)"
+  # `EMAIL_PORT` is a per-target listener port in `instances-email.yaml`
+  # (`tools/mail/run-smtp-scenario.sh` points each backend at its own
+  # `fake_smtp.py`), so the PATCH response's decrypted value differs by design.
+  - path: "$[*].value"
+    request: "PATCH /api/instances/configurations/"
+    mode: placeholder_if_shape
+    placeholder: smtp-port
+    shape: smtp_port
+    why: "per-target fake SMTP listener port written by the email-credential scenario"
 
 # Regexes over every string the normaliser rewrites (JSON values, Celery
 # reprs, Redis values and response text). A rule must name its request: an
@@ -794,13 +816,16 @@ volatile_db_columns:
   # Scoped to the write: a `GET` never placeholders, so every fixture
   # ciphertext it returns is compared literally (it comes from the same SQL
   # seed on both sides).
+  # One rule, two shapes: the normaliser keeps one rule per column, so the
+  # ciphertext and the email scenario's per-target listener port share a
+  # pattern. Only a value that *is* one of them is placeholdered.
   - table: instance_configurations
     column: value
     mode: placeholder_if_shape
-    placeholder: fernet-token
-    shape: fernet_token
+    placeholder: instance-config-value
+    shape: instance_config_value
     request: "PATCH /api/instances/configurations/"
-    why: "encrypt_data stamps a fresh IV and int(time.time()) on every PATCH (plane/license/utils/encryption.py:19-30; plans/PUBLIC_INSTANCES.md §2f)"
+    why: "encrypt_data stamps a fresh IV and int(time.time()) on every PATCH (plane/license/utils/encryption.py:19-30; plans/PUBLIC_INSTANCES.md §2f); the same PATCH carries the email scenario's per-target EMAIL_PORT (tools/mail/run-smtp-scenario.sh)"
 
 # Celery transport headers: not part of the task's observable behaviour, so
 # they are dropped rather than placeholdered (their values are per-process).

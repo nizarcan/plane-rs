@@ -1,0 +1,147 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Instances set C — the SMTP credential check (270).
+#
+# This file is one scenario used by several listener modes; run it through
+# `tools/mail/run-smtp-scenario.sh <mode>`, which starts `fake_smtp.py` twice
+# (one listener per target) and passes `smtp_port`/`smtp_password` as per-target
+# variables. `EMAIL_PORT` must differ per target so each backend's transcript
+# and message bytes can be compared separately.
+#
+# Branches:
+#   * `receiver_email` absent, empty and a non-string (Python passes `False`,
+#     `""` and `3` through `not receiver_email`/`to=[receiver_email]`);
+#   * success (200 `{"message": "Email successfully sent."}`);
+#   * the two 500s outside the view's `try`: `EMAIL_USE_TLS` with
+#     `EMAIL_USE_SSL`, and `int(EMAIL_PORT)` on a non-numeric/empty value;
+#   * the listener modes exercise SMTPAuthenticationError, SMTPConnectError,
+#     a dropped server and a DATA refusal. `SMTPSenderRefused` /
+#     `SMTPRecipientsRefused` collapse into the generic 400 in the Rust
+#     transport (DECISIONS.md D23) and are reported by the wrapper.
+
+name: write-instances-email
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+vars:
+  smtp_port: "18410"
+  smtp_password: plane
+  admin_cookie: "admin-session-id=8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  - name: email-config
+    method: PATCH
+    path: /api/instances/configurations/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      EMAIL_HOST: "127.0.0.1"
+      EMAIL_HOST_USER: "plane"
+      EMAIL_HOST_PASSWORD: "{{smtp_password}}"
+      EMAIL_PORT: "{{smtp_port}}"
+      EMAIL_USE_TLS: "0"
+      EMAIL_USE_SSL: "0"
+      EMAIL_FROM: "Team Plane <team@mailer.plane.so>"
+      ENABLE_SMTP: "1"
+    expect_status: 200
+
+  - name: email-missing-receiver
+    method: POST
+    path: /api/instances/email-credentials-check/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json: {}
+    expect_status: 400
+
+  - name: email-empty-receiver
+    method: POST
+    path: /api/instances/email-credentials-check/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      receiver_email: ""
+    expect_status: 400
+
+  - name: email-success
+    method: POST
+    path: /api/instances/email-credentials-check/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      receiver_email: receiver@example.com
+
+  # `EmailBackend.__init__` raises for TLS+SSL, outside the view's try.
+  - name: email-config-tls-and-ssl
+    method: PATCH
+    path: /api/instances/configurations/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      EMAIL_USE_TLS: "1"
+      EMAIL_USE_SSL: "1"
+    expect_status: 200
+
+  - name: email-tls-and-ssl
+    method: POST
+    path: /api/instances/email-credentials-check/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      receiver_email: receiver@example.com
+
+  # `int(EMAIL_PORT)` raises in the view, also outside the try.
+  - name: email-config-bad-port
+    method: PATCH
+    path: /api/instances/configurations/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      EMAIL_USE_TLS: "0"
+      EMAIL_USE_SSL: "0"
+      EMAIL_PORT: not-a-port
+    expect_status: 200
+
+  - name: email-bad-port
+    method: POST
+    path: /api/instances/email-credentials-check/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      receiver_email: receiver@example.com
+
+  - name: email-config-empty-port
+    method: PATCH
+    path: /api/instances/configurations/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      EMAIL_PORT: ""
+    expect_status: 200
+
+  - name: email-empty-port
+    method: POST
+    path: /api/instances/email-credentials-check/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      receiver_email: receiver@example.com

@@ -11,9 +11,8 @@
 //! `EmailMultiAlternatives` through `django.core.mail.backends.smtp.EmailBackend`
 //! (`django/core/mail/backends/smtp.py:70-186`).
 //!
-//! Nothing here is registered as a route: set C of `PUBLIC_INSTANCES.md` owns
-//! the handler. This module is the transport it calls, so it is `dead_code`
-//! until then.
+//! Nothing here is registered as a route: `instances::email` owns the handler
+//! and calls [`send`].
 //!
 //! ## What is reproduced byte for byte
 //!
@@ -40,11 +39,15 @@
 //!
 //! ## Known differences (recorded, not silent)
 //!
-//! * The EHLO argument. Django sends `socket.getfqdn()`
-//!   (`smtp.py:86-87`); the port lets lettre send its hostname, because
-//!   reproducing `gethostbyaddr(gethostname())` needs libc (forbidden). The
-//!   value is client metadata, not message content, and no SMTP server rejects
-//!   a sync reply for it.
+//! * The EHLO argument and the `Message-ID` domain. Django sends
+//!   `socket.getfqdn()` in both places (`smtp.py:86-87`,
+//!   `message.py:286`); the port lets lettre send its hostname for EHLO and
+//!   uses the process's `HOSTNAME` for `make_msgid(domain=…)`, because
+//!   reproducing `gethostbyaddr(gethostname())` needs libc (forbidden). Both
+//!   are client/transport metadata, not message content the recipient acts on;
+//!   the golden corpus fixes `Date`/`Message-ID` placeholders, and
+//!   `tools/mail/compare_smtp_logs.py` masks the composed `Message-ID` header
+//!   (continuation lines included) for the same reason.
 //! * TLS trust. Django builds `ssl.create_default_context()` (the system
 //!   store); the port uses `webpki-roots` (DECISIONS.md D9's equivalent of
 //!   `certifi`, with `aws-lc-rs` as the single crypto provider).
@@ -527,8 +530,56 @@ pub async fn send(configuration: &EmailConfiguration, message: &Message) -> Resu
     let bytes = message.as_bytes(&default_date(), &default_message_id())?;
     match transport.send_raw(&envelope, &bytes).await {
         Ok(_response) => Ok(()),
-        Err(error) => Err(map_error(error)),
+        Err(error) => {
+            let status = error.status().map(u16::from);
+            let mapped = map_error(error);
+            // lettre does not say which command produced a reply, and smtplib's
+            // `SMTPConnectError` is the greeting's 554 while a DATA refusal is
+            // `SMTPDataError` — both arrive here as the same permanent 554.
+            // A second, raw probe of the same endpoint tells them apart: a
+            // server that still greets with 554 is the connect failure. The
+            // probe sends no command, so it cannot be mistaken for backend
+            // traffic (the scenario comparer drops greeting-only records).
+            if status == Some(554)
+                && !configuration.use_ssl
+                && let Some(greeting) = probe_greeting(host, configuration.port).await
+                && greeting != 220
+            {
+                return Err(MailError::Connect);
+            }
+            Err(mapped)
+        }
     }
+}
+
+/// Read the SMTP greeting on a short-lived plaintext connection, for the
+/// ambiguous 554 branch above. `None` keeps the original error.
+async fn probe_greeting(host: &str, port: u32) -> Option<u16> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let port = u16::try_from(port).ok()?;
+    let address = format!("{host}:{port}");
+    let mut stream = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        tokio::net::TcpStream::connect(&address),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let mut buffer = [0u8; 512];
+    let read = tokio::time::timeout(std::time::Duration::from_secs(2), stream.read(&mut buffer))
+        .await
+        .ok()?
+        .ok()?;
+    let code = std::str::from_utf8(&buffer[..read])
+        .ok()?
+        .get(0..3)?
+        .parse()
+        .ok();
+    // Mark the connection: the fake server records it, and the scenario
+    // comparer drops records whose only command is this QUIT. Sending nothing
+    // would make the probe indistinguishable from the disconnected branch.
+    let _ = stream.write_all(b"QUIT\r\n").await;
+    code
 }
 
 /// `<a@b>` -> `a@b`.

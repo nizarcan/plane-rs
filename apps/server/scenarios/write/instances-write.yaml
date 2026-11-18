@@ -1,0 +1,317 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Instances set C — the write half of `/api/instances/`, excluding the three
+# flows with scenarios of their own (`instances-signin.yaml`,
+# `instances-signup.yaml`, `instances-email.yaml`).
+#
+#   259 PATCH  `/api/instances/`                       -> invalidates `/api/instances/`
+#   260 POST   `/api/instances/admins/`                -> 201 / 400 / 404
+#   260 DELETE `/api/instances/admins/`                -> 500 (no `pk` parameter)
+#   263 POST   `/api/instances/admins/sign-out/`       -> 302, idempotent
+#   264 GET/POST `/api/instances/admins/{pk}/`         -> 500 (`get`/`post` take no `pk`)
+#   264 DELETE `/api/instances/admins/{pk}/`           -> 204, `QuerySet.delete` =
+#                                                          `update(deleted_at=now)`
+#   265 PATCH  `/api/instances/configurations/`        -> bulk_update(value), both caches
+#   266 DELETE `/api/instances/configurations/disable-email-feature/`
+#   269 POST   `/api/instances/admins/sign-up-screen-visited/`
+#   272 POST   `/api/instances/workspaces/`            -> 201 / 400 / 409 family
+#
+# The template's `instance_admins` rows are the fixture's admin (`role=20`) and
+# member (`role=5`); both are linearised by the same session-cookie rule
+# (`"instances" in request.path` -> `admin-session-id`).
+
+name: write-instances
+template_db: plane_fix_tpl
+redis_db: [7, 8]
+vars:
+  admin_cookie: "admin-session-id=8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # The plain views (263) need a CSRF cookie in their jar.
+  - name: instances-csrf
+    method: GET
+    path: /auth/get-csrf-token/
+    jar: admin
+    expect_status: 200
+
+  # --- 259 PATCH ---------------------------------------------------------
+  - name: instance-patch
+    method: PATCH
+    path: /api/instances/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      instance_name: Diff Test Instance
+      is_telemetry_enabled: false
+      is_support_required: false
+    expect_status: 200
+
+  # The `@invalidate_cache` ran before the write, so this is a fresh body.
+  - name: instance-get-after-patch
+    method: GET
+    path: /api/instances/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 200
+
+  # --- 265 PATCH / 266 DELETE -------------------------------------------
+  - name: configuration-patch
+    method: PATCH
+    path: /api/instances/configurations/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      ENABLE_SIGNUP: "0"
+      EMAIL_HOST: 127.0.0.1
+      EMAIL_HOST_PASSWORD: probe-secret
+      UNSPLASH_ACCESS_KEY: null
+      IS_GOOGLE_ENABLED: "1"
+    expect_status: 200
+
+  # Both caches were invalidated before the body; the response decrypts each
+  # row from the in-memory list (encrypted rows round-trip to the plaintext).
+  - name: configuration-get-after-patch
+    method: GET
+    path: /api/instances/configurations/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 200
+
+  - name: disable-email-feature
+    method: DELETE
+    path: /api/instances/configurations/disable-email-feature/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 200
+
+  - name: configuration-get-after-disable
+    method: GET
+    path: /api/instances/configurations/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 200
+
+  # --- 269 sign-up-screen-visited ---------------------------------------
+  - name: sign-up-screen-visited
+    method: POST
+    path: /api/instances/admins/sign-up-screen-visited/
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.20
+    expect_status: 204
+
+  - name: sign-up-screen-visited-again
+    method: POST
+    path: /api/instances/admins/sign-up-screen-visited/
+    jar: anonymous
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.20
+    expect_status: 204
+
+  # --- 260 admins collection --------------------------------------------
+  - name: admin-create
+    method: POST
+    path: /api/instances/admins/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      email: fix.member2@example.com
+      role: 20
+    capture:
+      - name: instance_admin_id
+        source: db
+        table: instance_admins
+        column: id
+    expect_status: 201
+
+  # The unique constraint -> `IntegrityError` -> family 400.
+  - name: admin-create-duplicate
+    method: POST
+    path: /api/instances/admins/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      email: fix.member2@example.com
+    expect_status: 400
+
+  # `email` missing -> `if not email` (`admin.py:44-46`).
+  - name: admin-create-missing-email
+    method: POST
+    path: /api/instances/admins/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json: {}
+    expect_status: 400
+
+  # `User.objects.get` -> `DoesNotExist` -> family 404.
+  - name: admin-create-unknown-user
+    method: POST
+    path: /api/instances/admins/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      email: nobody@example.com
+    expect_status: 404
+
+  # The collection route passes no `pk` to `delete(self, request, pk)`.
+  - name: admin-collection-delete
+    method: DELETE
+    path: /api/instances/admins/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 500
+
+  # --- 264 admin detail --------------------------------------------------
+  # `get(self, request)`/`post(self, request)` receive `pk`: `TypeError` -> 500.
+  - name: admin-detail-get
+    method: GET
+    path: "/api/instances/admins/{{instance_admin_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 500
+
+  - name: admin-detail-post
+    method: POST
+    path: "/api/instances/admins/{{instance_admin_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json: {}
+    expect_status: 500
+
+  - name: admin-detail-delete
+    method: DELETE
+    path: "/api/instances/admins/{{instance_admin_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 204
+
+  # A second delete is a no-op (`deleted_at IS NULL` in the filter).
+  - name: admin-detail-delete-again
+    method: DELETE
+    path: "/api/instances/admins/{{instance_admin_id}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 204
+
+  # --- 272 workspace create ---------------------------------------------
+  - name: workspace-create
+    method: POST
+    path: /api/instances/workspaces/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      name: Diff Instance Workspace
+      slug: diff-instance-ws
+      organization_size: 1-10
+      timezone: Europe/Berlin
+    capture:
+      - name: workspace_id
+        source: db
+        table: workspaces
+        column: id
+    expect_status: 201
+
+  # The `UniqueValidator` (exact) -> "Workspace with this slug already exists."
+  - name: workspace-create-duplicate
+    method: POST
+    path: /api/instances/workspaces/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      name: Diff Instance Workspace
+      slug: diff-instance-ws
+    expect_status: 400
+
+  # `validate_slug`'s case-insensitive check -> "Slug is already in use".
+  - name: workspace-create-case-variant
+    method: POST
+    path: /api/instances/workspaces/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      name: Diff Instance Workspace
+      slug: Diff-Instance-WS
+    expect_status: 400
+
+  # Every field error in `_readable_fields` order.
+  - name: workspace-create-invalid
+    method: POST
+    path: /api/instances/workspaces/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    json:
+      name: http://example.com
+      slug: bad slug
+      timezone: Bad/Zone
+    expect_status: 400
+
+  - name: workspace-list-after-create
+    method: GET
+    path: /api/instances/workspaces/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    expect_status: 200
+
+  # --- 263 sign-out ------------------------------------------------------
+  - name: sign-out
+    method: POST
+    path: /api/instances/admins/sign-out/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    form: {}
+    expect_status: 302
+
+  - name: sign-out-again
+    method: POST
+    path: /api/instances/admins/sign-out/
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "{{admin_cookie}}"
+    form: {}
+    expect_status: 302
