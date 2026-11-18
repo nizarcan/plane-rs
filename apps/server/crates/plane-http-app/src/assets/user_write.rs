@@ -365,7 +365,7 @@ async fn load_user_of(client: &Client, asset: &FileAsset) -> Result<(User, Uuid)
 /// `user.save()` (`v2.py:93,111,127,140`) — H30 plus the `auto_now`
 /// `updated_at`, written as the six columns a save can change (see
 /// [`write_c_queries::USER_SAVE_FOR_ASSET`]).
-async fn save_user(client: &Client, user: &User) -> Result<(), ViewError> {
+pub async fn save_user(client: &Client, user: &User) -> Result<(), ViewError> {
     // H30's `timezone.now()`, then `Model.save`'s own clock for `updated_at`
     // (`DateTimeField(auto_now=True).pre_save`). Two calls, as in Python.
     let hook_now = write::now();

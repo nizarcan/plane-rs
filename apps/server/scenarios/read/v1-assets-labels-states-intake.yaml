@@ -1,0 +1,537 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written read scenario for the v1 set B routes:
+#
+#   278      GET  ws/assets/{asset_id}/            (assets.rs)
+#   288      GET  pr/intake-issues/                (intake.rs)
+#   289      GET  pr/intake-issues/{issue_id}/     (intake.rs)
+#   290      GET  pr/labels/                       (labels.rs)
+#   291      GET  pr/labels/{pk}/                  (labels.rs)
+#   312      GET  pr/states/                       (states.rs)
+#   313      GET  pr/states/{state_id}/            (states.rs)
+#
+# The writes are in `scenarios/write/v1-assets-labels-states-intake.yaml`.
+# `v1-assets-labels-states-intake-fixture.sql` adds the two `file_assets` rows
+# the generic-asset GET distinguishes (uploaded=false, and legacy
+# `is_deleted=true` with `deleted_at IS NULL`).
+#
+# The token rotation is the generated v1 read scenarios': the throttle keys on
+# the raw token and one pass issues more than 60 requests per role.
+#
+#   ./target/debug/difftest run \
+#     --scenario scenarios/read/v1-assets-labels-states-intake.yaml \
+#     --a django --b rust --targets /tmp/targets-v1b.yaml \
+#     --a-redis-db 3 --b-redis-db 4
+
+name: read-v1-assets-labels-states-intake
+template_db: plane_fix_tpl
+redis_db: [3, 4]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  fixture_sql: "{repo}/apps/server/scenarios/read/v1-assets-labels-states-intake-fixture.sql"
+  ws: "fix-workspace"
+  ws_nologo: "fix-nologo"
+  ws_second: "fix-second"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_epsilon: "2e199eb6-4c83-4535-9362-e2beab71e9eb"
+  asset_alpha: "80bc6632-0e4a-4d3e-9c8f-ec0b9bf351e9"
+  asset_pending: "b1000000-0000-4000-8000-000000000001"
+  asset_legacy_deleted: "b1000000-0000-4000-8000-000000000002"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  label_beta_android: "84602ca2-8eb3-4240-910e-1032516ad452"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
+  intake_issue_pending: "27a64497-44aa-446b-8136-8197010dea71"
+  intake_issue_snoozed: "af5220dc-dd0b-4ca5-bccf-3e7e8b919b0f"
+  intake_issue_accepted: "b112d8ba-70d1-4161-9fd1-51714c353f9a"
+  intake_issue_duplicate: "93926110-bb2b-46fe-b69f-b24d49886168"
+  intake_issue_soft_deleted: "840ec3e4-55d0-4ed2-bde2-48c2d52bc40a"
+  intake_issue_beta_pending: "a3e020a0-e7ba-4827-9687-7ff41605efeb"
+  intake_issue_beta_snoozed: "cc9cb677-e3f6-4855-a3d4-cf467803a7ae"
+  api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
+  api_token_member2: "3333333333333333333333333333333333333333333333333333333333333333"
+steps:
+  # -- asset GET (278) ----------------------------------------------------
+  - name: generic-asset-get-uploaded
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/assets/{{asset_alpha}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: generic-asset-get-uploaded-member
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/assets/{{asset_alpha}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  - name: generic-asset-get-not-uploaded
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/assets/{{asset_pending}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 400
+
+  - name: generic-asset-get-legacy-deleted
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/assets/{{asset_legacy_deleted}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 404
+
+  - name: generic-asset-get-unknown
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/assets/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+
+  # The asset belongs to `fix-workspace`, so the URL workspace does not match.
+  - name: generic-asset-get-other-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws_nologo}}/assets/{{asset_alpha}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 404
+
+  # A non-member of that workspace is stopped by WorkspaceUserPermission.
+  - name: generic-asset-get-not-a-member
+    method: GET
+    path: "/api/v1/workspaces/{{ws_nologo}}/assets/{{asset_alpha}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 403
+
+  - name: generic-asset-get-anonymous
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/assets/{{asset_alpha}}/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.11
+    expect_status: 401
+
+  # -- labels (290/291) --------------------------------------------------
+  - name: label-list-alpha
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: label-list-alpha-member
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 200
+
+  - name: label-list-page
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    query:
+      per_page: "2"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  - name: label-list-page-cursor
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    query:
+      per_page: "2"
+      cursor: "2:2:0"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  - name: label-list-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    query:
+      fields: "id,name,color"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: label-list-expand-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    query:
+      expand: "workspace"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  - name: label-list-expand-parent-null
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/"
+    query:
+      expand: "parent"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 200
+
+  - name: label-list-beta
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_beta}}/labels/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  # An archived project's labels are filtered by the queryset.
+  - name: label-list-archived-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_gamma}}/labels/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: label-list-foreign-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_epsilon}}/labels/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 403
+
+  - name: label-detail
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/{{label_alpha_bug}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  # The detail GET does not pass `fields=`, so the query is ignored.
+  - name: label-detail-fields-ignored
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/{{label_alpha_bug}}/"
+    query:
+      fields: "name"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  - name: label-detail-other-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/{{label_beta_android}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 404
+
+  - name: label-detail-unknown
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/labels/00000000-0000-4000-8000-000000000000/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 404
+
+  # -- states (312/313) --------------------------------------------------
+  - name: state-list-alpha
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: state-list-alpha-member
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  - name: state-list-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      fields: "id,name,group"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  - name: state-list-expand-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      expand: "workspace"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 200
+
+  - name: state-list-page
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/"
+    query:
+      per_page: "3"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: state-list-archived-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_gamma}}/states/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  # The queryset's `projects` join has no `deleted_at` predicate, so a
+  # soft-deleted project's states are returned (the same quirk
+  # `plane/app/views/workspace/state.py:18-41` has).
+  - name: state-list-soft-deleted-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_delta}}/states/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  - name: state-detail
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_alpha_todo}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: state-detail-fields-expand
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_alpha_todo}}/"
+    query:
+      fields: "id,name,workspace"
+      expand: "workspace"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 200
+
+  # The triage state is hidden by the manager (`StateManager`) and the view's
+  # `is_triage=False`.
+  - name: state-detail-triage
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/{{state_alpha_triage}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 404
+
+  - name: state-detail-unknown
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/states/00000000-0000-4000-8000-000000000000/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 404
+
+  # -- intake (288/289) --------------------------------------------------
+  - name: intake-list-alpha
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: intake-list-alpha-member
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  - name: intake-list-page
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      per_page: "2"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  - name: intake-list-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      fields: "id,status,inbox"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 200
+
+  - name: intake-list-explode-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/"
+    query:
+      expand: "workspace"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: intake-list-beta
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  # `intake_view=false` returns an empty page.
+  - name: intake-list-no-intake-view
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_epsilon}}/intake-issues/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  - name: intake-list-soft-deleted-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_delta}}/intake-issues/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 404
+
+  - name: intake-detail-pending
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_pending}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: intake-detail-accepted-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_accepted}}/"
+    query:
+      fields: "id,status,issue_detail"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 200
+
+  - name: intake-detail-duplicate
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_duplicate}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  - name: intake-detail-beta-pending
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{intake_issue_beta_pending}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 200
+
+  # A soft-deleted link is a `DoesNotExist` from the queryset's manager.
+  - name: intake-detail-soft-deleted-link
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/{{intake_issue_soft_deleted}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 404
+
+  - name: intake-detail-unknown
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/intake-issues/00000000-0000-4000-8000-000000000000/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    expect_status: 404
+
+  - name: intake-detail-wrong-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_beta}}/intake-issues/{{intake_issue_pending}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 404

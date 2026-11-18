@@ -81,7 +81,7 @@ use super::{entities, queries, support, write_a_queries, write_queries};
 
 /// `FileAsset.EntityTypeContext.values` (`plane/db/models/asset.py:29-38`):
 /// every value the entity-type allow-list accepts.
-pub(super) const ENTITY_TYPES: [&str; 10] = [
+pub const ENTITY_TYPES: [&str; 10] = [
     "ISSUE_ATTACHMENT",
     "ISSUE_DESCRIPTION",
     "COMMENT_DESCRIPTION",
@@ -95,7 +95,7 @@ pub(super) const ENTITY_TYPES: [&str; 10] = [
 ];
 
 /// The upload MIME allow-list (`v2.py:383-389`, `:632-638`).
-pub(super) const IMAGE_TYPES: [&str; 5] = [
+pub const IMAGE_TYPES: [&str; 5] = [
     "image/jpeg",
     "image/png",
     "image/webp",
@@ -469,7 +469,7 @@ async fn project_cover(
 
 /// `request.data` as a mapping. `request.data.get` on a JSON list/scalar is an
 /// `AttributeError` (family 500), never a 400.
-pub(super) fn ensure_mapping(data: &Data) -> Result<(), ViewError> {
+pub fn ensure_mapping(data: &Data) -> Result<(), ViewError> {
     match data {
         Data::Json(Json::Dict(_)) | Data::Form(_) => Ok(()),
         Data::Json(Json::Null) => Err(type_error(
@@ -487,7 +487,7 @@ pub(super) fn ensure_mapping(data: &Data) -> Result<(), ViewError> {
 
 /// `request.data.get(key)` as a Python value: a JSON object's member, or a
 /// form's (last) string value. `None` when the key is absent.
-pub(super) fn body_get(data: &Data, key: &str) -> Option<Json> {
+pub fn body_get(data: &Data, key: &str) -> Option<Json> {
     match data {
         Data::Json(Json::Dict(map)) => map.get(key).cloned(),
         Data::Form(query) => query.get(key).map(|value| Json::Str(PyStr::from(value))),
@@ -496,7 +496,7 @@ pub(super) fn body_get(data: &Data, key: &str) -> Option<Json> {
 }
 
 /// `sanitize_filename(request.data.get("name")) or "unnamed"` (`v2.py:358`).
-pub(super) fn sanitized_name(value: Option<&Json>) -> String {
+pub fn sanitized_name(value: Option<&Json>) -> String {
     value
         .and_then(Json::as_str)
         .and_then(support::sanitize_filename)
@@ -510,7 +510,7 @@ pub(super) fn sanitized_name(value: Option<&Json>) -> String {
 /// other check. An integer larger than `i64` is clamped for a positive value
 /// (it is above every size limit, so `min` picks the limit) and rejected for a
 /// negative one (the `FloatField` conversion would raise `OverflowError`).
-pub(super) fn size_arg(data: &Data, default: i64) -> Result<i64, ViewError> {
+pub fn size_arg(data: &Data, default: i64) -> Result<i64, ViewError> {
     const OVERFLOW: &str = "OverflowError: int too large to convert to float";
     let value = body_get(data, "size");
     match &value {
@@ -558,7 +558,7 @@ pub(super) fn size_arg(data: &Data, default: i64) -> Result<i64, ViewError> {
 /// also maps `DRAFT_ISSUE_DESCRIPTION`; the workspace variant
 /// (`v2.py:246-276`) does not, so a draft-description upload there writes an
 /// asset with no FK at all.
-pub(super) fn entity_id_column(entity_type: &str, draft_aware: bool) -> Option<&'static str> {
+pub fn entity_id_column(entity_type: &str, draft_aware: bool) -> Option<&'static str> {
     match entity_type {
         "WORKSPACE_LOGO" => Some("workspace_id"),
         "PROJECT_COVER" => Some("project_id"),
@@ -572,7 +572,7 @@ pub(super) fn entity_id_column(entity_type: &str, draft_aware: bool) -> Option<&
 }
 
 /// Assign one FK column of a not-yet-saved asset.
-pub(super) fn assign_entity_fk(asset: &mut FileAsset, column: &str, value: Option<Uuid>) {
+pub fn assign_entity_fk(asset: &mut FileAsset, column: &str, value: Option<Uuid>) {
     match column {
         "workspace_id" => asset.workspace_id = value,
         "project_id" => asset.project_id = value,
@@ -599,7 +599,7 @@ pub(super) fn assign_entity_fk(asset: &mut FileAsset, column: &str, value: Optio
 ///   key);
 /// * a float, a non-empty list or a non-empty dict has no `hex` attribute →
 ///   `ValidationError`.
-pub(super) fn fk_uuid(value: &Json) -> Result<Option<Uuid>, ViewError> {
+pub fn fk_uuid(value: &Json) -> Result<Option<Uuid>, ViewError> {
     match value {
         Json::Null => Ok(None),
         Json::Str(text) => {
@@ -631,7 +631,7 @@ pub(super) fn fk_uuid(value: &Json) -> Result<Option<Uuid>, ViewError> {
 }
 
 /// Python truthiness, for `if asset.project_id:` (`v2.py:420`).
-pub(super) fn truthy(value: &Json) -> bool {
+pub fn truthy(value: &Json) -> bool {
     match value {
         Json::Null => false,
         Json::Bool(value) => *value,
@@ -646,7 +646,7 @@ pub(super) fn truthy(value: &Json) -> bool {
 
 /// `if not asset.storage_metadata:` (`v2.py:459`, `:695`): `NULL`, `{}`, `[]`,
 /// `0`, `""` and `false` are all falsy.
-pub(super) fn storage_metadata_truthy(asset: &FileAsset) -> bool {
+pub fn storage_metadata_truthy(asset: &FileAsset) -> bool {
     let Some(text) = asset.storage_metadata.as_ref() else {
         return false;
     };
@@ -666,7 +666,7 @@ pub(super) fn storage_metadata_truthy(asset: &FileAsset) -> bool {
 /// The row a new upload builds: `FileAsset(attributes=…, asset=…, size=…,
 /// workspace=…, created_by=request.user, entity_type=…)` plus the
 /// `JSONField(default=dict)` `storage_metadata` and the ORM's timestamps.
-pub(super) fn new_asset(
+pub fn new_asset(
     asset_key: &str,
     name: &str,
     file_type: &str,
@@ -713,7 +713,7 @@ pub(super) fn new_asset(
 /// A failed foreign key is Django's `IntegrityError` — the family's 400
 /// `{"error": "The payload is not valid"}` (`base.py:306-310`), which is how
 /// the `entity_identifier=False` default surfaces.
-pub(super) async fn insert_asset(
+pub async fn insert_asset(
     client: &deadpool_postgres::Client,
     asset: &FileAsset,
 ) -> Result<(), ViewError> {
@@ -757,7 +757,7 @@ pub(super) async fn insert_asset(
 
 /// `django.db.IntegrityError` (SQLSTATE class 23) is the family's 400; every
 /// other database error is an uncaught 500.
-pub(super) fn integrity(error: tokio_postgres::Error) -> ViewError {
+pub fn integrity(error: tokio_postgres::Error) -> ViewError {
     if error
         .code()
         .is_some_and(|code| code.code().starts_with("23"))
@@ -769,7 +769,7 @@ pub(super) fn integrity(error: tokio_postgres::Error) -> ViewError {
 
 /// Whether a database error is a swallowed `IntegrityError`
 /// (`v2.py:802-805`, `:809-813`, `:820-824`).
-pub(super) fn is_integrity(error: &tokio_postgres::Error) -> bool {
+pub fn is_integrity(error: &tokio_postgres::Error) -> bool {
     error
         .code()
         .is_some_and(|code| code.code().starts_with("23"))
@@ -777,10 +777,7 @@ pub(super) fn is_integrity(error: &tokio_postgres::Error) -> bool {
 
 /// `get_asset_object_metadata.delay(asset_id=str(asset_id))`
 /// (`v2.py:460`, `:696`).
-pub(super) async fn publish_metadata_task(
-    ctx: &ViewCtx<'_>,
-    asset_id: Uuid,
-) -> Result<(), ViewError> {
+pub async fn publish_metadata_task(ctx: &ViewCtx<'_>, asset_id: Uuid) -> Result<(), ViewError> {
     let task = plane_jobs::celery::task_name::GET_ASSET_OBJECT_METADATA;
     let message = plane_jobs::celery::tasks::get_asset_object_metadata(asset_id.to_string());
     crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
@@ -790,7 +787,7 @@ pub(super) async fn publish_metadata_task(
 
 /// `S3Storage(request=request)`'s host/scheme inputs
 /// (`plane/settings/storage.py:42-54`).
-pub(super) fn request_info<'a>(ctx: &'a ViewCtx<'a>) -> RequestInfo<'a> {
+pub fn request_info<'a>(ctx: &'a ViewCtx<'a>) -> RequestInfo<'a> {
     RequestInfo {
         scheme: if ctx.ctx.is_secure { "https" } else { "http" },
         host: ctx.ctx.header("host").unwrap_or_default(),
@@ -824,7 +821,7 @@ pub(super) async fn accessible(ctx: &ViewCtx<'_>, asset: &FileAsset) -> Result<b
 }
 
 /// A `TypeError`/`AttributeError` the family handler renders as a 500.
-pub(super) fn type_error(message: &str) -> ViewError {
+pub fn type_error(message: &str) -> ViewError {
     // A `TypeError` is uncaught by DRF, so Plane's `handle_exception` maps it to
     // the family 500 (`plane/app/views/base.py:235-239`).
     ViewError::Unknown(message.to_owned())

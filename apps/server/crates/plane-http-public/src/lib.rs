@@ -68,7 +68,11 @@
 //! See `apps/server/plans/V1_API.md` for the route-by-route inventory and the
 //! upstream bugs that are ported as they are.
 
+pub mod assets;
+pub mod assets_queries;
 pub mod common;
+pub mod intake;
+pub mod intake_queries;
 pub mod invitations;
 pub mod invitations_queries;
 pub mod issue_subresources;
@@ -76,12 +80,17 @@ pub mod issue_subresources_queries;
 pub mod issue_subresources_write;
 pub mod issues;
 pub mod issues_queries;
+pub mod labels;
+pub mod labels_queries;
 pub mod members;
 pub mod members_queries;
 pub mod projects;
 pub mod projects_queries;
+mod pyvalue;
 pub mod roots;
 pub mod search;
+pub mod states;
+pub mod states_queries;
 pub mod stickies;
 pub mod stickies_queries;
 pub mod users;
@@ -95,7 +104,10 @@ use plane_drf::registry::{Registry, RegistryError};
 /// so the ordering rule (after `/api/`, before `finish`) is stated once. Sets
 /// add one line each, alphabetically by module.
 pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
+    assets::register(registry)?;
     invitations::register(registry)?;
+    intake::register(registry)?;
+    labels::register(registry)?;
     issue_subresources::register(registry)?;
     issue_subresources_write::register(registry)?;
     issues::register(registry)?;
@@ -103,6 +115,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     projects::register(registry)?;
     roots::register(registry)?;
     search::register(registry)?;
+    states::register(registry)?;
     stickies::register(registry)?;
     users::register(registry)?;
     Ok(())

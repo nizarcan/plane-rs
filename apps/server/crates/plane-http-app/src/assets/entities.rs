@@ -57,7 +57,7 @@ use super::write_queries;
     dead_code,
     reason = "the user and workspace entity helpers (plans/ASSETS.md A/C) call it"
 )]
-pub(crate) async fn asset_delete(
+pub async fn asset_delete(
     client: &Client,
     asset_id: Uuid,
     user_scope: Option<Uuid>,
@@ -95,7 +95,7 @@ pub(crate) async fn asset_delete(
     dead_code,
     reason = "sets A/B/C call it from their permission checks (plans/ASSETS.md); P0 lands it first"
 )]
-pub(crate) fn no_permission() -> Result<ViewResponse, ViewError> {
+pub fn no_permission() -> Result<ViewResponse, ViewError> {
     support::json_object(
         403,
         &Object::new().field("error", "You don't have the required permissions."),
@@ -108,7 +108,7 @@ pub(crate) fn no_permission() -> Result<ViewResponse, ViewError> {
 /// # Errors
 ///
 /// A render failure.
-pub(crate) fn no_access() -> Result<ViewResponse, ViewError> {
+pub fn no_access() -> Result<ViewResponse, ViewError> {
     support::json_object(
         403,
         &Object::new().field("error", "You don't have access to this asset."),
@@ -121,7 +121,7 @@ pub(crate) fn no_access() -> Result<ViewResponse, ViewError> {
 /// # Errors
 ///
 /// A render failure.
-pub(crate) fn asset_not_found() -> Result<ViewResponse, ViewError> {
+pub fn asset_not_found() -> Result<ViewResponse, ViewError> {
     support::json_object(
         404,
         &Object::new().field("error", "The requested asset could not be found."),
@@ -135,7 +135,7 @@ pub(crate) fn asset_not_found() -> Result<ViewResponse, ViewError> {
 /// # Errors
 ///
 /// A render failure.
-pub(crate) fn invalid_entity_type() -> Result<ViewResponse, ViewError> {
+pub fn invalid_entity_type() -> Result<ViewResponse, ViewError> {
     support::json_object(
         400,
         &Object::new()
@@ -155,7 +155,7 @@ pub(crate) fn invalid_entity_type() -> Result<ViewResponse, ViewError> {
     dead_code,
     reason = "sets A and C validate the upload MIME allow-list (plans/ASSETS.md)"
 )]
-pub(crate) fn invalid_file_type() -> Result<ViewResponse, ViewError> {
+pub fn invalid_file_type() -> Result<ViewResponse, ViewError> {
     support::json_object(
         400,
         &Object::new()
@@ -177,7 +177,7 @@ pub(crate) fn invalid_file_type() -> Result<ViewResponse, ViewError> {
     dead_code,
     reason = "set A's v2 workspace upload (plans/ASSETS.md route 18) calls it"
 )]
-pub(crate) fn workspace_logo_needs_admin() -> Result<ViewResponse, ViewError> {
+pub fn workspace_logo_needs_admin() -> Result<ViewResponse, ViewError> {
     support::json_object(
         403,
         &Object::new().field(
@@ -197,7 +197,7 @@ pub(crate) fn workspace_logo_needs_admin() -> Result<ViewResponse, ViewError> {
     dead_code,
     reason = "set A's project bulk rebind (plans/ASSETS.md route 26) calls it"
 )]
-pub(crate) fn no_asset_ids() -> Result<ViewResponse, ViewError> {
+pub fn no_asset_ids() -> Result<ViewResponse, ViewError> {
     support::json_object(400, &Object::new().field("error", "No asset ids provided."))
 }
 
@@ -205,7 +205,7 @@ pub(crate) fn no_asset_ids() -> Result<ViewResponse, ViewError> {
 /// request=request)` call: the path string and the `user` flag. `url_params` is
 /// always `False` on the entity helpers, so it is not part of the struct.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Invalidation {
+pub struct Invalidation {
     pub path: &'static str,
     /// Append `str(request.user.id)` to the key.
     pub user: bool,
@@ -217,7 +217,7 @@ pub(crate) struct Invalidation {
     dead_code,
     reason = "set A's workspace/project entity helpers (plans/ASSETS.md) call it"
 )]
-pub(crate) const WORKSPACE_ENTITY_INVALIDATIONS: &[Invalidation] = &[
+pub const WORKSPACE_ENTITY_INVALIDATIONS: &[Invalidation] = &[
     Invalidation {
         path: "/api/workspaces/",
         user: false,
@@ -239,7 +239,7 @@ pub(crate) const WORKSPACE_ENTITY_INVALIDATIONS: &[Invalidation] = &[
     dead_code,
     reason = "set C's user entity helper (plans/ASSETS.md routes 20/21) calls it"
 )]
-pub(crate) const USER_ENTITY_INVALIDATIONS: &[Invalidation] = &[
+pub const USER_ENTITY_INVALIDATIONS: &[Invalidation] = &[
     Invalidation {
         path: "/api/users/me/",
         user: true,
@@ -263,10 +263,7 @@ pub(crate) const USER_ENTITY_INVALIDATIONS: &[Invalidation] = &[
     dead_code,
     reason = "sets A and C call it from their entity helpers (plans/ASSETS.md)"
 )]
-pub(crate) async fn invalidate_entity(
-    ctx: &ViewCtx<'_>,
-    keys: &[Invalidation],
-) -> Result<(), ViewError> {
+pub async fn invalidate_entity(ctx: &ViewCtx<'_>, keys: &[Invalidation]) -> Result<(), ViewError> {
     for key in keys {
         cache::invalidate_cache(ctx, Some(key.path), false, key.user, false).await?;
     }

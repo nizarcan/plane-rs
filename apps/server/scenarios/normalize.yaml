@@ -623,6 +623,28 @@ volatile_json_paths:
   # `EMAIL_PORT` is a per-target listener port in `instances-email.yaml`
   # (`tools/mail/run-smtp-scenario.sh` points each backend at its own
   # `fake_smtp.py`), so the PATCH response's decrypted value differs by design.
+  # `upload_data.fields.key` of the v1 asset uploads (273/275/277): the same
+  # `uuid4().hex`-prefixed key the v2 uploads return. The named `key` rule is
+  # scoped to the app and v1 issue-attachment uploads, and this harness build
+  # keeps only the last rule per name (PROGRESS "Normaliser rule collision"), so
+  # the v1 set adds a path rule with its own scope instead of a fourth `key`.
+  - path: "$.upload_data.fields.key"
+    request: "POST /api/v1/*"
+    mode: placeholder_if_shape
+    placeholder: asset
+    shape: asset_key
+    why: "presigned POST field `key` is the newly generated FileAsset.asset (plane/api/views/asset.py:152,572; plane/db/models/asset.py:20-25)"
+  # The v1 generic-asset GET answers a presigned S3 **GET URL in the body**
+  # (`plane/api/views/asset.py:456-472`), not in a `Location` header, so the
+  # `Location` rule above cannot apply. Django (boto3) and `plane-storage` sign
+  # at their own instants and a step that straddles a second boundary differs in
+  # `X-Amz-Date`/`X-Amz-Signature`; DECISIONS.md D17's `presigned_url` mode
+  # verifies each side's signature with its own date and requires every other
+  # byte to match.
+  - path: "$.asset_url"
+    request: "GET /api/v1/workspaces/*/assets/*"
+    mode: presigned_url
+    why: "the v1 generic-asset GET embeds a presigned S3 URL (plane/api/views/asset.py:456-472, plane/settings/storage.py:114-151); D17 verifies each side's SigV4 signature"
   - path: "$[*].value"
     request: "PATCH /api/instances/configurations/"
     mode: placeholder_if_shape

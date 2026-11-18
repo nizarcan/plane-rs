@@ -43,7 +43,7 @@ use crate::cycles::queries;
 /// `Project.objects.get(id=project_id)`'s timezone, or the 404 a `DoesNotExist`
 /// renders (`base.py:79-86`). A timezone pytz cannot resolve is a 500 there
 /// (`UnknownTimeZoneError`), so it is [`ViewError::Unknown`] here.
-pub(crate) async fn project_timezone(client: &Client, project_id: Uuid) -> Result<Tz, ViewError> {
+pub async fn project_timezone(client: &Client, project_id: Uuid) -> Result<Tz, ViewError> {
     let statement = client
         .prepare_cached(queries::CYCLE_PROJECT_TIMEZONE.sql)
         .await

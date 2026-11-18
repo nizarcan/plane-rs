@@ -271,7 +271,7 @@ pub struct ParentOwned {
 }
 
 /// One issue with everything its serializer can emit.
-pub struct IssueBundle {
+pub(crate) struct IssueBundle {
     pub issue: Issue,
     pub assignee_ids: Vec<Uuid>,
     pub label_ids: Vec<Uuid>,
@@ -1714,10 +1714,10 @@ pub fn detail_get<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse
 
 /// The extra `validate()` results (`plane/api/serializers/issue.py:94-182`).
 #[derive(Default)]
-struct WriteExtra {
-    description_html: Option<String>,
-    assignees: Option<Vec<Uuid>>,
-    labels: Option<Vec<Uuid>>,
+pub(crate) struct WriteExtra {
+    pub(crate) description_html: Option<String>,
+    pub(crate) assignees: Option<Vec<Uuid>>,
+    pub(crate) labels: Option<Vec<Uuid>>,
 }
 
 fn fk_value(validated: &Validated, late: &str, early: &str) -> Option<Option<Uuid>> {
@@ -1732,7 +1732,7 @@ fn fk_value(validated: &Validated, late: &str, early: &str) -> Option<Option<Uui
 
 /// The field validators of `IssueSerializer` (`issue.py:46-92`), in DRF's
 /// `self.fields` order, skipping read-only fields.
-async fn validate_fields(
+pub(crate) async fn validate_fields(
     s: &mut Serializer<'_>,
     client: &Client,
     patch: bool,
@@ -1844,7 +1844,7 @@ async fn validate_fields(
 }
 
 /// `IssueSerializer.validate` (`issue.py:94-182`).
-async fn validate_extra(
+pub(crate) async fn validate_extra(
     client: &Client,
     validated: &Validated,
     project_id: Uuid,
@@ -2091,7 +2091,7 @@ fn build_issue(validated: &Validated, project_id: Uuid, extra: &WriteExtra) -> I
     }
 }
 
-fn strip_html(html: &str) -> Option<String> {
+pub(crate) fn strip_html(html: &str) -> Option<String> {
     if html.is_empty() {
         None
     } else {
@@ -2099,7 +2099,7 @@ fn strip_html(html: &str) -> Option<String> {
     }
 }
 
-fn apply_patch(issue: &mut Issue, validated: &Validated, extra: &WriteExtra) {
+pub(crate) fn apply_patch(issue: &mut Issue, validated: &Validated, extra: &WriteExtra) {
     if validated.contains("state") || validated.contains("state_id") {
         issue.state_id = fk_value(validated, "state", "state_id").flatten();
     }
@@ -2221,7 +2221,7 @@ pub(crate) async fn publish_model_activity(
 
 /// Load one issue by id with the `Issue.objects` (soft-delete only) manager,
 /// as every v1 write's pre-image lookup does.
-async fn load_issue_any(client: &Client, pk: Uuid) -> Result<Option<Issue>, ViewError> {
+pub(crate) async fn load_issue_any(client: &Client, pk: Uuid) -> Result<Option<Issue>, ViewError> {
     let sql = format!(
         "SELECT {} FROM issues WHERE issues.deleted_at IS NULL AND issues.id = $1",
         issue_columns()
@@ -2236,7 +2236,10 @@ async fn load_issue_any(client: &Client, pk: Uuid) -> Result<Option<Issue>, View
 
 /// The issue's serializer data after a write: [`load_issue_any`] plus the two
 /// through-row id lists (no `expand=` on the write responses).
-async fn bundle_after_write(client: &Client, pk: Uuid) -> Result<IssueBundle, ViewError> {
+pub(crate) async fn bundle_after_write(
+    client: &Client,
+    pk: Uuid,
+) -> Result<IssueBundle, ViewError> {
     let Some(issue) = load_issue_any(client, pk).await? else {
         return Err(ViewError::Unknown(
             "the written issue disappeared".to_owned(),
@@ -2263,7 +2266,10 @@ async fn bundle_after_write(client: &Client, pk: Uuid) -> Result<IssueBundle, Vi
 }
 
 /// `json.dumps(IssueSerializer(issue).data, cls=DjangoJSONEncoder)`.
-fn current_instance(ctx: &ViewCtx<'_>, bundle: &IssueBundle) -> Result<String, ViewError> {
+pub(crate) fn current_instance(
+    ctx: &ViewCtx<'_>,
+    bundle: &IssueBundle,
+) -> Result<String, ViewError> {
     use plane_query::json::Json as Doc;
     let tz = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
     let zoned = |value: DateTime<Utc>| Doc::DateTimeZoned(value.with_timezone(&tz).fixed_offset());
