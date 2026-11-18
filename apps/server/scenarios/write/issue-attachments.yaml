@@ -80,3 +80,39 @@ steps:
     jar: admin
     headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
     expect_status: 500
+  # The MIME allow-list is `settings.ATTACHMENT_MIME_TYPES`
+  # (`plane/settings/common.py:505-593`), generated for Rust by
+  # `tools/inventory/attachment_mime_types.py`. `audio/flac` and
+  # `model/gltf-binary` are in Django's list (the Rust copy used to stop at
+  # `audio/aac`); `audio/mp4` is not in the list (the Rust copy used to accept
+  # it). All three are compared through the same v2 upload route.
+  - name: at-08-v2-allowed-audio-flac
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "note.flac"
+      type: "audio/flac"
+      size: 10
+    expect_status: 200
+  - name: at-09-v2-allowed-model-gltf
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "model.glb"
+      type: "model/gltf-binary"
+      size: 10
+    expect_status: 200
+  - name: at-10-v2-audio-mp4-rejected
+    method: POST
+    path: "/api/assets/v2/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/attachments/"
+    jar: admin
+    headers: { Host: plane-fixture.test, Cookie: "session-id={{session_admin}}" }
+    json:
+      name: "clip.m4a"
+      type: "audio/mp4"
+      size: 10
+    expect_status: 400

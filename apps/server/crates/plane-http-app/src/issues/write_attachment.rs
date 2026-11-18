@@ -46,6 +46,7 @@ use uuid::Uuid;
 use crate::assets::support;
 use crate::assets::write_queries;
 use crate::common::{asset_url::file_asset_url, client, jobs, lookup};
+use crate::generated::attachment_mime_types::ATTACHMENT_MIME_TYPES;
 use crate::write;
 
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
@@ -642,43 +643,5 @@ fn multipart_file(ctx: &ViewCtx<'_>, field: &str) -> Option<MultipartFile> {
     None
 }
 
-const ATTACHMENT_MIME_TYPES: &[&str] = &[
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/svg+xml",
-    "image/webp",
-    "image/tiff",
-    "image/bmp",
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "text/plain",
-    "text/markdown",
-    "application/rtf",
-    "application/vnd.oasis.opendocument.spreadsheet",
-    "application/vnd.oasis.opendocument.text",
-    "application/vnd.oasis.opendocument.presentation",
-    "application/vnd.oasis.opendocument.graphics",
-    "application/vnd.visio",
-    "image/x-portable-graymap",
-    "image/x-portable-bitmap",
-    "image/x-portable-pixmap",
-    "application/vnd.oasis.opendocument.database",
-    "audio/mpeg",
-    "audio/wav",
-    "audio/ogg",
-    "audio/aac",
-    "audio/mp4",
-    "video/mp4",
-    "video/webm",
-    "video/quicktime",
-    "application/zip",
-    "application/json",
-    "application/xml",
-    "text/csv",
-];
+// `ATTACHMENT_MIME_TYPES` is generated from `settings.ATTACHMENT_MIME_TYPES`
+// by `tools/inventory/attachment_mime_types.py`; see `crate::generated`.

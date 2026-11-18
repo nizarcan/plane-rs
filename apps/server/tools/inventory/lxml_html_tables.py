@@ -29,6 +29,8 @@ from __future__ import annotations
 import argparse
 import html.entities
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -37,6 +39,28 @@ PINNED_START_CLOSE = (
     SERVER_DIR / "tools" / "inventory" / "data" / "libxml2-2.14.6-htmlStartClose.txt"
 )
 OUTPUT = SERVER_DIR / "crates" / "plane-http-public" / "src" / "common" / "html_tables.rs"
+
+
+def rustfmt(source: str) -> str:
+    """Format the generated source the way `cargo fmt` does.
+
+    The committed file is rustfmt-formatted, so emitting unformatted code made
+    `--check` fail on a hand-formatted but semantically identical file. Rustfmt
+    is part of the toolchain the gates already require.
+    """
+    executable = shutil.which("rustfmt")
+    if executable is None:
+        raise SystemExit("rustfmt not found on PATH (the Rust toolchain provides it)")
+    result = subprocess.run(
+        [executable, "--edition", "2024", "--emit", "stdout", "--quiet"],
+        input=source,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"rustfmt failed: {result.stderr.strip()}")
+    return result.stdout
 
 def rust_string(value: str) -> str:
     # Every character of a replacement is written as `\u{...}`: the table is
@@ -108,7 +132,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="fail when the file is stale")
     args = parser.parse_args()
 
-    body = render()
+    body = rustfmt(render())
     if args.check:
         if not OUTPUT.exists() or OUTPUT.read_text(encoding="utf-8") != body:
             print(f"{OUTPUT} is stale; rerun without --check")

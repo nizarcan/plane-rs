@@ -53,6 +53,7 @@ use plane_db::models::issue::{IssueComment, IssueLink, IssueRelation};
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
+use plane_http_app::generated::attachment_mime_types::ATTACHMENT_MIME_TYPES;
 use plane_http_app::write::{CharOptions, Detail, Serializer};
 use plane_jobs::celery::args::TaskArg;
 use plane_jobs::celery::tasks::{self, IssueActivityCall};
@@ -87,80 +88,8 @@ const RELATION_CHOICES: &[&str] = &[
     "finish_after",
 ];
 
-/// `settings.ATTACHMENT_MIME_TYPES` (`plane/settings/common.py:505-593`).
-const ATTACHMENT_MIME_TYPES: &[&str] = &[
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/svg+xml",
-    "image/webp",
-    "image/tiff",
-    "image/bmp",
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "text/plain",
-    "text/markdown",
-    "application/rtf",
-    "application/vnd.oasis.opendocument.spreadsheet",
-    "application/vnd.oasis.opendocument.text",
-    "application/vnd.oasis.opendocument.presentation",
-    "application/vnd.oasis.opendocument.graphics",
-    "application/vnd.visio",
-    "image/x-portable-graymap",
-    "image/x-portable-bitmap",
-    "image/x-portable-pixmap",
-    "application/vnd.oasis.opendocument.database",
-    "audio/mpeg",
-    "audio/wav",
-    "audio/ogg",
-    "audio/midi",
-    "audio/x-midi",
-    "audio/aac",
-    "audio/flac",
-    "audio/x-m4a",
-    "video/mp4",
-    "video/mpeg",
-    "video/ogg",
-    "video/webm",
-    "video/quicktime",
-    "video/x-msvideo",
-    "video/x-ms-wmv",
-    "application/zip",
-    "application/x-rar",
-    "application/x-rar-compressed",
-    "application/x-tar",
-    "application/gzip",
-    "application/x-zip",
-    "application/x-zip-compressed",
-    "application/x-7z-compressed",
-    "application/x-compressed",
-    "application/x-compressed-tar",
-    "application/x-compressed-tar-gz",
-    "application/x-compressed-tar-bz2",
-    "application/x-compressed-tar-zip",
-    "application/x-compressed-tar-7z",
-    "application/x-compressed-tar-rar",
-    "model/gltf-binary",
-    "model/gltf+json",
-    "application/octet-stream",
-    "font/ttf",
-    "font/otf",
-    "font/woff",
-    "font/woff2",
-    "text/css",
-    "text/javascript",
-    "application/json",
-    "text/xml",
-    "text/csv",
-    "application/xml",
-    "application/x-sql",
-    "application/x-gzip",
-];
+// `ATTACHMENT_MIME_TYPES` is generated from `settings.ATTACHMENT_MIME_TYPES`
+// by `tools/inventory/attachment_mime_types.py` (plane-http-app).
 
 // ---------------------------------------------------------------------------
 // Registration

@@ -302,7 +302,7 @@ fn tokens_match(pattern: &[String], tokens: &[String]) -> bool {
 }
 
 /// A glob with `*` wildcards over a whole string (`*group_by=labels__id*`).
-fn glob_matches(pattern: &str, text: &str) -> bool {
+pub(crate) fn glob_matches(pattern: &str, text: &str) -> bool {
     let parts: Vec<&str> = pattern.split('*').collect();
     if parts.len() == 1 {
         return pattern == text;
@@ -347,6 +347,34 @@ pub struct NormalizerConfig {
     pub aws: Option<crate::presign::Credentials>,
 }
 
+/// A name-keyed rule table that keeps **every** declaration for a name, in
+/// file order. Two rules may share a name when their `request:` scopes differ
+/// (`scenarios/normalize.yaml` has two `asset` rules, for the v1 and app
+/// attachment uploads); a plain `HashMap<String, Rule>` let the last one shadow
+/// the others. [`NormalizeRules::validate`] rejects two rules for one name
+/// whose scopes overlap.
+type ScopedRules = HashMap<String, Vec<Rule>>;
+
+/// The first rule for `name` whose request scope matches the step. A rule
+/// without a scope matches every request, and declaration order breaks ties
+/// (which validation makes impossible for overlapping scopes).
+fn scoped_rule(rules: &ScopedRules, name: &str, request: Option<&str>) -> Option<Rule> {
+    rules
+        .get(name)?
+        .iter()
+        .find(|rule| rule.matches_request(request))
+        .cloned()
+}
+
+/// Group `(name, rule)` pairs keeping declaration order within a name.
+fn group_rules(pairs: impl IntoIterator<Item = (String, Rule)>) -> ScopedRules {
+    let mut grouped: ScopedRules = HashMap::new();
+    for (name, rule) in pairs {
+        grouped.entry(name).or_default().push(rule);
+    }
+    grouped
+}
+
 pub struct TargetNormalizer {
     rules: Arc<NormalizeRules>,
     shapes: HashMap<String, crate::config::Shape>,
@@ -374,11 +402,15 @@ pub struct TargetNormalizer {
     text_pattern_values: HashSet<String>,
     window: Option<(DateTime<Utc>, DateTime<Utc>)>,
     applied: BTreeMap<String, String>,
-    cookies: HashMap<String, Rule>,
-    json_keys: HashMap<String, Rule>,
-    headers: HashMap<String, Rule>,
+    cookies: ScopedRules,
+    /// `volatile_json_keys` in file order. A key name may appear more than
+    /// once when two rules scope it to different requests (the v1 and app
+    /// attachment upload both call the field `asset`, say); the first rule
+    /// whose request matches the step wins.
+    json_keys: ScopedRules,
+    headers: ScopedRules,
     celery_dropped: BTreeSet<String>,
-    db_columns: HashMap<String, Rule>,
+    db_columns: ScopedRules,
     /// `unordered_json_paths` after validation.
     unordered: Vec<UnorderedRule>,
     /// `volatile_json_paths` after validation.
@@ -396,42 +428,36 @@ pub struct TargetNormalizer {
 impl TargetNormalizer {
     pub fn new(config: NormalizerConfig) -> Self {
         let rules = config.rules.clone();
-        let cookies = rules
-            .volatile_cookies
-            .iter()
-            .map(|rule| (rule.name.clone(), Rule::from_spec(&rule.spec())))
-            .collect();
-        let json_keys = rules
-            .volatile_json_keys
-            .iter()
-            .map(|rule| (rule.name.clone(), Rule::from_spec(&rule.spec())))
-            .collect();
-        let headers = rules
-            .volatile_headers
-            .iter()
-            .map(|rule| {
-                (
-                    rule.name.to_ascii_lowercase(),
-                    Rule::from_spec(&rule.spec()),
-                )
-            })
-            .collect();
+        let cookies = group_rules(
+            rules
+                .volatile_cookies
+                .iter()
+                .map(|rule| (rule.name.clone(), Rule::from_spec(&rule.spec()))),
+        );
+        let json_keys = group_rules(
+            rules
+                .volatile_json_keys
+                .iter()
+                .map(|rule| (rule.name.clone(), Rule::from_spec(&rule.spec()))),
+        );
+        let headers = group_rules(rules.volatile_headers.iter().map(|rule| {
+            (
+                rule.name.to_ascii_lowercase(),
+                Rule::from_spec(&rule.spec()),
+            )
+        }));
         let celery_dropped = rules
             .volatile_celery_headers
             .iter()
             .filter(|rule| rule.mode == RuleMode::Drop)
             .map(|rule| rule.name.to_ascii_lowercase())
             .collect();
-        let db_columns = rules
-            .volatile_db_columns
-            .iter()
-            .map(|rule| {
-                (
-                    format!("{}.{}", rule.table, rule.column),
-                    Rule::from_spec(&rule.spec()),
-                )
-            })
-            .collect();
+        let db_columns = group_rules(rules.volatile_db_columns.iter().map(|rule| {
+            (
+                format!("{}.{}", rule.table, rule.column),
+                Rule::from_spec(&rule.spec()),
+            )
+        }));
         let unordered: Vec<UnorderedRule> = rules
             .unordered_json_paths
             .iter()
@@ -720,9 +746,11 @@ impl TargetNormalizer {
             let (name, value) = &headers[index];
             out[index].1 = if name.eq_ignore_ascii_case("set-cookie") {
                 self.normalize_set_cookie(value)
-            } else if let Some(rule) = self.headers.get(&name.to_ascii_lowercase()).cloned()
-                && rule.matches_request(self.request.as_deref())
-            {
+            } else if let Some(rule) = scoped_rule(
+                &self.headers,
+                &name.to_ascii_lowercase(),
+                self.request.as_deref(),
+            ) {
                 let label = format!("header:{name}");
                 let mut slot = Value::String(value.clone());
                 let before = slot.clone();
@@ -756,7 +784,7 @@ impl TargetNormalizer {
         // (`session-id=""; expires=Thu, 01 Jan 1970 ...`, HTTP_CONTRACT.md
         // §5.1); there is no value to shape-check or placeholder.
         let cleared = value.is_empty() || value == "\"\"";
-        if let Some(rule) = self.cookies.get(&cookie.name).cloned()
+        if let Some(rule) = scoped_rule(&self.cookies, &cookie.name, self.request.as_deref())
             && !cleared
         {
             let label = format!("cookie:{}", cookie.name);
@@ -872,11 +900,7 @@ impl TargetNormalizer {
                         .iter()
                         .find(|rule| rule.applies(&child, request.as_deref()))
                         .cloned();
-                    let named_rule = self
-                        .json_keys
-                        .get(&key)
-                        .cloned()
-                        .filter(|rule| rule.matches_request(request.as_deref()));
+                    let named_rule = scoped_rule(&self.json_keys, &key, request.as_deref());
                     match (path_rule.map(|rule| rule.rule), named_rule) {
                         (Some(rule), _) | (None, Some(rule)) => {
                             let label = format!("json:{key}");
@@ -1545,11 +1569,11 @@ impl TargetNormalizer {
         for (column, value) in map {
             out.push_str(column);
             out.push('=');
-            match self
-                .db_columns
-                .get(&format!("{bare_table}.{column}"))
-                .filter(|rule| rule.matches_request(self.request.as_deref()))
-            {
+            match scoped_rule(
+                &self.db_columns,
+                &format!("{bare_table}.{column}"),
+                self.request.as_deref(),
+            ) {
                 Some(rule) => out.push_str(match rule.mode {
                     RuleMode::Placeholder
                     | RuleMode::PlaceholderIfNonEmpty
@@ -1655,12 +1679,11 @@ impl TargetNormalizer {
         path: &str,
     ) -> bool {
         let bare_table = table.rsplit('.').next().unwrap_or(table);
-        if let Some(rule) = self
-            .db_columns
-            .get(&format!("{bare_table}.{column}"))
-            .cloned()
-            .filter(|rule| rule.matches_request(self.request.as_deref()))
-        {
+        if let Some(rule) = scoped_rule(
+            &self.db_columns,
+            &format!("{bare_table}.{column}"),
+            self.request.as_deref(),
+        ) {
             if rule.mode == RuleMode::Drop {
                 self.record(&format!("db:{bare_table}.{column}"), &rule.why);
                 return true;
@@ -1850,12 +1873,7 @@ impl TargetNormalizer {
                         continue;
                     };
                     let child = format!("{path}.{key}");
-                    match self
-                        .json_keys
-                        .get(&key)
-                        .cloned()
-                        .filter(|rule| rule.matches_request(self.request.as_deref()))
-                    {
+                    match scoped_rule(&self.json_keys, &key, self.request.as_deref()) {
                         Some(rule) => {
                             let label = format!("json:{key}");
                             let before = slot.clone();
@@ -2261,6 +2279,74 @@ mod tests {
             other => panic!("expected json, got {other:?}"),
         };
         assert_eq!(value["token"], json!("<token:2>"));
+    }
+
+    #[test]
+    fn two_rules_for_the_same_json_key_do_not_shadow_each_other() {
+        // `scenarios/normalize.yaml` has two `key` rules (v1 issue upload and
+        // the app v2 upload). A name-keyed map would keep only the last one, so
+        // the other route's values were compared raw.
+        let mut rules = (*rules()).clone();
+        let scoped = |request: &str| NamedRule {
+            name: "key".to_string(),
+            why: "generated asset key".to_string(),
+            mode: RuleMode::PlaceholderIfShape,
+            placeholder: Some("asset".to_string()),
+            shape: Some("hex64".to_string()),
+            check: None,
+            request: Some(request.to_string()),
+        };
+        rules.volatile_json_keys.push(scoped("POST */api/v1/*"));
+        rules
+            .volatile_json_keys
+            .push(scoped("POST */api/assets/v2/*"));
+        rules.validate().expect("disjoint scopes must load");
+        let mut normalizer = TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(rules),
+            base_url: String::new(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: None,
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        });
+        start(&mut normalizer);
+
+        // Each scope applies on its own request…
+        for (request, value) in [
+            (
+                "POST /api/v1/workspaces/w/projects/p/issues/i/issue-attachments/",
+                "a".repeat(64),
+            ),
+            (
+                "POST /api/assets/v2/workspaces/w/projects/p/issues/i/attachments/",
+                "b".repeat(64),
+            ),
+        ] {
+            normalizer.set_request(request);
+            let body = serde_json::to_vec(&json!({"key": value.clone()})).expect("json");
+            let normalized = normalizer.normalize_body(&body, true);
+            let value = match normalized.value {
+                BodyValue::Json(value) => value,
+                other => panic!("expected json, got {other:?}"),
+            };
+            assert!(
+                value["key"]
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("<asset:")),
+                "{request}: {value}"
+            );
+        }
+
+        // …and neither scope leaks to an unrelated request.
+        normalizer.set_request("POST /api/users/me/");
+        let raw = "c".repeat(64);
+        let body = serde_json::to_vec(&json!({"key": raw})).expect("json");
+        let normalized = normalizer.normalize_body(&body, true);
+        let value = match normalized.value {
+            BodyValue::Json(value) => value,
+            other => panic!("expected json, got {other:?}"),
+        };
+        assert_eq!(value["key"], json!(raw));
     }
 
     #[test]
