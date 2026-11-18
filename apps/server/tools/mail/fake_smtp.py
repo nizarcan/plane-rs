@@ -200,7 +200,6 @@ class Handler(socketserver.StreamRequestHandler):
                         self.reply("554 5.0.0 data refused", transcript)
                         continue
                     record["data"] = data
-                    self.recorder.write(record)
                     self.reply("250 2.0.0 ok: queued", transcript)
                     # A second message on the same connection would append to
                     # the same record; Django opens one connection per send.
@@ -220,9 +219,16 @@ class Handler(socketserver.StreamRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             transcript.append(["server", "<connection lost>"])
         finally:
-            if record["data"] is None and (record["mail_from"] or transcript):
-                # A failed transaction is worth recording too: the scenario
-                # compares the reply that produced the endpoint's branch.
+            # One record per connection, written once the dialogue is over so
+            # the transcript includes the reply to DATA and the QUIT. A
+            # connection that only received the greeting (a readiness probe)
+            # is not a transaction.
+            if (
+                record["data"] is not None
+                or record["mail_from"]
+                or record["rcpt_to"]
+                or len(transcript) > 1
+            ):
                 self.recorder.write(record)
 
     def read_auth(self, mechanism: str, initial: str, transcript: list):

@@ -15,12 +15,14 @@
 # second concurrent agent):
 #
 #   success       EHLO, AUTH PLAIN with plane/plane, MAIL, RCPT, DATA
-#   auth          AUTH with a wrong password -> SMTPAuthenticationError
+#   auth          AUTH PLAIN then AUTH LOGIN with a wrong password -> retried,
+#                 then SMTPAuthenticationError
 #   connect       greeting 554 -> SMTPConnectError
-#   sender        MAIL refused -> SMTPSenderRefused (Rust: generic 400, D23)
-#   recipient     RCPT refused -> SMTPRecipientsRefused (Rust: generic 400, D23)
+#   sender        MAIL refused -> SMTPSenderRefused
+#   recipient     RCPT refused -> SMTPRecipientsRefused
 #   disconnected  the server drops after its greeting -> SMTPServerDisconnected
-#   data-error    the DATA terminator is refused
+#   data-error    the DATA terminator is refused -> SMTPDataError (generic 400)
+#   quit-error    the QUIT reply is refused (still a 200: `quit()` ignores it)
 #
 # The scenario's `smtp_port`/`smtp_password` are per-target variables, so each
 # backend talks to its own listener and the two JSONL files can be compared.
@@ -51,6 +53,10 @@ case "$mode" in
   recipient) options=(--reject-recipient --auth none); password="" ;;
   disconnected) options=(--drop-after-greeting --auth none); password="" ;;
   data-error) options=(--data-error --auth none); password="" ;;
+  quit-error) options=(--quit-error --auth none); password="" ;;
+  # A 5 s pause before the greeting: `EMAIL_TIMEOUT` is unset, so both
+  # backends wait (Django's socket has no timeout either).
+  delay) options=(--delay 5 --auth none); password="" ;;
   *)
     echo "run-smtp-scenario: unknown mode '$mode'" >&2
     exit 2
@@ -121,14 +127,6 @@ wait_listening "$b_out" || {
   exit 1
 }
 
-compare_options=()
-case "$mode" in
-  # smtplib retries the next AUTH mechanism after a 535; lettre stops at the
-  # first one (DECISIONS.md D23's mechanism-order note). The HTTP branch and
-  # the envelope are still compared.
-  auth) compare_options=(--no-transcript) ;;
-esac
-
 status=0
 "$SERVER_DIR/target/debug/difftest" run \
   --a-var "smtp_port=$a_port" --b-var "smtp_port=$b_port" \
@@ -139,8 +137,7 @@ status=0
 sleep 0.2
 compare=0
 "$PYTHON" "$SERVER_DIR/tools/mail/compare_smtp_logs.py" \
-  --a "$a_log" --b "$b_log" --expect "$mode" \
-  ${compare_options[@]+"${compare_options[@]}"} || compare=$?
+  --a "$a_log" --b "$b_log" --expect "$mode" || compare=$?
 
 if ((compare != 0)); then
   exit 1

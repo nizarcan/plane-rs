@@ -18,6 +18,11 @@ base64.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 deadpool-postgres.workspace = true
+dns-lookup.workspace = true
+# `io` for `BufReader`/`read_until`/`write_all` over lettre's plaintext or
+# TLS SMTP stream (the SMTP session in `instances/mail.rs` drives it directly).
+futures-util = { workspace = true, features = ["io"] }
+gethostname.workspace = true
 getrandom.workspace = true
 http.workspace = true
 lettre.workspace = true
@@ -38,7 +43,7 @@ regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "net", "time"] }
+tokio = { workspace = true, features = ["io-util", "net", "rt", "time"] }
 tokio-postgres.workspace = true
 tracing.workspace = true
 uuid.workspace = true

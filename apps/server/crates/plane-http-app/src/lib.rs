@@ -46,6 +46,7 @@ pub mod auth;
 pub mod common;
 pub mod cycles;
 pub mod estimates;
+pub mod generated;
 pub mod instances;
 pub mod intake;
 pub mod issues;

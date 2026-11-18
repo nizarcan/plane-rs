@@ -17,9 +17,10 @@
 #   * the two 500s outside the view's `try`: `EMAIL_USE_TLS` with
 #     `EMAIL_USE_SSL`, and `int(EMAIL_PORT)` on a non-numeric/empty value;
 #   * the listener modes exercise SMTPAuthenticationError, SMTPConnectError,
-#     a dropped server and a DATA refusal. `SMTPSenderRefused` /
-#     `SMTPRecipientsRefused` collapse into the generic 400 in the Rust
-#     transport (DECISIONS.md D23) and are reported by the wrapper.
+#     SMTPSenderRefused, SMTPRecipientsRefused, a dropped server and a DATA
+#     refusal. The Rust transport drives the session command by command
+#     (`instances/mail.rs`), so every branch is the one Django takes and the
+#     wrapper also compares the SMTP transcripts.
 
 name: write-instances-email
 template_db: plane_fix_tpl

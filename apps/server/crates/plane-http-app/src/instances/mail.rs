@@ -39,40 +39,58 @@
 //!
 //! ## Known differences (recorded, not silent)
 //!
-//! * The EHLO argument and the `Message-ID` domain. Django sends
-//!   `socket.getfqdn()` in both places (`smtp.py:86-87`,
-//!   `message.py:286`); the port lets lettre send its hostname for EHLO and
-//!   uses the process's `HOSTNAME` for `make_msgid(domain=…)`, because
-//!   reproducing `gethostbyaddr(gethostname())` needs libc (forbidden). Both
-//!   are client/transport metadata, not message content the recipient acts on;
-//!   the golden corpus fixes `Date`/`Message-ID` placeholders, and
-//!   `tools/mail/compare_smtp_logs.py` masks the composed `Message-ID` header
-//!   (continuation lines included) for the same reason.
+//! * `socket.getfqdn()` (`django/core/mail/utils.py` `DNS_NAME`) is ported by
+//!   [`getfqdn`]: `gethostname()`, then the first `getaddrinfo` answer for the
+//!   name, then `getnameinfo`, then the address's `in-addr.arpa` name as the
+//!   alias Apple's libinfo reports. `gethostbyaddr` itself is not reachable
+//!   through a safe crate, so the alias list is not observable: a platform
+//!   whose canonical name is single-label *and* whose `/etc/hosts` has a
+//!   dotted alias would see Python return the alias and the port the
+//!   canonical name. On Linux (glibc stops at `/etc/hosts`) and on macOS
+//!   (libinfo's only extra alias is the reverse-mapping name) the port
+//!   returns Python's value; see the module docs on [`getfqdn`].
 //! * TLS trust. Django builds `ssl.create_default_context()` (the system
 //!   store); the port uses `webpki-roots` (DECISIONS.md D9's equivalent of
 //!   `certifi`, with `aws-lc-rs` as the single crypto provider).
 //! * Authentication mechanism. `smtplib.login` prefers `CRAM-MD5`, then
-//!   `PLAIN`, then `LOGIN` (`smtplib.py:725-750`); lettre has no CRAM-MD5, so
-//!   the port offers `PLAIN` then `LOGIN`. The outcome (and the failure code
-//!   for a wrong password) is the same.
-//! * Sender vs recipient refusal. smtplib knows which command failed and raises
-//!   `SMTPSenderRefused` or `SMTPRecipientsRefused`
-//!   (`smtplib.py:876-900`); lettre's error carries only the reply code, and
-//!   550/553 are used for both. Those two branches therefore collapse into
-//!   [`MailError::Generic`] with the endpoint's generic message.
+//!   `PLAIN`, then `LOGIN` (`smtplib.py:725-750`), retrying the next one after
+//!   a `535`; the port offers `PLAIN` then `LOGIN` with the same retry. A
+//!   server that advertises only `CRAM-MD5` therefore fails here and may
+//!   succeed in Python.
 //! * `EMAIL_TIMEOUT` is unset in Plane, so Django waits forever; the port
 //!   passes `None` to lettre for the same behaviour.
+//!
+//! ## Session model
+//!
+//! The transport is lettre's [`AsyncNetworkStream`] (a plaintext socket, an
+//! implicit-TLS socket, or one `upgrade_tls` turns into TLS), and the SMTP
+//! dialogue is written out command by command instead of using
+//! `AsyncTransport::send_raw`. That is what makes each failure branch
+//! observable: `send_raw` reports only a reply code, so a refused sender and
+//! refused recipients are indistinguishable (`smtplib` raises
+//! `SMTPSenderRefused` / `SMTPRecipientsRefused` from the two commands). The
+//! sequence reproduces `smtplib.SMTP.sendmail` including its `RSET` after a
+//! refusal, `size=` when the server advertises `SIZE`, `quit()` in
+//! `send_messages`' `finally`, and no `QUIT` for a connection that failed
+//! while opening (`connect`, `STARTTLS`, `AUTH`).
 
 #![allow(dead_code, reason = "set C (instances routes) consumes this transport")]
+#![allow(
+    deprecated,
+    reason = "lettre 0.11 marks `AsyncNetworkStream` deprecated but keeps it public and \
+              exposes no other way to drive an SMTP session command by command (D23)"
+)]
+
+use std::error::Error as _;
+use std::net::IpAddr;
+use std::sync::OnceLock;
 
 use base64::Engine as _;
 use chrono::{Datelike, Timelike, Utc};
 use deadpool_postgres::Client;
-use lettre::address::Envelope;
-use lettre::transport::smtp::AsyncSmtpTransport;
-use lettre::transport::smtp::authentication::{Credentials, Mechanism};
-use lettre::transport::smtp::client::{Tls, TlsParameters};
-use lettre::{AsyncTransport, Tokio1Executor};
+use dns_lookup::AddrInfoHints;
+use futures_util::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use lettre::transport::smtp::client::{AsyncNetworkStream, TlsParameters};
 use plane_auth::error::AuthError;
 use plane_auth::instance_config::configuration_values;
 use plane_core::config::Settings;
@@ -428,10 +446,11 @@ pub fn default_date() -> String {
 /// `make_msgid(domain=DNS_NAME)` (`email/utils.py:154-177`):
 /// `<{int(time.time()*100)}.{pid}.{random64}@{domain}>`.
 ///
-/// The domain is the process's `HOSTNAME` (or `localhost`), where Python uses
-/// `socket.getfqdn()`; see the module docs.
+/// The domain is `socket.getfqdn()` in Django (`django/core/mail/utils.py`
+/// `DNS_NAME`); the caller passes the cached [`dns_name`], the same value the
+/// EHLO argument uses.
 #[must_use]
-pub fn default_message_id() -> String {
+pub fn default_message_id(domain: &str) -> String {
     let since_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -439,12 +458,127 @@ pub fn default_message_id() -> String {
     let pid = std::process::id();
     let mut random = [0u8; 8];
     getrandom::fill(&mut random).unwrap_or_default();
-    let randint = u64::from_le_bytes(random);
-    let domain = std::env::var("HOSTNAME")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "localhost".to_string());
+    let randint = u64::from_be_bytes(random);
     format!("<{timeval}.{pid}.{randint}@{domain}>")
+}
+
+// ---------------------------------------------------------------------------
+// `socket.getfqdn()` (`Lib/socket.py:getfqdn`), Django's `DNS_NAME`
+// ---------------------------------------------------------------------------
+
+/// `DNS_NAME` (`django/core/mail/utils.py:10-18`): the process's FQDN,
+/// computed on first use and reused by every later message, so the EHLO
+/// argument and every `Message-ID` domain of a process are identical, as in
+/// Django.
+static DNS_NAME: OnceLock<String> = OnceLock::new();
+
+/// The cached `socket.getfqdn()`.
+pub fn dns_name() -> &'static str {
+    DNS_NAME.get_or_init(|| getfqdn(""))
+}
+
+/// [`dns_name`] without blocking the runtime: the resolver calls run on
+/// tokio's blocking pool the first time.
+async fn dns_name_async() -> &'static str {
+    if let Some(name) = DNS_NAME.get() {
+        return name;
+    }
+    match tokio::task::spawn_blocking(dns_name).await {
+        Ok(name) => name,
+        // The blocking task can only fail by panicking; Django's
+        // `DNS_NAME.get_fqdn()` would raise there, but a hostname is not worth
+        // failing a send over.
+        Err(_) => "localhost",
+    }
+}
+
+/// `socket.getfqdn(name)` (`Lib/socket.py`).
+///
+/// CPython: strip the argument; an empty argument, `0.0.0.0` or `::` means
+/// `gethostname()`; then `hostname, aliases, addresses = gethostbyaddr(name)`,
+/// and the result is the first of `[hostname, *aliases]` that contains a dot,
+/// else `hostname`. A failed lookup returns the argument unchanged.
+///
+/// `gethostbyaddr` has no safe binding, so it is reproduced with the two calls
+/// CPython itself makes inside it (`Modules/socketmodule.c:setipaddr` and
+/// `socket_gethostbyaddr`): `getaddrinfo(name, NULL, {AF_UNSPEC, socktype 0,
+/// flags 0})` and the first answer, then `getnameinfo(address, NI_NAMEREQD)`
+/// for the canonical name.
+///
+/// The alias list is the part a safe API does not expose. macOS's libinfo
+/// reports the address's reverse-mapping name (`d.c.b.a.in-addr.arpa`,
+/// `…ip6.arpa`) as an alias of every successful reverse lookup, and prefers it
+/// whenever the canonical name has no dot — the only case where Python
+/// consults an alias — so macOS returns that name, which is what
+/// `socket.getfqdn()` returns there (`localhost` has one label, the
+/// `…in-addr.arpa` name does not). glibc reports no alias for an `/etc/hosts`
+/// entry and the PTR name as the canonical name otherwise, so its result is
+/// the canonical name, which is what every other platform gets here. A
+/// platform whose `/etc/hosts` holds a *dotted* alias for a host whose
+/// canonical name is single-label is the one place this differs from Python.
+pub fn getfqdn(name: &str) -> String {
+    let mut name = name.trim().to_string();
+    if name.is_empty() || name == "0.0.0.0" || name == "::" {
+        name = hostname();
+    }
+    let Some(address) = first_address(&name) else {
+        return name;
+    };
+    match dns_lookup::lookup_addr(&address) {
+        Ok(canonical) => {
+            if canonical.contains('.') {
+                return canonical;
+            }
+            if cfg!(target_os = "macos") {
+                return reverse_name(address);
+            }
+            canonical
+        }
+        Err(_) => name,
+    }
+}
+
+/// `socket.gethostname()`.
+fn hostname() -> String {
+    match gethostname::gethostname().into_string() {
+        Ok(name) => name,
+        // Python decodes the bytes with the file-system encoding and
+        // `surrogateescape`, so it never fails; lossy is the closest safe
+        // answer.
+        Err(name) => name.to_string_lossy().into_owned(),
+    }
+}
+
+/// The address `setipaddr` picks: the first `getaddrinfo` answer for a name,
+/// with the zeroed hints `getaddrinfo(name, NULL, &hints)` uses.
+fn first_address(name: &str) -> Option<IpAddr> {
+    let answers = dns_lookup::getaddrinfo(Some(name), None, Some(AddrInfoHints::default())).ok()?;
+    answers
+        .filter_map(Result::ok)
+        .next()
+        .map(|answer| answer.sockaddr.ip())
+}
+
+/// The reverse-mapping name of an address (`1.0.0.127.in-addr.arpa`,
+/// `1.0.…ip6.arpa`), which libinfo reports as an alias of every reverse
+/// lookup.
+fn reverse_name(address: IpAddr) -> String {
+    match address {
+        IpAddr::V4(address) => {
+            let [a, b, c, d] = address.octets();
+            format!("{d}.{c}.{b}.{a}.in-addr.arpa")
+        }
+        IpAddr::V6(address) => {
+            let nibbles = format!("{:032x}", u128::from(address));
+            let mut name: String = nibbles
+                .chars()
+                .rev()
+                .flat_map(|nibble| [nibble, '.'])
+                .collect();
+            name.push_str("ip6.arpa");
+            name
+        }
+    }
 }
 
 /// Send one message through Django's SMTP backend semantics.
@@ -483,111 +617,545 @@ pub async fn send(configuration: &EmailConfiguration, message: &Message) -> Resu
             configuration.port
         )));
     }
-    // `EmailMessage.send` does not connect when there is nobody to send to
-    // (`django/core/mail/message.py:334-340`).
-    let (from, recipients) = message.envelope()?;
-    if recipients.is_empty() {
-        return Ok(());
-    }
-
-    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
-        .port(configuration.port as u16)
-        // `EMAIL_TIMEOUT` is unset in Plane, i.e. no timeout.
-        .timeout(None);
-    builder = if configuration.use_ssl {
-        // `smtplib.SMTP_SSL`: TLS from the first byte.
-        builder.tls(Tls::Wrapper(tls_parameters(host)?))
-    } else if configuration.use_tls {
+    // `DNS_NAME.get_fqdn()`, once per process, for the EHLO argument and the
+    // Message-ID domain.
+    let local_hostname = dns_name_async().await;
+    let mut session = Session::connect(configuration, host, local_hostname).await?;
+    if configuration.use_tls {
         // `starttls()`: a plaintext connection that must upgrade.
-        builder.tls(Tls::Required(tls_parameters(host)?))
-    } else {
-        builder.tls(Tls::None)
-    };
+        session.starttls(tls_parameters(host)?).await?;
+    }
     // `if self.username and self.password:` — an empty password disables
     // authentication entirely (`smtp.py:93-95`).
     let user = configuration.user.as_deref().unwrap_or_default();
     let password = configuration.password.as_deref().unwrap_or_default();
     if !user.is_empty() && !password.is_empty() {
-        builder = builder
-            .credentials(Credentials::new(user.to_string(), password.to_string()))
-            .authentication(vec![Mechanism::Plain, Mechanism::Login]);
+        session.login(user, password).await?;
     }
-    let transport = builder.build();
+    // `_send`: the addresses are sanitized and the bytes built after the
+    // connection is open, so a `BadHeaderError` here still has a `QUIT`
+    // (`send_messages`' `finally`).
+    let result = async {
+        // `_send` returns False before sanitizing when there is nobody to send
+        // to, but `send_messages` has already opened the connection, so the
+        // `finally` still quits it (`django/core/mail/backends/smtp.py:139-160`).
+        if message.recipients().is_empty() {
+            return Ok(());
+        }
+        let (from, recipients) = message.envelope()?;
+        let bytes = message.as_bytes(&default_date(), &default_message_id(local_hostname))?;
+        session.transact(&from, &recipients, &bytes).await
+    }
+    .await;
+    // `EmailBackend.send_messages`'s `finally: self.close()` -> `quit()`.
+    session.quit().await;
+    result
+}
 
-    // `envelope()` returns smtplib's `<addr-spec>` form; lettre wants the bare
-    // addr-spec.
-    let from = lettre::Address::try_from(strip_brackets(&from).to_string())
-        .map_err(|error| MailError::Generic(format!("invalid From address: {error}")))?;
-    let mut to = Vec::with_capacity(recipients.len());
-    for recipient in &recipients {
-        to.push(
-            lettre::Address::try_from(strip_brackets(recipient).to_string())
-                .map_err(|error| MailError::Generic(format!("invalid recipient: {error}")))?,
-        );
+// ---------------------------------------------------------------------------
+// `smtplib.SMTP`: a command-by-command session
+// ---------------------------------------------------------------------------
+
+/// `smtplib._MAXLINE` (`smtplib.py:57`).
+const MAX_LINE: usize = 8192;
+
+/// `smtplib._MAXCHALLENGE`.
+const MAX_CHALLENGE: u8 = 5;
+
+/// `(code, message)` from `smtplib.getreply` (`smtplib.py:412-460`).
+struct Reply {
+    /// `int(line[:3])`, or `-1` for a code smtplib cannot parse.
+    code: i32,
+    /// The reply lines after the code, stripped and joined with `\n`.
+    message: String,
+}
+
+impl Reply {
+    /// `200 <= code <= 299`.
+    fn is_positive_completion(&self) -> bool {
+        (200..300).contains(&self.code)
     }
-    let envelope = Envelope::new(Some(from), to)
-        .map_err(|error| MailError::Generic(format!("invalid envelope: {error}")))?;
-    let bytes = message.as_bytes(&default_date(), &default_message_id())?;
-    match transport.send_raw(&envelope, &bytes).await {
-        Ok(_response) => Ok(()),
-        Err(error) => {
-            let status = error.status().map(u16::from);
-            let mapped = map_error(error);
-            // lettre does not say which command produced a reply, and smtplib's
-            // `SMTPConnectError` is the greeting's 554 while a DATA refusal is
-            // `SMTPDataError` — both arrive here as the same permanent 554.
-            // A second, raw probe of the same endpoint tells them apart: a
-            // server that still greets with 554 is the connect failure. The
-            // probe sends no command, so it cannot be mistaken for backend
-            // traffic (the scenario comparer drops greeting-only records).
-            if status == Some(554)
-                && !configuration.use_ssl
-                && let Some(greeting) = probe_greeting(host, configuration.port).await
-                && greeting != 220
-            {
-                return Err(MailError::Connect);
+}
+
+/// One SMTP session, following `smtplib.SMTP`'s command methods.
+struct Session {
+    stream: BufReader<AsyncNetworkStream>,
+    /// `esmtp_features`: lower-case keyword and its parameters.
+    features: Vec<(String, String)>,
+    /// `does_esmtp`: EHLO answered 250.
+    does_esmtp: bool,
+    /// `ehlo_resp`/`helo_resp` were set (`ehlo_or_helo_if_needed`).
+    greeted: bool,
+    local_hostname: String,
+    /// The socket is gone or `smtplib` closed it: no `QUIT` can be sent.
+    closed: bool,
+}
+
+impl Session {
+    /// `SMTP.__init__` + `connect()`: the socket (implicit TLS included), then
+    /// the greeting. A greeting other than 220 is `SMTPConnectError`.
+    async fn connect(
+        configuration: &EmailConfiguration,
+        host: &str,
+        local_hostname: &str,
+    ) -> Result<Self, MailError> {
+        let port = u16::try_from(configuration.port).map_err(|_| {
+            MailError::Generic(format!("port must be 0-65535, got {}", configuration.port))
+        })?;
+        let tls = if configuration.use_ssl {
+            // `smtplib.SMTP_SSL`: TLS from the first byte.
+            Some(tls_parameters(host)?)
+        } else {
+            None
+        };
+        // `EMAIL_TIMEOUT` is unset in Plane: `None` waits forever.
+        let stream = AsyncNetworkStream::connect_tokio1((host, port), None, tls, None)
+            .await
+            .map_err(map_connect_error)?;
+        let mut session = Self {
+            stream: BufReader::new(stream),
+            features: Vec::new(),
+            does_esmtp: false,
+            greeted: false,
+            local_hostname: local_hostname.to_string(),
+            closed: false,
+        };
+        let reply = session.read_reply().await?;
+        if reply.code != 220 {
+            // `SMTP.__init__`: `self.close()` then `SMTPConnectError`.
+            session.closed = true;
+            return Err(MailError::Connect);
+        }
+        Ok(session)
+    }
+
+    /// `ehlo_or_helo_if_needed` (`smtplib.py:495-512`).
+    async fn ehlo_or_helo_if_needed(&mut self) -> Result<(), MailError> {
+        if self.greeted {
+            return Ok(());
+        }
+        let local_hostname = self.local_hostname.clone();
+        let reply = self.command("ehlo", &local_hostname).await?;
+        if reply.code == -1 && reply.message.is_empty() {
+            // `ehlo()`: a server that disconnects instead of answering.
+            self.closed = true;
+            return Err(MailError::ServerDisconnected);
+        }
+        self.apply_ehlo(&reply);
+        if !reply.is_positive_completion() {
+            let helo = self.command("helo", &local_hostname).await?;
+            if !helo.is_positive_completion() {
+                // `SMTPHeloError`, which the endpoint's generic branch catches.
+                return Err(MailError::Generic(format!(
+                    "SMTPHeloError: ({}, {})",
+                    helo.code, helo.message
+                )));
             }
-            Err(mapped)
+        }
+        self.greeted = true;
+        Ok(())
+    }
+
+    /// `ehlo()`'s feature parsing (`smtplib.py:465-490`).
+    fn apply_ehlo(&mut self, reply: &Reply) {
+        self.features.clear();
+        self.does_esmtp = false;
+        if reply.code != 250 {
+            return;
+        }
+        self.does_esmtp = true;
+        // `del resp[0]`: the first line is the server's greeting text.
+        for line in reply.message.split('\n').skip(1) {
+            // `OLDSTYLE_AUTH = re.compile(r"auth=(.*)", re.I)`.
+            if line
+                .get(..5)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("auth="))
+            {
+                self.store_feature("auth", line);
+                continue;
+            }
+            if let Some((feature, parameters)) = parse_feature_line(line) {
+                self.store_feature(&feature, &parameters);
+            }
         }
     }
+
+    /// `esmtp_features[feature] = parameters`, with the `auth` case appending.
+    fn store_feature(&mut self, feature: &str, parameters: &str) {
+        match self.features.iter_mut().find(|(name, _)| name == feature) {
+            Some((_, value)) if feature == "auth" => {
+                value.push(' ');
+                value.push_str(parameters);
+            }
+            Some((_, value)) => *value = parameters.to_string(),
+            None if feature == "auth" => {
+                self.features
+                    .push((feature.to_string(), format!(" {parameters}")));
+            }
+            None => self
+                .features
+                .push((feature.to_string(), parameters.to_string())),
+        }
+    }
+
+    fn has_extn(&self, option: &str) -> bool {
+        self.features.iter().any(|(name, _)| name == option)
+    }
+
+    fn feature(&self, name: &str) -> Option<&str> {
+        self.features
+            .iter()
+            .find(|(feature, _)| feature == name)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// `starttls()` (`smtplib.py:775-800`): EHLO, the `STARTTLS` command, the
+    /// handshake, then a fresh EHLO.
+    async fn starttls(&mut self, tls: TlsParameters) -> Result<(), MailError> {
+        self.ehlo_or_helo_if_needed().await?;
+        if !self.has_extn("starttls") {
+            // `SMTPNotSupportedError`, a generic 400 at the endpoint.
+            return Err(MailError::Generic(
+                "SMTPNotSupportedError: STARTTLS extension not supported by server.".to_string(),
+            ));
+        }
+        let reply = self.command("STARTTLS", "").await?;
+        if reply.code != 220 {
+            return Err(MailError::Generic(format!(
+                "SMTPResponseException: ({}, {})",
+                reply.code, reply.message
+            )));
+        }
+        let upgraded = self.stream.get_mut().upgrade_tls(tls).await;
+        if let Err(error) = upgraded {
+            self.closed = true;
+            return Err(MailError::Generic(format!("TLS error: {error}")));
+        }
+        // RFC 3207: everything learnt over the plaintext connection is void.
+        self.features.clear();
+        self.does_esmtp = false;
+        self.greeted = false;
+        Ok(())
+    }
+
+    /// `login()` (`smtplib.py:725-760`): the advertised mechanisms in
+    /// `smtplib`'s preference order, continuing after an authentication
+    /// failure until one succeeds or the last one fails.
+    async fn login(&mut self, user: &str, password: &str) -> Result<(), MailError> {
+        self.ehlo_or_helo_if_needed().await?;
+        let Some(advertised) = self.feature("auth").map(str::to_string) else {
+            // `SMTPNotSupportedError("SMTP AUTH extension not supported by server.")`.
+            return Err(MailError::Generic(
+                "SMTPNotSupportedError: SMTP AUTH extension not supported by server.".to_string(),
+            ));
+        };
+        let advertised: Vec<&str> = advertised.split_whitespace().collect();
+        // CRAM-MD5 needs an HMAC the port does not implement (D23): it is
+        // skipped, so a server that only advertises it is a generic 400.
+        let mechanisms: Vec<&str> = ["PLAIN", "LOGIN"]
+            .into_iter()
+            .filter(|mechanism| advertised.contains(mechanism))
+            .collect();
+        if mechanisms.is_empty() {
+            return Err(MailError::Generic(
+                "SMTPException: No suitable authentication method found.".to_string(),
+            ));
+        }
+        let mut last = MailError::Authentication;
+        for mechanism in mechanisms {
+            match self.auth(mechanism, user, password).await {
+                Ok(()) => return Ok(()),
+                // `except SMTPAuthenticationError as e: last_exception = e`.
+                Err(error @ MailError::Authentication) => last = error,
+                // A disconnect or a client error is not retried by smtplib.
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last)
+    }
+
+    /// `auth()` (`smtplib.py:620-680`) for `PLAIN` and `LOGIN`.
+    async fn auth(&mut self, mechanism: &str, user: &str, password: &str) -> Result<(), MailError> {
+        let initial = match mechanism {
+            "PLAIN" => format!("\0{user}\0{password}"),
+            // `auth_login(None)` returns the user: LOGIN does send an initial
+            // response in smtplib.
+            "LOGIN" => user.to_string(),
+            other => {
+                return Err(MailError::Generic(format!(
+                    "SMTPException: unsupported authentication mechanism {other}"
+                )));
+            }
+        };
+        let mut count: u8 = 1;
+        let mut reply = self
+            .raw_command(&format!(
+                "AUTH {mechanism} {}",
+                base64::engine::general_purpose::STANDARD.encode(initial)
+            ))
+            .await?;
+        while reply.code == 334 {
+            count += 1;
+            if count > MAX_CHALLENGE {
+                return Err(MailError::Generic(
+                    "SMTPException: Server AUTH mechanism infinite loop.".to_string(),
+                ));
+            }
+            let response = match mechanism {
+                "PLAIN" => format!("\0{user}\0{password}"),
+                // `_auth_challenge_count < 2` is only the initial response.
+                _ => password.to_string(),
+            };
+            reply = self
+                .raw_command(&base64::engine::general_purpose::STANDARD.encode(response))
+                .await?;
+        }
+        if reply.code == 235 || reply.code == 503 {
+            Ok(())
+        } else {
+            Err(MailError::Authentication)
+        }
+    }
+
+    /// `sendmail()` (`smtplib.py:860-910`) for one message.
+    async fn transact(
+        &mut self,
+        from: &str,
+        recipients: &[String],
+        message: &[u8],
+    ) -> Result<(), MailError> {
+        // `sendmail` starts with `self.ehlo_or_helo_if_needed()`.
+        self.ehlo_or_helo_if_needed().await?;
+        // `if self.does_esmtp: if self.has_extn("size"): esmtp_opts.append(...)`.
+        let mut options = String::new();
+        if self.does_esmtp && self.has_extn("size") {
+            options = format!(" size={}", message.len());
+        }
+        let reply = self
+            .command("mail", &format!("FROM:{from}{options}"))
+            .await?;
+        if reply.code != 250 {
+            if reply.code == 421 {
+                // `self.close()`, not `_rset()`: no QUIT afterwards either.
+                self.closed = true;
+            } else {
+                self.rset().await;
+            }
+            return Err(MailError::SenderRefused);
+        }
+        // `senderrs` is a dict keyed by address, so duplicates count once when
+        // `len(senderrs) == len(to_addrs)` decides that every recipient was
+        // refused.
+        let mut refused: Vec<&str> = Vec::new();
+        for recipient in recipients {
+            let reply = self.command("rcpt", &format!("TO:{recipient}")).await?;
+            if reply.code != 250 && reply.code != 251 && !refused.contains(&recipient.as_str()) {
+                refused.push(recipient);
+            }
+            if reply.code == 421 {
+                self.closed = true;
+                return Err(MailError::RecipientsRefused);
+            }
+        }
+        if refused.len() == recipients.len() {
+            self.rset().await;
+            return Err(MailError::RecipientsRefused);
+        }
+        let reply = self.command("data", "").await?;
+        if reply.code != 354 {
+            // `data()` raises before the payload is sent, without `_rset()`.
+            return Err(MailError::Generic(format!(
+                "SMTPDataError: ({}, {})",
+                reply.code, reply.message
+            )));
+        }
+        self.write(&data_payload(message)).await?;
+        let reply = self.read_reply().await?;
+        if reply.code != 250 {
+            if reply.code == 421 {
+                self.closed = true;
+            } else {
+                self.rset().await;
+            }
+            return Err(MailError::Generic(format!(
+                "SMTPDataError: ({}, {})",
+                reply.code, reply.message
+            )));
+        }
+        Ok(())
+    }
+
+    /// `quit()` (`smtplib.py:1000-1010`); `_close_connection` swallows a
+    /// disconnect, and `quit()` never checks the code.
+    async fn quit(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.closed = true;
+        let _ = self.command("quit", "").await;
+    }
+
+    /// `_rset()`: `RSET`, ignoring a disconnect.
+    async fn rset(&mut self) {
+        if self.closed {
+            return;
+        }
+        let _ = self.command("rset", "").await;
+    }
+
+    /// `putcmd()`: `<line>CRLF`, with smtplib's ASCII encoding rule.
+    async fn raw_command(&mut self, line: &str) -> Result<Reply, MailError> {
+        if !line.is_ascii() {
+            // `s.encode(self.command_encoding)` with `command_encoding = "ascii"`.
+            return Err(MailError::Generic(
+                "UnicodeEncodeError: 'ascii' codec can't encode characters".to_string(),
+            ));
+        }
+        if line.contains(['\r', '\n']) {
+            return Err(MailError::Generic(
+                "ValueError: command and arguments contain prohibited newline characters"
+                    .to_string(),
+            ));
+        }
+        let mut bytes = Vec::with_capacity(line.len() + 2);
+        bytes.extend_from_slice(line.as_bytes());
+        bytes.extend_from_slice(b"\r\n");
+        self.write(&bytes).await?;
+        self.read_reply().await
+    }
+
+    /// `docmd()`: a verb and its argument (the argument may be empty).
+    async fn command(&mut self, verb: &str, args: &str) -> Result<Reply, MailError> {
+        let line = if args.is_empty() {
+            verb.to_string()
+        } else {
+            format!("{verb} {args}")
+        };
+        self.raw_command(&line).await
+    }
+
+    /// `send()` (`smtplib.py:350-370`): any I/O error is
+    /// `SMTPServerDisconnected`, because `smtplib` catches `OSError` here.
+    async fn write(&mut self, bytes: &[u8]) -> Result<(), MailError> {
+        let written = {
+            let stream = self.stream.get_mut();
+            match stream.write_all(bytes).await {
+                Ok(()) => stream.flush().await,
+                Err(error) => Err(error),
+            }
+        };
+        if written.is_err() {
+            self.closed = true;
+            return Err(MailError::ServerDisconnected);
+        }
+        Ok(())
+    }
+
+    /// One line, `\n` included; `false` at end-of-file with nothing read. A
+    /// partial line at end-of-file is returned as a line, as `readline` does.
+    async fn read_line(&mut self, line: &mut Vec<u8>) -> Result<bool, MailError> {
+        loop {
+            let available = match self.stream.fill_buf().await {
+                Ok(available) => available,
+                Err(_) => {
+                    self.closed = true;
+                    return Err(MailError::ServerDisconnected);
+                }
+            };
+            if available.is_empty() {
+                return Ok(!line.is_empty());
+            }
+            let (end, terminated) = match available.iter().position(|byte| *byte == b'\n') {
+                Some(position) => (position + 1, true),
+                None => (available.len(), false),
+            };
+            line.extend_from_slice(&available[..end]);
+            self.stream.consume_unpin(end);
+            if terminated || line.len() > MAX_LINE {
+                return Ok(true);
+            }
+        }
+    }
+
+    /// `getreply()` (`smtplib.py:412-460`).
+    async fn read_reply(&mut self) -> Result<Reply, MailError> {
+        let mut parts: Vec<String> = Vec::new();
+        let code = loop {
+            let mut line = Vec::new();
+            if !self.read_line(&mut line).await? {
+                // `getreply`: an empty read closes and raises
+                // `SMTPServerDisconnected`.
+                self.closed = true;
+                return Err(MailError::ServerDisconnected);
+            }
+            if line.len() > MAX_LINE {
+                self.closed = true;
+                return Err(MailError::Generic(
+                    "SMTPResponseException: (500, b'Line too long.')".to_string(),
+                ));
+            }
+            let text = String::from_utf8_lossy(&line);
+            parts.push(
+                text.get(4..)
+                    .unwrap_or("")
+                    .trim_matches([' ', '\t', '\r', '\n'])
+                    .to_string(),
+            );
+            match text.get(0..3).and_then(|value| value.parse::<i32>().ok()) {
+                Some(parsed) => {
+                    // `if line[3:4] != b"-": break`.
+                    if text.as_bytes().get(3) != Some(&b'-') {
+                        break parsed;
+                    }
+                }
+                None => break -1,
+            }
+        };
+        Ok(Reply {
+            code,
+            message: parts.join("\n"),
+        })
+    }
 }
 
-/// Read the SMTP greeting on a short-lived plaintext connection, for the
-/// ambiguous 554 branch above. `None` keeps the original error.
-async fn probe_greeting(host: &str, port: u32) -> Option<u16> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let port = u16::try_from(port).ok()?;
-    let address = format!("{host}:{port}");
-    let mut stream = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        tokio::net::TcpStream::connect(&address),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    let mut buffer = [0u8; 512];
-    let read = tokio::time::timeout(std::time::Duration::from_secs(2), stream.read(&mut buffer))
-        .await
-        .ok()?
-        .ok()?;
-    let code = std::str::from_utf8(&buffer[..read])
-        .ok()?
-        .get(0..3)?
-        .parse()
-        .ok();
-    // Mark the connection: the fake server records it, and the scenario
-    // comparer drops records whose only command is this QUIT. Sending nothing
-    // would make the probe indistinguishable from the disconnected branch.
-    let _ = stream.write_all(b"QUIT\r\n").await;
-    code
+/// `_quote_periods(msg)` plus the CRLF and `.` terminator `data()` adds
+/// (`smtplib.py:600-620`).
+fn data_payload(message: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(message.len() + 8);
+    let mut at_line_start = true;
+    for &byte in message {
+        if at_line_start && byte == b'.' {
+            payload.push(b'.');
+        }
+        payload.push(byte);
+        at_line_start = byte == b'\n';
+    }
+    if !message.ends_with(b"\r\n") {
+        payload.extend_from_slice(b"\r\n");
+    }
+    payload.extend_from_slice(b".\r\n");
+    payload
 }
 
-/// `<a@b>` -> `a@b`.
-fn strip_brackets(address: &str) -> &str {
-    address
-        .strip_prefix('<')
-        .and_then(|rest| rest.strip_suffix('>'))
-        .unwrap_or(address)
+/// `(?P<feature>[A-Za-z0-9][A-Za-z0-9\-]*) ?` at the start of an EHLO line.
+fn parse_feature_line(line: &str) -> Option<(String, String)> {
+    let mut characters = line.char_indices();
+    let (_, first) = characters.next()?;
+    if !first.is_ascii_alphanumeric() {
+        return None;
+    }
+    let mut end = first.len_utf8();
+    for (index, character) in characters {
+        if character.is_ascii_alphanumeric() || character == '-' {
+            end = index + character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    Some((
+        line[..end].to_ascii_lowercase(),
+        line[end..].trim().to_string(),
+    ))
 }
 
 fn tls_parameters(host: &str) -> Result<TlsParameters, MailError> {
@@ -595,50 +1163,31 @@ fn tls_parameters(host: &str) -> Result<TlsParameters, MailError> {
         .map_err(|error| MailError::Generic(format!("TLS setup failed: {error}")))
 }
 
-/// Map lettre's error onto the endpoint's branches.
+/// Map the connection phase's error onto the endpoint's branches.
 ///
-/// lettre reports the reply code but not the command that produced it, so the
-/// two refusals that share codes (sender and recipient) are not separable; see
-/// the module docs.
-fn map_error(error: lettre::transport::smtp::Error) -> MailError {
+/// `socket.create_connection` failures that are `ConnectionError` subclasses
+/// (`ConnectionRefusedError`, `ConnectionResetError`, `ConnectionAbortedError`,
+/// `BrokenPipeError`) reach the view's `except ConnectionError`; a timeout
+/// reaches `except TimeoutError`; a name-resolution or routing `OSError` and a
+/// TLS handshake failure reach `except Exception`.
+fn map_connect_error(error: lettre::transport::smtp::Error) -> MailError {
     if error.is_timeout() {
         return MailError::Timeout;
-    }
-    if let Some(status) = error.status() {
-        let code = u16::from(status);
-        return match code {
-            // `smtplib.login` raises SMTPAuthenticationError for anything but
-            // 235/503.
-            530 | 534 | 535 | 538 => MailError::Authentication,
-            // 421: the server is closing the transmission channel.
-            421 => MailError::ServerDisconnected,
-            // 550/551/553 are `SMTPSenderRefused` *and*
-            // `SMTPRecipientsRefused`; the endpoint's generic branch is the
-            // only honest answer. A 554 is the greeting refusal (SMTPConnectError)
-            // only when it arrives before EHLO, which lettre does not report.
-            550 | 551 | 553 | 554 => MailError::Generic(format!("SMTP reply {code}")),
-            _ => MailError::Generic(format!("SMTP reply {code}")),
-        };
     }
     if error.is_tls() {
         return MailError::Generic(format!("TLS error: {error}"));
     }
-    if error.is_response() {
-        // lettre parses every reply; a reply it cannot parse is an incomplete
-        // one, i.e. the server closed the connection mid-response. smtplib
-        // raises `SMTPServerDisconnected` for that (`code == -1`).
-        return MailError::ServerDisconnected;
-    }
-    if let Some(source) = std::error::Error::source(&error)
-        && let Some(io) = source.downcast_ref::<std::io::Error>()
+    if let Some(io) = error
+        .source()
+        .and_then(|source| source.downcast_ref::<std::io::Error>())
     {
         return match io.kind() {
-            std::io::ErrorKind::ConnectionRefused => MailError::Connection,
-            std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::BrokenPipe
-            | std::io::ErrorKind::UnexpectedEof
-            | std::io::ErrorKind::NotConnected => MailError::ServerDisconnected,
-            _ => MailError::Generic(format!("SMTP transport error: {error}")),
+            std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe => MailError::Connection,
+            std::io::ErrorKind::TimedOut => MailError::Timeout,
+            _ => MailError::Generic(format!("OSError: {io}")),
         };
     }
     MailError::Generic(format!("SMTP transport error: {error}"))
@@ -1363,6 +1912,15 @@ mod tests {
         assert_eq!(splitlines_py("a\rb"), vec!["a", "b"]);
         assert_eq!(splitlines_py("a\n"), vec!["a"]);
         assert_eq!(splitlines_py("\n\na"), vec!["", "", "a"]);
+    }
+
+    #[test]
+    fn data_payload_quotes_periods_and_terminates() {
+        // `_quote_periods` only at line starts, then the CRLF and dot the DATA
+        // terminator needs.
+        assert_eq!(data_payload(b"a\r\n.b\r\n"), b"a\r\n..b\r\n.\r\n");
+        assert_eq!(data_payload(b"Subject: x"), b"Subject: x\r\n.\r\n");
+        assert_eq!(data_payload(b".solo"), b"..solo\r\n.\r\n");
     }
 
     #[test]

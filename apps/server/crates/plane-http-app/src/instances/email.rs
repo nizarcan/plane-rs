@@ -20,9 +20,10 @@
 //! `port or settings.EMAIL_PORT` turns a port of `0` into 25 (`smtp.py:34`).
 //!
 //! Everything inside the `try` is [`super::mail`]'s typed [`MailError`];
-//! [`MailError::endpoint_message`] is the exact 400 body. The two branches
-//! smtplib distinguishes but lettre cannot (sender vs recipient refusal) are
-//! documented in [`super::mail`].
+//! [`MailError::endpoint_message`] is the exact 400 body. The session in
+//! [`super::mail`] drives `smtplib`'s commands one by one, so each exception
+//! class (`SMTPSenderRefused`, `SMTPRecipientsRefused`, `SMTPDataError`, …) is
+//! a separate branch here.
 
 use plane_core::error::APPLICATION_JSON;
 use plane_core::json::Object;

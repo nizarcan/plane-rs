@@ -17,6 +17,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::normalize::glob_matches;
 use crate::util::read_yaml;
 
 pub const DEFAULT_TEMPLATE_DB: &str = "plane_tpl";
@@ -796,12 +797,11 @@ pub struct DbRule {
 
 /// A JSON rule scoped by **document path** instead of key name.
 ///
-/// The name-keyed tables (`volatile_json_keys`, `volatile_db_columns`) hold at
-/// most one rule per name/column, so a `token` rule for a new API token
-/// (`plane_api_…`) would replace the `users.token` rule (`64` hex). A path
-/// rule is looked up at the exact JSON path first, so `$.token` on
-/// `POST /api/users/api-tokens/` can have its own shape while every other
-/// `token` keeps the name-keyed one.
+/// A name-keyed table (`volatile_json_keys`, `volatile_db_columns`) may hold
+/// several rules for one name when their `request:` scopes differ, and the
+/// first matching one applies; a path rule is looked up at the exact JSON path
+/// first, so `$.token` on `POST /api/users/api-tokens/` can have its own shape
+/// while every other `token` keeps the name-keyed one.
 ///
 /// `path` uses the same grammar as [`UnorderedPathRule::path`]: `$` is the
 /// root, `*` one component and `**` any number. A rule without `request`
@@ -969,7 +969,7 @@ impl NormalizeRules {
         Ok(rules)
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if self.timestamp_slack_secs < 0 {
             bail!("normalize: `timestamp_slack_secs` must be >= 0");
         }
@@ -1108,6 +1108,69 @@ impl NormalizeRules {
                 bail!("normalize: empty schema name");
             }
         }
+        self.validate_name_scopes()?;
+        Ok(())
+    }
+
+    /// Two rules for one name may coexist only when their `request:` scopes
+    /// are disjoint: the first matching rule applies, so overlapping scopes
+    /// would make declaration order decide silently (the bug that let the v1
+    /// attachment `asset`/`key` rules replace the app-upload ones in a
+    /// `HashMap<String, Rule>`).
+    ///
+    /// Overlap is the realistic kind, not a formal glob-language intersection
+    /// (two unrelated patterns usually share a contrived string): identical
+    /// scopes, an unscoped rule next to any other (it matches everything), or
+    /// one pattern matching the other's wildcard-free spelling.
+    fn validate_name_scopes(&self) -> Result<()> {
+        let mut cookies: BTreeMap<String, Vec<Option<&str>>> = BTreeMap::new();
+        for rule in &self.volatile_cookies {
+            cookies
+                .entry(rule.name.clone())
+                .or_default()
+                .push(rule.request.as_deref());
+        }
+        let mut json_keys: BTreeMap<String, Vec<Option<&str>>> = BTreeMap::new();
+        for rule in &self.volatile_json_keys {
+            json_keys
+                .entry(rule.name.clone())
+                .or_default()
+                .push(rule.request.as_deref());
+        }
+        let mut headers: BTreeMap<String, Vec<Option<&str>>> = BTreeMap::new();
+        for rule in &self.volatile_headers {
+            headers
+                .entry(rule.name.to_ascii_lowercase())
+                .or_default()
+                .push(rule.request.as_deref());
+        }
+        let mut db_columns: BTreeMap<String, Vec<Option<&str>>> = BTreeMap::new();
+        for rule in &self.volatile_db_columns {
+            db_columns
+                .entry(format!("{}.{}", rule.table, rule.column))
+                .or_default()
+                .push(rule.request.as_deref());
+        }
+        for (what, names) in [
+            ("volatile_cookies", cookies),
+            ("volatile_json_keys", json_keys),
+            ("volatile_headers", headers),
+            ("volatile_db_columns", db_columns),
+        ] {
+            for (name, scopes) in names {
+                for (index, left) in scopes.iter().enumerate() {
+                    for right in &scopes[index + 1..] {
+                        if scopes_overlap(*left, *right) {
+                            bail!(
+                                "normalize: two {what} rules named {name:?} have overlapping \
+                                 request scopes ({left:?} and {right:?}); make one of them more \
+                                 specific so the application order cannot matter"
+                            );
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1167,6 +1230,20 @@ impl NormalizeRules {
                 ))
             })
             .collect()
+    }
+}
+
+/// Whether two request scopes can match the same request (see
+/// [`NormalizeRules::validate_name_scopes`]).
+fn scopes_overlap(left: Option<&str>, right: Option<&str>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            left == right
+                || glob_matches(left, &right.replace('*', ""))
+                || glob_matches(right, &left.replace('*', ""))
+        }
+        // An unscoped rule matches every request, so it overlaps every other.
+        _ => true,
     }
 }
 
@@ -1433,6 +1510,89 @@ volatile_db_columns:
         );
         let error = rules.validate().expect_err("must reject");
         assert!(error.to_string().contains("no justification"));
+    }
+
+    #[test]
+    fn two_scoped_rules_for_one_name_are_accepted_when_disjoint() {
+        let rules = parse(
+            r#"
+shapes:
+  hex64:
+    pattern: '^[0-9a-f]{64}$'
+    why: "64 hex characters"
+volatile_json_keys:
+  - name: key
+    mode: placeholder_if_shape
+    placeholder: asset
+    shape: hex64
+    why: "v1 issue attachment"
+    request: "POST */api/v1/*"
+  - name: key
+    mode: placeholder_if_shape
+    placeholder: asset
+    shape: hex64
+    why: "app issue attachment"
+    request: "POST */api/assets/v2/*"
+"#,
+        );
+        rules.validate().expect("disjoint scopes must load");
+    }
+
+    #[test]
+    fn two_rules_for_one_name_with_overlapping_scopes_are_rejected() {
+        // Both unscoped: either could apply to any request, so the lookup
+        // order would decide silently.
+        let rules = parse(
+            r#"
+shapes:
+  hex64:
+    pattern: '^[0-9a-f]{64}$'
+    why: "64 hex characters"
+volatile_json_keys:
+  - name: key
+    mode: placeholder_if_shape
+    placeholder: asset
+    shape: hex64
+    why: "first"
+  - name: key
+    mode: placeholder_if_shape
+    placeholder: asset
+    shape: hex64
+    why: "second"
+"#,
+        );
+        let error = rules.validate().expect_err("must reject");
+        assert!(
+            error.to_string().contains("overlapping request scopes"),
+            "{error}"
+        );
+
+        // The same scope twice is the same overlap.
+        let rules = parse(
+            r#"
+shapes:
+  hex64:
+    pattern: '^[0-9a-f]{64}$'
+    why: "64 hex characters"
+volatile_db_columns:
+  - table: file_assets
+    column: asset
+    mode: placeholder_if_shape
+    placeholder: asset
+    shape: hex64
+    why: "first"
+    request: "POST *api/assets/*"
+  - table: file_assets
+    column: asset
+    mode: placeholder_if_shape
+    placeholder: asset
+    shape: hex64
+    why: "second"
+    request: "POST *api/assets/*"
+"#,
+        );
+        let error = rules.validate().expect_err("must reject");
+        assert!(error.to_string().contains("file_assets.asset"), "{error}");
     }
 
     #[test]
