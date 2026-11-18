@@ -608,8 +608,11 @@ volatile_json_paths:
   # (`serializers/project.py:89`) and `create` fills it in (`:152-160`). The two
   # leaves are placeholdered instead of the whole object, so the shape
   # (`{"in_use":"icon","icon":{…}}`) and the icon/colour domains still compare.
-  # Scoped to the v1 create: the app's create echoes the `logo_props` its body
-  # carried (`plane/app/serializers/project.py:108`) and stays literal.
+  # A path rule numbers by *raw value*, so `scenarios/write/v1-admin.yaml` keeps
+  # exactly one successful v1 create: two draws could reuse an earlier colour on
+  # one target and allocate a new one on the other. Scoped to the v1 create: the
+  # app's create echoes the `logo_props` its body carried
+  # (`plane/app/serializers/project.py:108`) and stays literal.
   - path: "$.logo_props.icon.name"
     request: "POST /api/v1/workspaces/*/projects/"
     placeholder: project-icon
@@ -620,6 +623,19 @@ volatile_json_paths:
     placeholder: colour
     shape: hex_colour
     why: "random.choice(PROJECT_ICON_DEFAULT_COLORS) on every v1 project create (plane/api/serializers/project.py:30-39,152-160)"
+  # The patch responses render the same stored `logo_props` (the create already
+  # assigned the placeholders, so these rules only cover a project that was not
+  # created in this run, where the value is as random as a fresh create's).
+  - path: "$.logo_props.icon.name"
+    request: "PATCH /api/v1/workspaces/*/projects/*/"
+    placeholder: project-icon
+    shape: project_icon_name
+    why: "the stored random logo_props of a v1-created project (plane/api/serializers/project.py:152-160)"
+  - path: "$.logo_props.icon.color"
+    request: "PATCH /api/v1/workspaces/*/projects/*/"
+    placeholder: colour
+    shape: hex_colour
+    why: "the stored random logo_props of a v1-created project (plane/api/serializers/project.py:152-160)"
   # `EMAIL_PORT` is a per-target listener port in `instances-email.yaml`
   # (`tools/mail/run-smtp-scenario.sh` points each backend at its own
   # `fake_smtp.py`), so the PATCH response's decrypted value differs by design.
@@ -656,6 +672,26 @@ volatile_json_paths:
 # reprs, Redis values and response text). A rule must name its request: an
 # unscoped six-digit pattern would rewrite unrelated numbers.
 volatile_text_patterns:
+  # `APITokenLogMiddleware` copies the response body into `log_data`, so the
+  # same random `logo_props` also appears as one long string inside the Celery
+  # `kwargsrepr` (escaped quotes) and `log_data.response_body` (plain), where an
+  # anchored pattern cannot reach it. Both orders of the two jsonb keys are
+  # listed because the body is rendered from `jsonb`, which sorts keys by
+  # length (`icon` before `in_use`).
+  # The same two leaves inside a *string*: `APITokenLogMiddleware` copies the
+  # response body into `log_data` (compact JSON), and `model_activity`'s
+  # `current_instance` is `json.dumps(..., cls=DjangoJSONEncoder)` (default
+  # separators, so a space after each colon). The pattern names the 28-icon
+  # domain so it cannot match an unrelated `"name": …, "color": …` pair, and it
+  # leaves `"in_use":"icon"` literal.
+  - pattern: '"name": ?"(?:home|apps|settings|star|favorite|done|check_circle|add_task|create_new_folder|dataset|terminal|key|rocket|public|quiz|mood|gavel|eco|diamond|forest|bolt|sync|cached|library_add|view_timeline|view_kanban|empty_dashboard|cycle)", ?"color": ?"#[0-9a-fA-F]{6}"'
+    placeholder: project-logo-icon
+    request: "* /api/v1/workspaces/*/projects*"
+    why: "the random v1 project logo icon inside the token-log response_body or the model_activity current_instance (plane/api/serializers/project.py:152-160)"
+  - pattern: '\\"name\\": ?\\"(?:home|apps|settings|star|favorite|done|check_circle|add_task|create_new_folder|dataset|terminal|key|rocket|public|quiz|mood|gavel|eco|diamond|forest|bolt|sync|cached|library_add|view_timeline|view_kanban|empty_dashboard|cycle)\\", ?\\"color\\": ?\\"#[0-9a-fA-F]{6}\\"'
+    placeholder: project-logo-icon-repr
+    request: "* /api/v1/workspaces/*/projects*"
+    why: "the same pair inside the Celery kwargsrepr, where the JSON quotes are escaped"
   # OAuth `state`: `uuid.uuid4().hex` (32 lower-case hex characters), generated
   # by every initiate view and copied into the provider URL's `state=` and into
   # the session payload (`plane/authentication/views/app/google.py:46`,

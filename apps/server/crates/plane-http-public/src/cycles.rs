@@ -38,16 +38,25 @@
 //! * The archived list and the detail filter `archived_at IS NULL`; the PATCH,
 //!   DELETE and archive lookups do not.
 //!
-//! ## Not ported yet (the routes stay on Django)
+//! ## The writes
 //!
-//! `POST pr/cycles/` (create), `PATCH pr/cycles/{pk}/`, `POST …/cycle-issues/`
-//! (bulk add), `DELETE …/cycle-issues/{issue_id}/` and
-//! `POST …/transfer-issues/` have no registered handler: their placeholders
-//! below answer the pipeline's explicit not-implemented error and
-//! [`register`] does not bind them, so the coexistence proxy keeps serving
-//! them from Django. The SQL for the create/PATCH half is already catalogued
-//! ([`cycles_queries`]) — the next step is the two serializers' `validate`/
-//! `create`/`update` plus `convert_to_utc`, then a write scenario.
+//! `POST pr/cycles/` and `PATCH pr/cycles/{pk}/` use the generated
+//! `CycleCreateSerializer`/`CycleUpdateSerializer` field tables plus
+//! `CycleCreateSerializer.validate` (`api/serializers/cycle.py:61-98`) — the
+//! project lookup, the `cycle_view` gate, the date order, `convert_to_utc`
+//! (the `+1s`/`23:59:00` rule and the "today in the project's zone → now"
+//! branch, [`plane_http_app::cycles::write::convert_to_utc`]) and the
+//! `owned_by` default. The create's duplicate `(external_source, external_id)`
+//! check answers 409 with the existing row's id; the PATCH's reports the
+//! **URL** cycle's id.
+//!
+//! `POST …/cycle-issues/` inserts one row per requested issue with
+//! `ignore_conflicts=True` (so an issue already in this cycle is a no-op but
+//! still appears in the activity payload), moves rows that sit in another
+//! cycle with a FK-only `bulk_update`, and answers 200 with the whole
+//! through-table list. `DELETE …/cycle-issues/{issue_id}/` is H03 plus the
+//! cascade task. `POST …/transfer-issues/` runs the two v1-only pre-checks and
+//! then the app surface's kernel ([`plane_http_app::cycles::write_transfer`]).
 //!
 //! ## Reuse
 //!
@@ -57,10 +66,14 @@
 //! after the two v1-only pre-checks, and the cycle-issue lists reuse
 //! [`crate::issues`]' serializer pipeline.
 
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use plane_core::error::APPLICATION_JSON;
 use plane_db::JsonText;
+use plane_db::hooks;
 use plane_drf::error::ViewError;
+use plane_drf::parsers::Data;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
 use plane_jobs::celery::args::TaskArg;
@@ -69,10 +82,12 @@ use plane_query::sql::{Frag, Value};
 use plane_serializers::generated::api_cycle::{
     CycleIssueSerializer, CycleLiteSerializer, CycleSerializer,
 };
+use plane_serializers::generated::api_module::ModuleIssueSerializer;
 use plane_serializers::{
     DrfError, DrfSerialize, DrfValue, DrfWriter, Expansion, Expansions, FieldValue, PgJson,
     RenderCtx,
 };
+
 use uuid::Uuid;
 
 use crate::common::page;
@@ -125,13 +140,15 @@ pub(crate) fn db_error(error: tokio_postgres::Error) -> ViewError {
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.api.views.cycle.CycleListCreateAPIEndpoint")?
-        .method(http::Method::GET, list)?;
+        .method(http::Method::GET, list)?
+        .method(http::Method::POST, create)?;
     registry
         .api_view("plane.api.views.cycle.CycleListLiteAPIEndpoint")?
         .method(http::Method::GET, lite_list)?;
     registry
         .api_view("plane.api.views.cycle.CycleDetailAPIEndpoint")?
         .method(http::Method::GET, detail)?
+        .method(http::Method::PATCH, patch)?
         .method(http::Method::DELETE, delete)?;
     registry
         .api_view("plane.api.views.cycle.CycleArchiveUnarchiveAPIEndpoint")?
@@ -140,10 +157,15 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
         .method(http::Method::DELETE, unarchive)?;
     registry
         .api_view("plane.api.views.cycle.CycleIssueListCreateAPIEndpoint")?
-        .method(http::Method::GET, issue_list)?;
+        .method(http::Method::GET, issue_list)?
+        .method(http::Method::POST, issue_add)?;
     registry
         .api_view("plane.api.views.cycle.CycleIssueDetailAPIEndpoint")?
-        .method(http::Method::GET, issue_detail)?;
+        .method(http::Method::GET, issue_detail)?
+        .method(http::Method::DELETE, issue_remove)?;
+    registry
+        .api_view("plane.api.views.cycle.TransferCycleIssueAPIEndpoint")?
+        .method(http::Method::POST, transfer)?;
     Ok(())
 }
 
@@ -1200,18 +1222,6 @@ pub fn issue_detail<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespon
     })
 }
 
-// ---------------------------------------------------------------------------
-// Placeholder for the writes added below
-// ---------------------------------------------------------------------------
-
-pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
-    Box::pin(async move { Err(ViewError::Unknown(format!("not implemented: {}", ctx.view))) })
-}
-
-pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
-    Box::pin(async move { Err(ViewError::Unknown(format!("not implemented: {}", ctx.view))) })
-}
-
 /// `CycleDetailAPIEndpoint.delete` (`cycle.py:617-651`).
 pub fn delete<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
     Box::pin(async move {
@@ -1442,10 +1452,1293 @@ pub fn unarchive<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse,
     })
 }
 
-pub fn issue_add<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
-    Box::pin(async move { Err(ViewError::Unknown(format!("not implemented: {}", ctx.view))) })
+// ---------------------------------------------------------------------------
+// Body helpers (`request.data.get` semantics on a JSON or form body)
+// ---------------------------------------------------------------------------
+
+/// `request.data` as a mapping. `request.data.get` on a JSON list/scalar is an
+/// `AttributeError` (family 500) before the view's own logic
+/// (`cycle.py:307-309`).
+fn ensure_mapping(data: &Data) -> Result<(), ViewError> {
+    match data {
+        Data::Json(plane_serde::pyjson::Value::Dict(_)) | Data::Form(_) => Ok(()),
+        Data::Json(plane_serde::pyjson::Value::Null) => Err(ViewError::Unknown(
+            "AttributeError: 'NoneType' object has no attribute 'get'".to_owned(),
+        )),
+        Data::Json(_) => Err(ViewError::Unknown(
+            "AttributeError: 'list' object has no attribute 'get'".to_owned(),
+        )),
+    }
 }
 
+/// `request.data.get(key, None) is not None`.
+fn has_value(data: &Data, key: &str) -> bool {
+    match data {
+        Data::Json(plane_serde::pyjson::Value::Dict(map)) => {
+            map.get(key).is_some_and(|value| !value.is_null())
+        }
+        Data::Form(query) => query.get(key).is_some(),
+        Data::Json(_) => false,
+    }
+}
+
+/// `key in request.data`.
+fn has_key(data: &Data, key: &str) -> bool {
+    match data {
+        Data::Json(plane_serde::pyjson::Value::Dict(map)) => map.contains_key(key),
+        Data::Form(query) => query.contains_key(key),
+        Data::Json(_) => false,
+    }
+}
+
+/// `request.data.get(key)` as the JSON value Django would hand a task.
+pub(crate) fn raw_body_field(data: &Data, key: &str) -> Option<plane_serde::pyjson::Value> {
+    match data {
+        Data::Json(plane_serde::pyjson::Value::Dict(map)) => map.get(key).cloned(),
+        Data::Form(query) => query.get(key).map(plane_serde::pyjson::Value::from),
+        Data::Json(_) => None,
+    }
+}
+
+/// `serializers.ValidationError("MSG")` from a serializer's `validate()`:
+/// DRF wraps the string in `non_field_errors` (`rest_framework/serializers.py:
+/// 314-345`).
+pub(crate) fn non_field_errors(message: &str) -> ViewResponse {
+    plane_http_app::write::field_string_error("non_field_errors", message)
+}
+
+// ---------------------------------------------------------------------------
+// Rendering a bare instance (`CycleSerializer(cycle).data`)
+// ---------------------------------------------------------------------------
+
+/// `CycleSerializer(cycle).data` for a row read straight from
+/// `Cycle.objects.get` — the three estimate fields and the six counts are not
+/// annotated, so DRF skips them.
+fn render_plain_cycle(ctx: &ViewCtx<'_>, row: &CycleRow) -> Result<Vec<u8>, ViewError> {
+    let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
+    plane_serde::to_vec(
+        plane_serde::Dialect::Drf,
+        &PlainCycle(row).to_json(timezone),
+    )
+    .map_err(|error| ViewError::Unknown(error.to_string()))
+}
+
+/// `json.dumps(CycleSerializer(cycle).data, cls=DjangoJSONEncoder)` — the
+/// PATCH activity's `current_instance` (`cycle.py:551`).
+fn plain_cycle_json(row: &CycleRow) -> Result<String, ViewError> {
+    let value = PlainCycle(row).to_json(chrono_tz::UTC);
+    let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, &value)
+        .map_err(|error| ViewError::Unknown(error.to_string()))?;
+    String::from_utf8(bytes).map_err(|error| ViewError::Unknown(error.to_string()))
+}
+
+/// The body [`render_plain_cycle`] and [`plain_cycle_json`] share: the bare
+/// model columns in `CycleSerializer`'s `_readable_fields` order.
+struct PlainCycle<'a>(&'a CycleRow);
+
+impl PlainCycle<'_> {
+    fn to_json(&self, timezone: chrono_tz::Tz) -> plane_serde::pyjson::Value {
+        use plane_serde::pyjson::{PyDict, PyStr, Value};
+        let row = self.0;
+        let mut obj = PyDict::with_capacity(22);
+        let mut put = |key: &str, value: Value| {
+            obj.insert(PyStr::new(key), value);
+        };
+        put("id", Value::from(row.id.to_string()));
+        put("created_at", drf_datetime(row.created_at, timezone));
+        put("updated_at", drf_datetime(row.updated_at, timezone));
+        put(
+            "deleted_at",
+            row.deleted_at
+                .map_or(Value::Null, |value| drf_datetime(value, timezone)),
+        );
+        put("name", Value::from(row.name.as_str()));
+        put("description", Value::from(row.description.as_str()));
+        put(
+            "start_date",
+            row.start_date
+                .map_or(Value::Null, |value| drf_datetime(value, timezone)),
+        );
+        put(
+            "end_date",
+            row.end_date
+                .map_or(Value::Null, |value| drf_datetime(value, timezone)),
+        );
+        put("view_props", json_column(row.view_props.as_ref()));
+        put("sort_order", Value::from(row.sort_order));
+        put(
+            "external_source",
+            row.external_source
+                .as_deref()
+                .map_or(Value::Null, Value::from),
+        );
+        put(
+            "external_id",
+            row.external_id.as_deref().map_or(Value::Null, Value::from),
+        );
+        put(
+            "progress_snapshot",
+            json_column(row.progress_snapshot.as_ref()),
+        );
+        put(
+            "archived_at",
+            row.archived_at
+                .map_or(Value::Null, |value| drf_datetime(value, timezone)),
+        );
+        put("logo_props", json_column(row.logo_props.as_ref()));
+        put("timezone", Value::from(row.timezone.as_str()));
+        put("version", Value::from(row.version));
+        put(
+            "created_by",
+            row.created_by
+                .map_or(Value::Null, |id| Value::from(id.to_string())),
+        );
+        put(
+            "updated_by",
+            row.updated_by
+                .map_or(Value::Null, |id| Value::from(id.to_string())),
+        );
+        put("project", Value::from(row.project.to_string()));
+        put("workspace", Value::from(row.workspace.to_string()));
+        put("owned_by", Value::from(row.owned_by.to_string()));
+        Value::Dict(obj)
+    }
+}
+
+/// DRF's `DateTimeField` output for an aware value:
+/// `value.isoformat().replace("+00:00", "Z")` (`rest_framework/fields.py:1315-1330`).
+fn drf_datetime(value: DateTime<Utc>, timezone: chrono_tz::Tz) -> plane_serde::pyjson::Value {
+    use chrono::SecondsFormat;
+    let local = value.with_timezone(&timezone);
+    let mut text = local.to_rfc3339_opts(SecondsFormat::Micros, false);
+    // `isoformat()` drops the microseconds when they are zero.
+    if text.contains(".000000") {
+        text = text.replace(".000000", "");
+    }
+    if text.ends_with("+00:00") {
+        text.truncate(text.len() - 6);
+        text.push('Z');
+    }
+    plane_serde::pyjson::Value::from(text)
+}
+
+fn json_column(value: Option<&JsonText>) -> plane_serde::pyjson::Value {
+    match value {
+        Some(text) => plane_serde::pyjson::loads(text.as_str().as_bytes(), "utf-8")
+            .unwrap_or(plane_serde::pyjson::Value::Null),
+        None => plane_serde::pyjson::Value::Null,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 279 POST — create
+// ---------------------------------------------------------------------------
+
+/// The `CycleCreateSerializer.validate` fields, after the generated field pass.
+struct CycleWrite {
+    name: Option<String>,
+    description: String,
+    start_date: Option<DateTime<Utc>>,
+    end_date: Option<DateTime<Utc>>,
+    owned_by: Option<Uuid>,
+    external_source: Option<String>,
+    external_id: Option<String>,
+    timezone: String,
+    /// Whether the body carried each nullable field (explicit `null` included).
+    start_date_present: bool,
+    end_date_present: bool,
+}
+
+/// Read a finished `CycleCreateSerializer`/`CycleUpdateSerializer` pass.
+fn cycle_write(values: &plane_http_app::write::Validated) -> Result<CycleWrite, ViewError> {
+    Ok(CycleWrite {
+        name: values.text("name").map(str::to_owned),
+        description: values.text("description").unwrap_or_default().to_owned(),
+        start_date: values.datetime("start_date"),
+        end_date: values.datetime("end_date"),
+        owned_by: values.uuid("owned_by"),
+        external_source: values.text("external_source").map(str::to_owned),
+        external_id: values.text("external_id").map(str::to_owned),
+        timezone: values.text("timezone").unwrap_or("UTC").to_owned(),
+        start_date_present: values.contains("start_date"),
+        end_date_present: values.contains("end_date"),
+    })
+}
+
+/// `CycleCreateSerializer.validate` (`api/serializers/cycle.py:61-98`): the
+/// project lookup, the `cycle_view` gate, the date order, `convert_to_utc`
+/// and the `owned_by` default.
+async fn validate_cycle_write(
+    ctx: &ViewCtx<'_>,
+    client: &deadpool_postgres::Client,
+    project_id: Uuid,
+    partial: bool,
+    write: &mut CycleWrite,
+) -> Result<Option<ViewResponse>, ViewError> {
+    // `Project.objects.filter(id=project_id).first()` (`:71-75`) — the default
+    // manager, so a soft-deleted project is "Project not found".
+    let project = client
+        .query_opt(queries::CYCLE_PROJECT.sql, &[&project_id])
+        .await
+        .map_err(db_error)?;
+    let Some(project) = project else {
+        return Ok(Some(non_field_errors("Project not found")));
+    };
+    let cycle_view: bool = project.try_get(1).map_err(db_error)?;
+    if !cycle_view {
+        return Ok(Some(non_field_errors(
+            "Cycles are not enabled for this project",
+        )));
+    }
+    if let (Some(start), Some(end)) = (write.start_date, write.end_date) {
+        if start > end {
+            return Ok(Some(non_field_errors("Start date cannot exceed end date")));
+        }
+        let timezone: String = project.try_get(2).map_err(db_error)?;
+        let project_timezone = chrono_tz::Tz::from_str(&timezone)
+            .map_err(|_| ViewError::Unknown(format!("UnknownTimeZoneError: {timezone}")))?;
+        // `convert_to_utc` re-reads the project itself (`timezone_converter.py:
+        // 57`), so its timezone is the one just loaded.
+        let now = plane_http_app::write::now();
+        let active = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
+        write.start_date = Some(plane_http_app::cycles::write::convert_to_utc(
+            start.with_timezone(&active).date_naive(),
+            project_timezone,
+            true,
+            now,
+        ));
+        write.end_date = Some(plane_http_app::cycles::write::convert_to_utc(
+            end.with_timezone(&active).date_naive(),
+            project_timezone,
+            false,
+            now,
+        ));
+    }
+    // `if not data.get("owned_by") and (self.instance is None or "owned_by" in
+    // data)` (`:95-96`).
+    if write.owned_by.is_none() && (!partial || has_key(ctx.data()?, "owned_by")) {
+        write.owned_by = Some(issues::user_id(ctx)?);
+    }
+    Ok(None)
+}
+
+/// `CycleListCreateAPIEndpoint.post` (`api/views/cycle.py:301-357`).
+pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = params(ctx)?;
+        let client = client(ctx)?;
+        let data = ctx.data()?;
+        ensure_mapping(data)?;
+        // `(both None) or (both not None)` (`:307-309`).
+        let start = has_value(data, "start_date");
+        let end = has_value(data, "end_date");
+        if start != end {
+            return Ok(error_body(
+                400,
+                "Both start date and end date are either required or are to be null",
+            ));
+        }
+
+        let mut serializer = plane_http_app::write::Serializer::new(ctx, false)?;
+        plane_http_app::write::generated::cycle_create_serializer::validate(
+            &mut serializer,
+            client,
+        )
+        .await?;
+        let values = match serializer.finish() {
+            Ok(values) => values,
+            Err(errors) => return Ok(errors.into_response()),
+        };
+        let mut write = cycle_write(&values)?;
+        if let Some(response) =
+            validate_cycle_write(ctx, client, params.project_id, false, &mut write).await?
+        {
+            return Ok(response);
+        }
+
+        // The duplicate external id check (`:314-336`) runs before the INSERT.
+        if let (Some(external_source), Some(external_id)) = (
+            data_string(data, "external_source"),
+            data_string(data, "external_id"),
+        ) && data_truthy(data, "external_source")
+            && data_truthy(data, "external_id")
+        {
+            let existing = client
+                .query_opt(
+                    queries::CYCLE_EXTERNAL_ID.sql,
+                    &[
+                        &params.project_id,
+                        &params.slug,
+                        &external_source,
+                        &external_id,
+                    ],
+                )
+                .await
+                .map_err(db_error)?;
+            if let Some(row) = existing {
+                let id: Uuid = row.try_get(0).map_err(db_error)?;
+                return Ok(conflict_body(
+                    "Cycle with the same external id and external source already exists",
+                    id,
+                ));
+            }
+        }
+
+        // `serializer.save(project_id=project_id)` → `Cycle.objects.create`
+        // (`db/models/cycle.py:88-97`, H23 + H07 + H01).
+        let project_row = client
+            .query_opt(queries::CYCLE_PROJECT.sql, &[&params.project_id])
+            .await
+            .map_err(db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let workspace_id: Uuid = project_row.try_get(3).map_err(db_error)?;
+        let sort_order = hooks::cycle::before_insert(client, params.project_id, 65535.0)
+            .await
+            .map_err(ViewError::from)?;
+        let now = plane_http_app::write::now();
+        let id = Uuid::new_v4();
+        let insert = queries::CYCLE_INSERT
+            .prepare(client)
+            .await
+            .map_err(ViewError::from)?;
+        client
+            .execute(
+                &insert,
+                &[
+                    &id,
+                    &now,
+                    &now,
+                    &Some(params.user_id),
+                    &params.project_id,
+                    &workspace_id,
+                    &write.name,
+                    &write.description,
+                    &write.start_date,
+                    &write.end_date,
+                    &write.owned_by.unwrap_or(params.user_id),
+                    &sort_order,
+                    &write.external_source,
+                    &write.external_id,
+                    &write.timezone,
+                    &1_i32,
+                ],
+            )
+            .await
+            .map_err(integrity_or_unknown)?;
+
+        // `model_activity.delay(..., current_instance=None, ...)` (`:339-347`).
+        publish_cycle_activity(ctx, &params.slug, id, None, params.user_id).await?;
+
+        // `Cycle.objects.get(pk=serializer.instance.id)` (`:349`).
+        let row = client
+            .query_opt(queries::CYCLE_BY_PK.sql, &[&id])
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| ViewError::Unknown("the created cycle vanished".to_owned()))?;
+        let cycle = CycleRow::from_row(&row)?;
+        Ok(ViewResponse::raw(
+            201,
+            APPLICATION_JSON,
+            render_plain_cycle(ctx, &cycle)?,
+        ))
+    })
+}
+
+/// `Response({"error": …, "id": str(cycle.id)}, 409)` (`cycle.py:330-336`).
+pub(crate) fn conflict_body(message: &str, id: Uuid) -> ViewResponse {
+    let body = plane_query::json::Json::object(vec![
+        ("error", plane_query::json::Json::string(message)),
+        ("id", plane_query::json::Json::string(id.to_string())),
+    ]);
+    ViewResponse::raw(409, APPLICATION_JSON, body.to_drf())
+}
+
+/// `request.data.get(key)` when it is a string (`None` otherwise).
+fn data_string<'a>(data: &'a Data, key: &str) -> Option<&'a str> {
+    match data {
+        Data::Json(plane_serde::pyjson::Value::Dict(map)) => {
+            map.get(key).and_then(|value| match value {
+                plane_serde::pyjson::Value::Str(text) => text.as_str(),
+                _ => None,
+            })
+        }
+        Data::Form(query) => query.get(key),
+        Data::Json(_) => None,
+    }
+}
+
+/// Python truthiness of `request.data.get(key)`.
+fn data_truthy(data: &Data, key: &str) -> bool {
+    let Some(value) = raw_body_field(data, key) else {
+        return false;
+    };
+    use plane_serde::pyjson::Value as Py;
+    match &value {
+        Py::Null => false,
+        Py::Bool(flag) => *flag,
+        Py::Int(number) => number.as_i64() != Some(0),
+        Py::Float(number) => *number != 0.0,
+        Py::Str(text) => text.as_str().is_some_and(|text| !text.is_empty()),
+        Py::List(items) => !items.is_empty(),
+        Py::Dict(map) => map.iter().next().is_some(),
+    }
+}
+
+/// A constraint violation on a write (`IntegrityError` → the family's 400),
+/// anything else a 500.
+pub(crate) fn integrity_or_unknown(error: tokio_postgres::Error) -> ViewError {
+    match error.as_db_error() {
+        Some(db) if db.code().code().starts_with("23") => ViewError::Integrity,
+        _ => db_error(error),
+    }
+}
+
+/// `model_activity.delay(model_name="module", …)` (`module.py:232-240`,
+/// `:490-498`).
+pub(crate) async fn publish_model_activity(
+    ctx: &ViewCtx<'_>,
+    slug: &str,
+    model_id: Uuid,
+    current_instance: Option<String>,
+    user: Uuid,
+) -> Result<(), ViewError> {
+    publish_model_activity_named(ctx, "module", slug, model_id, current_instance, user).await
+}
+
+/// `model_activity.delay(model_name="cycle", …)` (`cycle.py:339-347`,
+/// `:595-603`).
+async fn publish_cycle_activity(
+    ctx: &ViewCtx<'_>,
+    slug: &str,
+    cycle_id: Uuid,
+    current_instance: Option<String>,
+    user: Uuid,
+) -> Result<(), ViewError> {
+    publish_model_activity_named(ctx, "cycle", slug, cycle_id, current_instance, user).await
+}
+
+async fn publish_model_activity_named(
+    ctx: &ViewCtx<'_>,
+    model_name: &str,
+    slug: &str,
+    cycle_id: Uuid,
+    current_instance: Option<String>,
+    user: Uuid,
+) -> Result<(), ViewError> {
+    let origin = plane_auth::base_host(
+        ctx.settings,
+        plane_auth::LoginFlags {
+            is_app: true,
+            ..Default::default()
+        },
+    )
+    .map_err(|error| ViewError::Unknown(error.to_string()))?;
+    let task = plane_jobs::celery::task_name::MODEL_ACTIVITY;
+    let message =
+        plane_jobs::celery::tasks::model_activity(plane_jobs::celery::tasks::ModelActivityCall {
+            model_name: model_name.to_owned(),
+            model_id: cycle_id.to_string(),
+            requested_data: plane_http_app::write::request_data_arg(ctx)?,
+            current_instance,
+            actor_id: user,
+            slug: slug.to_owned(),
+            origin,
+        });
+    plane_http_app::common::jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::new(task),
+    )
+    .await
+    .map(|_| ())
+}
+
+// ---------------------------------------------------------------------------
+// 281 PATCH — update
+// ---------------------------------------------------------------------------
+
+/// `CycleDetailAPIEndpoint.patch` (`api/views/cycle.py:543-607`).
+pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = params(ctx)?;
+        let pk = uuid_kwarg(ctx, "pk")?;
+        let client = client(ctx)?;
+
+        // `Cycle.objects.get(workspace__slug, project_id, pk)` (`:549`).
+        let row = run_rows(
+            ctx,
+            &queries::CYCLE_ROW,
+            &[&params.slug, &params.project_id, &pk],
+        )
+        .await?;
+        let Some(row) = row.first() else {
+            return Err(ViewError::ObjectDoesNotExist);
+        };
+        let cycle = CycleRow::from_row(row)?;
+        // `current_instance = json.dumps(CycleSerializer(cycle).data, …)`
+        // (`:551`) — before the archived guard.
+        let current_instance = plain_cycle_json(&cycle)?;
+        if cycle.archived_at.is_some() {
+            return Ok(error_body(400, "Archived cycle cannot be edited"));
+        }
+
+        let data = ctx.data()?;
+        if cycle
+            .end_date
+            .is_some_and(|end| end < plane_http_app::write::now())
+            && !has_key(data, "sort_order")
+        {
+            return Ok(error_body(
+                400,
+                "The Cycle has already been completed so it cannot be edited",
+            ));
+        }
+
+        let mut serializer = plane_http_app::write::Serializer::new(ctx, true)?;
+        plane_http_app::write::generated::cycle_update_serializer::validate(
+            &mut serializer,
+            client,
+        )
+        .await?;
+        let values = match serializer.finish() {
+            Ok(values) => values,
+            Err(errors) => return Ok(errors.into_response()),
+        };
+        let mut write = cycle_write(&values)?;
+        if let Some(response) =
+            validate_cycle_write(ctx, client, params.project_id, true, &mut write).await?
+        {
+            return Ok(response);
+        }
+
+        // The duplicate check reports the **URL** object's id (`:575-591`).
+        if let Some(external_id) = data_string(data, "external_id")
+            && data_truthy(data, "external_id")
+            && cycle.external_id.as_deref() != Some(external_id)
+        {
+            let source = data_string(data, "external_source")
+                .map(str::to_owned)
+                .or_else(|| cycle.external_source.clone());
+            let existing = client
+                .query_opt(
+                    queries::CYCLE_EXTERNAL_ID.sql,
+                    &[&params.project_id, &params.slug, &source, &external_id],
+                )
+                .await
+                .map_err(db_error)?;
+            if existing.is_some() {
+                return Ok(conflict_body(
+                    "Cycle with the same external id and external source already exists",
+                    pk,
+                ));
+            }
+        }
+
+        // `serializer.save()` → `ModelSerializer.update` then `save()`
+        // (H01/H07); the columns the serializer did not validate keep their
+        // stored values.
+        let now = plane_http_app::write::now();
+        let name = write.name.clone().unwrap_or_else(|| cycle.name.clone());
+        let description = if values.contains("description") {
+            write.description
+        } else {
+            cycle.description.clone()
+        };
+        let start_date = if write.start_date_present {
+            write.start_date
+        } else {
+            cycle.start_date
+        };
+        let end_date = if write.end_date_present {
+            write.end_date
+        } else {
+            cycle.end_date
+        };
+        let owned_by = write.owned_by.unwrap_or(cycle.owned_by);
+        let external_source = if values.contains("external_source") {
+            write.external_source
+        } else {
+            cycle.external_source.clone()
+        };
+        let external_id = if values.contains("external_id") {
+            write.external_id
+        } else {
+            cycle.external_id.clone()
+        };
+        let timezone = if values.contains("timezone") {
+            write.timezone
+        } else {
+            cycle.timezone.clone()
+        };
+        let update = queries::CYCLE_UPDATE
+            .prepare(client)
+            .await
+            .map_err(ViewError::from)?;
+        client
+            .execute(
+                &update,
+                &[
+                    &name,
+                    &description,
+                    &start_date,
+                    &end_date,
+                    &owned_by,
+                    &external_source,
+                    &external_id,
+                    &timezone,
+                    &now,
+                    &Some(params.user_id),
+                    &pk,
+                ],
+            )
+            .await
+            .map_err(integrity_or_unknown)?;
+
+        let row = client
+            .query_opt(queries::CYCLE_BY_PK.sql, &[&pk])
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| ViewError::Unknown("the updated cycle vanished".to_owned()))?;
+        let cycle = CycleRow::from_row(&row)?;
+        publish_cycle_activity(
+            ctx,
+            &params.slug,
+            pk,
+            Some(current_instance),
+            params.user_id,
+        )
+        .await?;
+        Ok(ViewResponse::raw(
+            200,
+            APPLICATION_JSON,
+            render_plain_cycle(ctx, &cycle)?,
+        ))
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 282 POST — bulk add work items
+// ---------------------------------------------------------------------------
+
+/// `CycleIssue.objects` request ids: `UUIDField` coercion of every element of
+/// `issue_id__in` (`django/db/models/fields/__init__.py:2482-2496`).
+pub(crate) fn coerce_issue_ids(value: &plane_serde::pyjson::Value) -> Result<Vec<Uuid>, ViewError> {
+    use plane_serde::pyjson::Value as Py;
+    match value {
+        Py::List(items) => {
+            let mut ids = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    Py::Str(text) => {
+                        let text = text.as_str().unwrap_or_default();
+                        ids.push(Uuid::parse_str(text).map_err(|_| ViewError::Validation)?);
+                    }
+                    // `UUIDField.to_python(None)` is `None`, which matches no
+                    // row; Django accepts it inside `__in`.
+                    Py::Null => {}
+                    _ => return Err(ViewError::Validation),
+                }
+            }
+            Ok(ids)
+        }
+        Py::Str(text) => {
+            // A string iterates its characters, each failing the coercion.
+            if text.as_str().is_none_or(str::is_empty) {
+                return Ok(Vec::new());
+            }
+            Err(ViewError::Validation)
+        }
+        Py::Dict(map) => {
+            if map.iter().next().is_none() {
+                Ok(Vec::new())
+            } else {
+                Err(ViewError::Validation)
+            }
+        }
+        Py::Int(number) => {
+            if number.as_i64() == Some(0) {
+                Ok(Vec::new())
+            } else {
+                Err(ViewError::Unknown(
+                    "TypeError: 'int' object is not iterable".to_owned(),
+                ))
+            }
+        }
+        Py::Null => Ok(Vec::new()),
+        _ => Err(ViewError::Unknown(
+            "TypeError: object is not iterable".to_owned(),
+        )),
+    }
+}
+
+/// `CycleIssueListCreateAPIEndpoint.post` (`api/views/cycle.py:963-1070`).
+pub fn issue_add<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = params(ctx)?;
+        let cycle_id = uuid_kwarg(ctx, "cycle_id")?;
+        let client = client(ctx)?;
+        let data = ctx.data()?;
+
+        // `issues = request.data.get("issues", [])`; `if not issues`
+        // (`:969-975`). A missing key and a `null` are both the 400.
+        let Some(raw_issues) = raw_body_field(data, "issues") else {
+            return Ok(missing_work_items());
+        };
+        let ids = coerce_issue_ids(&raw_issues)?;
+        if ids.is_empty() && !body_issues_truthy(&raw_issues) {
+            return Ok(missing_work_items());
+        }
+
+        // `Cycle.objects.get(workspace__slug, project_id, pk)` (`:977`).
+        let cycle = client
+            .query_opt(
+                queries::CYCLE_ARCHIVE_LOOKUP.sql,
+                &[&cycle_id, &params.project_id, &params.slug],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let end_date: Option<DateTime<Utc>> = cycle.try_get(0).map_err(db_error)?;
+        if end_date.is_some_and(|end| end < plane_http_app::write::now()) {
+            let body = plane_query::json::Json::object(vec![
+                ("code", plane_query::json::Json::string("CYCLE_COMPLETED")),
+                (
+                    "message",
+                    plane_query::json::Json::string(
+                        "The Cycle has already been completed so no new issues can be added",
+                    ),
+                ),
+            ]);
+            return Ok(ViewResponse::raw(400, APPLICATION_JSON, body.to_drf()));
+        }
+
+        // Existing rows of these issues in **another** cycle (`:989-999`), in
+        // `-created_at` order.
+        let rows = client
+            .query(
+                queries::CYCLE_ISSUES_IN_OTHER_CYCLES.sql,
+                &[&cycle_id, &ids, &params.slug, &params.project_id],
+            )
+            .await
+            .map_err(db_error)?;
+        let mut existing: Vec<(Uuid, Uuid, Uuid)> = Vec::with_capacity(rows.len());
+        for row in &rows {
+            existing.push((
+                row.try_get(0).map_err(db_error)?,
+                row.try_get(1).map_err(db_error)?,
+                row.try_get(2).map_err(db_error)?,
+            ));
+        }
+        // `existing_issues` keeps only the ids the body carried, and
+        // `new_issues = list(set(issues) - set(existing_issues))`; the set is
+        // immediately re-ordered by the issue query (`:1000-1010`).
+        let existing_ids: std::collections::HashSet<Uuid> = existing
+            .iter()
+            .filter(|(_, issue_id, _)| ids.contains(issue_id))
+            .map(|(_, issue_id, _)| *issue_id)
+            .collect();
+        let mut candidates: Vec<Uuid> = Vec::with_capacity(ids.len());
+        let mut seen = std::collections::HashSet::new();
+        for id in &ids {
+            if !existing_ids.contains(id) && seen.insert(*id) {
+                candidates.push(*id);
+            }
+        }
+        let new_rows = client
+            .query(
+                queries::CYCLE_NEW_ISSUE_IDS.sql,
+                &[&params.slug, &params.project_id, &candidates],
+            )
+            .await
+            .map_err(db_error)?;
+        let new_issues: Vec<Uuid> = new_rows
+            .iter()
+            .map(|row| row.try_get(0).map_err(db_error))
+            .collect::<Result<_, _>>()?;
+
+        // `bulk_create(..., ignore_conflicts=True, batch_size=10)`
+        // (`:1013-1025`): one atomic insert per row, `created_at` increasing
+        // with the batch order (auto_now_add runs per object), which is what
+        // `-created_at` reverses. An issue already in this cycle is silently
+        // skipped, and every instance — inserted or not — is still part of the
+        // activity payload.
+        let workspace_id: Uuid = client
+            .query_opt(queries::CYCLE_PROJECT.sql, &[&params.project_id])
+            .await
+            .map_err(db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?
+            .try_get(3)
+            .map_err(db_error)?;
+        let mut created: Vec<CreatedCycleIssue> = Vec::with_capacity(new_issues.len());
+        let now = plane_http_app::write::now();
+        client.batch_execute("BEGIN").await.map_err(db_error)?;
+        let mut outcome = Ok(());
+        for (index, issue_id) in new_issues.iter().enumerate() {
+            let created_at = now + chrono::Duration::microseconds(index as i64);
+            let row_id = Uuid::new_v4();
+            let result = client
+                .execute(
+                    queries::CYCLE_ISSUE_INSERT.sql,
+                    &[
+                        &row_id,
+                        &created_at,
+                        &created_at,
+                        &params.project_id,
+                        &workspace_id,
+                        issue_id,
+                        &cycle_id,
+                    ],
+                )
+                .await;
+            match result {
+                Ok(_) => created.push(CreatedCycleIssue {
+                    id: row_id,
+                    created_at,
+                    project_id: params.project_id,
+                    workspace_id,
+                    issue_id: *issue_id,
+                    cycle_id,
+                }),
+                Err(error) => {
+                    outcome = Err(integrity_or_unknown(error));
+                    break;
+                }
+            }
+        }
+        match outcome {
+            Ok(()) => client.batch_execute("COMMIT").await.map_err(db_error)?,
+            Err(error) => {
+                let _ = client.batch_execute("ROLLBACK").await;
+                return Err(error);
+            }
+        }
+
+        // `bulk_update(rows, ["cycle_id"])` (`:1047`).
+        if !existing.is_empty() {
+            let row_ids: Vec<Uuid> = existing.iter().map(|(id, _, _)| *id).collect();
+            client
+                .execute(queries::CYCLE_ISSUE_MOVE.sql, &[&cycle_id, &row_ids])
+                .await
+                .map_err(db_error)?;
+        }
+
+        // The activity (`:1050-1065`).
+        let updated: Vec<plane_serde::pyjson::Value> = existing
+            .iter()
+            .map(|(_, issue_id, old_cycle_id)| {
+                plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([
+                    (
+                        plane_serde::pyjson::PyStr::new("old_cycle_id"),
+                        plane_serde::pyjson::Value::from(old_cycle_id.to_string()),
+                    ),
+                    (
+                        plane_serde::pyjson::PyStr::new("new_cycle_id"),
+                        plane_serde::pyjson::Value::from(cycle_id.to_string()),
+                    ),
+                    (
+                        plane_serde::pyjson::PyStr::new("issue_id"),
+                        plane_serde::pyjson::Value::from(issue_id.to_string()),
+                    ),
+                ]))
+            })
+            .collect();
+        let created_serialized = serialize_cycle_issues(&created)?;
+        let requested =
+            plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([(
+                plane_serde::pyjson::PyStr::new("cycles_list"),
+                raw_issues.clone(),
+            )]));
+        let current = plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([
+            (
+                plane_serde::pyjson::PyStr::new("updated_cycle_issues"),
+                plane_serde::pyjson::Value::List(updated),
+            ),
+            (
+                plane_serde::pyjson::PyStr::new("created_cycle_issues"),
+                plane_serde::pyjson::Value::from(created_serialized),
+            ),
+        ]));
+        publish_issue_activity(
+            ctx,
+            ActivityShape::View,
+            "cycle.activity.created",
+            django_dumps(&requested)?,
+            Some(django_dumps(&current)?),
+            None,
+            params.project_id,
+            params.user_id,
+            plane_http_app::write::now(),
+        )
+        .await?;
+
+        // `CycleIssueSerializer(self.get_queryset(), many=True)` (`:1067-1070`).
+        let rows = client
+            .query(
+                queries::CYCLE_ISSUE_LIST_ROWS.sql,
+                &[&params.slug, &params.project_id, &params.user_id, &cycle_id],
+            )
+            .await
+            .map_err(db_error)?;
+        let body = render_through_rows(&rows, true)?;
+        Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
+    })
+}
+
+fn missing_work_items() -> ViewResponse {
+    let body = plane_query::json::Json::object(vec![
+        (
+            "error",
+            plane_query::json::Json::string("Work items are required"),
+        ),
+        (
+            "code",
+            plane_query::json::Json::string("MISSING_WORK_ITEMS"),
+        ),
+    ]);
+    ViewResponse::raw(400, APPLICATION_JSON, body.to_drf())
+}
+
+/// `if not issues` for the raw body value.
+fn body_issues_truthy(value: &plane_serde::pyjson::Value) -> bool {
+    use plane_serde::pyjson::Value as Py;
+    match value {
+        Py::Null => false,
+        Py::Bool(flag) => *flag,
+        Py::Int(number) => number.as_i64() != Some(0),
+        Py::Float(number) => *number != 0.0,
+        Py::Str(text) => text.as_str().is_some_and(|text| !text.is_empty()),
+        Py::List(items) => !items.is_empty(),
+        Py::Dict(map) => map.iter().next().is_some(),
+    }
+}
+
+/// `json.dumps(value, cls=DjangoJSONEncoder)` for the activity payloads.
+pub(crate) fn django_dumps(value: &plane_serde::pyjson::Value) -> Result<String, ViewError> {
+    let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, value)
+        .map_err(|error| ViewError::Unknown(error.to_string()))?;
+    String::from_utf8(bytes).map_err(|error| ViewError::Unknown(error.to_string()))
+}
+
+/// One inserted `cycle_issues` row as `serializers.serialize("json", …)`
+/// renders it (`_meta.local_fields`, `db.cycleissue`).
+struct CreatedCycleIssue {
+    id: Uuid,
+    created_at: DateTime<Utc>,
+    project_id: Uuid,
+    workspace_id: Uuid,
+    issue_id: Uuid,
+    cycle_id: Uuid,
+}
+
+/// `serializers.serialize("json", created_records)` (`cycle.py:1059`): the
+/// instances came out of `bulk_create(..., ignore_conflicts=True)`, so their
+/// `created_by`/`updated_by` are `NULL` (the v1 constructor sets neither) and
+/// the pk is the in-memory `uuid4`.
+fn serialize_cycle_issues(rows: &[CreatedCycleIssue]) -> Result<String, ViewError> {
+    use plane_http_app::write::django_serialize::{
+        DjangoField, DjangoObject, DjangoValue, django_serialize,
+    };
+    let objects: Vec<DjangoObject<'_>> = rows
+        .iter()
+        .map(|row| DjangoObject {
+            model: "db.cycleissue",
+            pk: row.id,
+            fields: vec![
+                DjangoField {
+                    name: "created_at",
+                    value: DjangoValue::DateTime(row.created_at),
+                },
+                DjangoField {
+                    name: "updated_at",
+                    value: DjangoValue::DateTime(row.created_at),
+                },
+                DjangoField {
+                    name: "created_by",
+                    value: DjangoValue::OptUuid(None),
+                },
+                DjangoField {
+                    name: "updated_by",
+                    value: DjangoValue::OptUuid(None),
+                },
+                DjangoField {
+                    name: "deleted_at",
+                    value: DjangoValue::OptDateTime(None),
+                },
+                DjangoField {
+                    name: "project",
+                    value: DjangoValue::Uuid(row.project_id),
+                },
+                DjangoField {
+                    name: "workspace",
+                    value: DjangoValue::Uuid(row.workspace_id),
+                },
+                DjangoField {
+                    name: "issue",
+                    value: DjangoValue::Uuid(row.issue_id),
+                },
+                DjangoField {
+                    name: "cycle",
+                    value: DjangoValue::Uuid(row.cycle_id),
+                },
+            ],
+        })
+        .collect();
+    django_serialize(&objects)
+}
+
+/// The `issue_activity` kwarg shapes the v1 cycle/module routes use.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActivityShape {
+    /// `notification=True`, `origin` last (`cycle.py:1050-1065`).
+    View,
+    /// No `notification`, no `origin` (`cycle.py:1164-1177`).
+    Bare,
+    /// `origin` last, no `notification` (`module.py:563-578`, `:771-785`).
+    WithOrigin,
+}
+
+/// `ModuleIssueSerializer(get_queryset(), many=True)`: the same row shape as
+/// the cycle through-list with the last FK renamed.
+pub(crate) fn render_module_issue_rows(rows: &[tokio_postgres::Row]) -> Result<Vec<u8>, ViewError> {
+    render_through_rows(rows, false)
+}
+
+/// `issue_activity.delay(...)` in the shape the call site uses.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn publish_issue_activity(
+    ctx: &ViewCtx<'_>,
+    shape: ActivityShape,
+    activity_type: &str,
+    requested_data: String,
+    current_instance: Option<String>,
+    issue_id: Option<Uuid>,
+    project_id: Uuid,
+    user: Uuid,
+    epoch: DateTime<Utc>,
+) -> Result<(), ViewError> {
+    let base = plane_jobs::celery::tasks::IssueActivityBase::new(
+        activity_type,
+        plane_jobs::celery::args::TaskArg::json_text(requested_data),
+        user.to_string(),
+        issue_id.map_or(plane_jobs::celery::args::TaskArg::Null, |id| {
+            plane_jobs::celery::args::TaskArg::str(id.to_string())
+        }),
+        plane_jobs::celery::args::TaskArg::str(project_id.to_string()),
+        current_instance.map_or(plane_jobs::celery::args::TaskArg::Null, |text| {
+            plane_jobs::celery::args::TaskArg::json_text(text)
+        }),
+        epoch.timestamp(),
+    );
+    let call = match shape {
+        ActivityShape::Bare => plane_jobs::celery::tasks::IssueActivityCall::bare(base),
+        ActivityShape::View | ActivityShape::WithOrigin => {
+            let origin = plane_auth::base_host(
+                ctx.settings,
+                plane_auth::LoginFlags {
+                    is_app: true,
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| ViewError::Unknown(error.to_string()))?;
+            if shape == ActivityShape::View {
+                plane_jobs::celery::tasks::IssueActivityCall::view(base, origin)
+            } else {
+                plane_jobs::celery::tasks::IssueActivityCall::with_origin(base, origin)
+            }
+        }
+    };
+    let message = plane_jobs::celery::tasks::issue_activity(call);
+    let task = plane_jobs::celery::task_name::ISSUE_ACTIVITY;
+    plane_http_app::common::jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::new(task),
+    )
+    .await
+    .map(|_| ())
+}
+
+/// Render through-table rows with `CycleIssueSerializer`
+/// (`with_count`) or `ModuleIssueSerializer` (`!with_count`; the two
+/// serializers differ only in the last FK).
+fn render_through_rows(
+    rows: &[tokio_postgres::Row],
+    with_count: bool,
+) -> Result<Vec<u8>, ViewError> {
+    let mut body = Vec::with_capacity(rows.len() * 320 + 2);
+    body.push(b'[');
+    for (index, row) in rows.iter().enumerate() {
+        let id: Uuid = row.try_get(0).map_err(db_error)?;
+        let count: i64 = row.try_get(1).map_err(db_error)?;
+        let created_at: DateTime<Utc> = row.try_get(2).map_err(db_error)?;
+        let updated_at: DateTime<Utc> = row.try_get(3).map_err(db_error)?;
+        let deleted_at: Option<DateTime<Utc>> = row.try_get(4).map_err(db_error)?;
+        let created_by: Option<Uuid> = row.try_get(5).map_err(db_error)?;
+        let updated_by: Option<Uuid> = row.try_get(6).map_err(db_error)?;
+        let project: Uuid = row.try_get(7).map_err(db_error)?;
+        let workspace: Uuid = row.try_get(8).map_err(db_error)?;
+        let issue: Uuid = row.try_get(9).map_err(db_error)?;
+        let last: Uuid = row.try_get(10).map_err(db_error)?;
+        if index != 0 {
+            body.push(b',');
+        }
+        if with_count {
+            let serializer = CycleIssueSerializer {
+                id,
+                sub_issues_count: FieldValue::Value(count),
+                created_at,
+                updated_at,
+                deleted_at,
+                created_by,
+                updated_by,
+                project,
+                workspace,
+                issue,
+                cycle: last,
+            };
+            body.extend(
+                plane_serializers::render(&serializer, &RenderCtx::utc())
+                    .map_err(ViewError::from)?,
+            );
+        } else {
+            let serializer = ModuleIssueSerializer {
+                id,
+                sub_issues_count: FieldValue::Value(count),
+                created_at,
+                updated_at,
+                deleted_at,
+                created_by,
+                updated_by,
+                project,
+                workspace,
+                module: issue,
+                issue: last,
+            };
+            body.extend(
+                plane_serializers::render(&serializer, &RenderCtx::utc())
+                    .map_err(ViewError::from)?,
+            );
+        }
+    }
+    body.push(b']');
+    Ok(body)
+}
+
+// ---------------------------------------------------------------------------
+// 283 DELETE — remove one work item
+// ---------------------------------------------------------------------------
+
+/// `CycleIssueDetailAPIEndpoint.delete` (`api/views/cycle.py:1150-1178`).
 pub fn issue_remove<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
-    Box::pin(async move { Err(ViewError::Unknown(format!("not implemented: {}", ctx.view))) })
+    Box::pin(async move {
+        let params = params(ctx)?;
+        let cycle_id = uuid_kwarg(ctx, "cycle_id")?;
+        let issue_id = uuid_kwarg(ctx, "issue_id")?;
+        let client = client(ctx)?;
+
+        let row = client
+            .query_opt(
+                queries::CYCLE_ISSUE_ROW.sql,
+                &[&params.slug, &params.project_id, &cycle_id, &issue_id],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let row_id: Uuid = row.try_get(0).map_err(db_error)?;
+        let issue: Uuid = row.try_get(8).map_err(db_error)?;
+
+        // `cycle_issue.delete()` — H03 (`db/mixins.py:72-80`).
+        let now = plane_http_app::write::now();
+        plane_http_app::write::soft_delete(
+            client,
+            "cycle_issues",
+            "id",
+            row_id,
+            Some(params.user_id),
+            now,
+        )
+        .await?;
+        // `soft_delete_related_objects.delay("db", "cycleissue", pk)`
+        // (`db/mixins.py:72-80`).
+        plane_http_app::write::publish_soft_delete_cascade(ctx, "db", "cycleissue", row_id).await?;
+
+        let requested = plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([
+            (
+                plane_serde::pyjson::PyStr::new("cycle_id"),
+                plane_serde::pyjson::Value::from(cycle_id.to_string()),
+            ),
+            (
+                plane_serde::pyjson::PyStr::new("issues"),
+                plane_serde::pyjson::Value::List(vec![plane_serde::pyjson::Value::from(
+                    issue.to_string(),
+                )]),
+            ),
+        ]));
+        publish_issue_activity(
+            ctx,
+            ActivityShape::Bare,
+            "cycle.activity.deleted",
+            django_dumps(&requested)?,
+            None,
+            Some(issue),
+            params.project_id,
+            params.user_id,
+            now,
+        )
+        .await?;
+        Ok(ViewResponse::empty(204))
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 284 POST — transfer work items
+// ---------------------------------------------------------------------------
+
+/// `TransferCycleIssueAPIEndpoint.post` (`api/views/cycle.py:1231-1274`): the
+/// two v1-only pre-checks, then the app surface's kernel.
+pub fn transfer<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = params(ctx)?;
+        let cycle_id = uuid_kwarg(ctx, "cycle_id")?;
+        let client = client(ctx)?;
+        let data = ctx.data()?;
+
+        // `new_cycle_id = request.data.get("new_cycle_id", False)` (`:1237`).
+        let Some(raw) = raw_body_field(data, "new_cycle_id") else {
+            return Ok(error_body(400, "New Cycle Id is required"));
+        };
+        let _new_cycle_id = match &raw {
+            plane_serde::pyjson::Value::Str(text) => {
+                let text = text.as_str().unwrap_or_default();
+                if text.is_empty() {
+                    return Ok(error_body(400, "New Cycle Id is required"));
+                }
+                Uuid::parse_str(text).map_err(|_| ViewError::Validation)?
+            }
+            value if !body_issues_truthy(value) => {
+                return Ok(error_body(400, "New Cycle Id is required"));
+            }
+            _ => return Err(ViewError::Validation),
+        };
+
+        // `old_cycle = Cycle.objects.get(...)` (`:1245-1249`) — a 404.
+        let old = client
+            .query_opt(
+                queries::CYCLE_ARCHIVE_LOOKUP.sql,
+                &[&cycle_id, &params.project_id, &params.slug],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let end_date: Option<DateTime<Utc>> = old.try_get(0).map_err(db_error)?;
+        if end_date.is_some_and(|end| end > plane_http_app::write::now()) {
+            return Ok(error_body(400, "The old cycle is not completed yet"));
+        }
+
+        // `transfer_cycle_issues(...)` (`utils/cycle_transfer_issues.py:35`),
+        // the same kernel the app route uses.
+        plane_http_app::cycles::write_transfer::post(ctx).await
+    })
 }

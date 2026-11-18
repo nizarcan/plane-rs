@@ -428,14 +428,21 @@ plane_db::plane_query! {
     /// `Module.objects.create(**validated_data, project_id=…)`
     /// (`serializers/module.py:103`).
     ///
+    /// `status` defaults to `planned` and the two `jsonb` columns to `{}`
+    /// (both `NOT NULL`, so they are written explicitly); `description_text`
+    /// and `description_html` are nullable and left out.
+    ///
     /// Bind order: id, created_at, updated_at, created_by, project, workspace,
     /// name, description, start_date, target_date, status, lead, sort_order,
     /// external_source, external_id.
     MODULE_INSERT = "v1_modules_insert",
     "INSERT INTO modules (id, created_at, updated_at, created_by_id, \
-         project_id, workspace_id, name, description, start_date, target_date, \
-         status, lead_id, sort_order, external_source, external_id) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+         updated_by_id, deleted_at, project_id, workspace_id, name, description, \
+         description_text, description_html, start_date, target_date, status, \
+         lead_id, view_props, sort_order, external_source, external_id, \
+         archived_at, logo_props) \
+     VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6, $7, $8, NULL, NULL, $9, $10, \
+             $11, $12, '{}'::jsonb, $13, $14, $15, NULL, '{}'::jsonb)",
     []
 }
 
@@ -493,7 +500,8 @@ plane_db::plane_query! {
     MODULE_PROJECT_MEMBERS = "v1_modules_project_members",
     "SELECT project_members.member_id FROM project_members \
      WHERE project_members.deleted_at IS NULL AND project_members.project_id = $1 \
-       AND project_members.member_id = ANY($2)",
+       AND project_members.member_id = ANY($2) \
+     ORDER BY project_members.created_at DESC",
     [("member_id", Uuid)]
 }
 
@@ -602,6 +610,161 @@ plane_db::plane_query! {
      ("issue_id", Uuid)]
 }
 
+// ---------------------------------------------------------------------------
+// Module-issue bulk add (302 POST, 303 DELETE)
+// ---------------------------------------------------------------------------
+
+/// The `ModuleIssueSerializer` read row: id, `sub_issues_count`, then the model
+/// columns in `_readable_fields` order.
+static MODULE_ISSUE_READ_COLUMNS: [Column; 11] = [
+    Column {
+        name: "id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "sub_issues_count",
+        pg_type: PgType::Int8,
+    },
+    Column {
+        name: "created_at",
+        pg_type: PgType::Timestamptz,
+    },
+    Column {
+        name: "updated_at",
+        pg_type: PgType::Timestamptz,
+    },
+    Column {
+        name: "deleted_at",
+        pg_type: PgType::Timestamptz,
+    },
+    Column {
+        name: "created_by_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "updated_by_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "project_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "workspace_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "module_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "issue_id",
+        pg_type: PgType::Uuid,
+    },
+];
+
+/// `Issue.objects.filter(workspace__slug=slug, project_id=project_id,
+/// pk__in=issues).values_list("id", flat=True)` (`module.py:730-732`) — the
+/// default manager, so drafts and archived work items are included, in
+/// `Issue.Meta.ordering` (`-created_at`).
+///
+/// Bind order: `$1` the workspace slug, `$2` the project id, `$3` the candidate
+/// ids.
+pub static MODULE_ISSUE_NEW_IDS: Query = Query {
+    name: "v1_modules_issue_new_ids",
+    sql: "SELECT issues.id FROM issues \
+          INNER JOIN workspaces ON issues.workspace_id = workspaces.id \
+          WHERE issues.deleted_at IS NULL AND workspaces.slug = $1 \
+            AND issues.project_id = $2 AND issues.id = ANY($3) \
+          ORDER BY issues.created_at DESC",
+    columns: &[Column {
+        name: "id",
+        pg_type: PgType::Uuid,
+    }],
+};
+
+plane_db::plane_query! {
+    /// One real row of the bulk add (`module.py:755-764`): the constructor sets
+    /// both audit columns to the request user, and `ignore_conflicts=True`
+    /// turns a duplicate of the same module into a no-op.
+    ///
+    /// Bind order: id, created_at, updated_at, created_by, updated_by, project,
+    /// workspace, module, issue.
+    MODULE_ISSUE_INSERT = "v1_modules_issue_insert",
+    "INSERT INTO module_issues \
+     (id, created_at, updated_at, created_by_id, updated_by_id, deleted_at, \
+      project_id, workspace_id, module_id, issue_id) \
+     VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9) \
+     ON CONFLICT DO NOTHING",
+    []
+}
+
+/// The `ModuleIssueSerializer(get_queryset(), many=True)` read of the bulk
+/// add's 200 body (`module.py:596-620`, `:787-790`).
+///
+/// Bind order: `$1` workspace slug, `$2` project id, `$3` user id, `$4` module
+/// id.
+pub static MODULE_ISSUE_LIST_ROWS: Query = Query {
+    name: "v1_modules_issue_list_rows",
+    sql: "SELECT DISTINCT module_issues.id, \
+          (SELECT COUNT(sub.id) FROM issues sub \
+           WHERE (sub.deleted_at IS NULL) \
+             AND (NOT (EXISTS (SELECT 1 FROM states WHERE states.id = sub.state_id \
+                   AND states.\"group\" = 'triage' AND states.\"group\" IS NOT NULL))) \
+             AND (NOT ((sub.archived_at IS NOT NULL))) \
+             AND (NOT (EXISTS (SELECT 1 FROM projects WHERE projects.id = sub.project_id \
+                   AND projects.archived_at IS NOT NULL))) \
+             AND (NOT ((sub.is_draft))) \
+             AND sub.parent_id = module_issues.issue_id) AS sub_issues_count, \
+          module_issues.created_at, module_issues.updated_at, \
+          module_issues.deleted_at, module_issues.created_by_id, \
+          module_issues.updated_by_id, module_issues.project_id, \
+          module_issues.workspace_id, module_issues.module_id, \
+          module_issues.issue_id \
+          FROM module_issues \
+          INNER JOIN workspaces ON module_issues.workspace_id = workspaces.id \
+          INNER JOIN projects ON projects.id = module_issues.project_id \
+          INNER JOIN project_members \
+              ON project_members.project_id = module_issues.project_id \
+          WHERE module_issues.deleted_at IS NULL AND workspaces.slug = $1 \
+            AND module_issues.project_id = $2 \
+            AND project_members.member_id = $3 AND project_members.is_active \
+            AND module_issues.module_id = $4 AND projects.archived_at IS NULL \
+          ORDER BY module_issues.created_at DESC",
+    columns: &MODULE_ISSUE_READ_COLUMNS,
+};
+
+/// `ModuleIssue.objects.get(workspace__slug, project_id, module_id, issue_id)`
+/// (`module.py:931-936`), plus the joined `module.name` the activity copies
+/// (`:938`).
+///
+/// Bind order: `$1` workspace slug, `$2` project id, `$3` module id, `$4` issue
+/// id.
+pub static MODULE_ISSUE_DELETE_ROW: Query = Query {
+    name: "v1_modules_issue_delete_row",
+    sql: "SELECT module_issues.id, module_issues.issue_id, modules.name \
+          FROM module_issues \
+          INNER JOIN workspaces ON module_issues.workspace_id = workspaces.id \
+          LEFT OUTER JOIN modules ON modules.id = module_issues.module_id \
+          WHERE module_issues.deleted_at IS NULL AND workspaces.slug = $1 \
+            AND module_issues.project_id = $2 AND module_issues.module_id = $3 \
+            AND module_issues.issue_id = $4",
+    columns: &[
+        Column {
+            name: "id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "issue_id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "name",
+            pg_type: PgType::Varchar,
+        },
+    ],
+};
+
 /// Every statement this file declares, for `tests/schema_check.rs`.
 pub static ALL_QUERIES: &[&Query] = &[
     &MODULE_LIST,
@@ -630,4 +793,8 @@ pub static ALL_QUERIES: &[&Query] = &[
     &MODULE_CLEAR_ARCHIVED,
     &MODULE_PROJECT_ADMIN,
     &MODULE_ISSUE_ROW,
+    &MODULE_ISSUE_NEW_IDS,
+    &MODULE_ISSUE_INSERT,
+    &MODULE_ISSUE_LIST_ROWS,
+    &MODULE_ISSUE_DELETE_ROW,
 ];

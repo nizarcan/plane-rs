@@ -51,6 +51,11 @@ vars:
   api_token_admin3: "2222222222222222222222222222222222222222222222222222222222222222"
   api_token_member3: "4444444444444444444444444444444444444444444444444444444444444444"
   api_token_bot: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  unknown_project: "00000000-0000-4000-8000-000000000000"
+  # Alpha's triage state (hidden by `StateManager`) and a Beta state (exists,
+  # but in another project).
+  state_alpha_triage: "8e4eb107-d62e-4c38-a057-73a1d8317d8e"
+  state_beta_backlog: "85defd20-a58b-40d3-953f-0bba411719e1"
 steps:
   # -- 310 archive / unarchive --------------------------------------------
   - name: v1a-310-archive
@@ -464,3 +469,261 @@ steps:
     json:
       name: "bot sticky"
     expect_status: 403
+
+  # -- 307 POST ws/projects/ — create --------------------------------------
+  # One successful create per scenario: every v1 create invents a random
+  # `logo_props` and the normaliser placeholders by raw value, so two draws
+  # could reuse a placeholder on one target and allocate a new one on the
+  # other. The body sets every field a PATCH cannot create (a second
+  # `ProjectMember` for `project_lead` and its H32 `ProjectUserProperty`) and
+  # leaves `module_view`, `archive_in` and `close_in` at their model defaults,
+  # which the response shows.
+  - name: v1a-307-create-full
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness v1 project full"
+      identifier: "hvp2"
+      # Long on purpose: the model_activity `current_instance` string runs past
+      # Celery's 1024-character kwargsrepr budget, and the random `logo_props`
+      # must stay beyond the cut so the truncated repr is identical on both
+      # targets (the icon name's length shifts the cut otherwise).
+      description: "created by the v1 harness; this deliberately long description pushes the random logo_props past Celery's kwargsrepr budget, so the truncated repr that model_activity carries ends in identical text on both targets and the comparison stays deterministic."
+      project_lead: "{{user_onboarded}}"
+      default_assignee: "{{user_guest}}"
+      emoji: "rocket"
+      cover_image: "https://example.test/cover.png"
+      icon_prop: {"name": "sparkles", "color": "#123456"}
+      cycle_view: true
+      issue_views_view: true
+      page_view: false
+      intake_view: true
+      guest_view_all_features: true
+      close_in: 6
+      timezone: "Europe/Berlin"
+      external_source: "harness-v1"
+      external_id: "harness-v1-project-1"
+      is_issue_type_enabled: true
+      is_time_tracking_enabled: true
+    capture:
+      - name: project_new
+        source: db
+        table: projects
+        column: id
+    expect_status: 201
+  # The partial unique index on `(name, workspace)`: postgres's DETAIL ends in
+  # "already exists.", so `except IntegrityError` answers the name body
+  # (`project.py:310-315`).
+  - name: v1a-307-create-duplicate-name-409
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "Alpha Platform"
+      identifier: "hvp3"
+    expect_status: 409
+  # A `project_identifiers` row exists for ALP, so `create()` raises and
+  # `except ValidationError` answers 409 with the identifier body.
+  - name: v1a-307-create-duplicate-identifier-409
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 project dup id"
+      identifier: "alp"
+    expect_status: 409
+  - name: v1a-307-create-forbidden-name-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "bad&name"
+      identifier: "hvp4"
+    expect_status: 400
+  - name: v1a-307-create-lead-not-member-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 project bad lead"
+      identifier: "hvp5"
+      project_lead: "{{user_no_workspace}}"
+    expect_status: 400
+  - name: v1a-307-create-assignee-not-member-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 project bad assignee"
+      identifier: "hvp6"
+      default_assignee: "{{user_no_workspace}}"
+    expect_status: 400
+  - name: v1a-307-create-missing-identifier-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 project no identifier"
+    expect_status: 400
+  - name: v1a-307-create-unknown-workspace-404
+    method: POST
+    path: "/api/v1/workspaces/{{ws_deleted}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 project ghost ws"
+      identifier: "hvp7"
+    expect_status: 404
+  # -- 309 PATCH ws/projects/{pk}/ -----------------------------------------
+  # The response comes from `ProjectDetailAPIEndpoint.get_queryset`, which does
+  # not annotate `sort_order`, and `current_instance` is the pre-update row.
+  # Zeta Empty has no random `logo_props`, so its `current_instance` is fully
+  # deterministic and stays inside Celery's kwargsrepr budget.
+  - name: v1a-309-patch-name-identifier
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness v1 project renamed"
+      identifier: "hvp2b"
+      timezone: "Asia/Kolkata"
+  # `inbox_view` is already true after the step above: the default Intake
+  # exists, so no second row is created.
+  - name: v1a-309-patch-intake-existing
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      intake_view: true
+  # Zeta Empty has no Intake: turning `intake_view` on creates the default one.
+  - name: v1a-309-patch-intake-creates
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      intake_view: true
+  # `update()` passes the `State` instance to a UUID lookup, which is a core
+  # `ValidationError` → the family's 400, not the view's 409
+  # (`project.py:194-199`, `plane/api/views/base.py:85-89`).
+  - name: v1a-309-patch-foreign-default-state-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      default_state: "{{state_beta_backlog}}"
+    expect_status: 400
+  # A triage state is hidden by `StateManager`, so the *field* rejects it.
+  - name: v1a-309-patch-triage-default-state-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      default_state: "{{state_alpha_triage}}"
+    expect_status: 400
+  - name: v1a-309-patch-forbidden-identifier-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      identifier: "bad&id"
+    expect_status: 400
+  # Gamma was unarchived at the top of this scenario, so archive the project
+  # this block created first and PATCH that.
+  - name: v1a-309-archive-for-patch
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/archive/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 204
+  - name: v1a-309-patch-archived-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "nope"
+    expect_status: 400
+  - name: v1a-309-unarchive-after-patch
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/archive/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 204
+  # An unknown project never reaches the view's lookup: `ProjectBasePermission`
+  # needs an active `ProjectMember` row for the URL project, so it is a 403.
+  - name: v1a-309-patch-unknown-403
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{unknown_project}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "nope"
+    expect_status: 403
+  # -- 309 DELETE ws/projects/{pk}/ ----------------------------------------
+  # The creator is a project admin, so their token may delete it.
+  - name: v1a-309-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 204
+  - name: v1a-309-delete-again-404
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 404

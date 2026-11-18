@@ -504,6 +504,177 @@ plane_query! {
     []
 }
 
+// ---------------------------------------------------------------------------
+// Writes (307 POST, 309 PATCH/DELETE)
+// ---------------------------------------------------------------------------
+
+plane_query! {
+    /// `Project.objects.get(pk=pk)` in `ProjectDetailAPIEndpoint.patch`
+    /// (`api/views/project.py:558`) — **no workspace filter** and the
+    /// soft-delete manager only.
+    ///
+    /// Bind order: `$1` the project id.
+    PROJECT_BY_PK_ANY = "v1_projects_by_pk_any",
+    "SELECT p.created_at, p.updated_at, p.created_by_id, p.updated_by_id, \
+     p.deleted_at, p.id, p.name, p.description, p.description_text, \
+     p.description_html, p.network, p.workspace_id, p.identifier, \
+     p.default_assignee_id, p.project_lead_id, p.emoji, p.icon_prop, \
+     p.module_view, p.cycle_view, p.issue_views_view, p.page_view, \
+     p.intake_view, p.is_time_tracking_enabled, p.is_issue_type_enabled, \
+     p.guest_view_all_features, p.cover_image, p.cover_image_asset_id, \
+     p.estimate_id, p.archive_in, p.close_in, p.logo_props, \
+     p.default_state_id, p.archived_at, p.timezone, p.external_source, \
+     p.external_id \
+     FROM projects p WHERE p.deleted_at IS NULL AND p.id = $1 LIMIT 1",
+    [
+        ("created_at", Timestamptz),
+        ("updated_at", Timestamptz),
+        ("created_by_id", Uuid),
+        ("updated_by_id", Uuid),
+        ("deleted_at", Timestamptz),
+        ("id", Uuid),
+        ("name", Varchar),
+        ("description", Text),
+        ("description_text", Jsonb),
+        ("description_html", Jsonb),
+        ("network", Int2),
+        ("workspace_id", Uuid),
+        ("identifier", Varchar),
+        ("default_assignee_id", Uuid),
+        ("project_lead_id", Uuid),
+        ("emoji", Varchar),
+        ("icon_prop", Jsonb),
+        ("module_view", Bool),
+        ("cycle_view", Bool),
+        ("issue_views_view", Bool),
+        ("page_view", Bool),
+        ("intake_view", Bool),
+        ("is_time_tracking_enabled", Bool),
+        ("is_issue_type_enabled", Bool),
+        ("guest_view_all_features", Bool),
+        ("cover_image", Text),
+        ("cover_image_asset_id", Uuid),
+        ("estimate_id", Uuid),
+        ("archive_in", Int4),
+        ("close_in", Int4),
+        ("logo_props", Jsonb),
+        ("default_state_id", Uuid),
+        ("archived_at", Timestamptz),
+        ("timezone", Varchar),
+        ("external_source", Varchar),
+        ("external_id", Varchar),
+    ]
+}
+
+plane_db::plane_query! {
+    /// `UserFavorite.objects.filter(entity_type="project",
+    /// entity_identifier=pk, project_id=pk).delete()`
+    /// (`api/views/project.py:635`) — H04, a bare `deleted_at` update.
+    ///
+    /// Bind order: `$1` deleted_at, `$2` the project id (both
+    /// `entity_identifier` and `project_id`).
+    PROJECT_FAVORITES_BY_PROJECT = "v1_projects_favorites_by_project",
+    "UPDATE user_favorites SET deleted_at = $1 \
+     WHERE user_favorites.deleted_at IS NULL \
+       AND user_favorites.entity_type = 'project' \
+       AND user_favorites.entity_identifier = $2 \
+       AND user_favorites.project_id = $2",
+    []
+}
+
+/// `Project` states that `ProjectCreateSerializer` bulk-inserts:
+/// `DEFAULT_STATES` (`plane/db/models/state.py:24-61`).
+pub struct DefaultState {
+    pub name: &'static str,
+    pub color: &'static str,
+    pub sequence: f64,
+    pub group: &'static str,
+    pub default: bool,
+}
+
+/// The six default states, in `DEFAULT_STATES` order.
+pub const DEFAULT_STATES: [DefaultState; 6] = [
+    DefaultState {
+        name: "Backlog",
+        color: "#60646C",
+        sequence: 15000.0,
+        group: "backlog",
+        default: true,
+    },
+    DefaultState {
+        name: "Todo",
+        color: "#60646C",
+        sequence: 25000.0,
+        group: "unstarted",
+        default: false,
+    },
+    DefaultState {
+        name: "In Progress",
+        color: "#F59E0B",
+        sequence: 35000.0,
+        group: "started",
+        default: false,
+    },
+    DefaultState {
+        name: "Done",
+        color: "#46A758",
+        sequence: 45000.0,
+        group: "completed",
+        default: false,
+    },
+    DefaultState {
+        name: "Cancelled",
+        color: "#9AA4BC",
+        sequence: 55000.0,
+        group: "cancelled",
+        default: false,
+    },
+    DefaultState {
+        name: "Triage",
+        color: "#4E5355",
+        sequence: 65000.0,
+        group: "triage",
+        default: false,
+    },
+];
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField(queryset=User.objects)` for `project_lead` and
+    /// `default_assignee` (`write_pk_project_create_serializer_*`).
+    ///
+    /// Bind order: `$1` the pk.
+    PROJECT_USER_BY_ID = "v1_projects_user_by_id",
+    "SELECT \"users\".\"id\" AS \"pk\" FROM \"users\" \
+     WHERE \"users\".\"id\" = $1",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField(queryset=State.objects)` for `default_state`
+    /// (`write_pk_project_update_serializer_default_state`): `StateManager`
+    /// hides soft-deleted rows and triage states.
+    ///
+    /// Bind order: `$1` the pk.
+    PROJECT_STATE_BY_ID = "v1_projects_state_by_id",
+    "SELECT \"states\".\"id\" AS \"pk\" FROM \"states\" \
+     WHERE (\"states\".\"deleted_at\" IS NULL \
+            AND NOT (\"states\".\"group\" = 'triage') \
+            AND \"states\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
+plane_db::plane_query! {
+    /// `PrimaryKeyRelatedField(queryset=Estimate.objects)` for `estimate`
+    /// (`write_pk_project_update_serializer_estimate`).
+    ///
+    /// Bind order: `$1` the pk.
+    PROJECT_ESTIMATE_BY_ID = "v1_projects_estimate_by_id",
+    "SELECT \"estimates\".\"id\" AS \"pk\" FROM \"estimates\" \
+     WHERE (\"estimates\".\"deleted_at\" IS NULL \
+            AND \"estimates\".\"id\" = $1)",
+    [("pk", Uuid)]
+}
+
 /// Every catalogued statement of this route family, in declaration order.
 pub static ALL_QUERIES: &[&Query] = &[
     &PROJECT_LIST_BASE,
@@ -520,6 +691,11 @@ pub static ALL_QUERIES: &[&Query] = &[
     &PROJECT_BY_ID_IN_WORKSPACE,
     &PROJECT_ARCHIVE,
     &PROJECT_UNARCHIVE,
+    &PROJECT_BY_PK_ANY,
+    &PROJECT_FAVORITES_BY_PROJECT,
+    &PROJECT_USER_BY_ID,
+    &PROJECT_STATE_BY_ID,
+    &PROJECT_ESTIMATE_BY_ID,
     &FAVORITES_SOFT_DELETE,
 ];
 

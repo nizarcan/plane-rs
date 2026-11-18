@@ -39,6 +39,21 @@ vars:
   module_alpha_in_progress: "5e5035ff-8628-4833-87af-d4226f124c4f"
   # Alpha Paused: created by the admin, so the admin may delete it.
   module_alpha_paused: "3dd8a2b9-d24e-4946-b348-e17e2e9676ac"
+  # Alpha Sprint 0: archived (so the PATCH guard fires).
+  cycle_alpha_archived: "2aa0956c-78ad-4002-8d90-1232ff2ae659"
+  # Beta Release 1, used for the non-UTC create and the 409 check.
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  cycle_beta: "d20893f9-544a-4808-be18-259358ebf13b"
+  module_alpha_archived: "710da01c-8e38-407d-bfce-f7674b644275"
+  project_zeta_empty: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  unknown_cycle: "00000000-0000-4000-8000-000000000000"
+  unknown_module: "00000000-0000-4000-8000-000000000001"
+  # Alpha Platform issues used by the bulk add/remove steps.
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_in_sprint_three: "267b6e4f-224c-4f25-8a5c-02f70ec7c8ca"
+  issue_in_module: "839b5cb8-879f-450f-abaf-4ea09c9e09e4"
+  member_admin: "d44ae570-3de4-4413-af08-f686bf5b7235"
+  member_member: "78100240-9cfd-4782-8627-25ab039c6e9a"
   api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
@@ -165,3 +180,434 @@ steps:
     headers:
       Host: plane-fixture.test
       X-API-Key: "{{api_token_member2}}"
+
+  # --- 279 POST pr/cycles/ — create --------------------------------------
+  # Minimal body: no dates, so `sort_order` is H23's min-1 and `owned_by`
+  # defaults to the caller; `view_props`/`progress_snapshot`/`logo_props` are
+  # the model's `{}` and `version` is 1.
+  - name: v1c-w16-cycle-create-minimal
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness v1 cycle minimal"
+    capture:
+      - name: cycle_new
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+  # Both dates: `convert_to_utc` in the *project's* zone (Beta is
+  # Europe/Berlin): start 00:00:01 local, end 23:59:00 local.
+  - name: v1c-w17-cycle-create-dates-non-utc
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_beta}}/cycles/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 cycle berlin"
+      description: "dates in Europe/Berlin"
+      start_date: "2027-03-01T00:00:00Z"
+      end_date: "2027-03-31T00:00:00Z"
+      timezone: "Europe/Berlin"
+      external_source: "harness-v1"
+      external_id: "harness-v1-cycle-1"
+    capture:
+      - name: cycle_berlin
+        source: db
+        table: cycles
+        column: id
+    expect_status: 201
+  # Duplicate `(external_source, external_id)` → 409 with the existing row id.
+  - name: v1c-w18-cycle-create-duplicate-external-id
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_beta}}/cycles/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 cycle dup"
+      external_source: "harness-v1"
+      external_id: "harness-v1-cycle-1"
+    expect_status: 409
+  # One date without the other is the view's own 400.
+  - name: v1c-w19-cycle-create-one-date-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 cycle one date"
+      start_date: "2027-01-01T00:00:00Z"
+    expect_status: 400
+  # `cycle_view` is off on Zeta Empty → `validate()`'s non_field_errors.
+  - name: v1c-w20-cycle-create-view-disabled-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta_empty}}/cycles/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 cycle disabled"
+    expect_status: 400
+  # Start after end → 400 before `convert_to_utc` runs.
+  - name: v1c-w21-cycle-create-start-after-end-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 cycle reversed"
+      start_date: "2027-05-01T00:00:00Z"
+      end_date: "2027-04-01T00:00:00Z"
+    expect_status: 400
+  # A missing `name` is the field-level required error.
+  - name: v1c-w22-cycle-create-missing-name-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      description: "no name"
+    expect_status: 400
+  # --- 281 PATCH pr/cycles/{pk}/ -----------------------------------------
+  - name: v1c-w23-cycle-patch-name
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness v1 cycle renamed"
+  # An archived cycle cannot be edited (Alpha Sprint 0 is archived).
+  - name: v1c-w24-cycle-patch-archived-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_archived}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "nope"
+    expect_status: 400
+  # A completed cycle without `sort_order` is refused ...
+  - name: v1c-w25-cycle-patch-completed-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "nope"
+    expect_status: 400
+  # ... and with `sort_order` the guard passes, but the view hands
+  # `request.data` (not the narrowed `request_data`) to the serializer
+  # (`cycle.py:559-573`), so the name is applied too — the ported bug.
+  - name: v1c-w26-cycle-patch-completed-applies-everything
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 completed renamed"
+      sort_order: 4242.5
+  # The duplicate external-id check reports the URL cycle's id.
+  - name: v1c-w27-cycle-patch-duplicate-external-id
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_beta}}/cycles/{{cycle_beta}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      external_source: "harness-v1"
+      external_id: "harness-v1-cycle-1"
+    expect_status: 409
+  # --- 282 POST / 283 DELETE cycle-issues --------------------------------
+  - name: v1c-w28-cycle-issues-add-missing-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/cycle-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: []
+    expect_status: 400
+  - name: v1c-w29-cycle-issues-add-unknown-cycle-404
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{unknown_cycle}}/cycle-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: ["{{issue_alpha}}"]
+    expect_status: 404
+  # Sprint 1's end date is in the past → no new work items.
+  - name: v1c-w30-cycle-issues-add-completed-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/cycle-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: ["{{issue_alpha}}"]
+    expect_status: 400
+  # One issue already sits in Sprint 3 (moved here), one is in no cycle.
+  - name: v1c-w31-cycle-issues-add
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: ["{{issue_alpha}}", "{{issue_in_sprint_three}}"]
+  # Re-adding an issue that is now in this cycle is swallowed by
+  # `ignore_conflicts=True`; every instance still lands in the activity
+  # payload, with its in-memory uuid4 as `pk`.
+  - name: v1c-w32-cycle-issues-add-duplicate
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: ["{{issue_in_sprint_three}}"]
+  - name: v1c-w33-cycle-issues-remove
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/{{issue_in_sprint_three}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+  - name: v1c-w34-cycle-issues-remove-again-404
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/cycle-issues/{{issue_in_sprint_three}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+  # --- 284 POST transfer-issues ------------------------------------------
+  - name: v1c-w35-transfer-missing-id-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/transfer-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json: {}
+    expect_status: 400
+  - name: v1c-w36-transfer-old-not-completed-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_current}}/transfer-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      new_cycle_id: "{{cycle_alpha_future}}"
+    expect_status: 400
+  - name: v1c-w37-transfer-unknown-old-404
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{unknown_cycle}}/transfer-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      new_cycle_id: "{{cycle_alpha_future}}"
+    expect_status: 404
+  # Sprint 1 is completed; its remaining started issue moves to Sprint 2 and
+  # the source cycle's `progress_snapshot` is written.
+  - name: v1c-w38-transfer
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/cycles/{{cycle_alpha_completed}}/transfer-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      new_cycle_id: "{{cycle_alpha_current}}"
+  # --- 299 POST pr/modules/ — create -------------------------------------
+  - name: v1c-w39-module-create-minimal
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness v1 module minimal"
+    capture:
+      - name: module_new
+        source: db
+        table: modules
+        column: id
+    expect_status: 201
+  - name: v1c-w40-module-create-full
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 module full"
+      description: "with members and a deliberately long description so the token-log middleware's truncated kwargsrepr ends before the response body, whose ids are generated per target and cannot be normalised once the repr is cut inside one: the harness reconciles a truncated repr only at Celery's token boundary, so keep this body longer than the remaining budget of the log repr."
+      start_date: "2027-02-01"
+      target_date: "2027-02-28"
+      status: "in-progress"
+      lead: "{{member_admin}}"
+      members: ["{{member_admin}}", "{{member_member}}"]
+      external_source: "harness-v1"
+      external_id: "harness-v1-module-1"
+    expect_status: 201
+  # `ModuleCreateSerializer.create`'s duplicate-name error is a dict: id,
+  # code, error, message (`module.py:88-100`).
+  - name: v1c-w41-module-create-duplicate-name-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 module minimal"
+    expect_status: 400
+  - name: v1c-w42-module-create-start-after-target-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 module reversed"
+      start_date: "2027-05-01"
+      target_date: "2027-04-01"
+    expect_status: 400
+  # --- 301 PATCH pr/modules/{pk}/ ----------------------------------------
+  # The response is the *update* serializer's fields, not `ModuleSerializer`.
+  - name: v1c-w43-module-patch
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness v1 module renamed"
+      status: "paused"
+  # An explicit `members` list soft-deletes every through row first.
+  - name: v1c-w44-module-patch-members
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      members: ["{{member_member}}"]
+  - name: v1c-w45-module-patch-duplicate-name-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 module full"
+    expect_status: 400
+  - name: v1c-w46-module-patch-archived-400
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_alpha_archived}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "nope"
+    expect_status: 400
+  # --- 302 POST / 303 DELETE module-issues -------------------------------
+  - name: v1c-w47-module-issues-add-empty-400
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/module-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: []
+    expect_status: 400
+  - name: v1c-w48-module-issues-add-unknown-module-404
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{unknown_module}}/module-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: ["{{issue_alpha}}"]
+    expect_status: 404
+  # `issue_in_module` already belongs to Alpha In Progress: the membership
+  # test compares a `str` against UUID objects, so it is always false and the
+  # issue gets a **second** `module_issues` row (`module.py:740-753`).
+  - name: v1c-w49-module-issues-add
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/module-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: ["{{issue_in_module}}", "{{issue_alpha}}"]
+  # Re-adding the same issues: the row already exists in this module, so
+  # `ignore_conflicts=True` swallows both inserts and the list is unchanged.
+  - name: v1c-w50-module-issues-add-again
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/module-issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      issues: ["{{issue_in_module}}"]
+  - name: v1c-w51-module-issues-remove
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/module-issues/{{issue_alpha}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+  - name: v1c-w52-module-issues-remove-again-404
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/modules/{{module_new}}/module-issues/{{issue_alpha}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
