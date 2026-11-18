@@ -1,0 +1,589 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written read scenario for the v1 workspace/project administration routes
+# of set A:
+#
+#   292/294  GET  pr/members/, pr/project-members/            (members.rs)
+#   293/296  GET  pr/{members,project-members}/{pk}/          (members.rs)
+#   295      GET  pr/project-members-lite/                    (members.rs)
+#   297      GET  ws/members/                                 (members.rs)
+#   298      GET  ws/members-lite/                            (members.rs)
+#   307      GET  ws/projects/                                (projects.rs)
+#   308      GET  ws/projects-lite/                           (projects.rs)
+#   309      GET  ws/projects/{pk}/                           (projects.rs)
+#   310      POST/DELETE are writes; the read half of the row is 404s only
+#   311      GET  ws/projects/{project_id}/summary/           (projects.rs)
+#   314      GET  /users/me/                                  (users.rs)
+#   340/342  GET  ws/invitations/, ws/invitations/{pk}/       (invitations.rs)
+#   341/343  GET  ws/invitations{.json,/{pk}.json}            (format 500s)
+#   344/345  GET  ws/, ws/.json                               (roots.rs)
+#   346/348  GET  ws/stickies/, ws/stickies/{pk}/             (stickies.rs)
+#   347/349  GET  ws/stickies{.json,/{pk}.json}               (format 500s)
+#
+# The generator (`tools/scenarios/gen_read.py`) owns `scenarios/read/v1.yaml`,
+# which already contains a first pass over these routes; this file is the set's
+# own, hand-written coverage (ordering parameters, fields=, expand=, the two
+# list aliases, the soft-deleted workspace, HEAD/OPTIONS and the format-suffix
+# 500s). The writes are in `scenarios/write/v1-admin.yaml`.
+#
+# The 60/min throttle keys on the raw token, so the steps are spread over the
+# fixture's ten API tokens and the two session jars.
+#
+#   ./target/debug/difftest run --scenario scenarios/read/v1-admin.yaml \
+#     --a django --b rust --targets /tmp/targets-v1a.yaml \
+#     --a-redis-db 3 --b-redis-db 4
+
+name: read-v1-admin
+template_db: plane_fix_tpl
+redis_db: [2, 3]
+target_env:
+  # `ProjectSummaryAPIEndpoint` builds `counts` from a Python `set`; the pinned
+  # seed keeps Django-vs-Django reproducible. Rust writes ascending keys and
+  # the `normalize.yaml` rule for `$.counts` compares the object.
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws_deleted: "fix-deleted"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_beta: "ca8f652c-e89f-4c43-b91d-c2c6f9387509"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_member_alpha_member: "30c1a00a-86ec-49a1-9839-4b71a3f9a2b3"
+  project_member_beta_member: "7cf7fad5-ba70-4dcb-b463-cc356e93a966"
+  workspace_invite_id: "29664d31-6ced-4919-87c9-50edbcbb95bc"
+  sticky_admin_release: "8c9f2294-13a6-4d5e-95ea-54f6d902379f"
+  sticky_member: "0e00c006-d043-4825-a23d-4fe1ab88e455"
+  api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
+  api_token_member2: "3333333333333333333333333333333333333333333333333333333333333333"
+  api_token_admin3: "2222222222222222222222222222222222222222222222222222222222222222"
+  api_token_member3: "4444444444444444444444444444444444444444444444444444444444444444"
+  api_token_expired: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  api_token_bot: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+steps:
+  # -- 307 GET ws/projects/ --------------------------------------------------
+  - name: v1a-307-projects-default
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-307-projects-order-by-name
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    query:
+      order_by: "name"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-307-projects-desc-created-at
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    query:
+      order_by: "-created_at"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-307-projects-bad-order-by
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    query:
+      order_by: "identifier"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-307-projects-page-2
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    query:
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-307-projects-bad-per-page
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    query:
+      per_page: "x"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-307-projects-fields-expand
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    query:
+      fields: "id,name,project_lead"
+      expand: "project_lead"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-307-projects-guest
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1a-307-projects-anonymous
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.21
+
+  # -- 308 GET ws/projects-lite/ -------------------------------------------
+  - name: v1a-308-projects-lite-default
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects-lite/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-308-projects-lite-include-archived
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects-lite/"
+    query:
+      include_archived: "true"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-308-projects-lite-order-created
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects-lite/"
+    query:
+      order_by: "-created_at"
+      per_page: "2"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-308-projects-lite-deleted-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws_deleted}}/projects-lite/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+
+  # -- 309 GET ws/projects/{pk}/ -------------------------------------------
+  - name: v1a-309-project-detail
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-309-project-detail-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    query:
+      fields: "id,name,logo_props,total_members"
+      expand: "workspace"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-309-project-detail-archived
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_gamma}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-309-project-detail-soft-deleted
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_delta}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-309-project-detail-other-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws_deleted}}/projects/{{project_alpha}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-309-project-detail-member-token
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+
+  # -- 311 GET ws/projects/{project_id}/summary/ ---------------------------
+  # The default (no `fields=`) body has eight set-ordered keys; its bytes feed
+  # the `process_logs` Celery payload, which the harness compares as a string
+  # and cannot normalise. One-key and ascending-order subsets are used here so
+  # the payload is deterministic; the eight-key shape is covered by
+  # `scenarios/normalize.yaml`'s `$.counts` rule on any other request.
+  - name: v1a-311-summary-one-field
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/summary/"
+    query:
+      fields: "issues"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-311-summary-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/summary/"
+    query:
+      fields: "issues,members,unknown"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  # `WorkSpaceAdminPermission` is roles 20/15, not owner-only
+  # (`plane/utils/permissions/workspace.py:61-72`), so a member passes.
+  - name: v1a-311-summary-member-allowed
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/summary/"
+    query:
+      fields: "issues,members"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1a-311-summary-bot-forbidden
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/summary/"
+    jar: api_bot
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_bot}}"
+  - name: v1a-297-workspace-members-bot-forbidden
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/members/"
+    jar: api_bot
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_bot}}"
+  - name: v1a-311-summary-unknown-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/00000000-0000-4000-8000-000000000001/summary/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+
+  # -- HEAD/OPTIONS on an `as_view(http_method_names=…)` route -------------
+  # HEAD is deliberately absent: a HEAD 405 has an empty body and the harness
+  # cannot gunzip one (PROGRESS.md, "testkit can't gunzip an empty gzip HEAD
+  # body"). The contract suite covers HEAD.
+  - name: v1a-307-projects-options
+    method: OPTIONS
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+
+  # -- 297/298 workspace members ------------------------------------------
+  - name: v1a-297-workspace-members
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/members/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-297-workspace-members-member-forbidden
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/members/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1a-297-workspace-members-deleted-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws_deleted}}/members/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-298-workspace-members-lite
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/members-lite/"
+    query:
+      per_page: "3"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-298-workspace-members-lite-member-forbidden
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/members-lite/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+
+  # -- 292/294 project members --------------------------------------------
+  - name: v1a-292-project-members
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-294-project-members-alias
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/project-members/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1a-292-project-members-guest
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1a-292-project-members-not-project-member
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/members/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1a-293-project-member-detail
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{project_member_alpha_member}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-296-project-member-detail-alias
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/project-members/{{project_member_alpha_member}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1a-293-project-member-detail-wrong-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{project_member_beta_member}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-295-project-members-lite
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/project-members-lite/"
+    query:
+      per_page: "4"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-295-project-members-lite-unknown-project
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/00000000-0000-4000-8000-000000000002/project-members-lite/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+
+  # -- 314 GET /users/me/ --------------------------------------------------
+  - name: v1a-314-users-me-admin
+    method: GET
+    path: "/api/v1/users/me/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-314-users-me-member
+    method: GET
+    path: "/api/v1/users/me/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1a-314-users-me-expired
+    method: GET
+    path: "/api/v1/users/me/"
+    jar: anon2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_expired}}"
+
+  # -- 340/342 invitations -------------------------------------------------
+  - name: v1a-340-invitations-list
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-340-invitations-list-member-forbidden
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1a-342-invitation-detail
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{workspace_invite_id}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-342-invitation-detail-other-workspace
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/invitations/c6d6735c-d6b0-43ec-86d6-e366d88a8e57/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-342-invitation-detail-not-a-uuid
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/invitations/not-a-uuid/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-341-invitations-format
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/invitations.json"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-343-invitation-format
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{workspace_invite_id}}.json"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+
+  # -- 344/345 api roots ---------------------------------------------------
+  - name: v1a-344-api-root-session
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: v1a-345-api-root-format-session
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/.json"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: v1a-344-api-root-api-key
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-344-api-root-anonymous
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/"
+    jar: anon3
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.22
+
+  # -- 346/348 stickies ----------------------------------------------------
+  - name: v1a-346-stickies-admin
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-346-stickies-query
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/"
+    query:
+      query: "Release"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-346-stickies-query-empty
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/"
+    query:
+      query: ""
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-346-stickies-member
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1a-348-sticky-detail-admin
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_admin_release}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1a-348-sticky-detail-not-owned
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_member}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1a-348-sticky-detail-member-own
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_member}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1a-347-stickies-format
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies.json"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1a-349-sticky-format
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_admin_release}}.json"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+
+  # -- HEAD/OPTIONS on a BaseViewSet route --------------------------------
+  # A `BaseViewSet` row keeps the default `http_method_names`, so OPTIONS
+  # reaches `APIView.options` and answers the SimpleMetadata body. (The stickies
+  # metadata carries a `background_color` schema property, which the
+  # `json:background_color` shape rule rejects — the same pre-existing harness
+  # limitation `PROGRESS.md` records for the OpenAPI renderings.)
+  - name: v1a-340-invitations-options
+    method: OPTIONS
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"

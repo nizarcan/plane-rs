@@ -552,6 +552,13 @@ impl Runtime {
 
         // ---- options() ----------------------------------------------------
         if method == Method::OPTIONS && !registered.is_function() {
+            // `http_method_names` decides whether `/dispatch` reaches
+            // `APIView.options` at all; a row mounted with `http_method_names
+            // =["get"]` answers 405 for OPTIONS (`django/views/generic/
+            // base.py:134-144`).
+            if !route.http_method_names.contains(&Method::OPTIONS) {
+                return Err(ViewError::Api(metadata::method_not_allowed(route, &method)));
+            }
             if registered.family == Family::DjangoView {
                 // `django.views.generic.base.View.options`: an empty
                 // `HttpResponse` with `Allow` and `Content-Length: 0`.
@@ -983,8 +990,11 @@ mod tests {
         assert!(!route.is_allowed_method(&Method::POST));
         assert!(route.is_allowed_method(&Method::GET));
         assert!(route.is_allowed_method(&Method::DELETE));
-        // `View.head` copies `get`; OPTIONS is implicit on a DRF view.
-        assert!(route.is_allowed_method(&Method::HEAD));
+        // `http_method_names` here lists `head`, but no DRF class defines a
+        // `head` handler, so `getattr(self, "head", http_method_not_allowed)`
+        // is the 405 (`django/views/generic/base.py:134-144`). OPTIONS is
+        // implicit on a DRF view (`rest_framework/views.py:531-538`).
+        assert!(!route.is_allowed_method(&Method::HEAD));
         assert!(route.is_allowed_method(&Method::OPTIONS));
         let response = render_api(metadata::method_not_allowed(route, &Method::POST));
         assert_eq!(response.status, 405);

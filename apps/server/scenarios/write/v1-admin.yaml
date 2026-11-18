@@ -1,0 +1,466 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Set A write scenario: the v1 workspace/project administration writes.
+#
+#   310      POST/DELETE  ws/projects/{project_id}/archive/   (projects.rs)
+#   292/294  POST         pr/{members,project-members}/       (members.rs)
+#   293/296  PATCH/DELETE pr/{members,project-members}/{pk}/   (members.rs)
+#   340      POST         ws/invitations/                     (invitations.rs)
+#   342      PUT/PATCH/DELETE ws/invitations/{pk}/            (invitations.rs)
+#   346      POST         ws/stickies/                        (stickies.rs)
+#   348      PUT/PATCH/DELETE ws/stickies/{pk}/               (stickies.rs)
+#
+# Not covered here: 307 POST (project create), 309 PATCH/DELETE (project
+# update/delete) — their handlers are not ported yet (see the module docs).
+#
+# The 60/min throttle keys on the raw token, so every write group uses its own
+# API token; the fixture's ten tokens are enough. The read half of these routes
+# is in `scenarios/read/v1-admin.yaml`.
+#
+#   ./target/debug/difftest run --scenario scenarios/write/v1-admin.yaml \
+#     --a django --b rust --targets /tmp/targets-v1a.yaml \
+#     --a-redis-db 3 --b-redis-db 4
+
+name: write-v1-admin
+template_db: plane_fix_tpl
+redis_db: [2, 3]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  ws_deleted: "fix-deleted"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_gamma: "4f9d99bc-8083-4063-ac02-69dfb0e6ab95"
+  project_delta: "48ba2a14-344e-4a48-b7db-e3a53f65592f"
+  project_zeta: "95100651-3264-4bd8-b2f7-5d6a082c9851"
+  project_member_alpha_member: "30c1a00a-86ec-49a1-9839-4b71a3f9a2b3"
+  project_member_alpha_guest2: "f013f644-6b3f-42cc-a9a9-f3cdef45329d"
+  project_member_beta_member: "7cf7fad5-ba70-4dcb-b463-cc356e93a966"
+  user_onboarded: "7ae351b7-90a1-488c-ab91-5ea3623b3640"
+  user_guest: "31a752d6-2f12-4ac9-b23f-ae260a96c148"
+  user_no_workspace: "a69a1178-503e-4e62-a07b-f89c6af07687"
+  invite_renamable: "f4767b9d-ec26-40f5-b4ad-d5347a61fbdf"
+  sticky_admin_release: "8c9f2294-13a6-4d5e-95ea-54f6d902379f"
+  sticky_member: "0e00c006-d043-4825-a23d-4fe1ab88e455"
+  api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
+  api_token_member2: "3333333333333333333333333333333333333333333333333333333333333333"
+  api_token_admin3: "2222222222222222222222222222222222222222222222222222222222222222"
+  api_token_member3: "4444444444444444444444444444444444444444444444444444444444444444"
+  api_token_bot: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+steps:
+  # -- 310 archive / unarchive --------------------------------------------
+  - name: v1a-310-archive
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/archive/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+  - name: v1a-310-unarchive
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/archive/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+  # A project the caller can see through the permission class but the view's
+  # lookup cannot find: `delta` is soft-deleted, and the membership checks do
+  # not filter `projects.deleted_at`, so this reaches the 404.
+  - name: v1a-310-archive-soft-deleted
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_delta}}/archive/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+  # A workspace MEMBER (15) passes `ProjectArchiveUnarchivePermission`
+  # (`plane/app/permissions/project.py:56-98`); a non-member does not.
+  - name: v1a-310-archive-non-member-forbidden
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/archive/"
+    jar: api_bot
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_bot}}"
+    expect_status: 403
+  - name: v1a-310-unarchive-archived
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_gamma}}/archive/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 204
+
+  # -- 292/294 project member create --------------------------------------
+  - name: v1a-292-member-create
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      member: "{{user_onboarded}}"
+      role: 15
+    capture:
+      - name: member_new
+        source: db
+        table: project_members
+        column: id
+    expect_status: 201
+  - name: v1a-292-member-create-duplicate
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      member: "{{user_onboarded}}"
+      role: 15
+    expect_status: 400
+  - name: v1a-292-member-create-not-in-workspace
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      member: "{{user_no_workspace}}"
+      role: 15
+    expect_status: 400
+  - name: v1a-292-member-create-guest-admin
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      member: "{{user_guest}}"
+      role: 20
+    expect_status: 400
+  - name: v1a-292-member-create-bad-uuid
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      member: "not-a-uuid"
+    expect_status: 400
+  - name: v1a-292-member-create-member-forbidden
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+    json:
+      member: "{{user_onboarded}}"
+    expect_status: 403
+  - name: v1a-292-member-create-scalar-body
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json: 5
+    expect_status: 400
+
+  # -- 293/296 project member update/delete -------------------------------
+  - name: v1a-293-member-patch-role
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/{{member_new}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json:
+      role: 5
+    expect_status: 200
+  - name: v1a-296-member-patch-alias
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/project-members/{{member_new}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json:
+      role: 15
+    expect_status: 200
+  - name: v1a-293-member-patch-guest-target
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{project_member_alpha_guest2}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json:
+      role: 15
+    expect_status: 400
+  - name: v1a-293-member-patch-unknown
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/members/{{project_member_beta_member}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json:
+      role: 15
+    expect_status: 404
+  - name: v1a-293-member-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/{{member_new}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    expect_status: 204
+  - name: v1a-293-member-delete-again
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_zeta}}/members/{{member_new}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    expect_status: 204
+
+  # -- 340 invitation create (always 400) ---------------------------------
+  - name: v1a-340-invitation-create-fresh
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      email: "fresh@example.com"
+      role: 15
+    expect_status: 201
+  - name: v1a-340-invitation-create-invalid-email
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      email: "not-an-email"
+    expect_status: 403
+  - name: v1a-340-invitation-create-invalid-email-admin
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      email: "not-an-email"
+    expect_status: 400
+  - name: v1a-340-invitation-create-existing
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      email: "fix.invitee@example.com"
+      role: 15
+    expect_status: 400
+  - name: v1a-340-invitation-create-bad-role
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/invitations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json:
+      email: "fresh-role@example.com"
+      role: 1
+    expect_status: 400
+
+  # -- 342 invitation update / delete -------------------------------------
+  - name: v1a-342-invitation-patch-email
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{invite_renamable}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json:
+      email: "renamed@example.com"
+    expect_status: 400
+  - name: v1a-342-invitation-patch-role
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{invite_renamable}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+    json:
+      role: 20
+    expect_status: 200
+  - name: v1a-342-invitation-put-same-email
+    method: PUT
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{invite_renamable}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      email: "new-hire@example.com"
+      role: 15
+    expect_status: 400
+  - name: v1a-342-invitation-put-required-email
+    method: PUT
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{invite_renamable}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      role: 15
+    expect_status: 400
+  # The inherited `PUT` never passes `context={"slug"}`, so
+  # `WorkspaceInviteSerializer.validate`'s `self.context["slug"]` is a KeyError:
+  # 400 `{"error": "The required key does not exist."}` (`plane/api/views/
+  # invite.py:112-124` overrides `partial_update` only).
+  - name: v1a-342-invitation-put-keyerror
+    method: PUT
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{invite_renamable}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      email: "renamed@example.com"
+      role: 20
+    expect_status: 400
+  - name: v1a-342-invitation-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{invite_renamable}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 204
+  - name: v1a-342-invitation-delete-again
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/invitations/{{invite_renamable}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 404
+
+  # -- 346 sticky create ---------------------------------------------------
+  - name: v1a-346-sticky-create-minimal
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/stickies/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness sticky"
+    capture:
+      - name: sticky_new
+        source: db
+        table: stickies
+        column: id
+    expect_status: 201
+  - name: v1a-346-sticky-create-full
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/stickies/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness sticky full"
+      description: {type: doc, content: []}
+      description_html: "<p>a <strong>sticky</strong></p>"
+      description_stripped: "ignored body value"
+      logo_props: {in_use: emoji, emoji: {value: "🗒️"}}
+      color: "#111827"
+      background_color: "#FDE68A"
+      sort_order: 12.5
+    expect_status: 201
+
+  # -- 348 sticky update / delete -----------------------------------------
+  - name: v1a-348-sticky-patch
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness sticky renamed"
+      color: "#BFDBFE"
+    expect_status: 200
+  - name: v1a-348-sticky-patch-not-owned
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_member}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      name: "not mine"
+    expect_status: 404
+  - name: v1a-348-sticky-put
+    method: PUT
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness sticky put"
+      description: {type: doc, content: []}
+      description_html: "<p>put body</p>"
+      logo_props: {}
+      color: "#BBF7D0"
+      background_color: "#065F46"
+      sort_order: 20.5
+    expect_status: 200
+  - name: v1a-348-sticky-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 204
+  - name: v1a-348-sticky-delete-again
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/stickies/{{sticky_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 404
+  - name: v1a-346-sticky-create-bot-forbidden
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/stickies/"
+    jar: api_bot
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_bot}}"
+    json:
+      name: "bot sticky"
+    expect_status: 403

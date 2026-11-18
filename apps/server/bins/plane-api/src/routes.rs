@@ -68,6 +68,10 @@ pub struct Route {
     regex: Regex,
     /// Capture group names, in pattern order.
     capture_names: Vec<Option<String>>,
+    /// Per capture (in `capture_names` order, excluding the whole match):
+    /// whether the converter is DRF's `drf_format_suffix`, whose `to_python`
+    /// strips `./` from both ends (`rest_framework/urlpatterns.py:24-26`).
+    format_captures: Vec<bool>,
 }
 
 /// The compiled route table.
@@ -126,7 +130,7 @@ impl RouteTable {
         let file: RoutesFile = serde_json::from_str(json)?;
         let mut routes = Vec::with_capacity(file.routes.len());
         for raw in file.routes {
-            let source = compile(&raw)?;
+            let (source, format_captures) = compile(&raw)?;
             let regex = Regex::new(&source).map_err(|source| RouteTableError::Regex {
                 order: raw.order,
                 path: raw.path.clone(),
@@ -153,6 +157,7 @@ impl RouteTable {
                 handler,
                 regex,
                 capture_names,
+                format_captures,
             });
         }
         routes.sort_by_key(|route| route.order);
@@ -185,8 +190,18 @@ impl RouteTable {
             .capture_names
             .iter()
             .skip(1)
-            .filter_map(|name| name.as_deref())
-            .filter_map(|name| captures.name(name).map(|value| (name, value.as_str())))
+            .enumerate()
+            .filter_map(|(index, name)| {
+                let name = name.as_deref()?;
+                let value = captures.name(name)?.as_str();
+                // `drf_format_suffix.to_python` strips `./`; the converter's
+                // regex includes both the dot and an optional trailing slash.
+                if route.format_captures.get(index).copied().unwrap_or(false) {
+                    Some((name, value.trim_matches(|c| c == '.' || c == '/')))
+                } else {
+                    Some((name, value))
+                }
+            })
             .collect()
     }
 
@@ -201,7 +216,7 @@ impl RouteTable {
 }
 
 /// Convert one inventory entry into a regex source string.
-fn compile(raw: &RawRoute) -> Result<String, RouteTableError> {
+fn compile(raw: &RawRoute) -> Result<(String, Vec<bool>), RouteTableError> {
     // For `re_path` routes the inventory records `prefix + pattern`, and the
     // pattern begins at the first `^`. Everything before it is a `path()`
     // prefix that must be translated (and escaped); everything after is regex.
@@ -217,20 +232,26 @@ fn compile(raw: &RawRoute) -> Result<String, RouteTableError> {
         (raw.django_pattern.as_str(), String::new())
     };
 
+    let mut format_captures = Vec::new();
     let mut source = String::with_capacity(literal.len() + suffix.len() + 8);
     // The root URLconf is wrapped in `URLResolver(RegexPattern(r"^/"), …)`, so
     // every inventory route matches against `"/" + django_pattern`.
     source.push_str("^/");
-    translate_literal(raw, literal, &mut source)?;
+    translate_literal(raw, literal, &mut source, &mut format_captures)?;
     source.push_str(&suffix);
     // Django anchors RoutePattern with `$`; RegexPattern's `$` is already there
     // for the regex routes, and a duplicated `$` is harmless.
     source.push('$');
-    Ok(source)
+    Ok((source, format_captures))
 }
 
 /// Escape literal text and translate `<converter:name>` placeholders.
-fn translate_literal(raw: &RawRoute, text: &str, out: &mut String) -> Result<(), RouteTableError> {
+fn translate_literal(
+    raw: &RawRoute,
+    text: &str,
+    out: &mut String,
+    format_captures: &mut Vec<bool>,
+) -> Result<(), RouteTableError> {
     let mut rest = text;
     while let Some(start) = rest.find('<') {
         let (before, after) = rest.split_at(start);
@@ -252,6 +273,7 @@ fn translate_literal(raw: &RawRoute, text: &str, out: &mut String) -> Result<(),
         out.push('>');
         out.push_str(converter_regex(raw, converter)?);
         out.push(')');
+        format_captures.push(converter == "drf_format_suffix");
         rest = &after[end + 1..];
     }
     out.push_str(&regex::escape(rest));
@@ -437,7 +459,7 @@ mod tests {
             csrf_exempt: true,
             params: Default::default(),
         };
-        let source = compile(&raw).expect("compiles");
+        let (source, _) = compile(&raw).expect("compiles");
         let regex = Regex::new(&source).expect("regex");
         assert!(regex.is_match("/api/workspaces/x/work-items/ABC-1/"));
         assert!(!regex.is_match("/api/workspaces/x/work-items/ABC/"));
@@ -458,7 +480,7 @@ mod tests {
             csrf_exempt: true,
             params: Default::default(),
         };
-        let source = compile(&raw).expect("compiles");
+        let (source, _) = compile(&raw).expect("compiles");
         // The prefix is escaped and translated, the suffix stays regex, and the
         // `^` anchors the suffix in the flattened string.
         let regex = Regex::new(&source).expect("regex");

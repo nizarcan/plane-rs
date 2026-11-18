@@ -316,6 +316,25 @@ unordered_json_paths:
     mode: array
     request: "*group_by=issue_module__module_id*"
     why: "plane/utils/paginator.py:599-605 builds the array from list(set(...)); D16 compares it as a multiset"
+  # `GET /api/v1/workspaces/{slug}/projects/` orders by the caller's
+  # `project_members.sort_order` annotation (`plane/api/views/project.py:177-201`),
+  # which the fixture leaves at its default 65535 for every row; equal sort keys
+  # have no order Postgres guarantees, and Rust's statement is not byte-identical
+  # SQL. Compare the page as a multiset (D16). `?order_by=` still sorts, but the
+  # response shape is the same envelope, so one rule covers both.
+  - path: "$.results"
+    mode: array
+    request: "GET /api/v1/workspaces/*/projects/*"
+    why: "plane/api/views/project.py:177-201 orders by a tied `sort_order` subquery; D16 compares the page as a multiset"
+
+  # `ProjectSummaryAPIEndpoint` builds `counts` from a Python set
+  # (`plane/api/views/project.py:733-739`); Rust writes the keys in ascending
+  # order (D16), so the object is compared by key set and value.
+  - path: "$.counts"
+    mode: object_keys
+    request: "*projects/*/summary*"
+    why: "plane/api/views/project.py:733-739 iterates a set; D16 compares the key set"
+
   # A row that an issue contributes to more than one group is the *same dict*
   # object in Python, appended under every group id (plane/utils/paginator.py:355).
   # Its raw group column therefore keeps whichever of the issue's rows the
@@ -721,11 +740,15 @@ volatile_db_columns:
   # create and the users-me join (190) alike; the latter only soft-deletes
   # fixture rows, so `token` never appears in its diff (only changed columns are
   # compared) and a fixture's two-`uuid4().hex` value stays literal.
+  # The app's workspace-invitation create writes the PyJWT; the v1 create
+  # (`plane/api/views/invite.py:93`) never sets one and Django's CharField
+  # default is `""`. Scope the rule to the app route so v1's empty token is
+  # compared literally (it is identical on both targets).
   - table: workspace_member_invites
     column: token
     placeholder: invite-token
     shape: invite_token
-    request: "POST */invitations/"
+    request: "POST /api/workspaces/*/invitations/"
     why: "WorkspaceMemberInvite.token = jwt.encode({email, timestamp}, SECRET_KEY, HS256) on create (plane/app/views/workspace/invite.py:90-99)"
   - table: labels
     column: color
