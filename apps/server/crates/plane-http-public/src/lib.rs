@@ -69,12 +69,23 @@
 //! upstream bugs that are ported as they are.
 
 pub mod common;
+pub mod invitations;
+pub mod invitations_queries;
 pub mod issue_subresources;
 pub mod issue_subresources_queries;
 pub mod issue_subresources_write;
 pub mod issues;
 pub mod issues_queries;
+pub mod members;
+pub mod members_queries;
+pub mod projects;
+pub mod projects_queries;
+pub mod roots;
 pub mod search;
+pub mod stickies;
+pub mod stickies_queries;
+pub mod users;
+pub mod users_queries;
 
 use plane_drf::registry::{Registry, RegistryError};
 
@@ -84,9 +95,15 @@ use plane_drf::registry::{Registry, RegistryError};
 /// so the ordering rule (after `/api/`, before `finish`) is stated once. Sets
 /// add one line each, alphabetically by module.
 pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
+    invitations::register(registry)?;
     issue_subresources::register(registry)?;
     issue_subresources_write::register(registry)?;
     issues::register(registry)?;
+    members::register(registry)?;
+    projects::register(registry)?;
+    roots::register(registry)?;
     search::register(registry)?;
+    stickies::register(registry)?;
+    users::register(registry)?;
     Ok(())
 }

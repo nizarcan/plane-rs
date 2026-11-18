@@ -541,6 +541,11 @@ pub struct RoutePolicy {
     pub methods: Vec<MethodPolicy>,
     /// `head` and/or `options` the view answers without a registered handler.
     pub implicit_methods: Vec<Method>,
+    /// `as_view(http_method_names=[...])`'s list (or Django's default). Django's
+    /// `dispatch` asks `method.lower() in self.http_method_names` before it
+    /// looks for a handler, so a verb outside the list is a 405 even when the
+    /// class implements it for another URL shape.
+    pub http_method_names: Vec<Method>,
     /// The precomputed `Allow` header (`APIView.default_response_headers`).
     /// `None` for a function view, which never restricts methods.
     pub allow: Option<String>,
@@ -610,16 +615,18 @@ impl RoutePolicy {
             // Function views accept every method.
             return true;
         }
-        if self.methods.iter().any(|entry| entry.method == *method) {
-            return true;
+        // `django/views/generic/base.py:134-144`: a verb outside
+        // `http_method_names` goes straight to `http_method_not_allowed`.
+        if !self.http_method_names.contains(method) {
+            return false;
         }
-        if *method == Method::HEAD && self.methods.iter().any(|e| e.method == Method::GET) {
-            return true;
+        // DRF's `APIView` (and Django's `View`) define `options`; no DRF class
+        // defines `head`, so HEAD is a 405 on every DRF row (`getattr(self,
+        // "head", self.http_method_not_allowed)`).
+        if *method == Method::OPTIONS {
+            return self.implicit_methods.contains(&Method::OPTIONS);
         }
-        if *method == Method::OPTIONS && self.implicit_methods.contains(&Method::OPTIONS) {
-            return true;
-        }
-        false
+        self.methods.iter().any(|entry| entry.method == *method)
     }
 
     pub fn effective_throttles(&self, action: Option<&str>) -> &[ThrottleClass] {
@@ -964,6 +971,7 @@ fn resolve_route(raw: RawRoute) -> Result<RoutePolicy, PolicyError> {
         dynamic_throttles,
         dynamic_authenticators: raw.dynamic_authenticators,
         guard_actions,
+        http_method_names,
         options: OptionsMetadata {
             attempts,
             actions_json: raw.options_metadata.actions_json,

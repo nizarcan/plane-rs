@@ -38,6 +38,31 @@ fn catalogs() -> Vec<Catalog> {
             source: "issue_subresources_queries.rs",
             queries: plane_http_public::issue_subresources_queries::ALL_QUERIES,
         },
+        Catalog {
+            domain: "invitations",
+            source: "invitations_queries.rs",
+            queries: plane_http_public::invitations_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "members",
+            source: "members_queries.rs",
+            queries: plane_http_public::members_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "projects",
+            source: "projects_queries.rs",
+            queries: plane_http_public::projects_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "stickies",
+            source: "stickies_queries.rs",
+            queries: plane_http_public::stickies_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "users",
+            source: "users_queries.rs",
+            queries: plane_http_public::users_queries::ALL_QUERIES,
+        },
     ]
 }
 
