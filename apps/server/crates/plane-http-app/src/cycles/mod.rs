@@ -39,7 +39,7 @@ pub mod write_queries;
 // Set B: cycle issues and the transfer snapshot (routes 33, 34, 38).
 mod write_issue;
 pub mod write_issue_queries;
-mod write_transfer;
+pub mod write_transfer;
 
 /// Register this group's handlers, in the order they were ported.
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {

@@ -173,7 +173,7 @@ fn localize(naive: NaiveDateTime, timezone: Tz) -> DateTime<Utc> {
 }
 
 /// `plane/utils/timezone_converter.py:43-95`.
-fn convert_to_utc(
+pub fn convert_to_utc(
     day: NaiveDate,
     timezone: Tz,
     is_start: bool,

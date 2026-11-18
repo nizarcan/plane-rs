@@ -594,14 +594,20 @@ plane_db::plane_query! {
     /// `Cycle.objects.create(**validated_data, project_id=…)`
     /// (`serializers/cycle.py:83-121` + `db/models/cycle.py:88-97`).
     ///
+    /// The three `jsonb` columns and `version` are `NOT NULL`, so the model's
+    /// defaults (`{}`, `{}`, `{}`, `1`) are written explicitly.
+    ///
     /// Bind order: id, created_at, updated_at, created_by, project, workspace,
     /// name, description, start_date, end_date, owned_by, sort_order,
-    /// external_source, external_id, timezone.
+    /// external_source, external_id, timezone, version.
     CYCLE_INSERT = "v1_cycles_insert",
     "INSERT INTO cycles (id, created_at, updated_at, created_by_id, \
-         project_id, workspace_id, name, description, start_date, end_date, \
-         owned_by_id, sort_order, external_source, external_id, timezone) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+         updated_by_id, deleted_at, project_id, workspace_id, name, description, \
+         start_date, end_date, owned_by_id, view_props, sort_order, \
+         external_source, external_id, progress_snapshot, logo_props, \
+         archived_at, timezone, version) \
+     VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6, $7, $8, $9, $10, $11, \
+             '{}'::jsonb, $12, $13, $14, '{}'::jsonb, '{}'::jsonb, NULL, $15, $16)",
     []
 }
 
@@ -723,6 +729,238 @@ plane_db::plane_query! {
     [("?column?", Int4)]
 }
 
+// ---------------------------------------------------------------------------
+// Cycle-issue bulk add/remove (282 POST, 283 DELETE)
+// ---------------------------------------------------------------------------
+
+/// The `CycleIssueSerializer` read row: id, `sub_issues_count`, then the model
+/// columns in `_readable_fields` order.
+static CYCLE_ISSUE_READ_COLUMNS: [Column; 11] = [
+    Column {
+        name: "id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "sub_issues_count",
+        pg_type: PgType::Int8,
+    },
+    Column {
+        name: "created_at",
+        pg_type: PgType::Timestamptz,
+    },
+    Column {
+        name: "updated_at",
+        pg_type: PgType::Timestamptz,
+    },
+    Column {
+        name: "deleted_at",
+        pg_type: PgType::Timestamptz,
+    },
+    Column {
+        name: "created_by_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "updated_by_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "project_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "workspace_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "issue_id",
+        pg_type: PgType::Uuid,
+    },
+    Column {
+        name: "cycle_id",
+        pg_type: PgType::Uuid,
+    },
+];
+
+/// `CycleIssue.objects.filter(~Q(cycle_id=…), issue_id__in=issues,
+/// workspace__slug=slug, project_id=…)`, in `Meta.ordering` (`-created_at`)
+/// (`cycle.py:989-996`).
+///
+/// Bind order: `$1` the URL cycle id, `$2` the requested issue ids, `$3` the
+/// workspace slug, `$4` the project id.
+pub static CYCLE_ISSUES_IN_OTHER_CYCLES: Query = Query {
+    name: "v1_cycles_issues_in_other_cycles",
+    sql: "SELECT cycle_issues.id, cycle_issues.issue_id, cycle_issues.cycle_id \
+          FROM cycle_issues \
+          INNER JOIN workspaces ON cycle_issues.workspace_id = workspaces.id \
+          WHERE cycle_issues.deleted_at IS NULL AND cycle_issues.cycle_id <> $1 \
+            AND cycle_issues.issue_id = ANY($2) AND workspaces.slug = $3 \
+            AND cycle_issues.project_id = $4 \
+          ORDER BY cycle_issues.created_at DESC",
+    columns: &[
+        Column {
+            name: "id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "issue_id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "cycle_id",
+            pg_type: PgType::Uuid,
+        },
+    ],
+};
+
+/// `Issue.issue_objects.filter(workspace__slug=slug, project_id=project_id,
+/// pk__in=new_issues).values_list("id", flat=True)` (`cycle.py:1003-1010`),
+/// in `Issue.Meta.ordering` (`-created_at`).
+///
+/// Bind order: `$1` the workspace slug, `$2` the project id, `$3` the candidate
+/// ids.
+pub static CYCLE_NEW_ISSUE_IDS: Query = Query {
+    name: "v1_cycles_new_issue_ids",
+    sql: "SELECT issues.id FROM issues \
+          INNER JOIN workspaces ON issues.workspace_id = workspaces.id \
+          WHERE (issues.deleted_at IS NULL) \
+            AND (NOT (EXISTS (SELECT 1 FROM states WHERE states.id = issues.state_id \
+                  AND states.\"group\" = 'triage' AND states.\"group\" IS NOT NULL))) \
+            AND (NOT ((issues.archived_at IS NOT NULL))) \
+            AND (NOT (EXISTS (SELECT 1 FROM projects WHERE projects.id = issues.project_id \
+                  AND projects.archived_at IS NOT NULL))) \
+            AND (NOT ((issues.is_draft))) \
+            AND workspaces.slug = $1 AND issues.project_id = $2 \
+            AND issues.id = ANY($3) \
+          ORDER BY issues.created_at DESC",
+    columns: &[Column {
+        name: "id",
+        pg_type: PgType::Uuid,
+    }],
+};
+
+plane_db::plane_query! {
+    /// One `CycleIssue` of the v1 bulk add (`cycle.py:1013-1025`): the model
+    /// instances carry no audit columns, and `bulk_create` bypasses `save()`,
+    /// so `created_by_id`/`updated_by_id` stay `NULL`. The call passes
+    /// `ignore_conflicts=True`, so an issue already in this cycle is a no-op.
+    ///
+    /// Bind order: id, created_at, updated_at, project, workspace, issue, cycle.
+    CYCLE_ISSUE_INSERT = "v1_cycles_issue_insert",
+    "INSERT INTO cycle_issues \
+     (id, created_at, updated_at, created_by_id, updated_by_id, deleted_at, \
+      project_id, workspace_id, issue_id, cycle_id) \
+     VALUES ($1, $2, $3, NULL, NULL, NULL, $4, $5, $6, $7) \
+     ON CONFLICT DO NOTHING",
+    []
+}
+
+plane_db::plane_query! {
+    /// `CycleIssue.objects.bulk_update(rows, ["cycle_id"], batch_size=100)`
+    /// (`cycle.py:1047`): the FK only, no `updated_at`.
+    ///
+    /// Bind order: cycle id, row ids.
+    CYCLE_ISSUE_MOVE = "v1_cycles_issue_move",
+    "UPDATE cycle_issues SET cycle_id = $1 WHERE id = ANY($2)",
+    []
+}
+
+/// The `CycleIssueSerializer(get_queryset(), many=True)` read of the bulk
+/// add's 200 body (`cycle.py:853-875`, `:1067-1070`).
+///
+/// Bind order: `$1` workspace slug, `$2` project id, `$3` user id, `$4` cycle
+/// id.
+pub static CYCLE_ISSUE_LIST_ROWS: Query = Query {
+    name: "v1_cycles_issue_list_rows",
+    sql: concat!(
+        "SELECT DISTINCT cycle_issues.id, ",
+        "(SELECT COUNT(sub.id) FROM issues sub \
+         WHERE (sub.deleted_at IS NULL) \
+           AND (NOT (EXISTS (SELECT 1 FROM states WHERE states.id = sub.state_id \
+                 AND states.\"group\" = 'triage' AND states.\"group\" IS NOT NULL))) \
+           AND (NOT ((sub.archived_at IS NOT NULL))) \
+           AND (NOT (EXISTS (SELECT 1 FROM projects WHERE projects.id = sub.project_id \
+                 AND projects.archived_at IS NOT NULL))) \
+           AND (NOT ((sub.is_draft))) \
+           AND sub.parent_id = cycle_issues.issue_id) AS sub_issues_count, \
+         cycle_issues.created_at, cycle_issues.updated_at, \
+         cycle_issues.deleted_at, cycle_issues.created_by_id, \
+         cycle_issues.updated_by_id, cycle_issues.project_id, \
+         cycle_issues.workspace_id, cycle_issues.issue_id, cycle_issues.cycle_id \
+         FROM cycle_issues \
+         INNER JOIN workspaces ON cycle_issues.workspace_id = workspaces.id \
+         INNER JOIN project_members \
+             ON project_members.project_id = cycle_issues.project_id \
+         WHERE cycle_issues.deleted_at IS NULL AND workspaces.slug = $1 \
+           AND cycle_issues.project_id = $2 \
+           AND project_members.member_id = $3 AND project_members.is_active \
+           AND cycle_issues.cycle_id = $4 \
+         ORDER BY cycle_issues.created_at DESC"
+    ),
+    columns: &CYCLE_ISSUE_READ_COLUMNS,
+};
+
+/// `CycleIssue.objects.get(workspace__slug, project_id, cycle_id, issue_id)`
+/// (`cycle.py:1156-1161`): the soft-delete manager, no `archived_at` filter.
+///
+/// Bind order: `$1` workspace slug, `$2` project id, `$3` cycle id, `$4` issue
+/// id.
+pub static CYCLE_ISSUE_ROW: Query = Query {
+    name: "v1_cycles_issue_row",
+    sql: "SELECT cycle_issues.id, cycle_issues.created_at, \
+          cycle_issues.updated_at, cycle_issues.deleted_at, \
+          cycle_issues.created_by_id, cycle_issues.updated_by_id, \
+          cycle_issues.project_id, cycle_issues.workspace_id, \
+          cycle_issues.issue_id, cycle_issues.cycle_id \
+          FROM cycle_issues \
+          INNER JOIN workspaces ON cycle_issues.workspace_id = workspaces.id \
+          WHERE cycle_issues.deleted_at IS NULL AND workspaces.slug = $1 \
+            AND cycle_issues.project_id = $2 AND cycle_issues.cycle_id = $3 \
+            AND cycle_issues.issue_id = $4",
+    columns: &[
+        Column {
+            name: "id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "created_at",
+            pg_type: PgType::Timestamptz,
+        },
+        Column {
+            name: "updated_at",
+            pg_type: PgType::Timestamptz,
+        },
+        Column {
+            name: "deleted_at",
+            pg_type: PgType::Timestamptz,
+        },
+        Column {
+            name: "created_by_id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "updated_by_id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "project_id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "workspace_id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "issue_id",
+            pg_type: PgType::Uuid,
+        },
+        Column {
+            name: "cycle_id",
+            pg_type: PgType::Uuid,
+        },
+    ],
+};
+
 /// Every statement this file declares, for `tests/schema_check.rs`.
 pub static ALL_QUERIES: &[&Query] = &[
     &CYCLE_LIST,
@@ -749,4 +987,10 @@ pub static ALL_QUERIES: &[&Query] = &[
     &CYCLE_CLEAR_ARCHIVED,
     &CYCLE_PROJECT_ADMIN,
     &CYCLE_WORKSPACE_ADMIN,
+    &CYCLE_ISSUES_IN_OTHER_CYCLES,
+    &CYCLE_NEW_ISSUE_IDS,
+    &CYCLE_ISSUE_INSERT,
+    &CYCLE_ISSUE_MOVE,
+    &CYCLE_ISSUE_LIST_ROWS,
+    &CYCLE_ISSUE_ROW,
 ];

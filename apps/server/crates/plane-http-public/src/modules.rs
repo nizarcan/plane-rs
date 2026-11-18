@@ -15,15 +15,23 @@
 //! | 305 `pr/archived-modules/` | GET | the same view's `get` (`module.py:1067-1079`) |
 //! | 306 `pr/archived-modules/{pk}/unarchive/` | DELETE | the same view's `delete` (`module.py:1129-1138`) |
 //!
-//! ## Not ported yet (the routes stay on Django)
+//! ## The writes
 //!
-//! `POST pr/modules/` (create), `PATCH pr/modules/{pk}/`, `POST
-//! …/module-issues/` (the duplicate-instead-of-move bulk add) and `DELETE
-//! …/module-issues/{issue_id}/` are not registered. The SQL they need is
-//! catalogued in [`modules_queries`] (`MODULE_INSERT`, `MODULE_UPDATE`,
-//! `MODULE_MEMBER_INSERT`, `MODULE_ISSUE_ROW`, …); the handler work is the
-//! two serializers' `validate`/`create`/`update`, the `ModuleMember` through
-//! rows, and the `serializers.serialize("json", …)` payload of the bulk add.
+//! `POST pr/modules/` and `PATCH pr/modules/{pk}/` use the generated
+//! `ModuleCreateSerializer`/`ModuleUpdateSerializer` tables. The create's
+//! duplicate-name guard raises DRF's four-key `{"id","code","error","message"}`
+//! body from `create()` (`serializers/module.py:88-100`); the PATCH's raises
+//! `{"error": …}` from `update()` (`:140-166`) and **rewrites every
+//! `module_members` row** when the body carries `members` (delete + insert).
+//! A PATCH response is the *update* serializer's eight writable fields, not
+//! `ModuleSerializer` (`api/views/module.py:500`).
+//!
+//! `POST …/module-issues/` is the ported duplicate-instead-of-move bulk add:
+//! every requested issue is inserted with `ignore_conflicts=True` (an
+//! existing row in this module is a no-op, an issue in another module gets a
+//! second row) and the activity's `requested_data` carries the queryset repr
+//! `<SoftDeletionQuerySet [UUID('…')]>`. `DELETE …/module-issues/{issue_id}/`
+//! is H03 plus the cascade task.
 //!
 //! ## The manual serializer
 //!
@@ -57,6 +65,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use deadpool_postgres::Client;
 use plane_core::error::APPLICATION_JSON;
 use plane_db::JsonText;
+use plane_db::hooks;
 use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 use plane_drf::view::{BoxFuture, ViewCtx, ViewResponse};
@@ -104,17 +113,23 @@ fn sanitize_order_by(value: &str) -> String {
 pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
     registry
         .api_view("plane.api.views.module.ModuleListCreateAPIEndpoint")?
-        .method(http::Method::GET, list)?;
+        .method(http::Method::GET, list)?
+        .method(http::Method::POST, create)?;
     registry
         .api_view("plane.api.views.module.ModuleListLiteAPIEndpoint")?
         .method(http::Method::GET, lite_list)?;
     registry
         .api_view("plane.api.views.module.ModuleDetailAPIEndpoint")?
         .method(http::Method::GET, detail)?
+        .method(http::Method::PATCH, patch)?
         .method(http::Method::DELETE, delete)?;
     registry
         .api_view("plane.api.views.module.ModuleIssueListCreateAPIEndpoint")?
-        .method(http::Method::GET, issue_list)?;
+        .method(http::Method::GET, issue_list)?
+        .method(http::Method::POST, issue_add)?;
+    registry
+        .api_view("plane.api.views.module.ModuleIssueDetailAPIEndpoint")?
+        .method(http::Method::DELETE, issue_remove)?;
     registry
         .api_view("plane.api.views.module.ModuleArchiveUnarchiveAPIEndpoint")?
         .method(http::Method::GET, archived_list)?
@@ -130,6 +145,10 @@ pub fn register(registry: &mut Registry) -> Result<(), RegistryError> {
 /// One read row: the 28 serializer columns, in `_readable_fields` order.
 #[derive(Debug)]
 pub(crate) struct ModuleRow {
+    /// Whether the six issue counts were annotated by the statement. A bare
+    /// `Module.objects.get` row leaves them out of the body, because DRF skips
+    /// a declared read-only field the instance does not have.
+    annotated: bool,
     pub(crate) id: Uuid,
     pub(crate) total_issues: i64,
     pub(crate) cancelled_issues: i64,
@@ -172,6 +191,7 @@ impl ModuleRow {
     /// A bare row (`MODULE_ROW`/`MODULE_BY_PK`).
     fn from_plain_row(row: &tokio_postgres::Row) -> Result<Self, ViewError> {
         Ok(Self {
+            annotated: false,
             id: row.try_get(0).map_err(ViewError::from)?,
             total_issues: 0,
             cancelled_issues: 0,
@@ -207,6 +227,7 @@ impl ModuleRow {
     /// id, the six counts, then the 21 model columns.
     fn from_read_row(row: &tokio_postgres::Row) -> Result<Self, ViewError> {
         Ok(Self {
+            annotated: true,
             id: row.try_get(0).map_err(ViewError::from)?,
             total_issues: row.try_get(1).map_err(ViewError::from)?,
             cancelled_issues: row.try_get(2).map_err(ViewError::from)?,
@@ -289,22 +310,22 @@ impl DrfSerialize for ModuleBody<'_> {
         if ctx.emits("id", MODE) {
             obj.field_dyn("id", ctx, &DrfUuid(row.id))?;
         }
-        if ctx.emits("total_issues", MODE) {
+        if row.annotated && ctx.emits("total_issues", MODE) {
             obj.field_dyn("total_issues", ctx, &row.total_issues)?;
         }
-        if ctx.emits("cancelled_issues", MODE) {
+        if row.annotated && ctx.emits("cancelled_issues", MODE) {
             obj.field_dyn("cancelled_issues", ctx, &row.cancelled_issues)?;
         }
-        if ctx.emits("completed_issues", MODE) {
+        if row.annotated && ctx.emits("completed_issues", MODE) {
             obj.field_dyn("completed_issues", ctx, &row.completed_issues)?;
         }
-        if ctx.emits("started_issues", MODE) {
+        if row.annotated && ctx.emits("started_issues", MODE) {
             obj.field_dyn("started_issues", ctx, &row.started_issues)?;
         }
-        if ctx.emits("unstarted_issues", MODE) {
+        if row.annotated && ctx.emits("unstarted_issues", MODE) {
             obj.field_dyn("unstarted_issues", ctx, &row.unstarted_issues)?;
         }
-        if ctx.emits("backlog_issues", MODE) {
+        if row.annotated && ctx.emits("backlog_issues", MODE) {
             obj.field_dyn("backlog_issues", ctx, &row.backlog_issues)?;
         }
         if ctx.emits("created_at", MODE) {
@@ -920,8 +941,816 @@ pub fn detail<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
 }
 
 // ---------------------------------------------------------------------------
-// 302 GET — module work items
+// Writes: 299 POST, 301 PATCH, 302 POST, 303 DELETE
 // ---------------------------------------------------------------------------
+
+/// The `ModuleCreateSerializer`/`ModuleUpdateSerializer` fields, after the
+/// generated field pass.
+#[derive(Default)]
+struct ModuleWrite {
+    name: Option<String>,
+    description: Option<String>,
+    start_date: Option<NaiveDate>,
+    target_date: Option<NaiveDate>,
+    status: Option<String>,
+    lead: Option<Uuid>,
+    members: Option<Vec<Uuid>>,
+    external_source: Option<String>,
+    external_id: Option<String>,
+}
+
+fn module_write(values: &plane_http_app::write::Validated) -> Result<ModuleWrite, ViewError> {
+    Ok(ModuleWrite {
+        name: values.text("name").map(str::to_owned),
+        description: values.text("description").map(str::to_owned),
+        start_date: values.date("start_date"),
+        target_date: values.date("target_date"),
+        status: values.text("status").map(str::to_owned),
+        lead: values.uuid("lead"),
+        members: values.uuid_list("members").map(<[Uuid]>::to_vec),
+        external_source: values.text("external_source").map(str::to_owned),
+        external_id: values.text("external_id").map(str::to_owned),
+    })
+}
+
+/// `ModuleCreateSerializer.validate` (`api/serializers/module.py:60-81`).
+async fn validate_module_write(
+    ctx: &ViewCtx<'_>,
+    client: &Client,
+    project_id: Uuid,
+    write: &mut ModuleWrite,
+) -> Result<Option<ViewResponse>, ViewError> {
+    // `Project.objects.get(id=project_id)` (`:64`): a miss is a
+    // `DoesNotExist` out of `is_valid()`, which is the family 500 — but the
+    // view already resolved the project, so it cannot happen here.
+    let project = client
+        .query_opt(queries::MODULE_PROJECT_BY_ID.sql, &[&project_id])
+        .await
+        .map_err(cycles::db_error)?
+        .ok_or_else(|| {
+            ViewError::Unknown("Project.DoesNotExist: the project vanished".to_owned())
+        })?;
+    let module_view: bool = project.try_get(1).map_err(cycles::db_error)?;
+    if !module_view {
+        return Ok(Some(cycles::non_field_errors(
+            "Modules are not enabled for this project",
+        )));
+    }
+    if let (Some(start), Some(target)) = (write.start_date, write.target_date)
+        && start > target
+    {
+        return Ok(Some(cycles::non_field_errors(
+            "Start date cannot exceed target date",
+        )));
+    }
+    // `if data.get("members", [])`: replace the list with the project members
+    // that exist, in `ProjectMember.Meta.ordering` (`:76-79`).
+    if write
+        .members
+        .as_ref()
+        .is_some_and(|members| !members.is_empty())
+    {
+        let requested = write.members.clone().unwrap_or_default();
+        let rows = client
+            .query(
+                queries::MODULE_PROJECT_MEMBERS.sql,
+                &[&project_id, &requested],
+            )
+            .await
+            .map_err(cycles::db_error)?;
+        let mut found = Vec::with_capacity(rows.len());
+        for row in &rows {
+            found.push(row.try_get::<_, Uuid>(0).map_err(cycles::db_error)?);
+        }
+        write.members = Some(found);
+    }
+    let _ = ctx;
+    Ok(None)
+}
+
+/// `ModuleSerializer(module)` for a bare instance: the six counts are skipped
+/// and `members` is appended (`serializers/module.py:203-206`).
+async fn render_plain_module(
+    ctx: &ViewCtx<'_>,
+    client: &Client,
+    row: &ModuleRow,
+) -> Result<Vec<u8>, ViewError> {
+    let members = member_ids(client, row.id).await?;
+    let timezone = ctx.timezone.copied().unwrap_or(chrono_tz::UTC);
+    plane_serializers::render(
+        &ModuleBody {
+            row,
+            members: &members,
+        },
+        &RenderCtx::full(&timezone),
+    )
+    .map_err(ViewError::from)
+}
+
+/// `json.dumps(ModuleSerializer(module).data, cls=DjangoJSONEncoder)` — the
+/// PATCH activity's `current_instance` (`module.py:461`).
+async fn plain_module_json(
+    ctx: &ViewCtx<'_>,
+    client: &Client,
+    row: &ModuleRow,
+) -> Result<String, ViewError> {
+    let body = render_plain_module(ctx, client, row).await?;
+    let value = plane_serde::pyjson::loads(&body, "utf-8")
+        .map_err(|error| ViewError::Unknown(error.to_string()))?;
+    let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, &value)
+        .map_err(|error| ViewError::Unknown(error.to_string()))?;
+    String::from_utf8(bytes).map_err(|error| ViewError::Unknown(error.to_string()))
+}
+
+/// `ModuleListCreateAPIEndpoint.post` (`api/views/module.py:195-244`).
+pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = cycles::params(ctx)?;
+        let client = cycles::client(ctx)?;
+
+        // `Project.objects.get(pk=project_id, workspace__slug=slug)` (`:201`).
+        let project = client
+            .query_opt(
+                queries::MODULE_PROJECT.sql,
+                &[&params.project_id, &params.slug],
+            )
+            .await
+            .map_err(cycles::db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let workspace_id: Uuid = project.try_get(2).map_err(cycles::db_error)?;
+
+        let mut serializer = plane_http_app::write::Serializer::new(ctx, false)?;
+        plane_http_app::write::generated::module_create_serializer::validate(
+            &mut serializer,
+            client,
+        )
+        .await?;
+        let values = match serializer.finish() {
+            Ok(values) => values,
+            Err(errors) => return Ok(errors.into_response()),
+        };
+        let mut write = module_write(&values)?;
+        if let Some(response) =
+            validate_module_write(ctx, client, params.project_id, &mut write).await?
+        {
+            return Ok(response);
+        }
+        let members = write.members.take();
+
+        // `create()` (`:83-121`): the duplicate-name guard, then the row.
+        let name = write
+            .name
+            .clone()
+            .ok_or_else(|| ViewError::Unknown("validated name vanished".to_owned()))?;
+        if let Some(existing) = client
+            .query_opt(queries::MODULE_BY_NAME.sql, &[&params.project_id, &name])
+            .await
+            .map_err(cycles::db_error)?
+        {
+            let id: Uuid = existing.try_get(0).map_err(cycles::db_error)?;
+            let body = plane_query::json::Json::object(vec![
+                ("id", plane_query::json::Json::string(id.to_string())),
+                (
+                    "code",
+                    plane_query::json::Json::string("MODULE_NAME_ALREADY_EXISTS"),
+                ),
+                (
+                    "error",
+                    plane_query::json::Json::string("Module with this name already exists"),
+                ),
+                (
+                    "message",
+                    plane_query::json::Json::string("Module with this name already exists"),
+                ),
+            ]);
+            return Ok(ViewResponse::raw(400, APPLICATION_JSON, body.to_drf()));
+        }
+
+        let sort_order = hooks::module::before_insert(client, params.project_id, 65535.0)
+            .await
+            .map_err(ViewError::from)?;
+        let now = plane_http_app::write::now();
+        let id = Uuid::new_v4();
+        let insert = queries::MODULE_INSERT
+            .prepare(client)
+            .await
+            .map_err(ViewError::from)?;
+        client
+            .execute(
+                &insert,
+                &[
+                    &id,
+                    &now,
+                    &now,
+                    &Some(params.user_id),
+                    &params.project_id,
+                    &workspace_id,
+                    &name,
+                    &write.description.clone().unwrap_or_default(),
+                    &write.start_date,
+                    &write.target_date,
+                    &write.status.clone().unwrap_or_else(|| "planned".to_owned()),
+                    &write.lead,
+                    &sort_order,
+                    &write.external_source,
+                    &write.external_id,
+                ],
+            )
+            .await
+            .map_err(cycles::integrity_or_unknown)?;
+
+        // `ModuleMember.objects.bulk_create([...], ignore_conflicts=True)`
+        // (`:104-119`), `created_by=module.created_by` (the request user) and
+        // `updated_by=module.updated_by` (`NULL`).
+        if let Some(members) = members {
+            for member in members {
+                client
+                    .execute(
+                        queries::MODULE_MEMBER_INSERT.sql,
+                        &[
+                            &Uuid::new_v4(),
+                            &now,
+                            &now,
+                            &Some(params.user_id),
+                            &None::<Uuid>,
+                            &params.project_id,
+                            &workspace_id,
+                            &id,
+                            &member,
+                        ],
+                    )
+                    .await
+                    .map_err(cycles::integrity_or_unknown)?;
+            }
+        }
+
+        // `model_activity.delay(...)` (`:232-240`), `current_instance=None`.
+        cycles::publish_model_activity(ctx, &params.slug, id, None, params.user_id).await?;
+
+        // `Module.objects.get(pk=…)` then `ModuleSerializer(module)` (`:241-243`).
+        let row = client
+            .query_opt(queries::MODULE_BY_PK.sql, &[&id])
+            .await
+            .map_err(cycles::db_error)?
+            .ok_or_else(|| ViewError::Unknown("the created module vanished".to_owned()))?;
+        let module = ModuleRow::from_plain_row(&row)?;
+        Ok(ViewResponse::raw(
+            201,
+            APPLICATION_JSON,
+            render_plain_module(ctx, client, &module).await?,
+        ))
+    })
+}
+
+/// `ModuleDetailAPIEndpoint.patch` (`api/views/module.py:453-501`).
+pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = cycles::params(ctx)?;
+        let pk = cycles::uuid_kwarg(ctx, "pk")?;
+        let client = cycles::client(ctx)?;
+
+        let row = client
+            .query_opt(
+                queries::MODULE_ROW.sql,
+                &[&params.slug, &params.project_id, &pk],
+            )
+            .await
+            .map_err(cycles::db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let module = ModuleRow::from_plain_row(&row)?;
+        // `current_instance = json.dumps(ModuleSerializer(module).data, …)`
+        // (`:461`), before the archived guard.
+        let current_instance = plain_module_json(ctx, client, &module).await?;
+        if module.archived_at.is_some() {
+            return Ok(cycles::error_body(400, "Archived module cannot be edited"));
+        }
+
+        let mut serializer = plane_http_app::write::Serializer::new(ctx, true)?;
+        plane_http_app::write::generated::module_update_serializer::validate(
+            &mut serializer,
+            client,
+        )
+        .await?;
+        let values = match serializer.finish() {
+            Ok(values) => values,
+            Err(errors) => return Ok(errors.into_response()),
+        };
+        let mut write = module_write(&values)?;
+        if let Some(response) =
+            validate_module_write(ctx, client, params.project_id, &mut write).await?
+        {
+            return Ok(response);
+        }
+
+        // `ModuleUpdateSerializer.update` (`:140-166`): the name conflict first.
+        if let Some(name) = write.name.as_deref()
+            && client
+                .query_opt(
+                    queries::MODULE_NAME_TAKEN.sql,
+                    &[&params.project_id, &name, &pk],
+                )
+                .await
+                .map_err(cycles::db_error)?
+                .is_some()
+        {
+            let body = plane_query::json::Json::object(vec![(
+                "error",
+                plane_query::json::Json::string("Module with this name already exists"),
+            )]);
+            return Ok(ViewResponse::raw(400, APPLICATION_JSON, body.to_drf()));
+        }
+
+        // `if members is not None:` delete every through row, then re-create
+        // the list (`:148-164`).
+        let now = plane_http_app::write::now();
+        if let Some(members) = write.members.clone() {
+            client
+                .execute(queries::MODULE_MEMBERS_SOFT_DELETE.sql, &[&now, &pk])
+                .await
+                .map_err(cycles::db_error)?;
+            for member in members {
+                client
+                    .execute(
+                        queries::MODULE_MEMBER_INSERT.sql,
+                        &[
+                            &Uuid::new_v4(),
+                            &now,
+                            &now,
+                            &module.created_by,
+                            &module.updated_by,
+                            &module.project,
+                            &module.workspace,
+                            &pk,
+                            &member,
+                        ],
+                    )
+                    .await
+                    .map_err(cycles::integrity_or_unknown)?;
+            }
+        }
+
+        // `super().update()`: assign the validated fields, then `save()`
+        // (H01/H07).
+        let update = queries::MODULE_UPDATE
+            .prepare(client)
+            .await
+            .map_err(ViewError::from)?;
+        client
+            .execute(
+                &update,
+                &[
+                    &write.name.clone().unwrap_or_else(|| module.name.clone()),
+                    &write
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| module.description.clone()),
+                    &if values.contains("start_date") {
+                        write.start_date
+                    } else {
+                        module.start_date
+                    },
+                    &if values.contains("target_date") {
+                        write.target_date
+                    } else {
+                        module.target_date
+                    },
+                    &write
+                        .status
+                        .clone()
+                        .unwrap_or_else(|| module.status.clone()),
+                    &if values.contains("lead") {
+                        write.lead
+                    } else {
+                        module.lead
+                    },
+                    &if values.contains("external_source") {
+                        write.external_source.clone()
+                    } else {
+                        module.external_source.clone()
+                    },
+                    &if values.contains("external_id") {
+                        write.external_id.clone()
+                    } else {
+                        module.external_id.clone()
+                    },
+                    &now,
+                    &Some(params.user_id),
+                    &pk,
+                ],
+            )
+            .await
+            .map_err(cycles::integrity_or_unknown)?;
+
+        // The duplicate external id check (`:470-486`) reports the URL module's
+        // id; it runs after `is_valid()` and before `save()` upstream, which
+        // reads the *stored* module.
+        if let Some(external_id) = write.external_id.as_deref()
+            && module.external_id.as_deref() != Some(external_id)
+        {
+            let source = write
+                .external_source
+                .clone()
+                .or_else(|| module.external_source.clone());
+            let exists = client
+                .query_opt(
+                    queries::MODULE_EXTERNAL_ID.sql,
+                    &[&params.project_id, &params.slug, &source, &external_id],
+                )
+                .await
+                .map_err(cycles::db_error)?;
+            if exists.is_some() {
+                return Ok(cycles::conflict_body(
+                    "Module with the same external id and external source already exists",
+                    pk,
+                ));
+            }
+        }
+
+        cycles::publish_model_activity(
+            ctx,
+            &params.slug,
+            pk,
+            Some(current_instance),
+            params.user_id,
+        )
+        .await?;
+
+        // `serializer.data` — the *update* serializer's fields, `members` is
+        // write-only (`:500`).
+        let body = render_module_update(&write, &module, &values)?;
+        Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
+    })
+}
+
+/// `ModuleUpdateSerializer(instance, …).data` after `save()`: the nine writable
+/// fields minus the write-only `members`, in `Meta.fields` order.
+fn render_module_update(
+    write: &ModuleWrite,
+    module: &ModuleRow,
+    values: &plane_http_app::write::Validated,
+) -> Result<Vec<u8>, ViewError> {
+    use plane_serde::pyjson::{PyDict, PyStr, Value};
+    let mut obj = PyDict::with_capacity(8);
+    obj.insert(
+        PyStr::new("name"),
+        Value::from(write.name.as_deref().unwrap_or(&module.name)),
+    );
+    obj.insert(
+        PyStr::new("description"),
+        Value::from(write.description.as_deref().unwrap_or(&module.description)),
+    );
+    let date =
+        |value: Option<NaiveDate>| value.map_or(Value::Null, |day| Value::from(day.to_string()));
+    obj.insert(
+        PyStr::new("start_date"),
+        if values.contains("start_date") {
+            date(write.start_date)
+        } else {
+            date(module.start_date)
+        },
+    );
+    obj.insert(
+        PyStr::new("target_date"),
+        if values.contains("target_date") {
+            date(write.target_date)
+        } else {
+            date(module.target_date)
+        },
+    );
+    obj.insert(
+        PyStr::new("status"),
+        Value::from(write.status.as_deref().unwrap_or(&module.status)),
+    );
+    let lead = if values.contains("lead") {
+        write.lead
+    } else {
+        module.lead
+    };
+    obj.insert(
+        PyStr::new("lead"),
+        lead.map_or(Value::Null, |id| Value::from(id.to_string())),
+    );
+    obj.insert(
+        PyStr::new("external_source"),
+        write
+            .external_source
+            .as_deref()
+            .or(if values.contains("external_source") {
+                None
+            } else {
+                module.external_source.as_deref()
+            })
+            .map_or(Value::Null, Value::from),
+    );
+    obj.insert(
+        PyStr::new("external_id"),
+        write
+            .external_id
+            .as_deref()
+            .or(if values.contains("external_id") {
+                None
+            } else {
+                module.external_id.as_deref()
+            })
+            .map_or(Value::Null, Value::from),
+    );
+    plane_serde::to_vec(plane_serde::Dialect::Drf, &Value::Dict(obj))
+        .map_err(|error| ViewError::Unknown(error.to_string()))
+}
+
+/// `ModuleIssueListCreateAPIEndpoint.post` (`api/views/module.py:719-790`).
+pub fn issue_add<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = cycles::params(ctx)?;
+        let module_id = cycles::uuid_kwarg(ctx, "module_id")?;
+        let client = cycles::client(ctx)?;
+        let data = ctx.data()?;
+
+        // `issues = request.data.get("issues", [])`; `if not len(issues)`
+        // (`:725-727`). `len()` of a scalar is a `TypeError` (family 500).
+        let Some(raw_issues) = cycles::raw_body_field(data, "issues") else {
+            return Ok(issues_required());
+        };
+        let ids = cycles::coerce_issue_ids(&raw_issues)?;
+        if !python_len_truthy(&raw_issues) {
+            return Ok(issues_required());
+        }
+
+        // `Module.objects.get(workspace__slug, project_id, pk)` (`:728`).
+        let module = client
+            .query_opt(
+                queries::MODULE_ROW.sql,
+                &[&params.slug, &params.project_id, &module_id],
+            )
+            .await
+            .map_err(cycles::db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let module = ModuleRow::from_plain_row(&module)?;
+
+        // `Issue.objects.filter(workspace__slug, project_id, pk__in=issues)
+        // .values_list("id", flat=True)` (`:730-732`), `-created_at` order.
+        let rows = client
+            .query(
+                queries::MODULE_ISSUE_NEW_IDS.sql,
+                &[&params.slug, &params.project_id, &ids],
+            )
+            .await
+            .map_err(cycles::db_error)?;
+        let issues: Vec<Uuid> = rows
+            .iter()
+            .map(|row| row.try_get(0).map_err(cycles::db_error))
+            .collect::<Result<_, _>>()?;
+
+        // The membership test is always false (`:740-753`): `issues` is a
+        // queryset of `UUID` objects and the probe is `str(module_issue.issue_id)
+        // in issues`, so every requested issue becomes an INSERT — a duplicate
+        // in this module is ignored by the partial unique index, an issue in
+        // another module gets a **second** row, and `updated_module_issues` is
+        // always empty.
+        let now = plane_http_app::write::now();
+        let mut created: Vec<CreatedModuleIssue> = Vec::with_capacity(issues.len());
+        for (index, issue_id) in issues.iter().enumerate() {
+            let created_at = now + chrono::Duration::microseconds(index as i64);
+            let row_id = Uuid::new_v4();
+            client
+                .execute(
+                    queries::MODULE_ISSUE_INSERT.sql,
+                    &[
+                        &row_id,
+                        &created_at,
+                        &created_at,
+                        &Some(params.user_id),
+                        &Some(params.user_id),
+                        &params.project_id,
+                        &module.workspace,
+                        &module_id,
+                        issue_id,
+                    ],
+                )
+                .await
+                .map_err(cycles::integrity_or_unknown)?;
+            created.push(CreatedModuleIssue {
+                id: row_id,
+                created_at,
+                user_id: params.user_id,
+                project_id: params.project_id,
+                workspace_id: module.workspace,
+                module_id,
+                issue_id: *issue_id,
+            });
+        }
+
+        // `requested_data = {"modules_list": str(issues)}` — the queryset's
+        // `repr`: `<SoftDeletionQuerySet [UUID('…'), …]>` (`:773`; the class is
+        // the `SoftDeletionQuerySet` `SoftDeletionManager.get_queryset`
+        // returns, `db/mixins.py:55-58`).
+        let repr = format!(
+            "<SoftDeletionQuerySet [{}]>",
+            issues
+                .iter()
+                .map(|id| format!("UUID('{id}')"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let requested =
+            plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([(
+                plane_serde::pyjson::PyStr::new("modules_list"),
+                plane_serde::pyjson::Value::from(repr),
+            )]));
+        let current = plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([
+            (
+                plane_serde::pyjson::PyStr::new("updated_module_issues"),
+                plane_serde::pyjson::Value::List(Vec::new()),
+            ),
+            (
+                plane_serde::pyjson::PyStr::new("created_module_issues"),
+                plane_serde::pyjson::Value::from(serialize_module_issues(&created)?),
+            ),
+        ]));
+        cycles::publish_issue_activity(
+            ctx,
+            cycles::ActivityShape::WithOrigin,
+            "module.activity.created",
+            cycles::django_dumps(&requested)?,
+            Some(cycles::django_dumps(&current)?),
+            None,
+            params.project_id,
+            params.user_id,
+            plane_http_app::write::now(),
+        )
+        .await?;
+
+        // `ModuleIssueSerializer(self.get_queryset(), many=True)` (`:787-790`).
+        let rows = client
+            .query(
+                queries::MODULE_ISSUE_LIST_ROWS.sql,
+                &[
+                    &params.slug,
+                    &params.project_id,
+                    &params.user_id,
+                    &module_id,
+                ],
+            )
+            .await
+            .map_err(cycles::db_error)?;
+        let body = cycles::render_module_issue_rows(&rows)?;
+        Ok(ViewResponse::raw(200, APPLICATION_JSON, body))
+    })
+}
+
+/// `{"error": "Issues are required"}` (`module.py:727`).
+fn issues_required() -> ViewResponse {
+    cycles::error_body(400, "Issues are required")
+}
+
+/// `if not len(issues)`: an unsized value is a `TypeError` (family 500), and
+/// the empty containers are the 400.
+fn python_len_truthy(value: &plane_serde::pyjson::Value) -> bool {
+    use plane_serde::pyjson::Value as Py;
+    match value {
+        Py::Null => false,
+        Py::Bool(flag) => *flag,
+        Py::Int(number) => number.as_i64() != Some(0),
+        Py::Float(number) => *number != 0.0,
+        Py::Str(text) => text.as_str().is_some_and(|text| !text.is_empty()),
+        Py::List(items) => !items.is_empty(),
+        Py::Dict(map) => map.iter().next().is_some(),
+    }
+}
+
+/// One inserted `module_issues` row as `serializers.serialize("json", …)`
+/// renders it (`module.py:780`).
+struct CreatedModuleIssue {
+    id: Uuid,
+    created_at: DateTime<Utc>,
+    user_id: Uuid,
+    project_id: Uuid,
+    workspace_id: Uuid,
+    module_id: Uuid,
+    issue_id: Uuid,
+}
+
+fn serialize_module_issues(rows: &[CreatedModuleIssue]) -> Result<String, ViewError> {
+    use plane_http_app::write::django_serialize::{
+        DjangoField, DjangoObject, DjangoValue, django_serialize,
+    };
+    let objects: Vec<DjangoObject<'_>> = rows
+        .iter()
+        .map(|row| DjangoObject {
+            model: "db.moduleissue",
+            pk: row.id,
+            fields: vec![
+                DjangoField {
+                    name: "created_at",
+                    value: DjangoValue::DateTime(row.created_at),
+                },
+                DjangoField {
+                    name: "updated_at",
+                    value: DjangoValue::DateTime(row.created_at),
+                },
+                DjangoField {
+                    name: "created_by",
+                    value: DjangoValue::OptUuid(Some(row.user_id)),
+                },
+                DjangoField {
+                    name: "updated_by",
+                    value: DjangoValue::OptUuid(Some(row.user_id)),
+                },
+                DjangoField {
+                    name: "deleted_at",
+                    value: DjangoValue::OptDateTime(None),
+                },
+                DjangoField {
+                    name: "project",
+                    value: DjangoValue::Uuid(row.project_id),
+                },
+                DjangoField {
+                    name: "workspace",
+                    value: DjangoValue::Uuid(row.workspace_id),
+                },
+                DjangoField {
+                    name: "module",
+                    value: DjangoValue::Uuid(row.module_id),
+                },
+                DjangoField {
+                    name: "issue",
+                    value: DjangoValue::Uuid(row.issue_id),
+                },
+            ],
+        })
+        .collect();
+    django_serialize(&objects)
+}
+
+/// `ModuleIssueDetailAPIEndpoint.delete` (`api/views/module.py:925-949`).
+pub fn issue_remove<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {
+    Box::pin(async move {
+        let params = cycles::params(ctx)?;
+        let module_id = cycles::uuid_kwarg(ctx, "module_id")?;
+        let issue_id = cycles::uuid_kwarg(ctx, "issue_id")?;
+        let client = cycles::client(ctx)?;
+
+        let row = client
+            .query_opt(
+                queries::MODULE_ISSUE_DELETE_ROW.sql,
+                &[&params.slug, &params.project_id, &module_id, &issue_id],
+            )
+            .await
+            .map_err(cycles::db_error)?
+            .ok_or(ViewError::ObjectDoesNotExist)?;
+        let row_id: Uuid = row.try_get(0).map_err(cycles::db_error)?;
+        let issue: Uuid = row.try_get(1).map_err(cycles::db_error)?;
+        // `module_issue.module.name if module_issue.module is not None else ""`
+        // (`:938`).
+        let module_name: Option<String> = row.try_get(2).map_err(cycles::db_error)?;
+        let module_name = module_name.unwrap_or_default();
+
+        // `module_issue.delete()` — H03 (`:939`).
+        let now = plane_http_app::write::now();
+        plane_http_app::write::soft_delete(
+            client,
+            "module_issues",
+            "id",
+            row_id,
+            Some(params.user_id),
+            now,
+        )
+        .await?;
+        // `soft_delete_related_objects.delay("db", "moduleissue", pk)`.
+        plane_http_app::write::publish_soft_delete_cascade(ctx, "db", "moduleissue", row_id)
+            .await?;
+
+        let requested = plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([
+            (
+                plane_serde::pyjson::PyStr::new("module_id"),
+                plane_serde::pyjson::Value::from(module_id.to_string()),
+            ),
+            (
+                plane_serde::pyjson::PyStr::new("issues"),
+                plane_serde::pyjson::Value::List(vec![plane_serde::pyjson::Value::from(
+                    issue.to_string(),
+                )]),
+            ),
+        ]));
+        let current = plane_serde::pyjson::Value::Dict(plane_serde::pyjson::PyDict::from_iter([(
+            plane_serde::pyjson::PyStr::new("module_name"),
+            plane_serde::pyjson::Value::from(module_name),
+        )]));
+        cycles::publish_issue_activity(
+            ctx,
+            cycles::ActivityShape::Bare,
+            "module.activity.deleted",
+            cycles::django_dumps(&requested)?,
+            Some(cycles::django_dumps(&current)?),
+            Some(issue),
+            params.project_id,
+            params.user_id,
+            now,
+        )
+        .await?;
+        Ok(ViewResponse::empty(204))
+    })
+}
 
 /// `ModuleIssueListCreateAPIEndpoint.get` (`module.py:645-696`).
 pub fn issue_list<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewError>> {

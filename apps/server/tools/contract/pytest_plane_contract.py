@@ -510,6 +510,27 @@ _MISSING = object()
 # over HTTP. The two magic-generate tests are the auth case: an empty or invalid
 # address raises `ValidationError` from `views/app/magic.py:52-53`, outside the
 # view's `except AuthenticationException`, and DRF's handler re-raises it.
+# Tests that replace a Django ORM manager method with a mock. `plane-api` is a
+# separate process with its own queries, so the patch only affects Django: the
+# assertion (`Project.objects.count() == 0`, `mocked_activity.delay.assert_not_called()`)
+# describes an in-process rollback Rust never performs. Each entry is the nodeid
+# suffix and why; `_in_process_exception_reason` routes it to Django.
+IN_PROCESS_ORM_PATCH_TESTS: tuple[tuple[str, str], ...] = (
+    (
+        "test_projects.py::TestProjectListCreateAPIEndpoint::test_response_still_201_when_broker_dispatch_fails",
+        "patches `plane.api.views.project.model_activity` with a `delay` that "
+        "raises, then asserts the response stays 201 and the mock was called "
+        "once (`plane/tests/contract/api/test_projects.py:249-261`); the harness "
+        "replays the Rust message into that mock, so the request itself would "
+        "raise",
+    ),
+    (
+        "test_projects.py::TestProjectListCreateAPIEndpoint::test_model_activity_not_called_on_rollback",
+        "patches `plane.api.views.project.State.objects.bulk_create` to force a "
+        "rollback after the INSERT (`plane/tests/contract/api/test_projects.py:165-185`)",
+    ),
+)
+
 IN_PROCESS_EXCEPTION_TESTS: tuple[tuple[str, str], ...] = (
     (
         "test_authentication.py::TestMagicLinkGenerate::test_without_data",
@@ -663,7 +684,7 @@ def _in_process_exception_reason() -> str | None:
     if STATE.current is None:
         return None
     nodeid = STATE.current.nodeid
-    for suffix, why in IN_PROCESS_EXCEPTION_TESTS:
+    for suffix, why in IN_PROCESS_EXCEPTION_TESTS + IN_PROCESS_ORM_PATCH_TESTS:
         if nodeid.endswith(suffix):
             return f"{why}; served by Django"
     return None
