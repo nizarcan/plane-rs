@@ -1780,10 +1780,20 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        fix (regenerate from the setting) before the final benchmark.
      - One transient `redis :1:api_key:*` diff in one read run; four reruns clean.
 
+   - **Public set A verified at `3b8b0706d4`**: 1242 tests, schema_check; 113 files /
+     5357 steps clean (incl. `read/public.yaml` 68/68, `read/public-extra.yaml` 29/29);
+     contract `--assume-rust` 234–256 GET: 986 passed / 0 failed. **Flipped with this
+     entry: `rust(GET)` on 234–241, 243, 245–247, 249–256** (20 rows). Held: 248 (the
+     grouping variants above); 242/244 are DELETE-only (set B). Write verbs on the
+     flipped rows stay on Django until set B.
+     - Proxy test invariant: a Rust-owned row is `verified` (its Rust methods are), a
+       Django row never is. P0b's schema rows 392/393 were `django | verified`;
+       corrected to `in-progress` with 391.
+   - ROUTES.md now: 291 rows Rust, 103 Django.
+
    Running: v1 set A (`rs/v1-a`, ports 18010/18110, Redis 3/4), public set B
    (`rs/pub-b`, 18020/18120, Redis 5/6), instances set C (`rs/inst-c`, 18030/18130,
-   Redis 7/8, SMTP 18410–18419); the orchestrator's verification of `3b8b0706d4`
-   (public set A) before its route flip. Then the final benchmark and the environment
+   Redis 7/8, SMTP 18410–18419). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.

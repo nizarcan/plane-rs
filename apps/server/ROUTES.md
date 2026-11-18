@@ -411,29 +411,29 @@ They were produced by counting `path()` calls, which is not the same as counting
 
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
-| 234 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | django | not-started |
-| 235 | `/api/public/anchor/{anchor}/intakes/{intake_id}/inbox-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | django | not-started |
-| 236 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | django | not-started |
-| 237 | `/api/public/workspaces/{slug}/project-boards/` | GET | `plane.space.views.project.WorkspaceProjectDeployBoardEndpoint` | AllowAny | django | not-started |
-| 238 | `/api/public/anchor/{anchor}/issues/{issue_id}/` | GET | `plane.space.views.issue.IssueRetrievePublicEndpoint` | AllowAny | django | not-started |
-| 239 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/` | GET:list, POST:create | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | django | not-started |
-| 240 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | django | not-started |
-| 241 | `/api/public/anchor/{anchor}/issues/{issue_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.IssueReactionPublicViewSet` | IsAuthenticated | django | not-started |
+| 234 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET) | verified |
+| 235 | `/api/public/anchor/{anchor}/intakes/{intake_id}/inbox-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET) | verified |
+| 236 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET) | verified |
+| 237 | `/api/public/workspaces/{slug}/project-boards/` | GET | `plane.space.views.project.WorkspaceProjectDeployBoardEndpoint` | AllowAny | rust(GET) | verified |
+| 238 | `/api/public/anchor/{anchor}/issues/{issue_id}/` | GET | `plane.space.views.issue.IssueRetrievePublicEndpoint` | AllowAny | rust(GET) | verified |
+| 239 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/` | GET:list, POST:create | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | rust(GET) | verified |
+| 240 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | rust(GET) | verified |
+| 241 | `/api/public/anchor/{anchor}/issues/{issue_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.IssueReactionPublicViewSet` | IsAuthenticated | rust(GET) | verified |
 | 242 | `/api/public/anchor/{anchor}/issues/{issue_id}/reactions/{reaction_code}/` | DELETE:destroy | `plane.space.views.issue.IssueReactionPublicViewSet` | IsAuthenticated | django | not-started |
-| 243 | `/api/public/anchor/{anchor}/comments/{comment_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.CommentReactionPublicViewSet` | IsAuthenticated | django | not-started |
+| 243 | `/api/public/anchor/{anchor}/comments/{comment_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.CommentReactionPublicViewSet` | IsAuthenticated | rust(GET) | verified |
 | 244 | `/api/public/anchor/{anchor}/comments/{comment_id}/reactions/{reaction_code}/` | DELETE:destroy | `plane.space.views.issue.CommentReactionPublicViewSet` | IsAuthenticated | django | not-started |
-| 245 | `/api/public/anchor/{anchor}/issues/{issue_id}/votes/` | GET:list, POST:create, DELETE:destroy | `plane.space.views.issue.IssueVotePublicViewSet` | IsAuthenticated | django | not-started |
-| 246 | `/api/public/anchor/{anchor}/meta/` | GET | `plane.space.views.meta.ProjectMetaDataEndpoint` | AllowAny | django | not-started |
-| 247 | `/api/public/anchor/{anchor}/settings/` | GET | `plane.space.views.project.ProjectDeployBoardPublicSettingsEndpoint` | AllowAny | django | not-started |
+| 245 | `/api/public/anchor/{anchor}/issues/{issue_id}/votes/` | GET:list, POST:create, DELETE:destroy | `plane.space.views.issue.IssueVotePublicViewSet` | IsAuthenticated | rust(GET) | verified |
+| 246 | `/api/public/anchor/{anchor}/meta/` | GET | `plane.space.views.meta.ProjectMetaDataEndpoint` | AllowAny | rust(GET) | verified |
+| 247 | `/api/public/anchor/{anchor}/settings/` | GET | `plane.space.views.project.ProjectDeployBoardPublicSettingsEndpoint` | AllowAny | rust(GET) | verified |
 | 248 | `/api/public/anchor/{anchor}/issues/` | GET | `plane.space.views.issue.ProjectIssuesPublicEndpoint` | AllowAny | django | not-started |
-| 249 | `/api/public/workspaces/{slug}/projects/{project_id}/anchor/` | GET | `plane.space.views.project.WorkspaceProjectAnchorEndpoint` | AllowAny | django | not-started |
-| 250 | `/api/public/anchor/{anchor}/cycles/` | GET | `plane.space.views.cycle.ProjectCyclesEndpoint` | AllowAny | django | not-started |
-| 251 | `/api/public/anchor/{anchor}/modules/` | GET | `plane.space.views.module.ProjectModulesEndpoint` | AllowAny | django | not-started |
-| 252 | `/api/public/anchor/{anchor}/states/` | GET | `plane.space.views.state.ProjectStatesEndpoint` | AllowAny | django | not-started |
-| 253 | `/api/public/anchor/{anchor}/labels/` | GET | `plane.space.views.label.ProjectLabelsEndpoint` | AllowAny | django | not-started |
-| 254 | `/api/public/anchor/{anchor}/members/` | GET | `plane.space.views.project.ProjectMembersEndpoint` | AllowAny | django | not-started |
-| 255 | `/api/public/assets/v2/anchor/{anchor}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | django | not-started |
-| 256 | `/api/public/assets/v2/anchor/{anchor}/{pk}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | django | not-started |
+| 249 | `/api/public/workspaces/{slug}/projects/{project_id}/anchor/` | GET | `plane.space.views.project.WorkspaceProjectAnchorEndpoint` | AllowAny | rust(GET) | verified |
+| 250 | `/api/public/anchor/{anchor}/cycles/` | GET | `plane.space.views.cycle.ProjectCyclesEndpoint` | AllowAny | rust(GET) | verified |
+| 251 | `/api/public/anchor/{anchor}/modules/` | GET | `plane.space.views.module.ProjectModulesEndpoint` | AllowAny | rust(GET) | verified |
+| 252 | `/api/public/anchor/{anchor}/states/` | GET | `plane.space.views.state.ProjectStatesEndpoint` | AllowAny | rust(GET) | verified |
+| 253 | `/api/public/anchor/{anchor}/labels/` | GET | `plane.space.views.label.ProjectLabelsEndpoint` | AllowAny | rust(GET) | verified |
+| 254 | `/api/public/anchor/{anchor}/members/` | GET | `plane.space.views.project.ProjectMembersEndpoint` | AllowAny | rust(GET) | verified |
+| 255 | `/api/public/assets/v2/anchor/{anchor}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | rust(GET) | verified |
+| 256 | `/api/public/assets/v2/anchor/{anchor}/{pk}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | rust(GET) | verified |
 | 257 | `/api/public/assets/v2/anchor/{anchor}/restore/{pk}/` | POST | `plane.space.views.asset.AssetRestoreEndpoint` | IsAuthenticated | django | not-started |
 | 258 | `/api/public/assets/v2/anchor/{anchor}/{entity_id}/bulk/` | POST | `plane.space.views.asset.EntityBulkAssetEndpoint` | IsAuthenticated | django | not-started |
 
@@ -510,8 +510,8 @@ They were produced by counting `path()` calls, which is not the same as counting
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
 | 391 | `/api/schema/` | GET | `drf_spectacular.views.SpectacularAPIView` | AllowAny | django | in-progress |
-| 392 | `/api/schema/swagger-ui/` | GET | `drf_spectacular.views.SpectacularSwaggerView` | AllowAny | django | verified |
-| 393 | `/api/schema/redoc/` | GET | `drf_spectacular.views.SpectacularRedocView` | AllowAny | django | verified |
+| 392 | `/api/schema/swagger-ui/` | GET | `drf_spectacular.views.SpectacularSwaggerView` | AllowAny | django | in-progress |
+| 393 | `/api/schema/redoc/` | GET | `drf_spectacular.views.SpectacularRedocView` | AllowAny | django | in-progress |
 
 ## Routing hazards
 
