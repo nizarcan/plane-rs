@@ -1900,10 +1900,35 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      - `lxml_html_tables.py` pipes through `rustfmt`; `--check` passes (not yet in CI).
      - Agent sweeps: read 49 files, write 70 files, all clean; 1256 tests; testkit 188.
 
-   Running: v1 set B (`rs/v1-b`, ports 18010/18110, Redis 3/4, contract Redis 11), v1
-   remaining writes (`rs/v1-c2`, 18020/18120, Redis 5/6, contract Redis 15); the
+   - **v1 set B merged (`81c3faee64`, verification pending)**: 273–278, 288–291,
+     312–313, every method. Agent: new `read/v1-assets-labels-states-intake.yaml`
+     48/48 (+ fixture SQL), write 56/56; other v1 scenarios clean; contract `api/`
+     311/0; schema_check 106 statements. Full sweeps not run by the agent (it added
+     two `normalize.yaml` rules); the orchestrator's next verification covers them.
+     `lib.rs`/`schema_check.rs` overlap with set C resolved as the union.
+     - Gaps: intake PATCH of the nested issue has no step (Celery `kwargsrepr`
+       truncates inside a random id; testkit can't reconcile it); `expand=issue` on
+       intake falls back to the id; 276's own URL has no step (shared handler).
+     - Upstream kept: intake views 500 when `intake_view` is on but no `Intake` row
+       exists (after inserting the issue); a MEMBER can never edit intake attributes
+       (`role > 15`); `request.data.pop("issue")` drops `issue` from the activity
+       payload; invalid `description_html` stored as `<p></p>`; the generic upload's
+       `asset_url` renders `/issues/None/…`; `{"is_uploaded": null}` 400s after the
+       metadata task is published; the label/state `IntegrityError` lookup uses the
+       untrimmed name (500); intake `issue_detail.cycle`/`module` always absent.
+     - Harness gap it found: the v1 project-list unordered `$.results` rule
+       (`GET /api/v1/workspaces/*/projects/*`) matches every project-scoped v1 list.
+   - Harness clean-up running (`rs/harness-fix`): audit every `request:` glob and
+     narrow over-matching rules; `saferepr` truncation reconciliation (then the intake
+     PATCH step); a named v1 upload `key` rule instead of set B's broad path rule;
+     HEAD with an empty gzip body; the `background_color` rule inside JSON-Schema
+     `properties` (then the OpenAPI JSON steps); `lxml_html_tables.py --check` in CI.
+
+   Running: v1 remaining writes (`rs/v1-c2`, 18020/18120, Redis 5/6, contract Redis
+   15), harness clean-up (`rs/harness-fix`, 18040/18140, Redis 9/10); the
    orchestrator's verification of `ed49fb04fb`, which gates the pending flips (v1
-   D/A/C part 1, public B, instances C). Then the final benchmark and the environment
+   D/A/C part 1, public B, instances C). v1 set B gets verified after the harness
+   clean-up, because the over-matching `$.results` rule would hide its ordering. Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
