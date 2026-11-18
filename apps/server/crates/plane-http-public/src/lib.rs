@@ -69,15 +69,24 @@
 //! upstream bugs that are ported as they are.
 
 pub mod common;
+pub mod issue_subresources;
+pub mod issue_subresources_queries;
+pub mod issue_subresources_write;
+pub mod issues;
+pub mod issues_queries;
+pub mod search;
 
 use plane_drf::registry::{Registry, RegistryError};
 
 /// Register every ported `/api/v1/` handler.
 ///
-/// Empty until the four sets land: P0 owns the crate and the shared pieces, not
-/// a handler. The call site exists now so `bins/plane-api` needs no edit when a
-/// set lands, and so the ordering rule (after `/api/`, before `finish`) is
-/// stated once.
-pub fn register_all(_registry: &mut Registry) -> Result<(), RegistryError> {
+/// The call site exists so `bins/plane-api` needs no edit when a set lands, and
+/// so the ordering rule (after `/api/`, before `finish`) is stated once. Sets
+/// add one line each, alphabetically by module.
+pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
+    issue_subresources::register(registry)?;
+    issue_subresources_write::register(registry)?;
+    issues::register(registry)?;
+    search::register(registry)?;
     Ok(())
 }

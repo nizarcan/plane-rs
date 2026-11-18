@@ -1,0 +1,785 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written read scenario for the v1 work-item routes of set D:
+#
+#   315/327  GET  ws/{issues,work-items}/search/            (search.rs)
+#   316/328  GET  ws/{issues,work-items}/{ident}-{seq}/     (issues.rs)
+#   317/329  GET  pr/{issues,work-items}/                   (issues.rs)
+#   318/330  GET  pr/{issues,work-items}/{pk}/              (issues.rs)
+#   319/331  GET  pr/{issues,work-items}/{issue_id}/links/  (issue_subresources.rs)
+#   320/332  GET  .../links/{pk}/
+#   321/333  GET  .../comments/
+#   322/334  GET  .../comments/{pk}/
+#   323/335  GET  .../activities/
+#   324/336  GET  .../activities/{pk}/
+#   325/337  GET  .../{issue-attachments,attachments}/
+#   326/338  GET  .../{issue-attachments,attachments}/{pk}/
+#   339      GET  pr/work-items/{issue_id}/relations/
+#
+# The generator (`tools/scenarios/gen_read.py`) owns `scenarios/read/v1.yaml`,
+# which covers the v1 routes ported before this set; this file keeps the set-D
+# steps out of that generated file, the same way `issues-sub-extra.yaml` keeps
+# the hand-written app-surface cases. `scenarios/write/v1-work-items.yaml` has
+# the writes.
+#
+# The token rotation is the generated file's: the v1 throttle keys on the raw
+# token and one read pass issues more than 60 requests per role.
+#
+#   ./target/debug/difftest run --scenario scenarios/read/v1-work-items.yaml \
+#     --a django --b rust --targets /tmp/targets-v1d.yaml \
+#     --a-redis-db 3 --b-redis-db 4
+
+name: read-v1-work-items
+template_db: plane_fix_tpl
+# Own Redis indexes: page caches and throttle histories only, but two agents
+# sharing an index is the one way a clean scenario can flake.
+redis_db: [6, 7]
+target_env:
+  # `IssueSearchEndpoint` builds a Python `Q`, not a set, but the work-item
+  # validation errors and `ProjectSummary` do iterate sets elsewhere in v1;
+  # pin the seed so Django-vs-Django stays reproducible.
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  attachment_id: "80bc6632-0e4a-4d3e-9c8f-ec0b9bf351e9"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  project_alpha_identifier: "ALP"
+  issue_alpha_child_sequence: "2"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  issue_link_design: "20c1f9af-641b-44b2-b819-dabe6123bad1"
+  comment_alpha: "d8fa6287-ddd7-4303-b743-02986ecbac94"
+  issue_activity_0: "21ab1a85-2755-4810-9147-19025ce698fd"
+  api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
+  api_token_member2: "3333333333333333333333333333333333333333333333333333333333333333"
+  api_token_admin3: "2222222222222222222222222222222222222222222222222222222222222222"
+  api_token_member3: "4444444444444444444444444444444444444444444444444444444444444444"
+steps:
+  - name: v1-1082-issue-search-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/issues/search/"
+    query:
+      search: "cache"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1083-issue-search-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/issues/search/"
+    query:
+      search: "cache"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1084-issue-search-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/issues/search/"
+    query:
+      search: "cache"
+    jar: anon39
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.40
+  - name: v1-1085-workspace-issue-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/issues/{{project_alpha_identifier}}-{{issue_alpha_child_sequence}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1086-workspace-issue-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/issues/{{project_alpha_identifier}}-{{issue_alpha_child_sequence}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1087-workspace-issue-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/issues/{{project_alpha_identifier}}-{{issue_alpha_child_sequence}}/"
+    jar: anon40
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.41
+  - name: v1-1088-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1089-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      per_page: "2"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1090-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1091-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      per_page: "2"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1092-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: anon41
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.42
+  - name: v1-1093-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      per_page: "2"
+    jar: anon42
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.43
+  - name: v1-1094-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      order_by: "-created_at"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1095-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      search: "cache"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1096-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      external_source: "fixture"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1097-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      limit: "2"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1098-issue-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1099-issue-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1100-issue-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    jar: anon43
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.44
+  - name: v1-1101-issue-link-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/links/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1102-issue-link-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/links/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1103-issue-link-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/links/"
+    jar: anon44
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.45
+  - name: v1-1104-issue-link-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/links/{{issue_link_design}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1105-issue-link-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/links/{{issue_link_design}}/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1106-issue-link-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/links/{{issue_link_design}}/"
+    jar: anon45
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.46
+  - name: v1-1107-issue-comment-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1108-issue-comment-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1109-issue-comment-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/"
+    jar: anon46
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.47
+  - name: v1-1110-issue-comment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_alpha}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1111-issue-comment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_alpha}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1112-issue-comment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/comments/{{comment_alpha}}/"
+    jar: anon47
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.48
+  - name: v1-1113-issue-activity-list-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/activities/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1114-issue-activity-list-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/activities/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1115-issue-activity-list-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/activities/"
+    jar: anon48
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.49
+  - name: v1-1116-issue-activity-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/activities/{{issue_activity_0}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1117-issue-activity-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/activities/{{issue_activity_0}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1118-issue-activity-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/activities/{{issue_activity_0}}/"
+    jar: anon49
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.50
+  - name: v1-1119-issue-attachment-list-create-a-p-i-endpo
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/issue-attachments/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1120-issue-attachment-list-create-a-p-i-endpo
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/issue-attachments/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1121-issue-attachment-list-create-a-p-i-endpo
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/issue-attachments/"
+    jar: anon50
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.51
+  - name: v1-1122-issue-attachment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/issue-attachments/{{attachment_id}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1123-issue-attachment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/issue-attachments/{{attachment_id}}/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1124-issue-attachment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha_commented}}/issue-attachments/{{attachment_id}}/"
+    jar: anon51
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.52
+  - name: v1-1125-issue-search-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/work-items/search/"
+    query:
+      search: "cache"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1126-issue-search-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/work-items/search/"
+    query:
+      search: "cache"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1127-issue-search-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/work-items/search/"
+    query:
+      search: "cache"
+    jar: anon52
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.53
+  - name: v1-1128-workspace-issue-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/work-items/{{project_alpha_identifier}}-{{issue_alpha_child_sequence}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1129-workspace-issue-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/work-items/{{project_alpha_identifier}}-{{issue_alpha_child_sequence}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1130-workspace-issue-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/work-items/{{project_alpha_identifier}}-{{issue_alpha_child_sequence}}/"
+    jar: anon53
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.54
+  - name: v1-1131-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1132-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    query:
+      per_page: "2"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1133-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1134-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    query:
+      per_page: "2"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1135-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    jar: anon54
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.55
+  - name: v1-1136-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    query:
+      per_page: "2"
+    jar: anon55
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.56
+  - name: v1-1137-issue-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    query:
+      order_by: "-created_at"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1138-issue-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1139-issue-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1140-issue-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha}}/"
+    jar: anon56
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.57
+  - name: v1-1144-issue-link-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/links/{{issue_link_design}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1145-issue-link-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/links/{{issue_link_design}}/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1146-issue-link-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/links/{{issue_link_design}}/"
+    jar: anon58
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.59
+  - name: v1-1141-issue-link-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/links/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1142-issue-link-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/links/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1143-issue-link-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/links/"
+    jar: anon57
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.58
+  - name: v1-1147-issue-comment-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/comments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1148-issue-comment-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/comments/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1149-issue-comment-list-create-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/comments/"
+    jar: anon59
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.60
+  - name: v1-1150-issue-comment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/comments/{{comment_alpha}}/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1151-issue-comment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/comments/{{comment_alpha}}/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1152-issue-comment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/comments/{{comment_alpha}}/"
+    jar: anon60
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.61
+  - name: v1-1153-issue-activity-list-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/activities/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1154-issue-activity-list-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/activities/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1155-issue-activity-list-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/activities/"
+    jar: anon61
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.62
+  - name: v1-1156-issue-activity-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/activities/{{issue_activity_0}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1157-issue-activity-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/activities/{{issue_activity_0}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1158-issue-activity-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/activities/{{issue_activity_0}}/"
+    jar: anon62
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.63
+  - name: v1-1159-issue-attachment-list-create-a-p-i-endpo
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/attachments/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+  - name: v1-1160-issue-attachment-list-create-a-p-i-endpo
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/attachments/"
+    jar: api_member2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member2}}"
+  - name: v1-1161-issue-attachment-list-create-a-p-i-endpo
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/attachments/"
+    jar: anon63
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.64
+  - name: v1-1162-issue-attachment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/attachments/{{attachment_id}}/"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1163-issue-attachment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/attachments/{{attachment_id}}/"
+    jar: api_member3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member3}}"
+  - name: v1-1164-issue-attachment-detail-a-p-i-endpoint
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/attachments/{{attachment_id}}/"
+    jar: anon64
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.65
+  - name: v1-1165-issue-relation-list-create-a-p-i-endpoin
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1166-issue-relation-list-create-a-p-i-endpoin
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/relations/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+  - name: v1-1167-issue-relation-list-create-a-p-i-endpoin
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha_commented}}/relations/"
+    jar: anon65
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.66
+  # -----------------------------------------------------------------------
+  # `?fields=` / `?expand=` (the v1 `BaseSerializer` semantics: `fields=`
+  # removes, `expand=` only replaces a field that survived). The write
+  # scenario covers the rest of the list/detail surface.
+  # -----------------------------------------------------------------------
+  - name: v1-1190-issue-list-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      fields: "id,name,state_id,priority,assignees,labels"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1191-issue-list-expand
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      expand: "state,assignees,labels"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1192-issue-list-fields-expand
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      fields: "id,name"
+      expand: "state,assignees,labels"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1193-issue-list-unknown-field
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    query:
+      fields: "id,not_a_field"
+    jar: api_admin3
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
+  - name: v1-1194-issue-detail-fields
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    query:
+      fields: "id,name,assignees,labels"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1195-issue-detail-expand
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    query:
+      expand: "state,assignees,labels,project"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1196-issue-detail-expand-audit
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/"
+    query:
+      expand: "created_by,updated_by,workspace,parent,estimate_point,type"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1197-issue-detail-fields-expand
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha}}/"
+    query:
+      fields: "id,name"
+      expand: "state,assignees"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+  - name: v1-1198-issue-detail-unknown-expand
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_alpha}}/"
+    query:
+      expand: "member,not_a_relation"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"

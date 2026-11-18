@@ -1,0 +1,790 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Set D write scenario: the v1 work-item list/create and detail write routes
+# (317/329 POST, 318/330 PATCH and DELETE) and the sub-resource writes
+# (319/331 POST, 320/332 PATCH+DELETE, 321/333 POST, 322/334 PATCH+DELETE,
+# 325/337 POST, 326/338 PATCH+DELETE, 339 POST). The sub-resource reads are in
+# scenarios/read/v1-work-items.yaml.
+#
+# The tail of the file is the sub-resource block: links (create/duplicate URL/
+# both `validate_url` rejections/patch/metadata/unknown/delete), comments
+# (create/external-id 409/empty html/patch/external-id 409/unknown/delete
+# twice), attachments (create/size+type rejections/external-id 409/not-uploaded
+# GET/list/patch twice/delete) and relations (all reply shapes, the duplicate
+# pair, an empty and an unknown issue list, the two serializer errors). The
+# attachment steps exercise the presigned POST (DECISIONS.md D17) and the
+# `file_assets` insert; the comment steps the `descriptions` rows and the
+# `model_activity` webhook.
+#
+# Every step runs Django vs Django until the routes flip to Rust, then Django vs
+# Rust. `PYTHONHASHSEED` is pinned for the same reason as the read scenario: the
+# serializer validation error lists iterate Python sets.
+name: write-v1-work-items
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  PYTHONHASHSEED: "0"
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  label_alpha_bug: "51298d1d-71da-4345-baa7-3c68b16b1f00"
+  project_member_alpha_member: "78100240-9cfd-4782-8627-25ab039c6e9a"
+  state_alpha_todo: "84b8f4a5-ed93-4af3-9817-e96436360ca3"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_alpha_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  api_token_active: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  api_token_member: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  api_token_admin2: "1111111111111111111111111111111111111111111111111111111111111111"
+  api_token_admin3: "2222222222222222222222222222222222222222222222222222222222222222"
+steps:
+  - name: issue-create-minimal
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 issue"
+      priority: "high"
+      description_html: "<p>created by the v1 harness</p>"
+    capture:
+      - name: issue_new
+        source: db
+        table: issues
+        column: id
+    expect_status: 201
+
+  - name: issue-create-full
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 issue full"
+      description_html: "<p>hi <mention-component id=\"{{project_member_alpha_member}}\" entity_name=\"user\"></mention-component></p>"
+      priority: "low"
+      start_date: "2026-11-01"
+      target_date: "2026-11-30"
+      state: "{{state_alpha_todo}}"
+      assignees: ["{{project_member_alpha_member}}"]
+      labels: ["{{label_alpha_bug}}"]
+      external_source: "harness-v1"
+      external_id: "harness-v1-1"
+      is_draft: false
+    capture:
+      - name: issue_new_full
+        source: db
+        table: issues
+        column: id
+    expect_status: 201
+
+  - name: issue-create-date-order
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness bad dates"
+      start_date: "2026-12-01"
+      target_date: "2026-11-01"
+    expect_status: 400
+
+  - name: issue-create-empty-html
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness empty html"
+      description_html: ""
+    expect_status: 400
+
+  - name: issue-create-foreign-label
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness foreign label"
+      labels: ["00000000-0000-4000-8000-000000000000"]
+    expect_status: 400
+
+  - name: issue-create-not-member
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "harness member create"
+    expect_status: 201
+    capture:
+      - name: issue_member
+        source: db
+        table: issues
+        column: id
+
+  - name: issue-detail-after-create
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: issue-patch-name
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness v1 issue (edited)"
+      priority: "urgent"
+    expect_status: 200
+
+  - name: issue-patch-description
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{issue_new_full}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      description_html: "<p>edited <b>html</b></p>"
+      assignees: []
+      labels: []
+    expect_status: 200
+
+  - name: issue-patch-assignees
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_new_full}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      assignees: ["{{project_member_alpha_member}}"]
+      labels: ["{{label_alpha_bug}}"]
+    expect_status: 200
+
+  - name: issue-patch-not-member
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_new}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    json:
+      name: "member edit"
+    expect_status: 200
+
+  - name: issue-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+
+  - name: issue-detail-after-delete
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+
+  - name: issue-delete-member-own
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_member}}/"
+    jar: api_member
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_member}}"
+    expect_status: 204
+
+  # `IssueSerializer.validate`'s assignee filter (`plane/api/serializers/
+  # issue.py:136-140`): a valid user who is not an active MEMBER-or-above of
+  # the project is a 400 `non_field_errors` naming the UUID. The fixture's
+  # nonmember is a real `users` row with no `project_members` row in ALP, so
+  # the `PrimaryKeyRelatedField` resolves and only the membership rule fires.
+  - name: issue-create-bad-assignee
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "bad assignee"
+      assignees: ["e15c61cc-f495-4e69-a88f-9c2cf5cdca7b"]
+    expect_status: 400
+
+  # -----------------------------------------------------------------------
+  # Sub-resource writes: links (319/331, 320/332)
+  # -----------------------------------------------------------------------
+  - name: sub-issue-create
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness sub-resources"
+      priority: "medium"
+    expect_status: 201
+    capture:
+      - name: sub_issue
+        source: db
+        table: issues
+        column: id
+
+  - name: link-create
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      title: "harness link"
+      url: "https://example.com/docs"
+    expect_status: 201
+    capture:
+      - name: link_id
+        source: db
+        table: issue_links
+        column: id
+
+  - name: link-create-duplicate
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      title: "harness link again"
+      url: "https://example.com/docs"
+    expect_status: 400
+
+  - name: link-create-bad-url
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      url: "example.com/no-scheme"
+    expect_status: 400
+
+  - name: link-create-ftp-url
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      url: "ftp://example.com/file"
+    expect_status: 400
+
+  - name: link-list
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: link-patch
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/{{link_id}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      title: "harness link (edited)"
+      url: "https://example.com/docs2"
+    expect_status: 200
+
+  - name: link-patch-metadata
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/{{link_id}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      metadata:
+        source: "harness"
+        rank: 2
+      deleted_at: null
+    expect_status: 200
+
+  - name: link-patch-unknown
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      title: "no such link"
+    expect_status: 404
+
+  - name: link-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/{{link_id}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+
+  - name: link-detail-after-delete
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/links/{{link_id}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+
+  # -----------------------------------------------------------------------
+  # Sub-resource writes: comments (321/333, 322/334)
+  # -----------------------------------------------------------------------
+  - name: comment-create
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      comment_html: "<p>harness <b>comment</b></p>"
+    expect_status: 201
+    capture:
+      - name: comment_id
+        source: db
+        table: issue_comments
+        column: id
+
+  - name: comment-create-external
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      comment_html: "<p>second</p>"
+      external_id: "harness-comment-2"
+      external_source: "harness"
+    expect_status: 201
+    capture:
+      - name: comment_external
+        source: db
+        table: issue_comments
+        column: id
+
+  - name: comment-create-external-duplicate
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      comment_html: "<p>duplicate</p>"
+      external_id: "harness-comment-2"
+      external_source: "harness"
+    expect_status: 409
+
+  - name: comment-create-empty-html
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      comment_html: ""
+      comment_json: {}
+    expect_status: 201
+    capture:
+      - name: comment_empty
+        source: db
+        table: issue_comments
+        column: id
+
+  - name: comment-patch
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/{{comment_id}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      comment_html: "<p>harness comment (edited)</p>"
+      access: "EXTERNAL"
+    expect_status: 200
+
+  - name: comment-patch-external-conflict
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/{{comment_id}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      external_id: "harness-comment-2"
+      external_source: "harness"
+    expect_status: 409
+
+  - name: comment-patch-unknown
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      comment_html: "<p>no such comment</p>"
+    expect_status: 404
+
+  # `external_source=None` in the duplicate check is `IS NULL`, not `= NULL`
+  # (`issue.py:1735-1741` forwards the instance's source when the body does not
+  # name one; an explicit null stays null).
+  - name: comment-create-null-source
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      comment_html: "<p>null source</p>"
+      external_id: "harness-null-source"
+    expect_status: 201
+    capture:
+      - name: comment_null_source
+        source: db
+        table: issue_comments
+        column: id
+
+  - name: comment-patch-null-source-conflict
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/{{comment_id}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      external_id: "harness-null-source"
+      external_source: null
+    expect_status: 409
+
+  - name: comment-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/{{comment_external}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 204
+
+  - name: comment-delete-again
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/comments/{{comment_external}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 404
+
+  # -----------------------------------------------------------------------
+  # Sub-resource writes: attachments (325/337, 326/338)
+  # -----------------------------------------------------------------------
+  - name: attachment-create
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "harness.txt"
+      type: "text/plain"
+      size: 12
+    expect_status: 200
+    capture:
+      - name: attachment_new
+        source: db
+        table: file_assets
+        column: id
+
+  - name: attachment-create-invalid-size
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "empty.txt"
+      type: "text/plain"
+      size: 0
+    expect_status: 400
+
+  - name: attachment-create-invalid-type
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "weird.bin"
+      type: "application/x-not-a-real-type"
+      size: 5
+    expect_status: 400
+
+  - name: attachment-create-external
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "external.txt"
+      type: "text/plain"
+      size: 3
+      external_id: "harness-attachment"
+      external_source: "harness"
+    expect_status: 200
+    capture:
+      - name: attachment_external
+        source: db
+        table: file_assets
+        column: id
+
+  - name: attachment-create-external-duplicate
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      name: "external.txt"
+      type: "text/plain"
+      size: 3
+      external_id: "harness-attachment"
+      external_source: "harness"
+    expect_status: 409
+
+  - name: attachment-get-before-upload
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/{{attachment_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 400
+
+  - name: attachment-list-before-upload
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: attachment-patch
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/{{attachment_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      is_uploaded: true
+    expect_status: 204
+
+  - name: attachment-patch-again
+    method: PATCH
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/{{attachment_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json: {}
+    expect_status: 204
+
+  - name: attachment-list-after-upload
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    expect_status: 200
+
+  - name: attachment-delete-unknown
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/00000000-0000-4000-8000-000000000000/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 404
+
+  - name: attachment-delete
+    method: DELETE
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/{{attachment_new}}/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 204
+
+  - name: attachment-list-after-delete
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{sub_issue}}/issue-attachments/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
+
+  # -----------------------------------------------------------------------
+  # Sub-resource writes: relations (339)
+  # -----------------------------------------------------------------------
+  - name: relation-create-blocking
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      relation_type: "blocking"
+      issues: ["{{issue_alpha}}"]
+    expect_status: 201
+
+  - name: relation-create-blocking-again
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      relation_type: "blocking"
+      issues: ["{{issue_alpha}}"]
+    expect_status: 201
+
+  - name: relation-create-blocked-by
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      relation_type: "blocked_by"
+      issues: ["{{issue_alpha}}"]
+    expect_status: 201
+
+  - name: relation-create-conflicting-type
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      relation_type: "duplicate"
+      issues: ["{{issue_alpha}}"]
+    expect_status: 201
+
+  - name: relation-create-bad-type
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      relation_type: "related"
+      issues: ["{{issue_alpha}}"]
+    expect_status: 400
+
+  - name: relation-create-empty-issues
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      relation_type: "blocking"
+      issues: []
+    expect_status: 400
+
+  - name: relation-create-unknown-issue
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    json:
+      relation_type: "relates_to"
+      issues: ["00000000-0000-4000-8000-000000000000"]
+    expect_status: 201
+
+  - name: relation-create-two-issues
+    method: POST
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_active}}"
+    json:
+      relation_type: "relates_to"
+      issues: ["{{issue_alpha}}", "{{issue_alpha_commented}}"]
+    expect_status: 201
+
+  - name: relation-list-after-create
+    method: GET
+    path: "/api/v1/workspaces/{{ws}}/projects/{{project_alpha}}/work-items/{{sub_issue}}/relations/"
+    jar: api_admin
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin2}}"
+    expect_status: 200
