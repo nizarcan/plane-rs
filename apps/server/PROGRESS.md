@@ -1731,9 +1731,26 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      `/tmp/targets-orch.yaml` regenerated (ports 18800–18849 django, 18850–18899 rust).
      The owner's `vmif` container exited at the restart and was left stopped.
 
-   Running: v1 set D (`rs/v1-d`, ports 18010/18110, Redis 3/4), public set A
-   (`rs/pub-a`, 18020/18120, Redis 5/6), public/instances P0b (`rs/pub-p0b`,
-   18030/18130, Redis 7/8, SMTP 18410–18419); the orchestrator's mixed contract run. Then the final benchmark and the environment
+   - Public/instances P0b merged (`fef26adcb9`, verification running):
+     - `instances::mail`: Django's `EmailMultiAlternatives` bytes written in-house, sent
+       with `lettre` (D23, raw send); 18 recorded messages byte-identical.
+       `tools/mail/fake_smtp.py` is the harness listener (ports 18410–18419).
+     - OpenAPI: goldens in `deploy/openapi/`, `tools/openapi/check.py --check` (130
+       v1 path/method pairs == routes.json), gated `/api/schema/{,swagger-ui/,redoc/}`
+       handlers, route-aware content negotiation in `plane-drf`.
+       `scenarios/read/openapi.yaml` 7/7. Inventory now generated with
+       `ENABLE_DRF_SPECTACULAR=1` (rows 391–393, owner `django`; 391 `in-progress`
+       because `?version=`/`?lang=` answer an explicit 500 instead of re-rendering).
+     - Follow-ups: the `background_color` shape rule fires inside JSON-Schema
+       `properties` (blocks JSON renderings in scenarios); `OPTIONS /api/schema/` renders
+       JSON where Django renders YAML; testkit can't gunzip an empty gzip HEAD body.
+   - v1 set D session 1 committed on its branch (`486cf19590`, not merged): the lxml
+     normaliser (70/70 + 720/720 recorded cases) and search (315/327, not yet
+     scenario-verified). Session 2 running.
+
+   Running: v1 set D session 2 (`rs/v1-d`, ports 18010/18110, Redis 3/4), public set A
+   (`rs/pub-a`, 18020/18120, Redis 5/6), instances set C (`rs/inst-c`, 18030/18130,
+   Redis 7/8, SMTP 18410–18419); the orchestrator's verification of `fef26adcb9`. Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
