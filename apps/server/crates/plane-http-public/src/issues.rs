@@ -475,12 +475,12 @@ impl DrfSerialize for IssueSerializer<'_> {
 // ---------------------------------------------------------------------------
 
 /// Columns of one issue, alias `issues`.
-fn issue_columns() -> String {
+pub(crate) fn issue_columns() -> String {
     Issue::COLUMNS.replace("{alias}", "issues")
 }
 
 /// `IssueManager.get_queryset` (`plane/db/models/issue.py:92-101`).
-fn issue_objects() -> String {
+pub(crate) fn issue_objects() -> String {
     Issue::ISSUE_OBJECTS.replace("{alias}", "issues")
 }
 
@@ -524,7 +524,7 @@ const ISSUE_ORDER_BY_ALLOWLIST: &[&str] = &[
 
 /// `sanitize_order_by(value, ISSUE_ORDER_BY_ALLOWLIST, "-created_at")`
 /// (`order_queryset.py:135-156`).
-fn sanitize_order_by(value: &str) -> String {
+pub(crate) fn sanitize_order_by(value: &str) -> String {
     if value.is_empty() {
         return "-created_at".to_owned();
     }
@@ -564,7 +564,7 @@ fn order_kind(bare: &str) -> OrderKind {
 }
 
 /// The `ORDER BY` term for a sanitized `order_by` value.
-fn order_sql(order: &str) -> String {
+pub(crate) fn order_sql(order: &str) -> String {
     let (descending, bare) = match order.strip_prefix('-') {
         Some(bare) => (true, bare),
         None => (false, order),
@@ -616,7 +616,7 @@ fn order_sql(order: &str) -> String {
 }
 
 /// Whether the sanitized order needs the module join (`issue.py:505-506`).
-fn needs_module_join(order: &str) -> bool {
+pub(crate) fn needs_module_join(order: &str) -> bool {
     let bare = order.strip_prefix('-').unwrap_or(order);
     order_kind(bare) == OrderKind::ModuleName
 }
@@ -659,7 +659,7 @@ fn decode_issue(row: &tokio_postgres::Row) -> Result<IssueBundle, ViewError> {
 }
 
 /// Run the statement and attach every relation the serializer can emit.
-async fn load_bundles(
+pub(crate) async fn load_bundles(
     ctx: &ViewCtx<'_>,
     client: &Client,
     sql: Frag,
@@ -1002,7 +1002,7 @@ impl LabelOwned {
     }
 }
 
-async fn load_users(
+pub(crate) async fn load_users(
     client: &Client,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, UserLiteOwned>, ViewError> {
@@ -1031,7 +1031,7 @@ async fn load_users(
     Ok(out)
 }
 
-async fn load_workspaces(
+pub(crate) async fn load_workspaces(
     client: &Client,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, WorkspaceOwned>, ViewError> {
@@ -1060,7 +1060,7 @@ async fn load_workspaces(
     Ok(out)
 }
 
-async fn load_projects(
+pub(crate) async fn load_projects(
     client: &Client,
     ids: &[Uuid],
 ) -> Result<HashMap<Uuid, ProjectOwned>, ViewError> {
@@ -1359,7 +1359,7 @@ fn expansion_values<'a>(bundle: &'a IssueBundle, requested: &[&'a str]) -> Vec<E
     values
 }
 
-fn user_value(user: &UserLiteOwned) -> DrfValue<'_> {
+pub(crate) fn user_value(user: &UserLiteOwned) -> DrfValue<'_> {
     DrfValue::Object(vec![
         ("id", DrfValue::Uuid(user.id)),
         ("first_name", DrfValue::Str(&user.first_name)),
@@ -1394,7 +1394,10 @@ fn render_issue(ctx: &ViewCtx<'_>, bundle: &IssueBundle) -> Result<Vec<u8>, View
     plane_serializers::render(&bundle.serializer(), &render_ctx).map_err(ViewError::from)
 }
 
-fn render_issues(ctx: &ViewCtx<'_>, bundles: &[IssueBundle]) -> Result<Vec<u8>, ViewError> {
+pub(crate) fn render_issues(
+    ctx: &ViewCtx<'_>,
+    bundles: &[IssueBundle],
+) -> Result<Vec<u8>, ViewError> {
     let mut body = Vec::with_capacity(bundles.len() * 512 + 2);
     body.push(b'[');
     for (index, bundle) in bundles.iter().enumerate() {
@@ -1409,7 +1412,7 @@ fn render_issues(ctx: &ViewCtx<'_>, bundles: &[IssueBundle]) -> Result<Vec<u8>, 
 
 /// The plain-page envelope with an already-rendered `results` array
 /// (`paginator.py:733-755`).
-fn render_page(
+pub(crate) fn render_page(
     total: i64,
     window: &OffsetWindow,
     next: &plane_query::paginator::Cursor,

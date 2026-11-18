@@ -29,6 +29,16 @@ struct Catalog {
 fn catalogs() -> Vec<Catalog> {
     vec![
         Catalog {
+            domain: "cycles",
+            source: "cycles_queries.rs",
+            queries: plane_http_public::cycles_queries::ALL_QUERIES,
+        },
+        Catalog {
+            domain: "modules",
+            source: "modules_queries.rs",
+            queries: plane_http_public::modules_queries::ALL_QUERIES,
+        },
+        Catalog {
             domain: "issues",
             source: "issues_queries.rs",
             queries: plane_http_public::issues_queries::ALL_QUERIES,
