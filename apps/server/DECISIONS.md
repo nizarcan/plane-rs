@@ -487,8 +487,8 @@ workspace `Cargo.toml` and upgrade deliberately.
   rustls crypto provider, which D9 forbids). `rustls-tls` also forces `ring`, so
   the port uses `tokio1-rustls` + `aws-lc-rs` + `webpki-roots`; both crates are
   already pinned in the workspace (`rustls` 0.23.46, `webpki-roots` 1.0.12).
-- The transport sends **raw bytes** (`AsyncTransport::send_raw`) rather than
-  lettre's `Message` builder. The contract is Django's
+- The message bytes are written in-house rather than with lettre's `Message`
+  builder. The contract is Django's
   `EmailMultiAlternatives.message().as_bytes(linesep="\r\n")` byte for byte —
   header order, RFC 2047 base64 encoded words, Python's 78-column folding and
   the 7bit/8bit/quoted-printable body choice — and lettre's builder formats
@@ -501,18 +501,38 @@ workspace `Cargo.toml` and upgrade deliberately.
   plaintext, STARTTLS (`EMAIL_USE_TLS=1`) or implicit TLS (`EMAIL_USE_SSL=1`);
   TLS and SSL together are an error Django answers with a 500; authentication
   only when **both** username and password are non-empty; one connection per
-  send, closed with QUIT; no timeout, because Plane leaves `EMAIL_TIMEOUT`
-  unset.
-- Deliberate differences, all recorded in the module docs: the EHLO argument
-  (Django sends `socket.getfqdn()`, which needs libc; lettre sends its
-  hostname), the CA store (Django's system store vs `webpki-roots`, D9), the
-  AUTH mechanism order (no CRAM-MD5 in lettre), and sender-vs-recipient refusal
-  (lettre's error carries only the reply code, and 550/553 are used for both;
-  those two branches answer the endpoint's generic 400).
-- `tools/mail/fake_smtp.py` is the harness listener: it records the envelope,
-  the message bytes and the whole SMTP transcript as JSONL, with switches for
-  every failure branch the endpoint distinguishes. Ports 18410-18419 are
-  reserved for it.
+  send; no timeout, because Plane leaves `EMAIL_TIMEOUT` unset.
+- **Amended 2026-11-18 (merge `e09b5f87ad`): the session is driven command by
+  command**, not with `AsyncTransport::send_raw` (which hid which command
+  failed). The transport uses lettre's `AsyncNetworkStream` (public, marked
+  deprecated; `#[allow(deprecated)]` is scoped to `instances/mail.rs` with the
+  reason) and reproduces `smtplib.SMTP`'s dialogue: `ehlo`/`helo` fallback,
+  `STARTTLS` then a fresh EHLO, `AUTH` in smtplib's `PLAIN`-then-`LOGIN` order
+  with its retry after a 535, `MAIL FROM` with `size=` when SIZE is advertised,
+  one `RCPT TO` per recipient, `DATA`, `RSET` after a refused MAIL/RCPT/DATA
+  (skipped after a 421, which closes), and `QUIT` from `send_messages`'
+  `finally`, but no QUIT when opening failed (`connect`, `STARTTLS`, `AUTH`).
+  Each reply therefore maps to Django's own branch: `SMTPSenderRefused`,
+  `SMTPRecipientsRefused`, `SMTPDataError`, `SMTPConnectError`,
+  `SMTPServerDisconnected`, `SMTPAuthenticationError`, `SMTPHeloError`.
+- `socket.getfqdn()` (Django's `DNS_NAME`, used for EHLO/HELO and every
+  `Message-ID` domain) is ported: `gethostname` 1.1.0 (already a `plane-jobs`
+  dependency) then `getaddrinfo`/`getnameinfo` through **`dns-lookup` 4.0.2**
+  (safe wrappers; `libc` was already in the graph), with CPython
+  `setipaddr`'s zeroed hints, cached once per process. Known difference: on a
+  platform whose canonical name is single-label and whose `/etc/hosts` holds a
+  dotted alias, Python returns the alias (`gethostbyaddr`'s alias list has no
+  safe binding) and the port returns the canonical name. glibc and macOS
+  libinfo otherwise match.
+- Remaining differences: CRAM-MD5 is not implemented (a server that offers only
+  CRAM-MD5 gets the generic 400 where Python may succeed); TLS trust is
+  `webpki-roots`, not the system store (D9).
+- `tools/mail/fake_smtp.py` is the harness listener: one JSONL record per
+  connection (envelope, message bytes, full transcript including DATA's reply
+  and QUIT), with switches for every failure branch the endpoint distinguishes
+  (`quit-error` and `delay` included). `tools/mail/run-smtp-scenario.sh` +
+  `compare_smtp_logs.py` compare both backends' transcripts, masking only
+  `Date:` and the Message-ID local part. Ports 18410-18419 are reserved for it.
 
 ## Open owner decisions
 
