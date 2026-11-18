@@ -1833,9 +1833,27 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      throttle keys, which explains the extra `test_authentication` throttle failures
      sets B and C reported. Assigned: orchestrator 12, v1 A 11, fix 2, v1 C 15.
 
+   - **Verification of `9c62db7af0` (v1 set D) — not passed, no flip.** Gates fine (1250
+     tests, schema_check http-app 4/0, http-public 3/0); v1/public scenarios clean
+     (`read/v1-work-items.yaml` 95/95, `write/v1-work-items.yaml` 59/59, public 68/68 +
+     29/29), OAuth 57/57 + 52/52. Found:
+     1. **Normaliser rule collision (testkit bug):** `plane-testkit/src/normalize.rs`
+        keeps one rule per name (`HashMap<String, Rule>` for cookies, JSON keys,
+        headers, DB columns), so set D's v1-scoped `key`/`asset` rules replaced the
+        app-upload `key` rule: `write/assets-user.yaml` 66/71, `assets-workspace.yaml`
+        73/88, `issue-attachments.yaml` 6/7 (uuid key differences only). Agents' own
+        sweeps missed it (read-only sweeps). Fix assigned to `rs/fix-smtp-mime` (all
+        rules per name, first matching scope, overlapping scopes fail to load).
+     2. `lxml_html_tables.py --check` always fails: the generator writes unformatted
+        Rust, the committed file is rustfmt'd. Same fix branch.
+     3. The contract run was cut short: its `plane-api` (port 18290) got a SIGTERM from
+        outside the runner (the plugin only stops it at session end), 370 tests then
+        "connection refused". Agents reminded to kill only PIDs they started. Rerun
+        with `PLANE_RS_CONTRACT_REDIS_DB=12`.
+
    Running: v1 set A (`rs/v1-a`, ports 18010/18110, Redis 3/4), v1 set C (`rs/v1-c`,
-   18020/18120, Redis 5/6), the SMTP/MIME fix (`rs/fix-smtp-mime`, 18040/18140, Redis
-   9/10, SMTP 18410–18419); the orchestrator's verification of `9c62db7af0` (v1 set D). Then the final benchmark and the environment
+   18020/18120, Redis 5/6), the SMTP/MIME/normaliser fix (`rs/fix-smtp-mime`,
+   18040/18140, Redis 9/10, SMTP 18410–18419). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
