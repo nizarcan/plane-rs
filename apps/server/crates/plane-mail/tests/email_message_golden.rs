@@ -20,7 +20,7 @@
 
 use std::fs;
 
-use plane_http_app::instances::mail::{MailError, Message, quoteaddr, sanitize_address};
+use plane_mail::{MailError, Message, quoteaddr, sanitize_address};
 
 #[derive(serde::Deserialize)]
 struct Corpus {
@@ -71,6 +71,7 @@ fn message_bytes_match_django() {
             to: case.to.clone(),
             cc: case.cc.clone(),
             reply_to: case.reply_to.clone(),
+            alternatives: Vec::new(),
         };
         match &case.bytes {
             Some(expected) => {

@@ -4,10 +4,17 @@
 
 //! `plane-worker`: the Rust-owned task worker.
 //!
-//! The only handler registered in Phase 4 is the test task `plane.jobs.echo`;
-//! real tasks register here as their domains move (Phase 5). The queue,
+//! Boot: parse the environment like `plane-api`, create the pools, make sure
+//! the `plane_jobs` schema exists (idempotent; the migrator owns it in
+//! production), then register every handler from `plane-tasks`. The queue,
 //! claiming, retries and shutdown live in `plane-jobs`.
+//!
+//! `--once` drains whatever is runnable and exits; `difftest task` uses it to
+//! execute one enqueued job in a fresh process. Normal operation runs until
+//! SIGTERM/SIGINT, drains in-flight handlers, and releases anything still
+//! leased to this worker (`plane-jobs/src/worker.rs:151-232`).
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -15,9 +22,11 @@ use plane_core::config::{Role, Settings};
 use plane_db::DbPools;
 use plane_jobs::listener::Listener;
 use plane_jobs::worker::{JobContext, TaskRegistry, Worker, WorkerConfig};
+use plane_tasks::TaskContext;
 
 fn main() -> anyhow::Result<()> {
     init_logging();
+    let once = std::env::args().skip(1).any(|arg| arg == "--once");
     let settings = Settings::from_env(Role::Worker).map_err(|error| anyhow::anyhow!("{error}"))?;
     let db = DbPools::from_settings(&settings)?;
     let config = WorkerConfig {
@@ -32,14 +41,32 @@ fn main() -> anyhow::Result<()> {
         std::process::id(),
         uuid::Uuid::new_v4()
     );
-    let worker = Worker::new(db, registry(), config, worker_id.clone());
-    tracing::info!(target: "plane.worker", worker = %worker_id, "starting");
+    let context = Arc::new(TaskContext::new(db.clone(), settings.clone()));
+    let worker = Worker::new(db.clone(), registry(context), config, worker_id.clone());
+    tracing::info!(target: "plane.worker", worker = %worker_id, once, "starting");
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("building the tokio runtime")?;
     runtime.block_on(async move {
+        // The migrator is the production owner; running the idempotent DDL
+        // here keeps a fresh worker (and `difftest task`) usable without it.
+        {
+            let client = db
+                .write_pool()
+                .get()
+                .await
+                .context("connecting to the job database")?;
+            plane_jobs::migrate(&**client)
+                .await
+                .context("creating the plane_jobs schema")?;
+        }
+        if once {
+            let processed = worker.drain().await.context("draining the queue")?;
+            tracing::info!(target: "plane.worker", processed, "drained");
+            return Ok(());
+        }
         let listener = Listener::connect(&settings).context("starting the job listener")?;
         worker
             .run(shutdown_signal(), Some(listener))
@@ -49,8 +76,10 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn registry() -> TaskRegistry {
-    let mut registry = TaskRegistry::new();
+fn registry(context: Arc<TaskContext>) -> TaskRegistry {
+    let mut registry = plane_tasks::registry(context);
+    // The test-only echo task stays available for the Phase 4 exit check and
+    // the worker tests.
     registry.register("plane.jobs.echo", |ctx: JobContext| async move {
         if let Some(ms) = ctx
             .payload

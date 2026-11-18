@@ -145,13 +145,6 @@ pub async fn recent_visited_project(
     user_id: TaskArg,
 ) -> Result<Option<Uuid>, ViewError> {
     let slug = slug(ctx)?;
-    let job = recent_visited_job(
-        &slug,
-        entity_name,
-        &entity_identifier,
-        project_id.as_ref(),
-        &user_id,
-    );
     let call = RecentVisitedTask::ProjectKeyed {
         slug,
         project_id,
@@ -160,6 +153,9 @@ pub async fn recent_visited_project(
         user_id,
     };
     let message = tasks::recent_visited_task(call);
+    // The queue payload is derived from the Celery message, so switching the
+    // task to Rust is transport-only (CUTOVER.md §2 "Payload equivalence").
+    let job = Job::from_message(&message);
     dispatch_task(ctx, message.task(), &message, job).await
 }
 
@@ -186,13 +182,6 @@ pub async fn recent_visited_entity(
     user_id: TaskArg,
 ) -> Result<Option<Uuid>, ViewError> {
     let slug = slug(ctx)?;
-    let job = recent_visited_job(
-        &slug,
-        entity_name,
-        &entity_identifier,
-        project_id.as_ref(),
-        &user_id,
-    );
     let call = RecentVisitedTask::EntityKeyed {
         slug,
         entity_name: entity_name.to_string(),
@@ -201,26 +190,8 @@ pub async fn recent_visited_entity(
         project_id,
     };
     let message = tasks::recent_visited_task(call);
+    let job = Job::from_message(&message);
     dispatch_task(ctx, message.task(), &message, job).await
-}
-
-/// The Rust-owned representation of a `recent_visited_task`. No production
-/// handler is registered in Phase 4; the payload is the future Rust handler's
-/// contract and keeps the call site honest when the task moves.
-fn recent_visited_job(
-    slug: &str,
-    entity_name: &str,
-    entity_identifier: &TaskArg,
-    project_id: Option<&TaskArg>,
-    user_id: &TaskArg,
-) -> Job {
-    Job::new("plane.bgtasks.recent_visited_task.recent_visited_task").payload(serde_json::json!({
-        "slug": slug,
-        "entity_name": entity_name,
-        "entity_identifier": entity_identifier,
-        "project_id": project_id,
-        "user_id": user_id,
-    }))
 }
 
 #[cfg(test)]

@@ -16,9 +16,16 @@
 
 use std::sync::LazyLock;
 
-/// The production ownership table. Phase 4 deliberately moves no real Plane
-/// task: `plane.jobs.echo` exists only for the worker/beat tests.
-pub const RUST_TASKS: &[&str] = &["plane.jobs.echo"];
+/// The production ownership table.
+///
+/// `plane.jobs.echo` exists only for the worker/beat tests. Phase 8 P0 moves
+/// `recent_visited_task`, the first real task: all ten of its producers are
+/// already Rust (`policy::PRODUCERS`), which is the safety rule in
+/// `plans/CUTOVER.md` §2.
+pub const RUST_TASKS: &[&str] = &[
+    "plane.jobs.echo",
+    "plane.bgtasks.recent_visited_task.recent_visited_task",
+];
 
 /// A task's owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,7 +78,7 @@ mod tests {
     #[test]
     fn default_is_celery() {
         assert_eq!(
-            owner_with("plane.bgtasks.recent_visited_task.recent_visited_task", &[]),
+            owner_with("plane.bgtasks.issue_activities_task.issue_activity", &[]),
             Owner::Celery
         );
         assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);
@@ -80,6 +87,10 @@ mod tests {
     #[test]
     fn the_test_task_is_rust_and_an_override_still_works() {
         assert_eq!(owner_with("plane.jobs.echo", &[]), Owner::Rust);
+        assert_eq!(
+            owner_with("plane.bgtasks.recent_visited_task.recent_visited_task", &[]),
+            Owner::Rust
+        );
         assert_eq!(
             owner_with("plane.jobs.echo", &["plane.jobs.echo".to_owned()]),
             Owner::Rust

@@ -1,0 +1,30 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-tasks"
+description = "Rust task handlers for the Celery tasks Plane's Django backend owns"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+chrono.workspace = true
+deadpool-postgres.workspace = true
+plane-cache = { path = "../plane-cache" }
+plane-core = { path = "../plane-core" }
+plane-db = { path = "../plane-db" }
+plane-jobs = { path = "../plane-jobs" }
+plane-mail = { path = "../plane-mail" }
+plane-net = { path = "../plane-net" }
+plane-storage = { path = "../plane-storage" }
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

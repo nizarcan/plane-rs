@@ -479,11 +479,13 @@ async fn dispatch_routes_to_celery_or_the_queue_by_ownership() {
         user_id: TaskArg::str("u1"),
     });
 
-    // A real task is Celery-owned: without a publisher the dispatch must not
-    // fall through to Postgres or silently drop the message.
+    // A task that has not moved is Celery-owned: without a publisher the
+    // dispatch must not fall through to Postgres or silently drop the message.
+    // (`recent_visited_task` moved to Rust in Phase 8 P0, so the example here
+    // is an activity task, which still has Celery producers.)
     let error = route::dispatch::<tokio_postgres::Client>(
-        "plane.bgtasks.recent_visited_task.recent_visited_task",
-        &Job::new("plane.bgtasks.recent_visited_task.recent_visited_task"),
+        "plane.bgtasks.issue_activities_task.issue_activity",
+        &Job::new("plane.bgtasks.issue_activities_task.issue_activity"),
         &message,
         None,
         Some(&client),

@@ -703,6 +703,10 @@ async fn run_inner(
                 for message in a_messages.iter_mut().chain(b_messages.iter_mut()) {
                     mask_pass_through_response(message);
                 }
+                // A task that moved to the Postgres queue is delivered only by
+                // the Rust producer; its absence from B's Celery drain is the
+                // switch itself, not an effect difference.
+                crate::ownership::drop_rust_owned(&mut a_messages);
                 differences.extend(compare_celery(&a_messages, &b_messages));
             }
         } else {
@@ -748,7 +752,11 @@ async fn run_inner(
             ));
             differences.extend(compare_db(&a_outcome.db_diff, &b_outcome.db_diff));
             differences.extend(compare_redis(&a_outcome.redis_diff, &b_outcome.redis_diff));
-            differences.extend(compare_celery(&a_outcome.messages, &b_outcome.messages));
+            let mut a_messages = a_outcome.messages.clone();
+            // See the probe branch above: a Rust-owned task is not delivered
+            // to RabbitMQ by the Rust producer.
+            crate::ownership::drop_rust_owned(&mut a_messages);
+            differences.extend(compare_celery(&a_messages, &b_outcome.messages));
         }
         // A violation is a difference on its own: a target that writes an
         // unverifiable session or password hash cannot be rescued by another

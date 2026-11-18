@@ -19,6 +19,7 @@ pub mod db;
 pub mod fixture_redis;
 pub mod http;
 pub mod normalize;
+pub mod ownership;
 pub mod password;
 pub mod pickle;
 pub mod presign;
@@ -29,6 +30,7 @@ pub mod report;
 pub mod runner;
 pub mod selftest;
 pub mod session;
+pub mod task;
 pub mod timeparse;
 pub mod util;
 

@@ -47,6 +47,8 @@ enum Command {
     Selftest,
     /// Print table/row counts and snapshot timing for a database.
     Snapshot(SnapshotArgs),
+    /// Execute one Celery task on both backends and compare the DB effect.
+    Task(TaskArgs),
 }
 
 #[derive(Debug, Args)]
@@ -216,6 +218,53 @@ struct RecordArgs {
 }
 
 #[derive(Debug, Args)]
+struct TaskArgs {
+    /// Registered Celery task name, for example
+    /// `plane.bgtasks.recent_visited_task.recent_visited_task`.
+    #[arg(long)]
+    task: String,
+    /// JSON file holding the task's keyword arguments.
+    #[arg(long)]
+    kwargs: PathBuf,
+    /// SQL applied to both database clones before the task runs.
+    #[arg(long)]
+    setup: Option<PathBuf>,
+    /// Database for the Django side (recreated by the tool).
+    #[arg(long, default_value = "t_p8p0_task_a")]
+    a_db: String,
+    /// Database for the Rust side (recreated by the tool).
+    #[arg(long, default_value = "t_p8p0_task_b")]
+    b_db: String,
+    /// Redis logical database for Django.
+    #[arg(long, default_value_t = 5)]
+    a_redis_db: i64,
+    /// Redis logical database for the worker.
+    #[arg(long, default_value_t = 6)]
+    b_redis_db: i64,
+    /// RabbitMQ vhost the Django run publishes `.delay()` to (created and
+    /// dropped by the tool).
+    #[arg(long, default_value = "p8p0_task")]
+    vhost: String,
+    /// Keep the databases and the vhost after the run.
+    #[arg(long)]
+    keep: bool,
+    /// Template database both sides are cloned from.
+    #[arg(long, default_value = "plane_tpl")]
+    template_db: String,
+    /// `plane-worker` binary (default: `target/debug/plane-worker`).
+    #[arg(long)]
+    worker: Option<PathBuf>,
+    #[arg(long, default_value = DEFAULT_PG_URL)]
+    pg_url: String,
+    #[arg(long, default_value = DEFAULT_RABBIT_HTTP)]
+    rabbit_http: String,
+    #[arg(long, default_value = "plane")]
+    rabbit_user: String,
+    #[arg(long, default_value = "plane")]
+    rabbit_password: String,
+}
+
+#[derive(Debug, Args)]
 struct SnapshotArgs {
     /// Database name to snapshot.
     #[arg(long)]
@@ -365,6 +414,25 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
                 redis_db,
             })
             .await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Task(args) => {
+            let mut options =
+                plane_testkit::task::TaskOptions::defaults(args.task, resolve_input(&args.kwargs));
+            options.setup_path = args.setup.as_ref().map(|path| resolve_input(path));
+            options.a_db = args.a_db;
+            options.b_db = args.b_db;
+            options.a_redis_db = args.a_redis_db;
+            options.b_redis_db = args.b_redis_db;
+            options.vhost = args.vhost;
+            options.keep = args.keep;
+            options.template_db = args.template_db;
+            options.worker = args.worker.map(|path| resolve_input(&path));
+            options.pg_url = args.pg_url;
+            options.rabbit_http = args.rabbit_http;
+            options.rabbit_user = args.rabbit_user;
+            options.rabbit_password = args.rabbit_password;
+            plane_testkit::task::run(&options).await?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Snapshot(args) => {

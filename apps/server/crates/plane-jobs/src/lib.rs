@@ -25,6 +25,7 @@ pub mod celery;
 pub mod beat;
 pub mod listener;
 pub mod ownership;
+pub mod policy;
 pub mod queue;
 #[cfg(feature = "celery")]
 pub mod route;
@@ -32,5 +33,6 @@ pub mod worker;
 
 pub use beat::{Beat, BeatConfig, REAL_SCHEDULES, ScheduleSeed};
 pub use ownership::{Owner, owner};
+pub use policy::{Producer, TaskPolicy, policy as task_policy};
 pub use queue::{ClaimedJob, Failure, Job, QueueError, enqueue, migrate};
 pub use worker::{HandlerError, JobContext, TaskRegistry, Worker, WorkerConfig};

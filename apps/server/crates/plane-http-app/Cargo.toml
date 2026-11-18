@@ -32,6 +32,7 @@ plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
 plane-drf = { path = "../plane-drf" }
 plane-jobs = { path = "../plane-jobs" }
+plane-mail = { path = "../plane-mail" }
 plane-net = { path = "../plane-net" }
 plane-permissions = { path = "../plane-permissions" }
 plane-query = { path = "../plane-query" }
