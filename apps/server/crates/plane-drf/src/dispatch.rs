@@ -392,9 +392,24 @@ impl Runtime {
         // ---- check_permissions --------------------------------------------
         let client = conn.client().await?;
         let kwargs = UrlKwargs::from_iter(request.kwargs.iter().copied());
+        // `view.project_identifier` is a property only
+        // `plane.api.views.issue.WorkspaceIssueAPIEndpoint` defines
+        // (`plane/api/views/issue.py:260-262`); every other view has none, so
+        // `ProjectEntityPermission` takes its `view.project_id` branch there.
+        let view_project_identifier =
+            if route.view == "plane.api.views.issue.WorkspaceIssueAPIEndpoint" {
+                request
+                    .kwargs
+                    .iter()
+                    .find(|(name, _)| *name == "project_identifier")
+                    .map(|(_, value)| *value)
+            } else {
+                None
+            };
         let perm_ctx = PermCtx::new(client, &auth.user, &method, &kwargs)
             .with_action(action)
             .with_url_name(route.url_name.as_deref())
+            .with_project_identifier(view_project_identifier)
             .with_authenticators_configured(!route.authentications.is_empty());
         if let Err(failure) =
             plane_permissions::check_permissions(&effective_permissions, &perm_ctx).await

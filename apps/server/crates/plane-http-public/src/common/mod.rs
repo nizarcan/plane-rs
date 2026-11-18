@@ -21,5 +21,6 @@
 //! the shared per-request handle.
 
 pub mod html;
+pub(crate) mod html_tables;
 pub mod page;
 pub mod render;

@@ -74,8 +74,6 @@
 //! * `OPTIONS` `actions` are recorded for a permitted caller; Django's
 //!   `get_object()` check for `PUT` and CPython's random set ordering of
 //!   `{'PUT','POST'}` are not reproduced.
-//! * The v1 `WorkspaceIssueAPIEndpoint.project_identifier` property is not fed
-//!   into `PermCtx`.
 //! * `plane_serde::pyjson` decodes the common text encodings (UTF-8, ASCII,
 //!   latin-1, cp1252, UTF-16/32). A JSON body in another text codec Python
 //!   would decode (for example `cp437`) is refused; see [`parsers`].
