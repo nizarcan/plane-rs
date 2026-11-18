@@ -14,9 +14,11 @@
 //!    policy. Registration is stateful and one place owns the sequence, so a
 //!    duplicated or stale registration is a startup failure and must stay one.
 //! 2. Every registered `(view, action or method)` resolves to a route whose
-//!    `routes.json` `group` is `app` or `auth`. This crate serves `/api/` and
-//!    (from Phase 6) `/auth/`; a handler for `/api/v1/`, `/api/public/` or
-//!    `/api/instances/` would be dead code in the wrong binary.
+//!    `routes.json` `group` is `app`, `auth` or `public`. This crate serves
+//!    `/api/` and (from Phase 6) `/auth/`; the Phase 7 public-board set adds
+//!    `/api/public/` (`src/public/`, `plans/PUBLIC_INSTANCES.md` §3). A handler
+//!    for `/api/v1/` or `/api/instances/` would be dead code in the wrong
+//!    binary.
 //! 3. Each domain module registers an action or method only if every route that
 //!    dispatches to it belongs to that module's group in
 //!    `deploy/route-groups.yaml` (`src/lib.rs` maps module to group: `users_me`
@@ -81,6 +83,7 @@ const DOMAINS: &[(&str, &[&str])] = &[
     ("stickies", &["stickies"]),
     ("webhooks", &["webhooks"]),
     ("ai", &["ai"]),
+    ("public", &["public"]),
 ];
 
 /// `apps/server/`, from `CARGO_MANIFEST_DIR` (`apps/server/crates/plane-http-app`).
@@ -148,6 +151,7 @@ fn register_module(module: &str) -> RegisterFn {
         "stickies" => plane_http_app::stickies::register,
         "webhooks" => plane_http_app::webhooks::register,
         "ai" => plane_http_app::ai::register,
+        "public" => plane_http_app::public::register,
         other => panic!("DOMAINS lists {other:?}, which register_all does not call"),
     }
 }
@@ -208,7 +212,7 @@ fn only_app_routes_are_registered() {
             );
             for route in matching {
                 assert!(
-                    matches!(route.group.as_str(), "app" | "auth"),
+                    matches!(route.group.as_str(), "app" | "auth" | "public"),
                     "{view_name} registers {entry} for {}, but routes.json puts that route on \
                      the {:?} surface; plane-http-app serves /api/ and /auth/, and the other \
                      surfaces have their own crates",

@@ -274,7 +274,7 @@ impl Attributes {
     }
 
     /// `attributes.get("type")`.
-    pub(super) fn mime_type(&self) -> Option<&str> {
+    pub(crate) fn mime_type(&self) -> Option<&str> {
         self.0.get("type").and_then(serde_json::Value::as_str)
     }
 }
@@ -299,10 +299,14 @@ pub(crate) fn storage(settings: &Settings) -> Result<&'static Storage, ViewError
 /// `S3Storage(request=request).generate_presigned_url(…)` followed by
 /// `HttpResponseRedirect`.
 ///
+/// `pub(crate)` since the public asset `GET`
+/// (`plane/space/views/asset.py:76-85`) uses the identical presign with
+/// `disposition="inline"` and the asset's own `attributes["type"]`.
+///
 /// The key is `view.asset` and the filename `view.attributes["name"]`; the
 /// disposition and the optional `Content-Type` pin come from the caller, as in
 /// the Python.
-pub(super) async fn presigned_redirect(
+pub(crate) async fn presigned_redirect(
     ctx: &ViewCtx<'_>,
     asset: &FileAsset,
     disposition: &str,
@@ -333,6 +337,14 @@ pub(super) async fn presigned_redirect(
 /// `django.http.HttpResponseRedirect(signed_url)`.
 pub(super) fn redirect(location: &str) -> ViewResponse {
     ViewResponse::raw(302, HTML_UTF8, Vec::new()).with_header("Location", location)
+}
+
+/// `asset.attributes.get("type")`, the `content_type` pin of a presigned
+/// `generate_presigned_url` call.
+pub(crate) fn attribute_type(asset: &FileAsset) -> Option<String> {
+    Attributes::parse(asset.attributes.as_str())
+        .mime_type()
+        .map(str::to_owned)
 }
 
 /// `S3Storage.generate_presigned_post(...)`'s return value as the JSON object

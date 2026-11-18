@@ -102,6 +102,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     stickies::register(registry)?;
     webhooks::register(registry)?;
     ai::register(registry)?;
+    public::register(registry)?;
     Ok(())
 }
 
