@@ -1885,10 +1885,25 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      283 DELETE, 284 POST, 299 POST, 301 PATCH, 302 POST, 303 DELETE (set C) and 307
      POST, 309 PATCH/DELETE (set A).
 
+   - **SMTP/MIME/normaliser fixes merged (`e09b5f87ad`; D23 amended `ed49fb04fb`).**
+     - Route 270: the SMTP session is driven per command (lettre `AsyncNetworkStream`),
+       so every smtplib branch maps like Django; `getfqdn` ported (`dns-lookup` 4.0.2)
+       for EHLO and `Message-ID`. All 9 `run-smtp-scenario.sh` modes clean on HTTP and
+       on the compared SMTP transcripts.
+     - Attachment MIME list generated from `settings.ATTACHMENT_MIME_TYPES` (73 entries,
+       71 unique) by `tools/inventory/attachment_mime_types.py --check` (CI); app and
+       v1 routes share it. `issue-attachments.yaml` adds flac/gltf (200) and
+       `audio/mp4` (400).
+     - Testkit: rules are kept per name in declaration order, the first matching scope
+       applies, overlapping scopes fail to load. `assets-user` 71/71,
+       `assets-workspace` 88/88 again.
+     - `lxml_html_tables.py` pipes through `rustfmt`; `--check` passes (not yet in CI).
+     - Agent sweeps: read 49 files, write 70 files, all clean; 1256 tests; testkit 188.
+
    Running: v1 set B (`rs/v1-b`, ports 18010/18110, Redis 3/4, contract Redis 11), v1
-   remaining writes (`rs/v1-c2`, 18020/18120, Redis 5/6, contract Redis 15), the
-   SMTP/MIME/normaliser fix (`rs/fix-smtp-mime`, 18040/18140, Redis 9/10, contract
-   Redis 2, SMTP 18410–18419). Then the final benchmark and the environment
+   remaining writes (`rs/v1-c2`, 18020/18120, Redis 5/6, contract Redis 15); the
+   orchestrator's verification of `ed49fb04fb`, which gates the pending flips (v1
+   D/A/C part 1, public B, instances C). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
