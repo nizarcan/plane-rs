@@ -85,6 +85,18 @@ Rust cannot make; `_local_mock_reason` detects that, like the patched storage
 wrappers, OAuth provider classes and throttle rates, and serves the request
 from Django.
 
+## Settings
+
+`plane-api` reads [`ENV_SETTINGS`] — `APP_BASE_URL`, `WEB_URL`, the other base
+URLs, the CORS/CSRF origin lists and the session/CSRF cookie settings — from
+its environment when it starts. A test that changes one in-process (pytest's
+`settings` fixture, `override_settings`, `modify_settings`, or an in-place list
+edit) cannot reach that process, so the request is served by Django and
+reported. The value is compared with a deep copy taken in
+`pytest_sessionstart`, before any test ran; a setting that ends up equal on
+both sides (including a list reassigned to an equal list) never fires, and a
+setting outside the list is never looked at.
+
 ## Modes and reporting
 
 `PLANE_RS_CONTRACT_BACKEND=django` runs everything in-process through the same
@@ -103,6 +115,7 @@ outcome, the Django-only counts, and writes a JSON report.
 from __future__ import annotations
 
 import base64
+import copy
 import importlib
 import json
 import os
@@ -198,6 +211,7 @@ class State:
         self.current: TestRecord | None = None
         self.session_keys: dict[str, str] = {}
         self.replay_count: int = 0
+        self.settings_baseline: dict[str, Any] | None = None
 
 
 STATE = State()
@@ -446,6 +460,49 @@ AUTH_PATCHED_RATES: tuple[tuple[str, str, str, str], ...] = (
     ),
 )
 
+# Django settings that `plane-api` reads from its environment **once, at
+# startup** and that a rust-owned route's response depends on. The suite
+# overrides `settings.APP_BASE_URL` with pytest's `settings` fixture
+# (`plane/tests/contract/app/test_oauth_callback_state_app.py:107-108`), and a
+# future test can override any of the others the same way or through
+# `override_settings`/`modify_settings`. A separate process cannot see an
+# in-process change, so such a request has to be served by Django.
+#
+# Only settings whose value the two processes derive identically from the same
+# environment belong here. `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY` and the
+# email settings are deliberately absent: the first two are per-process
+# plumbing, `SECRET_KEY` must not be printed in a report, and the email
+# credentials are read through `get_configuration_value` (DB first, env
+# fallback), so an env value is not the whole story. `ALLOWED_HOSTS` is absent
+# too: Django's `setup_test_environment()` appends `"testserver"` to it
+# (`django/test/utils.py`), so it always differs from the value `plane-api`
+# read even though no test touched it. `plane-core/config.rs` reads every name
+# below (`UrlSettings`, `CookieSettings`, `CorsSettings`).
+ENV_SETTINGS: tuple[str, ...] = (
+    "APP_BASE_URL",
+    "WEB_URL",
+    "ADMIN_BASE_URL",
+    "SPACE_BASE_URL",
+    "LIVE_BASE_URL",
+    "CORS_ALLOWED_ORIGINS",
+    "CSRF_TRUSTED_ORIGINS",
+    "SESSION_COOKIE_NAME",
+    "SESSION_COOKIE_AGE",
+    "SESSION_COOKIE_SECURE",
+    "SESSION_COOKIE_DOMAIN",
+    "CSRF_COOKIE_SECURE",
+    "CSRF_COOKIE_DOMAIN",
+)
+
+# `django-cors-headers` defines no default for `CORS_ALLOWED_ORIGINS` and Plane
+# only assigns the setting when `CORS_ALLOWED_ORIGINS` is non-empty
+# (`plane/settings/common.py:191-197`), so it is absent from `settings` in the
+# dev environment while its effective value is the empty allow-list. Comparing
+# `[]` with the attribute's absence keeps an override to `[]` silent.
+SETTING_DEFAULTS: dict[str, Any] = {"CORS_ALLOWED_ORIGINS": []}
+
+_MISSING = object()
+
 # Tests that assert an exception is raised *inside* Django's process. They wrap
 # the client call in `try/except` (or `pytest.raises`) and accept either a 4xx
 # response or the exception itself; Django's test client re-raises it, while a
@@ -494,7 +551,7 @@ def _local_mock_reason() -> str | None:
     `unittest.mock._patch._active_patches`: the context-manager form of `patch`
     does not register there.
 
-    Two more families are detected the same way, by the object the test patched:
+    Further families are detected by their effect:
 
     * An OAuth provider class on a callback view module
       (`[AUTH_PROVIDER_MOCK_TARGETS]`). The view instantiates the module
@@ -515,6 +572,11 @@ def _local_mock_reason() -> str | None:
       through `setattr`, where the proxy still exposes it for the block's
       duration (the Django view imports the same proxy,
       `plane/app/views/user/base.py:19`).
+    * A setting in [`ENV_SETTINGS`] whose value differs from the snapshot taken
+      at session start (`_settings_override_reason`). `plane-api` reads its
+      settings from the environment once, so `settings.APP_BASE_URL = …` (the
+      `settings` fixture) or `override_settings(...)` changes only Django's
+      answer; the request must be served in-process.
     """
     for module_name, attribute in STORAGE_MOCK_TARGETS + AUTH_MOCK_TARGETS:
         module = sys.modules.get(module_name)
@@ -538,6 +600,9 @@ def _local_mock_reason() -> str | None:
     cache_reason = _cache_mock_reason()
     if cache_reason is not None:
         return cache_reason
+    settings_reason = _settings_override_reason()
+    if settings_reason is not None:
+        return settings_reason
     for module_name, class_name, attribute, env_name in AUTH_PATCHED_RATES:
         module = sys.modules.get(module_name)
         if module is None:
@@ -601,6 +666,69 @@ def _in_process_exception_reason() -> str | None:
     for suffix, why in IN_PROCESS_EXCEPTION_TESTS:
         if nodeid.endswith(suffix):
             return f"{why}; served by Django"
+    return None
+
+
+def _settings_value(name: str) -> Any:
+    """`settings.<name>` right now, as a detached copy (`_MISSING` if absent)."""
+    from django.conf import settings
+
+    value = getattr(settings, name, _MISSING)
+    if value is _MISSING:
+        value = SETTING_DEFAULTS.get(name, _MISSING)
+    if value is _MISSING:
+        return _MISSING
+    try:
+        # Lists and dicts are mutable; an in-place edit
+        # (`settings.CSRF_TRUSTED_ORIGINS.append(…)`) must not change the value
+        # it is compared against.
+        return copy.deepcopy(value)
+    except Exception:  # a setting that cannot be copied is compared in place
+        return value
+
+
+def _snapshot_env_settings() -> None:
+    """Record the settings `plane-api` read at startup, once, before any test.
+
+    `plane-api` resolves [`ENV_SETTINGS`] from its environment when the process
+    starts. The runner copies Django's values at the equivalent point of the
+    session: `pytest_sessionstart`, after pytest-django has configured the
+    settings module and before collection, so no test can have overridden
+    anything yet. A deep copy is stored so a test that mutates a list setting
+    in place (`CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`) is still visible
+    as a difference.
+    """
+    STATE.settings_baseline = {name: _settings_value(name) for name in ENV_SETTINGS}
+
+
+def _settings_override_reason() -> str | None:
+    """A setting the test changed in-process that `plane-api` read at startup.
+
+    `plane-api` is a separate process, so `settings.APP_BASE_URL = "…"` in a
+    test (`plane/tests/contract/app/test_oauth_callback_state_app.py:107-108`)
+    or `override_settings(...)` changes Django's answer only. The check is
+    effect-based: the current value of every setting in [`ENV_SETTINGS`] is
+    compared with the deep copy taken in `pytest_sessionstart`, before any test
+    ran. Values that are equal — including a list reassigned to an equal list,
+    or a lazily built value that resolves to the same result — never fire, and
+    an unrelated setting (anything outside the list) never fires.
+    """
+    if STATE.settings_baseline is None:
+        # Direct use without `pytest_sessionstart` (the smoke tests do call the
+        # detector directly); any test override is still ahead of this point.
+        _snapshot_env_settings()
+    baseline = STATE.settings_baseline or {}
+    for name in ENV_SETTINGS:
+        original = baseline.get(name, _MISSING)
+        current = _settings_value(name)
+        if current is _MISSING and original is _MISSING:
+            continue
+        if current == original:
+            continue
+        return (
+            f"overrides `settings.{name}` in-process ({current!r}); "
+            f"plane-api read {original!r} at startup — served by Django"
+        )
     return None
 
 
@@ -1110,6 +1238,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     STATE.records = {}
+    STATE.settings_baseline = None
     backend = config.getoption("plane_contract_backend") or os.environ.get(
         "PLANE_RS_CONTRACT_BACKEND", "mixed"
     )
@@ -1165,6 +1294,10 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     settings.DATABASES["default"].setdefault("TEST", {})
     settings.DATABASES["default"]["TEST"]["NAME"] = STATE.db_name
+    # Django is configured and no test has run, which is the same point in the
+    # session at which `plane-api` resolves its own settings from the
+    # environment. `_settings_override_reason` compares against this snapshot.
+    _snapshot_env_settings()
 
 
 @pytest.fixture(scope="session")

@@ -7,7 +7,7 @@ else stays in-process in Django, as it is today.
 
 ```
 apps/server/tools/contract/
-  pytest_plane_contract.py   the pytest plugin (routing, auth, DB, replay, report)
+  pytest_plane_contract.py   the pytest plugin (routing, auth, DB, replay, detectors, report)
   dry_routing.py             static "which test files can reach Rust" pass
   run.sh                     the entry point: env, build, pytest
   smoke/test_replay.py       proof that a Rust publish reaches a patched `.delay`
@@ -222,3 +222,16 @@ PLANE_DB=t_rsct_plain PLANE_REDIS_DB=1 PLANE_MQ_VHOST=t_rsct_plain \
    "Side effects").
 7. **One `plane-api` per session**, started on `PLANE_RS_CONTRACT_PORT`. A
    second concurrent run needs a different port, database, Redis DB and vhost.
+8. **Settings overridden in-process are served by Django.** `plane-api` reads
+   `APP_BASE_URL`, `WEB_URL`, the other base URLs, the CORS/CSRF origin lists
+   and the session/CSRF cookie settings from its environment once, at startup.
+   A test that changes one of them through pytest's
+   `settings` fixture, `override_settings`, `modify_settings` or an in-place
+   list edit changes Django's answer only, so that request is served in-process
+   and reported as
+   ``overrides `settings.<NAME>` in-process (<value>); plane-api read
+   <original> at startup``. The runner snapshots the values in
+   `pytest_sessionstart` — after Django is configured, before any test — and
+   compares the deep copy per request, so an equal value (including a list
+   reassigned to an equal list) never fires; a setting outside the list
+   (`ENV_SETTINGS` in the plugin) is never looked at.

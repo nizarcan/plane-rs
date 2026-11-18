@@ -10,12 +10,18 @@ patched target the contract suite replaces must produce a reason that names it
 and ends with "served by Django", an unrelated patch on the same module must
 not, and the reason must be gone once the patch block exits. It sends no HTTP
 request, so it runs with `run.sh --backend django --smoke` too.
+
+The same module covers the settings detector: a value changed through pytest's
+`settings` fixture or `override_settings` must fire (the second process read
+the original at startup), a value reassigned to an equal one or a setting
+outside `ENV_SETTINGS` must stay silent.
 """
 
 from unittest.mock import patch
 
 import pytest
 from django.core.cache import cache, caches
+from django.test import override_settings
 from django.utils.connection import ConnectionProxy
 
 import pytest_plane_contract
@@ -79,3 +85,70 @@ def test_another_mocked_object_is_not_a_cache_limitation():
         # Detected by AUTH_PATCHED_RATES, not by the cache check, so the reason
         # is the throttle one and the cache check on its own stays quiet.
         assert pytest_plane_contract._cache_mock_reason() is None
+
+
+def test_settings_fixture_assignment_is_a_limitation(settings):
+    """The `settings` fixture is how `test_oauth_callback_state_app.py` does it."""
+    original = settings.APP_BASE_URL
+    settings.APP_BASE_URL = "http://app.example.com"
+
+    reason = _reason()
+    assert reason is not None
+    assert "settings.APP_BASE_URL" in reason
+    assert "'http://app.example.com'" in reason
+    assert f"plane-api read {original!r} at startup" in reason
+    assert reason.endswith(SANCTIONED)
+
+
+def test_override_settings_is_a_limitation():
+    with override_settings(APP_BASE_URL="http://app.example.com"):
+        reason = _reason()
+        assert reason is not None
+        assert "settings.APP_BASE_URL" in reason
+        assert reason.endswith(SANCTIONED)
+    # `override_settings` restores Django's value; the baseline never moved.
+    assert _reason() is None
+
+
+def test_another_environment_setting_is_a_limitation():
+    """The detector covers the whole list, not only the setting the suite uses."""
+    with override_settings(SESSION_COOKIE_NAME="contract-session"):
+        reason = _reason()
+        assert reason is not None
+        assert "settings.SESSION_COOKIE_NAME" in reason
+        assert "contract-session" in reason
+        assert reason.endswith(SANCTIONED)
+
+
+def test_a_list_setting_reassigned_to_an_equal_list_is_not_a_limitation(settings):
+    """A fresh-but-equal list must not look like an override.
+
+    `CORS_ALLOWED_ORIGINS` is absent from `settings` in the dev environment
+    (Plane only assigns it for a non-empty env value), so both sides resolve the
+    empty allow-list through `SETTING_DEFAULTS`.
+    """
+    settings.CORS_ALLOWED_ORIGINS = list(getattr(settings, "CORS_ALLOWED_ORIGINS", []))
+    assert _reason() is None
+
+
+def test_an_in_place_list_edit_is_a_limitation(settings):
+    """The baseline is a deep copy, so mutating the live list is detected."""
+    origins = settings.CSRF_TRUSTED_ORIGINS
+    original = list(origins)
+    try:
+        origins.append("https://contract-detector.example")
+        reason = _reason()
+        assert reason is not None
+        assert "settings.CSRF_TRUSTED_ORIGINS" in reason
+        assert "contract-detector.example" in reason
+        assert reason.endswith(SANCTIONED)
+    finally:
+        # `override_settings`/`settings` shallow-copy the settings object, so an
+        # in-place edit is not undone by the fixture; restore it here.
+        origins[:] = original
+    assert _reason() is None
+
+
+@override_settings(DEBUG=False)
+def test_an_unrelated_setting_is_not_a_limitation():
+    assert _reason() is None
