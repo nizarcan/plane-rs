@@ -1,0 +1,720 @@
+{"input": "<p>a<p>b", "lxml": "<div><p>a</p><p>b</p></div>"}
+{"input": "<p>a<div>b</div>c", "lxml": "<div><p>a</p><div>b</div>c</div>"}
+{"input": "<b>x<p>y</p></b>", "lxml": "<div><b>x</b><p>y</p></div>"}
+{"input": "<span><p>a</p></span>", "lxml": "<span><p>a</p></span>"}
+{"input": "<h1><p>a</p></h1>", "lxml": "<div><h1></h1><p>a</p></div>"}
+{"input": "<h1>a<h2>b</h1>", "lxml": "<h1>a<h2>b</h2></h1>"}
+{"input": "<table><tr><td>a<td>b<tr><td>c</table>", "lxml": "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>"}
+{"input": "<table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>", "lxml": "<table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>"}
+{"input": "<ul><li>a<ul><li>b</ul></ul>", "lxml": "<ul><li>a<ul><li>b</li></ul></li></ul>"}
+{"input": "<ol><li>a<li>b</ol>", "lxml": "<ol><li>a</li><li>b</li></ol>"}
+{"input": "<dl><dt>a<dd>b<dt>c</dl>", "lxml": "<dl><dt>a</dt><dd>b</dd><dt>c</dt></dl>"}
+{"input": "<select><option>a<option>b</select>", "lxml": "<select><option>a</option><option>b</option></select>"}
+{"input": "<form><p>a</form>", "lxml": "<form><p>a</p></form>"}
+{"input": "<a href=x><a href=y>z</a>", "lxml": "<span><a href=\"x\"></a><a href=\"y\">z</a></span>"}
+{"input": "<p>x</p></p>", "lxml": "<p>x</p>"}
+{"input": "<p>a</p><!-- c --><p>b</p>", "lxml": "<div><p>a</p><!-- c --><p>b</p></div>"}
+{"input": "<p>a</p><!--x-->", "lxml": "<div><p>a</p><!--x--></div>"}
+{"input": "<div><p>a</div>", "lxml": "<div><p>a</p></div>"}
+{"input": "<b><i>x</b></i>", "lxml": "<b><i>x</i></b>"}
+{"input": "<p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p>", "lxml": "<p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p>"}
+{"input": "<p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p>", "lxml": "<p>� � A � 😀</p>"}
+{"input": "<p>a\r\nb</p>", "lxml": "<p>a\nb</p>"}
+{"input": "<p title=\"a\r\nb\">x</p>", "lxml": "<p title=\"a\nb\">x</p>"}
+{"input": "<p title=\"a&quot;b'c\">x</p>", "lxml": "<p title=\"a&quot;b'c\">x</p>"}
+{"input": "<p title=\"a&amp;b&lt;c&gt;d\">x</p>", "lxml": "<p title=\"a&amp;b&lt;c&gt;d\">x</p>"}
+{"input": "<a href=\" a b \">x</a>", "lxml": "<a href=\"a%20b%20\">x</a>"}
+{"input": "<a href=\"ü.png?x=1&y=2\">x</a>", "lxml": "<a href=\"%C3%BC.png?x=1&amp;y=2\">x</a>"}
+{"input": "<img SRC=\"ü.png\" ALT='x'>", "lxml": "<img src=\"%C3%BC.png\" alt=\"x\">"}
+{"input": "<p foo>x</p><input checked><p data-x=\"1\" data-y>z</p>", "lxml": "<div><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></div>"}
+{"input": "<p title=a title=b>x</p>", "lxml": "<p title=\"a\">x</p>"}
+{"input": "<P TITLE=x CLASS=y>z</P>", "lxml": "<p title=\"x\" class=\"y\">z</p>"}
+{"input": "<p/>x", "lxml": "<div><p></p>x</div>"}
+{"input": "<p />", "lxml": "<p></p>"}
+{"input": "<br /><hr/><img src=x/>", "lxml": "<div><br><hr><img src=\"x/\"></div>"}
+{"input": "<li></li><li>a", "lxml": "<div><li><li>a</li></div>"}
+{"input": "<td></td><option></option>", "lxml": "<div><td></td><option></option></div>"}
+{"input": "<html><head><title>t</title></head><body>x</body></html>", "lxml": "<html><head><title>t</title></head><body>x</body></html>"}
+{"input": "<!DOCTYPE html><html><body><p>x</p></body></html>", "lxml": "<html><body><p>x</p></body></html>"}
+{"input": "<head><title>x</title></head>y", "lxml": "<html><head><title>x</title></head><body>y</body></html>"}
+{"input": "<body>text</body>", "lxml": "<span>text</span>"}
+{"input": "<html></html>", "lxml": "<html></html>"}
+{"input": "<html>  </html>", "lxml": "<html>  </html>"}
+{"input": "<script>a<b && c>d</script>", "lxml": "<html><head><script>a<b && c>d</script></head></html>"}
+{"input": "<style>.x{content:'<a>'}</style>", "lxml": "<html><head><style>.x{content:'<a>'}</style></head></html>"}
+{"input": "<textarea>a &amp; b</textarea>", "lxml": "<textarea>a &amp; b</textarea>"}
+{"input": "<title>a &amp; b</title>", "lxml": "<html><head><title>a &amp; b</title></head></html>"}
+{"input": "<p><textarea>a</textarea></p>", "lxml": "<p><textarea>a</textarea></p>"}
+{"input": "<noscript><p>a</p></noscript>", "lxml": "<noscript><p>a</p></noscript>"}
+{"input": "<svg><circle r=\"1\"/></svg>", "lxml": "<svg><circle r=\"1\"></circle></svg>"}
+{"input": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>", "lxml": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>"}
+{"input": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>", "lxml": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>"}
+{"input": "<p><label data-x=\"1\">b</label></p>", "lxml": "<p><label data-x=\"1\">b</label></p>"}
+{"input": "<pre><code>let x = 1 &lt; 2;</code></pre>", "lxml": "<pre><code>let x = 1 &lt; 2;</code></pre>"}
+{"input": "<blockquote>quote</blockquote><hr>", "lxml": "<div><blockquote>quote</blockquote><hr></div>"}
+{"input": "<p>a<br>b<br/>c</p>", "lxml": "<p>a<br>b<br>c</p>"}
+{"input": "<p>    　 \u000b \u001c</p>", "lxml": "<p>    　 \u000b \u001c</p>"}
+{"input": "<p>emoji 😀 ünïcode</p>", "lxml": "<p>emoji 😀 ünïcode</p>"}
+{"input": "<p>a > b & c < d</p>", "lxml": "<p>a &gt; b &amp; c &lt; d</p>"}
+{"input": "<div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div>", "lxml": "<div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div>"}
+{"input": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre>", "lxml": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre>"}
+{"input": "<input type='checkbox' checked>", "lxml": "<input type=\"checkbox\" checked>"}
+{"input": "<p><p>a</p></p>", "lxml": "<div><p></p><p>a</p></div>"}
+{"input": "<table><tr><td><p>a</p></td></tr></table>", "lxml": "<table><tr><td><p>a</p></td></tr></table>"}
+{"input": "<p>a<table><tr><td>x</table>b", "lxml": "<div><p>a</p><table><tr><td>x</td></tr></table>b</div>"}
+{"input": "<td>x", "lxml": "<td>x</td>"}
+{"input": "<tr><td>x", "lxml": "<tr><td>x</td></tr>"}
+{"input": "<li>a", "lxml": "<li>a</li>"}
+{"input": "<caption>a</caption>", "lxml": "<caption>a</caption>"}
+{"input": "<p", "lxml": "<span></span>"}
+{"input": "<p ", "lxml": "<span></span>"}
+{"input": "<p class=\"x", "lxml": "<span></span>"}
+{"input": "<", "lxml": "<span>&lt;</span>"}
+{"input": "<>", "lxml": "<span>&lt;&gt;</span>"}
+{"input": "< p>", "lxml": "<span>&lt; p&gt;</span>"}
+{"input": "&bogus;", "lxml": "<span>&amp;bogus;</span>"}
+{"input": "\u0000", "lxml": "<span>�</span>"}
+{"input": "\u0000a", "lxml": "<span>�a</span>"}
+{"input": "<div>", "lxml": "<div></div>"}
+{"input": "<div><p>a", "lxml": "<div><p>a</p></div>"}
+{"input": "", "error": "ParserError: Document is empty"}
+{"input": " ", "error": "ParserError: Document is empty"}
+{"input": "\n\t ", "error": "ParserError: Document is empty"}
+{"input": "\r", "error": "ParserError: Document is empty"}
+{"input": "\f", "error": "ParserError: Document is empty"}
+{"input": "hello", "lxml": "<span>hello</span>"}
+{"input": "+", "lxml": "<span>+</span>"}
+{"input": "<div><p>a<p>b</div>", "lxml": "<div><p>a</p><p>b</p></div>"}
+{"input": "<p><p>a<p>b</p>", "lxml": "<div><p></p><p>a</p><p>b</p></div>"}
+{"input": "<ul><li><p>a<p>b</li></ul>", "lxml": "<ul><li><p>a</p><p>b</p></li></ul>"}
+{"input": "<td><p>a<p>b</td>", "lxml": "<td><p>a</p><p>b</p></td>"}
+{"input": "\n<p>a<p>b  ", "lxml": "<div><p>a</p><p>b  </p></div>"}
+{"input": "<!-- c --><p>a<p>b", "lxml": "<div><p>a</p><p>b</p></div>"}
+{"input": "<div><p>a<div>b</div>c</div>", "lxml": "<div><p>a</p><div>b</div>c</div>"}
+{"input": "<p><p>a<div>b</div>c</p>", "lxml": "<div><p></p><p>a</p><div>b</div>c</div>"}
+{"input": "<ul><li><p>a<div>b</div>c</li></ul>", "lxml": "<ul><li><p>a</p><div>b</div>c</li></ul>"}
+{"input": "<td><p>a<div>b</div>c</td>", "lxml": "<td><p>a</p><div>b</div>c</td>"}
+{"input": "\n<p>a<div>b</div>c  ", "lxml": "<div><p>a</p><div>b</div>c  </div>"}
+{"input": "<!-- c --><p>a<div>b</div>c", "lxml": "<div><p>a</p><div>b</div>c</div>"}
+{"input": "<div><b>x<p>y</p></b></div>", "lxml": "<div><b>x</b><p>y</p></div>"}
+{"input": "<p><b>x<p>y</p></b></p>", "lxml": "<div><p><b>x</b></p><p>y</p></div>"}
+{"input": "<ul><li><b>x<p>y</p></b></li></ul>", "lxml": "<ul><li><b>x</b><p>y</p></li></ul>"}
+{"input": "<td><b>x<p>y</p></b></td>", "lxml": "<td><b>x</b><p>y</p></td>"}
+{"input": "\n<b>x<p>y</p></b>  ", "lxml": "<div><b>x</b><p>y</p>  </div>"}
+{"input": "<!-- c --><b>x<p>y</p></b>", "lxml": "<div><b>x</b><p>y</p></div>"}
+{"input": "<div><span><p>a</p></span></div>", "lxml": "<div><span><p>a</p></span></div>"}
+{"input": "<p><span><p>a</p></span></p>", "lxml": "<p><span><p>a</p></span></p>"}
+{"input": "<ul><li><span><p>a</p></span></li></ul>", "lxml": "<ul><li><span><p>a</p></span></li></ul>"}
+{"input": "<td><span><p>a</p></span></td>", "lxml": "<td><span><p>a</p></span></td>"}
+{"input": "\n<span><p>a</p></span>  ", "lxml": "<span><p>a</p></span>  "}
+{"input": "<!-- c --><span><p>a</p></span>", "lxml": "<span><p>a</p></span>"}
+{"input": "<div><h1><p>a</p></h1></div>", "lxml": "<div><h1></h1><p>a</p></div>"}
+{"input": "<p><h1><p>a</p></h1></p>", "lxml": "<div><p></p><h1></h1><p>a</p></div>"}
+{"input": "<ul><li><h1><p>a</p></h1></li></ul>", "lxml": "<ul><li><h1></h1><p>a</p></li></ul>"}
+{"input": "<td><h1><p>a</p></h1></td>", "lxml": "<td><h1></h1><p>a</p></td>"}
+{"input": "\n<h1><p>a</p></h1>  ", "lxml": "<div><h1></h1><p>a</p>  </div>"}
+{"input": "<!-- c --><h1><p>a</p></h1>", "lxml": "<div><h1></h1><p>a</p></div>"}
+{"input": "<div><h1>a<h2>b</h1></div>", "lxml": "<div><h1>a<h2>b</h2></h1></div>"}
+{"input": "<p><h1>a<h2>b</h1></p>", "lxml": "<div><p></p><h1>a<h2>b</h2></h1></div>"}
+{"input": "<ul><li><h1>a<h2>b</h1></li></ul>", "lxml": "<ul><li><h1>a<h2>b</h2></h1></li></ul>"}
+{"input": "<td><h1>a<h2>b</h1></td>", "lxml": "<td><h1>a<h2>b</h2></h1></td>"}
+{"input": "\n<h1>a<h2>b</h1>  ", "lxml": "<h1>a<h2>b</h2></h1>  "}
+{"input": "<!-- c --><h1>a<h2>b</h1>", "lxml": "<h1>a<h2>b</h2></h1>"}
+{"input": "<div><table><tr><td>a<td>b<tr><td>c</table></div>", "lxml": "<div><table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table></div>"}
+{"input": "<p><table><tr><td>a<td>b<tr><td>c</table></p>", "lxml": "<div><p></p><table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table></div>"}
+{"input": "<ul><li><table><tr><td>a<td>b<tr><td>c</table></li></ul>", "lxml": "<ul><li><table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table></li></ul>"}
+{"input": "<td><table><tr><td>a<td>b<tr><td>c</table></td>", "lxml": "<td><table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table></td>"}
+{"input": "\n<table><tr><td>a<td>b<tr><td>c</table>  ", "lxml": "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>  "}
+{"input": "<!-- c --><table><tr><td>a<td>b<tr><td>c</table>", "lxml": "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>"}
+{"input": "<div><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></div>", "lxml": "<div><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></div>"}
+{"input": "<p><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></p>", "lxml": "<div><p></p><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></div>"}
+{"input": "<ul><li><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></li></ul>", "lxml": "<ul><li><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></li></ul>"}
+{"input": "<td><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></td>", "lxml": "<td><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></td>"}
+{"input": "\n<table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>  ", "lxml": "<table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>  "}
+{"input": "<!-- c --><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>", "lxml": "<table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>"}
+{"input": "<div><ul><li>a<ul><li>b</ul></ul></div>", "lxml": "<div><ul><li>a<ul><li>b</li></ul></li></ul></div>"}
+{"input": "<p><ul><li>a<ul><li>b</ul></ul></p>", "lxml": "<div><p></p><ul><li>a<ul><li>b</li></ul></li></ul></div>"}
+{"input": "<ul><li><ul><li>a<ul><li>b</ul></ul></li></ul>", "lxml": "<ul><li><ul><li>a<ul><li>b</li></ul></li></ul></li></ul>"}
+{"input": "<td><ul><li>a<ul><li>b</ul></ul></td>", "lxml": "<td><ul><li>a<ul><li>b</li></ul></li></ul></td>"}
+{"input": "\n<ul><li>a<ul><li>b</ul></ul>  ", "lxml": "<ul><li>a<ul><li>b</li></ul></li></ul>  "}
+{"input": "<!-- c --><ul><li>a<ul><li>b</ul></ul>", "lxml": "<ul><li>a<ul><li>b</li></ul></li></ul>"}
+{"input": "<div><ol><li>a<li>b</ol></div>", "lxml": "<div><ol><li>a</li><li>b</li></ol></div>"}
+{"input": "<p><ol><li>a<li>b</ol></p>", "lxml": "<div><p></p><ol><li>a</li><li>b</li></ol></div>"}
+{"input": "<ul><li><ol><li>a<li>b</ol></li></ul>", "lxml": "<ul><li><ol><li>a</li><li>b</li></ol></li></ul>"}
+{"input": "<td><ol><li>a<li>b</ol></td>", "lxml": "<td><ol><li>a</li><li>b</li></ol></td>"}
+{"input": "\n<ol><li>a<li>b</ol>  ", "lxml": "<ol><li>a</li><li>b</li></ol>  "}
+{"input": "<!-- c --><ol><li>a<li>b</ol>", "lxml": "<ol><li>a</li><li>b</li></ol>"}
+{"input": "<div><dl><dt>a<dd>b<dt>c</dl></div>", "lxml": "<div><dl><dt>a</dt><dd>b</dd><dt>c</dt></dl></div>"}
+{"input": "<p><dl><dt>a<dd>b<dt>c</dl></p>", "lxml": "<div><p></p><dl><dt>a</dt><dd>b</dd><dt>c</dt></dl></div>"}
+{"input": "<ul><li><dl><dt>a<dd>b<dt>c</dl></li></ul>", "lxml": "<ul><li><dl><dt>a</dt><dd>b</dd><dt>c</dt></dl></li></ul>"}
+{"input": "<td><dl><dt>a<dd>b<dt>c</dl></td>", "lxml": "<td><dl><dt>a</dt><dd>b</dd><dt>c</dt></dl></td>"}
+{"input": "\n<dl><dt>a<dd>b<dt>c</dl>  ", "lxml": "<dl><dt>a</dt><dd>b</dd><dt>c</dt></dl>  "}
+{"input": "<!-- c --><dl><dt>a<dd>b<dt>c</dl>", "lxml": "<dl><dt>a</dt><dd>b</dd><dt>c</dt></dl>"}
+{"input": "<div><select><option>a<option>b</select></div>", "lxml": "<div><select><option>a</option><option>b</option></select></div>"}
+{"input": "<p><select><option>a<option>b</select></p>", "lxml": "<p><select><option>a</option><option>b</option></select></p>"}
+{"input": "<ul><li><select><option>a<option>b</select></li></ul>", "lxml": "<ul><li><select><option>a</option><option>b</option></select></li></ul>"}
+{"input": "<td><select><option>a<option>b</select></td>", "lxml": "<td><select><option>a</option><option>b</option></select></td>"}
+{"input": "\n<select><option>a<option>b</select>  ", "lxml": "<select><option>a</option><option>b</option></select>  "}
+{"input": "<!-- c --><select><option>a<option>b</select>", "lxml": "<select><option>a</option><option>b</option></select>"}
+{"input": "<div><form><p>a</form></div>", "lxml": "<div><form><p>a</p></form></div>"}
+{"input": "<p><form><p>a</form></p>", "lxml": "<div><p></p><form><p>a</p></form></div>"}
+{"input": "<ul><li><form><p>a</form></li></ul>", "lxml": "<ul><li><form><p>a</p></form></li></ul>"}
+{"input": "<td><form><p>a</form></td>", "lxml": "<td><form><p>a</p></form></td>"}
+{"input": "\n<form><p>a</form>  ", "lxml": "<form><p>a</p></form>  "}
+{"input": "<!-- c --><form><p>a</form>", "lxml": "<form><p>a</p></form>"}
+{"input": "<div><a href=x><a href=y>z</a></div>", "lxml": "<div><a href=\"x\"></a><a href=\"y\">z</a></div>"}
+{"input": "<p><a href=x><a href=y>z</a></p>", "lxml": "<p><a href=\"x\"></a><a href=\"y\">z</a></p>"}
+{"input": "<ul><li><a href=x><a href=y>z</a></li></ul>", "lxml": "<ul><li><a href=\"x\"></a><a href=\"y\">z</a></li></ul>"}
+{"input": "<td><a href=x><a href=y>z</a></td>", "lxml": "<td><a href=\"x\"></a><a href=\"y\">z</a></td>"}
+{"input": "\n<a href=x><a href=y>z</a>  ", "lxml": "<span><a href=\"x\"></a><a href=\"y\">z</a>  </span>"}
+{"input": "<!-- c --><a href=x><a href=y>z</a>", "lxml": "<span><a href=\"x\"></a><a href=\"y\">z</a></span>"}
+{"input": "<div><p>x</p></p></div>", "lxml": "<div><p>x</p></div>"}
+{"input": "<p><p>x</p></p></p>", "lxml": "<div><p></p><p>x</p></div>"}
+{"input": "<ul><li><p>x</p></p></li></ul>", "lxml": "<ul><li><p>x</p></li></ul>"}
+{"input": "<td><p>x</p></p></td>", "lxml": "<td><p>x</p></td>"}
+{"input": "\n<p>x</p></p>  ", "lxml": "<p>x</p>  "}
+{"input": "<!-- c --><p>x</p></p>", "lxml": "<p>x</p>"}
+{"input": "<div><p>a</p><!-- c --><p>b</p></div>", "lxml": "<div><p>a</p><!-- c --><p>b</p></div>"}
+{"input": "<p><p>a</p><!-- c --><p>b</p></p>", "lxml": "<div><p></p><p>a</p><!-- c --><p>b</p></div>"}
+{"input": "<ul><li><p>a</p><!-- c --><p>b</p></li></ul>", "lxml": "<ul><li><p>a</p><!-- c --><p>b</p></li></ul>"}
+{"input": "<td><p>a</p><!-- c --><p>b</p></td>", "lxml": "<td><p>a</p><!-- c --><p>b</p></td>"}
+{"input": "\n<p>a</p><!-- c --><p>b</p>  ", "lxml": "<div><p>a</p><!-- c --><p>b</p>  </div>"}
+{"input": "<!-- c --><p>a</p><!-- c --><p>b</p>", "lxml": "<div><p>a</p><!-- c --><p>b</p></div>"}
+{"input": "<div><p>a</p><!--x--></div>", "lxml": "<div><p>a</p><!--x--></div>"}
+{"input": "<p><p>a</p><!--x--></p>", "lxml": "<div><p></p><p>a</p><!--x--></div>"}
+{"input": "<ul><li><p>a</p><!--x--></li></ul>", "lxml": "<ul><li><p>a</p><!--x--></li></ul>"}
+{"input": "<td><p>a</p><!--x--></td>", "lxml": "<td><p>a</p><!--x--></td>"}
+{"input": "\n<p>a</p><!--x-->  ", "lxml": "<div><p>a</p><!--x-->  </div>"}
+{"input": "<!-- c --><p>a</p><!--x-->", "lxml": "<div><p>a</p><!--x--></div>"}
+{"input": "<div><div><p>a</div></div>", "lxml": "<div><div><p>a</p></div></div>"}
+{"input": "<p><div><p>a</div></p>", "lxml": "<div><p></p><div><p>a</p></div></div>"}
+{"input": "<ul><li><div><p>a</div></li></ul>", "lxml": "<ul><li><div><p>a</p></div></li></ul>"}
+{"input": "<td><div><p>a</div></td>", "lxml": "<td><div><p>a</p></div></td>"}
+{"input": "\n<div><p>a</div>  ", "lxml": "<div><p>a</p></div>  "}
+{"input": "<!-- c --><div><p>a</div>", "lxml": "<div><p>a</p></div>"}
+{"input": "<div><b><i>x</b></i></div>", "lxml": "<div><b><i>x</i></b></div>"}
+{"input": "<p><b><i>x</b></i></p>", "lxml": "<p><b><i>x</i></b></p>"}
+{"input": "<ul><li><b><i>x</b></i></li></ul>", "lxml": "<ul><li><b><i>x</i></b></li></ul>"}
+{"input": "<td><b><i>x</b></i></td>", "lxml": "<td><b><i>x</i></b></td>"}
+{"input": "\n<b><i>x</b></i>  ", "lxml": "<b><i>x</i></b>  "}
+{"input": "<!-- c --><b><i>x</b></i>", "lxml": "<b><i>x</i></b>"}
+{"input": "<div><p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p></div>", "lxml": "<div><p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p></div>"}
+{"input": "<p><p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p></p>", "lxml": "<div><p></p><p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p></div>"}
+{"input": "<ul><li><p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p></li></ul>", "lxml": "<ul><li><p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p></li></ul>"}
+{"input": "<td><p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p></td>", "lxml": "<td><p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p></td>"}
+{"input": "\n<p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p>  ", "lxml": "<p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p>  "}
+{"input": "<!-- c --><p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p>", "lxml": "<p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p>"}
+{"input": "<div><p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p></div>", "lxml": "<div><p>� � A � 😀</p></div>"}
+{"input": "<p><p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p></p>", "lxml": "<div><p></p><p>� � A � 😀</p></div>"}
+{"input": "<ul><li><p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p></li></ul>", "lxml": "<ul><li><p>� � A � 😀</p></li></ul>"}
+{"input": "<td><p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p></td>", "lxml": "<td><p>� � A � 😀</p></td>"}
+{"input": "\n<p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p>  ", "lxml": "<p>� � A � 😀</p>  "}
+{"input": "<!-- c --><p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p>", "lxml": "<p>� � A � 😀</p>"}
+{"input": "<div><p>a\r\nb</p></div>", "lxml": "<div><p>a\nb</p></div>"}
+{"input": "<p><p>a\r\nb</p></p>", "lxml": "<div><p></p><p>a\nb</p></div>"}
+{"input": "<ul><li><p>a\r\nb</p></li></ul>", "lxml": "<ul><li><p>a\nb</p></li></ul>"}
+{"input": "<td><p>a\r\nb</p></td>", "lxml": "<td><p>a\nb</p></td>"}
+{"input": "\n<p>a\r\nb</p>  ", "lxml": "<p>a\nb</p>  "}
+{"input": "<!-- c --><p>a\r\nb</p>", "lxml": "<p>a\nb</p>"}
+{"input": "<div><p title=\"a\r\nb\">x</p></div>", "lxml": "<div><p title=\"a\nb\">x</p></div>"}
+{"input": "<p><p title=\"a\r\nb\">x</p></p>", "lxml": "<div><p></p><p title=\"a\nb\">x</p></div>"}
+{"input": "<ul><li><p title=\"a\r\nb\">x</p></li></ul>", "lxml": "<ul><li><p title=\"a\nb\">x</p></li></ul>"}
+{"input": "<td><p title=\"a\r\nb\">x</p></td>", "lxml": "<td><p title=\"a\nb\">x</p></td>"}
+{"input": "\n<p title=\"a\r\nb\">x</p>  ", "lxml": "<p title=\"a\nb\">x</p>  "}
+{"input": "<!-- c --><p title=\"a\r\nb\">x</p>", "lxml": "<p title=\"a\nb\">x</p>"}
+{"input": "<div><p title=\"a&quot;b'c\">x</p></div>", "lxml": "<div><p title=\"a&quot;b'c\">x</p></div>"}
+{"input": "<p><p title=\"a&quot;b'c\">x</p></p>", "lxml": "<div><p></p><p title=\"a&quot;b'c\">x</p></div>"}
+{"input": "<ul><li><p title=\"a&quot;b'c\">x</p></li></ul>", "lxml": "<ul><li><p title=\"a&quot;b'c\">x</p></li></ul>"}
+{"input": "<td><p title=\"a&quot;b'c\">x</p></td>", "lxml": "<td><p title=\"a&quot;b'c\">x</p></td>"}
+{"input": "\n<p title=\"a&quot;b'c\">x</p>  ", "lxml": "<p title=\"a&quot;b'c\">x</p>  "}
+{"input": "<!-- c --><p title=\"a&quot;b'c\">x</p>", "lxml": "<p title=\"a&quot;b'c\">x</p>"}
+{"input": "<div><p title=\"a&amp;b&lt;c&gt;d\">x</p></div>", "lxml": "<div><p title=\"a&amp;b&lt;c&gt;d\">x</p></div>"}
+{"input": "<p><p title=\"a&amp;b&lt;c&gt;d\">x</p></p>", "lxml": "<div><p></p><p title=\"a&amp;b&lt;c&gt;d\">x</p></div>"}
+{"input": "<ul><li><p title=\"a&amp;b&lt;c&gt;d\">x</p></li></ul>", "lxml": "<ul><li><p title=\"a&amp;b&lt;c&gt;d\">x</p></li></ul>"}
+{"input": "<td><p title=\"a&amp;b&lt;c&gt;d\">x</p></td>", "lxml": "<td><p title=\"a&amp;b&lt;c&gt;d\">x</p></td>"}
+{"input": "\n<p title=\"a&amp;b&lt;c&gt;d\">x</p>  ", "lxml": "<p title=\"a&amp;b&lt;c&gt;d\">x</p>  "}
+{"input": "<!-- c --><p title=\"a&amp;b&lt;c&gt;d\">x</p>", "lxml": "<p title=\"a&amp;b&lt;c&gt;d\">x</p>"}
+{"input": "<div><a href=\" a b \">x</a></div>", "lxml": "<div><a href=\"a%20b%20\">x</a></div>"}
+{"input": "<p><a href=\" a b \">x</a></p>", "lxml": "<p><a href=\"a%20b%20\">x</a></p>"}
+{"input": "<ul><li><a href=\" a b \">x</a></li></ul>", "lxml": "<ul><li><a href=\"a%20b%20\">x</a></li></ul>"}
+{"input": "<td><a href=\" a b \">x</a></td>", "lxml": "<td><a href=\"a%20b%20\">x</a></td>"}
+{"input": "\n<a href=\" a b \">x</a>  ", "lxml": "<a href=\"a%20b%20\">x</a>  "}
+{"input": "<!-- c --><a href=\" a b \">x</a>", "lxml": "<a href=\"a%20b%20\">x</a>"}
+{"input": "<div><a href=\"ü.png?x=1&y=2\">x</a></div>", "lxml": "<div><a href=\"%C3%BC.png?x=1&amp;y=2\">x</a></div>"}
+{"input": "<p><a href=\"ü.png?x=1&y=2\">x</a></p>", "lxml": "<p><a href=\"%C3%BC.png?x=1&amp;y=2\">x</a></p>"}
+{"input": "<ul><li><a href=\"ü.png?x=1&y=2\">x</a></li></ul>", "lxml": "<ul><li><a href=\"%C3%BC.png?x=1&amp;y=2\">x</a></li></ul>"}
+{"input": "<td><a href=\"ü.png?x=1&y=2\">x</a></td>", "lxml": "<td><a href=\"%C3%BC.png?x=1&amp;y=2\">x</a></td>"}
+{"input": "\n<a href=\"ü.png?x=1&y=2\">x</a>  ", "lxml": "<a href=\"%C3%BC.png?x=1&amp;y=2\">x</a>  "}
+{"input": "<!-- c --><a href=\"ü.png?x=1&y=2\">x</a>", "lxml": "<a href=\"%C3%BC.png?x=1&amp;y=2\">x</a>"}
+{"input": "<div><img SRC=\"ü.png\" ALT='x'></div>", "lxml": "<div><img src=\"%C3%BC.png\" alt=\"x\"></div>"}
+{"input": "<p><img SRC=\"ü.png\" ALT='x'></p>", "lxml": "<p><img src=\"%C3%BC.png\" alt=\"x\"></p>"}
+{"input": "<ul><li><img SRC=\"ü.png\" ALT='x'></li></ul>", "lxml": "<ul><li><img src=\"%C3%BC.png\" alt=\"x\"></li></ul>"}
+{"input": "<td><img SRC=\"ü.png\" ALT='x'></td>", "lxml": "<td><img src=\"%C3%BC.png\" alt=\"x\"></td>"}
+{"input": "\n<img SRC=\"ü.png\" ALT='x'>  ", "lxml": "<img src=\"%C3%BC.png\" alt=\"x\">  "}
+{"input": "<!-- c --><img SRC=\"ü.png\" ALT='x'>", "lxml": "<img src=\"%C3%BC.png\" alt=\"x\">"}
+{"input": "<div><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></div>", "lxml": "<div><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></div>"}
+{"input": "<p><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></p>", "lxml": "<div><p></p><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></div>"}
+{"input": "<ul><li><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></li></ul>", "lxml": "<ul><li><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></li></ul>"}
+{"input": "<td><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></td>", "lxml": "<td><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></td>"}
+{"input": "\n<p foo>x</p><input checked><p data-x=\"1\" data-y>z</p>  ", "lxml": "<div><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p>  </div>"}
+{"input": "<!-- c --><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p>", "lxml": "<div><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></div>"}
+{"input": "<div><p title=a title=b>x</p></div>", "lxml": "<div><p title=\"a\">x</p></div>"}
+{"input": "<p><p title=a title=b>x</p></p>", "lxml": "<div><p></p><p title=\"a\">x</p></div>"}
+{"input": "<ul><li><p title=a title=b>x</p></li></ul>", "lxml": "<ul><li><p title=\"a\">x</p></li></ul>"}
+{"input": "<td><p title=a title=b>x</p></td>", "lxml": "<td><p title=\"a\">x</p></td>"}
+{"input": "\n<p title=a title=b>x</p>  ", "lxml": "<p title=\"a\">x</p>  "}
+{"input": "<!-- c --><p title=a title=b>x</p>", "lxml": "<p title=\"a\">x</p>"}
+{"input": "<div><P TITLE=x CLASS=y>z</P></div>", "lxml": "<div><p title=\"x\" class=\"y\">z</p></div>"}
+{"input": "<p><P TITLE=x CLASS=y>z</P></p>", "lxml": "<div><p></p><p title=\"x\" class=\"y\">z</p></div>"}
+{"input": "<ul><li><P TITLE=x CLASS=y>z</P></li></ul>", "lxml": "<ul><li><p title=\"x\" class=\"y\">z</p></li></ul>"}
+{"input": "<td><P TITLE=x CLASS=y>z</P></td>", "lxml": "<td><p title=\"x\" class=\"y\">z</p></td>"}
+{"input": "\n<P TITLE=x CLASS=y>z</P>  ", "lxml": "<p title=\"x\" class=\"y\">z</p>  "}
+{"input": "<!-- c --><P TITLE=x CLASS=y>z</P>", "lxml": "<p title=\"x\" class=\"y\">z</p>"}
+{"input": "<div><p/>x</div>", "lxml": "<div><p></p>x</div>"}
+{"input": "<p><p/>x</p>", "lxml": "<div><p></p><p></p>x</div>"}
+{"input": "<ul><li><p/>x</li></ul>", "lxml": "<ul><li><p></p>x</li></ul>"}
+{"input": "<td><p/>x</td>", "lxml": "<td><p></p>x</td>"}
+{"input": "\n<p/>x  ", "lxml": "<div><p></p>x  </div>"}
+{"input": "<!-- c --><p/>x", "lxml": "<div><p></p>x</div>"}
+{"input": "<div><p /></div>", "lxml": "<div><p></p></div>"}
+{"input": "<p><p /></p>", "lxml": "<div><p></p><p></p></div>"}
+{"input": "<ul><li><p /></li></ul>", "lxml": "<ul><li><p></p></li></ul>"}
+{"input": "<td><p /></td>", "lxml": "<td><p></p></td>"}
+{"input": "\n<p />  ", "lxml": "<p></p>  "}
+{"input": "<!-- c --><p />", "lxml": "<p></p>"}
+{"input": "<div><br /><hr/><img src=x/></div>", "lxml": "<div><br><hr><img src=\"x/\"></div>"}
+{"input": "<p><br /><hr/><img src=x/></p>", "lxml": "<div><p><br></p><hr><img src=\"x/\"></div>"}
+{"input": "<ul><li><br /><hr/><img src=x/></li></ul>", "lxml": "<ul><li><br><hr><img src=\"x/\"></li></ul>"}
+{"input": "<td><br /><hr/><img src=x/></td>", "lxml": "<td><br><hr><img src=\"x/\"></td>"}
+{"input": "\n<br /><hr/><img src=x/>  ", "lxml": "<div><br><hr><img src=\"x/\">  </div>"}
+{"input": "<!-- c --><br /><hr/><img src=x/>", "lxml": "<div><br><hr><img src=\"x/\"></div>"}
+{"input": "<div><li></li><li>a</div>", "lxml": "<div><li><li>a</li></div>"}
+{"input": "<p><li></li><li>a</p>", "lxml": "<div><p></p><li><li>a</li></div>"}
+{"input": "<ul><li><li></li><li>a</li></ul>", "lxml": "<ul><li><li><li>a</li></ul>"}
+{"input": "<td><li></li><li>a</td>", "lxml": "<td><li><li>a</li></td>"}
+{"input": "\n<li></li><li>a  ", "lxml": "<div><li><li>a  </li></div>"}
+{"input": "<!-- c --><li></li><li>a", "lxml": "<div><li><li>a</li></div>"}
+{"input": "<div><td></td><option></option></div>", "lxml": "<div><td></td><option></option></div>"}
+{"input": "<p><td></td><option></option></p>", "lxml": "<div><p></p><td></td><option></option></div>"}
+{"input": "<ul><li><td></td><option></option></li></ul>", "lxml": "<ul><li><td></td><option></option></li></ul>"}
+{"input": "<td><td></td><option></option></td>", "lxml": "<div><td></td><td></td><option></option></div>"}
+{"input": "\n<td></td><option></option>  ", "lxml": "<div><td></td><option></option>  </div>"}
+{"input": "<!-- c --><td></td><option></option>", "lxml": "<div><td></td><option></option></div>"}
+{"input": "<div><html><head><title>t</title></head><body>x</body></html></div>", "lxml": "<div><title>t</title>x</div>"}
+{"input": "<p><html><head><title>t</title></head><body>x</body></html></p>", "lxml": "<div><p></p><title>t</title>x</div>"}
+{"input": "<ul><li><html><head><title>t</title></head><body>x</body></html></li></ul>", "lxml": "<ul><li><title>t</title>x</li></ul>"}
+{"input": "<td><html><head><title>t</title></head><body>x</body></html></td>", "lxml": "<td><title>t</title>x</td>"}
+{"input": "\n<html><head><title>t</title></head><body>x</body></html>  ", "lxml": "<html><head><title>t</title></head><body>x</body></html>"}
+{"input": "<!-- c --><html><head><title>t</title></head><body>x</body></html>", "lxml": "<html><head><title>t</title></head><body>x</body></html>"}
+{"input": "<div><!DOCTYPE html><html><body><p>x</p></body></html></div>", "lxml": "<div><p>x</p></div>"}
+{"input": "<p><!DOCTYPE html><html><body><p>x</p></body></html></p>", "lxml": "<div><p></p><p>x</p></div>"}
+{"input": "<ul><li><!DOCTYPE html><html><body><p>x</p></body></html></li></ul>", "lxml": "<ul><li><p>x</p></li></ul>"}
+{"input": "<td><!DOCTYPE html><html><body><p>x</p></body></html></td>", "lxml": "<td><p>x</p></td>"}
+{"input": "\n<!DOCTYPE html><html><body><p>x</p></body></html>  ", "lxml": "<html><body><p>x</p></body></html>"}
+{"input": "<!-- c --><!DOCTYPE html><html><body><p>x</p></body></html>", "lxml": "<p>x</p>"}
+{"input": "<div><head><title>x</title></head>y</div>", "lxml": "<div><title>x</title>y</div>"}
+{"input": "<p><head><title>x</title></head>y</p>", "lxml": "<div><p></p><title>x</title>y</div>"}
+{"input": "<ul><li><head><title>x</title></head>y</li></ul>", "lxml": "<ul><li><title>x</title>y</li></ul>"}
+{"input": "<td><head><title>x</title></head>y</td>", "lxml": "<td><title>x</title>y</td>"}
+{"input": "\n<head><title>x</title></head>y  ", "lxml": "<html><head><title>x</title></head><body>y  </body></html>"}
+{"input": "<!-- c --><head><title>x</title></head>y", "lxml": "<html><head><title>x</title></head><body>y</body></html>"}
+{"input": "<div><body>text</body></div>", "lxml": "<div>text</div>"}
+{"input": "<p><body>text</body></p>", "lxml": "<div><p></p>text</div>"}
+{"input": "<ul><li><body>text</body></li></ul>", "lxml": "<ul><li>text</li></ul>"}
+{"input": "<td><body>text</body></td>", "lxml": "<td>text</td>"}
+{"input": "\n<body>text</body>  ", "lxml": "<span>text</span>  "}
+{"input": "<!-- c --><body>text</body>", "lxml": "<span>text</span>"}
+{"input": "<div><html></html></div>", "lxml": "<div></div>"}
+{"input": "<p><html></html></p>", "lxml": "<p></p>"}
+{"input": "<ul><li><html></html></li></ul>", "lxml": "<ul><li></ul>"}
+{"input": "<td><html></html></td>", "lxml": "<td></td>"}
+{"input": "\n<html></html>  ", "lxml": "<html></html>"}
+{"input": "<!-- c --><html></html>", "lxml": "<html></html>"}
+{"input": "<div><html>  </html></div>", "lxml": "<div>  </div>"}
+{"input": "<p><html>  </html></p>", "lxml": "<p>  </p>"}
+{"input": "<ul><li><html>  </html></li></ul>", "lxml": "<ul><li>  </li></ul>"}
+{"input": "<td><html>  </html></td>", "lxml": "<td>  </td>"}
+{"input": "\n<html>  </html>  ", "lxml": "<html>  </html>"}
+{"input": "<!-- c --><html>  </html>", "lxml": "<html>  </html>"}
+{"input": "<div><script>a<b && c>d</script></div>", "lxml": "<div><script>a<b && c>d</script></div>"}
+{"input": "<p><script>a<b && c>d</script></p>", "lxml": "<p><script>a<b && c>d</script></p>"}
+{"input": "<ul><li><script>a<b && c>d</script></li></ul>", "lxml": "<ul><li><script>a<b && c>d</script></li></ul>"}
+{"input": "<td><script>a<b && c>d</script></td>", "lxml": "<td><script>a<b && c>d</script></td>"}
+{"input": "\n<script>a<b && c>d</script>  ", "lxml": "<html><head><script>a<b && c>d</script>  </head></html>"}
+{"input": "<!-- c --><script>a<b && c>d</script>", "lxml": "<html><head><script>a<b && c>d</script></head></html>"}
+{"input": "<div><style>.x{content:'<a>'}</style></div>", "lxml": "<div><style>.x{content:'<a>'}</style></div>"}
+{"input": "<p><style>.x{content:'<a>'}</style></p>", "lxml": "<p><style>.x{content:'<a>'}</style></p>"}
+{"input": "<ul><li><style>.x{content:'<a>'}</style></li></ul>", "lxml": "<ul><li><style>.x{content:'<a>'}</style></li></ul>"}
+{"input": "<td><style>.x{content:'<a>'}</style></td>", "lxml": "<td><style>.x{content:'<a>'}</style></td>"}
+{"input": "\n<style>.x{content:'<a>'}</style>  ", "lxml": "<html><head><style>.x{content:'<a>'}</style>  </head></html>"}
+{"input": "<!-- c --><style>.x{content:'<a>'}</style>", "lxml": "<html><head><style>.x{content:'<a>'}</style></head></html>"}
+{"input": "<div><textarea>a &amp; b</textarea></div>", "lxml": "<div><textarea>a &amp; b</textarea></div>"}
+{"input": "<p><textarea>a &amp; b</textarea></p>", "lxml": "<p><textarea>a &amp; b</textarea></p>"}
+{"input": "<ul><li><textarea>a &amp; b</textarea></li></ul>", "lxml": "<ul><li><textarea>a &amp; b</textarea></li></ul>"}
+{"input": "<td><textarea>a &amp; b</textarea></td>", "lxml": "<td><textarea>a &amp; b</textarea></td>"}
+{"input": "\n<textarea>a &amp; b</textarea>  ", "lxml": "<textarea>a &amp; b</textarea>  "}
+{"input": "<!-- c --><textarea>a &amp; b</textarea>", "lxml": "<textarea>a &amp; b</textarea>"}
+{"input": "<div><title>a &amp; b</title></div>", "lxml": "<div><title>a &amp; b</title></div>"}
+{"input": "<p><title>a &amp; b</title></p>", "lxml": "<div><p></p><title>a &amp; b</title></div>"}
+{"input": "<ul><li><title>a &amp; b</title></li></ul>", "lxml": "<ul><li><title>a &amp; b</title></li></ul>"}
+{"input": "<td><title>a &amp; b</title></td>", "lxml": "<td><title>a &amp; b</title></td>"}
+{"input": "\n<title>a &amp; b</title>  ", "lxml": "<html><head><title>a &amp; b</title>  </head></html>"}
+{"input": "<!-- c --><title>a &amp; b</title>", "lxml": "<html><head><title>a &amp; b</title></head></html>"}
+{"input": "<div><p><textarea>a</textarea></p></div>", "lxml": "<div><p><textarea>a</textarea></p></div>"}
+{"input": "<p><p><textarea>a</textarea></p></p>", "lxml": "<div><p></p><p><textarea>a</textarea></p></div>"}
+{"input": "<ul><li><p><textarea>a</textarea></p></li></ul>", "lxml": "<ul><li><p><textarea>a</textarea></p></li></ul>"}
+{"input": "<td><p><textarea>a</textarea></p></td>", "lxml": "<td><p><textarea>a</textarea></p></td>"}
+{"input": "\n<p><textarea>a</textarea></p>  ", "lxml": "<p><textarea>a</textarea></p>  "}
+{"input": "<!-- c --><p><textarea>a</textarea></p>", "lxml": "<p><textarea>a</textarea></p>"}
+{"input": "<div><noscript><p>a</p></noscript></div>", "lxml": "<div><noscript><p>a</p></noscript></div>"}
+{"input": "<p><noscript><p>a</p></noscript></p>", "lxml": "<p><noscript><p>a</p></noscript></p>"}
+{"input": "<ul><li><noscript><p>a</p></noscript></li></ul>", "lxml": "<ul><li><noscript><p>a</p></noscript></li></ul>"}
+{"input": "<td><noscript><p>a</p></noscript></td>", "lxml": "<td><noscript><p>a</p></noscript></td>"}
+{"input": "\n<noscript><p>a</p></noscript>  ", "lxml": "<noscript><p>a</p></noscript>  "}
+{"input": "<!-- c --><noscript><p>a</p></noscript>", "lxml": "<noscript><p>a</p></noscript>"}
+{"input": "<div><svg><circle r=\"1\"/></svg></div>", "lxml": "<div><svg><circle r=\"1\"></circle></svg></div>"}
+{"input": "<p><svg><circle r=\"1\"/></svg></p>", "lxml": "<p><svg><circle r=\"1\"></circle></svg></p>"}
+{"input": "<ul><li><svg><circle r=\"1\"/></svg></li></ul>", "lxml": "<ul><li><svg><circle r=\"1\"></circle></svg></li></ul>"}
+{"input": "<td><svg><circle r=\"1\"/></svg></td>", "lxml": "<td><svg><circle r=\"1\"></circle></svg></td>"}
+{"input": "\n<svg><circle r=\"1\"/></svg>  ", "lxml": "<svg><circle r=\"1\"></circle></svg>  "}
+{"input": "<!-- c --><svg><circle r=\"1\"/></svg>", "lxml": "<svg><circle r=\"1\"></circle></svg>"}
+{"input": "<div><mention-component id=\"u1\" entity_name=\"user\"></mention-component></div>", "lxml": "<div><mention-component id=\"u1\" entity_name=\"user\"></mention-component></div>"}
+{"input": "<p><mention-component id=\"u1\" entity_name=\"user\"></mention-component></p>", "lxml": "<p><mention-component id=\"u1\" entity_name=\"user\"></mention-component></p>"}
+{"input": "<ul><li><mention-component id=\"u1\" entity_name=\"user\"></mention-component></li></ul>", "lxml": "<ul><li><mention-component id=\"u1\" entity_name=\"user\"></mention-component></li></ul>"}
+{"input": "<td><mention-component id=\"u1\" entity_name=\"user\"></mention-component></td>", "lxml": "<td><mention-component id=\"u1\" entity_name=\"user\"></mention-component></td>"}
+{"input": "\n<mention-component id=\"u1\" entity_name=\"user\"></mention-component>  ", "lxml": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>  "}
+{"input": "<!-- c --><mention-component id=\"u1\" entity_name=\"user\"></mention-component>", "lxml": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>"}
+{"input": "<div><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></div>", "lxml": "<div><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></div>"}
+{"input": "<p><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></p>", "lxml": "<p><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></p>"}
+{"input": "<ul><li><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></li></ul>", "lxml": "<ul><li><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></li></ul>"}
+{"input": "<td><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></td>", "lxml": "<td><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></td>"}
+{"input": "\n<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>  ", "lxml": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>  "}
+{"input": "<!-- c --><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>", "lxml": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>"}
+{"input": "<div><p><label data-x=\"1\">b</label></p></div>", "lxml": "<div><p><label data-x=\"1\">b</label></p></div>"}
+{"input": "<p><p><label data-x=\"1\">b</label></p></p>", "lxml": "<div><p></p><p><label data-x=\"1\">b</label></p></div>"}
+{"input": "<ul><li><p><label data-x=\"1\">b</label></p></li></ul>", "lxml": "<ul><li><p><label data-x=\"1\">b</label></p></li></ul>"}
+{"input": "<td><p><label data-x=\"1\">b</label></p></td>", "lxml": "<td><p><label data-x=\"1\">b</label></p></td>"}
+{"input": "\n<p><label data-x=\"1\">b</label></p>  ", "lxml": "<p><label data-x=\"1\">b</label></p>  "}
+{"input": "<!-- c --><p><label data-x=\"1\">b</label></p>", "lxml": "<p><label data-x=\"1\">b</label></p>"}
+{"input": "<div><pre><code>let x = 1 &lt; 2;</code></pre></div>", "lxml": "<div><pre><code>let x = 1 &lt; 2;</code></pre></div>"}
+{"input": "<p><pre><code>let x = 1 &lt; 2;</code></pre></p>", "lxml": "<div><p></p><pre><code>let x = 1 &lt; 2;</code></pre></div>"}
+{"input": "<ul><li><pre><code>let x = 1 &lt; 2;</code></pre></li></ul>", "lxml": "<ul><li><pre><code>let x = 1 &lt; 2;</code></pre></li></ul>"}
+{"input": "<td><pre><code>let x = 1 &lt; 2;</code></pre></td>", "lxml": "<td><pre><code>let x = 1 &lt; 2;</code></pre></td>"}
+{"input": "\n<pre><code>let x = 1 &lt; 2;</code></pre>  ", "lxml": "<pre><code>let x = 1 &lt; 2;</code></pre>  "}
+{"input": "<!-- c --><pre><code>let x = 1 &lt; 2;</code></pre>", "lxml": "<pre><code>let x = 1 &lt; 2;</code></pre>"}
+{"input": "<div><blockquote>quote</blockquote><hr></div>", "lxml": "<div><blockquote>quote</blockquote><hr></div>"}
+{"input": "<p><blockquote>quote</blockquote><hr></p>", "lxml": "<div><p></p><blockquote>quote</blockquote><hr></div>"}
+{"input": "<ul><li><blockquote>quote</blockquote><hr></li></ul>", "lxml": "<ul><li><blockquote>quote</blockquote><hr></li></ul>"}
+{"input": "<td><blockquote>quote</blockquote><hr></td>", "lxml": "<td><blockquote>quote</blockquote><hr></td>"}
+{"input": "\n<blockquote>quote</blockquote><hr>  ", "lxml": "<div><blockquote>quote</blockquote><hr>  </div>"}
+{"input": "<!-- c --><blockquote>quote</blockquote><hr>", "lxml": "<div><blockquote>quote</blockquote><hr></div>"}
+{"input": "<div><p>a<br>b<br/>c</p></div>", "lxml": "<div><p>a<br>b<br>c</p></div>"}
+{"input": "<p><p>a<br>b<br/>c</p></p>", "lxml": "<div><p></p><p>a<br>b<br>c</p></div>"}
+{"input": "<ul><li><p>a<br>b<br/>c</p></li></ul>", "lxml": "<ul><li><p>a<br>b<br>c</p></li></ul>"}
+{"input": "<td><p>a<br>b<br/>c</p></td>", "lxml": "<td><p>a<br>b<br>c</p></td>"}
+{"input": "\n<p>a<br>b<br/>c</p>  ", "lxml": "<p>a<br>b<br>c</p>  "}
+{"input": "<!-- c --><p>a<br>b<br/>c</p>", "lxml": "<p>a<br>b<br>c</p>"}
+{"input": "<div><p>    　 \u000b \u001c</p></div>", "lxml": "<div><p>    　 \u000b \u001c</p></div>"}
+{"input": "<p><p>    　 \u000b \u001c</p></p>", "lxml": "<div><p></p><p>    　 \u000b \u001c</p></div>"}
+{"input": "<ul><li><p>    　 \u000b \u001c</p></li></ul>", "lxml": "<ul><li><p>    　 \u000b \u001c</p></li></ul>"}
+{"input": "<td><p>    　 \u000b \u001c</p></td>", "lxml": "<td><p>    　 \u000b \u001c</p></td>"}
+{"input": "\n<p>    　 \u000b \u001c</p>  ", "lxml": "<p>    　 \u000b \u001c</p>  "}
+{"input": "<!-- c --><p>    　 \u000b \u001c</p>", "lxml": "<p>    　 \u000b \u001c</p>"}
+{"input": "<div><p>emoji 😀 ünïcode</p></div>", "lxml": "<div><p>emoji 😀 ünïcode</p></div>"}
+{"input": "<p><p>emoji 😀 ünïcode</p></p>", "lxml": "<div><p></p><p>emoji 😀 ünïcode</p></div>"}
+{"input": "<ul><li><p>emoji 😀 ünïcode</p></li></ul>", "lxml": "<ul><li><p>emoji 😀 ünïcode</p></li></ul>"}
+{"input": "<td><p>emoji 😀 ünïcode</p></td>", "lxml": "<td><p>emoji 😀 ünïcode</p></td>"}
+{"input": "\n<p>emoji 😀 ünïcode</p>  ", "lxml": "<p>emoji 😀 ünïcode</p>  "}
+{"input": "<!-- c --><p>emoji 😀 ünïcode</p>", "lxml": "<p>emoji 😀 ünïcode</p>"}
+{"input": "<div><p>a > b & c < d</p></div>", "lxml": "<div><p>a &gt; b &amp; c &lt; d</p></div>"}
+{"input": "<p><p>a > b & c < d</p></p>", "lxml": "<div><p></p><p>a &gt; b &amp; c &lt; d</p></div>"}
+{"input": "<ul><li><p>a > b & c < d</p></li></ul>", "lxml": "<ul><li><p>a &gt; b &amp; c &lt; d</p></li></ul>"}
+{"input": "<td><p>a > b & c < d</p></td>", "lxml": "<td><p>a &gt; b &amp; c &lt; d</p></td>"}
+{"input": "\n<p>a > b & c < d</p>  ", "lxml": "<p>a &gt; b &amp; c &lt; d</p>  "}
+{"input": "<!-- c --><p>a > b & c < d</p>", "lxml": "<p>a &gt; b &amp; c &lt; d</p>"}
+{"input": "<div><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></div>", "lxml": "<div><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></div>"}
+{"input": "<p><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></p>", "lxml": "<div><p></p><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></div>"}
+{"input": "<ul><li><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></li></ul>", "lxml": "<ul><li><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></li></ul>"}
+{"input": "<td><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></td>", "lxml": "<td><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div></td>"}
+{"input": "\n<div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div>  ", "lxml": "<div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div>  "}
+{"input": "<!-- c --><div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div>", "lxml": "<div data-tight=\"true\" data-type=\"text\"><p class=\"editor-paragraph\"><span>Hello</span></p></div>"}
+{"input": "<div><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></div>", "lxml": "<div><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></div>"}
+{"input": "<p><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></p>", "lxml": "<div><p></p><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></div>"}
+{"input": "<ul><li><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></li></ul>", "lxml": "<ul><li><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></li></ul>"}
+{"input": "<td><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></td>", "lxml": "<td><pre language=\"js\"><code spellcheck=\"false\">a</code></pre></td>"}
+{"input": "\n<pre language=\"js\"><code spellcheck=\"false\">a</code></pre>  ", "lxml": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre>  "}
+{"input": "<!-- c --><pre language=\"js\"><code spellcheck=\"false\">a</code></pre>", "lxml": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre>"}
+{"input": "<div><input type='checkbox' checked></div>", "lxml": "<div><input type=\"checkbox\" checked></div>"}
+{"input": "<p><input type='checkbox' checked></p>", "lxml": "<p><input type=\"checkbox\" checked></p>"}
+{"input": "<ul><li><input type='checkbox' checked></li></ul>", "lxml": "<ul><li><input type=\"checkbox\" checked></li></ul>"}
+{"input": "<td><input type='checkbox' checked></td>", "lxml": "<td><input type=\"checkbox\" checked></td>"}
+{"input": "\n<input type='checkbox' checked>  ", "lxml": "<input type=\"checkbox\" checked>  "}
+{"input": "<!-- c --><input type='checkbox' checked>", "lxml": "<input type=\"checkbox\" checked>"}
+{"input": "<div><p><p>a</p></p></div>", "lxml": "<div><p></p><p>a</p></div>"}
+{"input": "<p><p><p>a</p></p></p>", "lxml": "<div><p></p><p></p><p>a</p></div>"}
+{"input": "<ul><li><p><p>a</p></p></li></ul>", "lxml": "<ul><li><p></p><p>a</p></li></ul>"}
+{"input": "<td><p><p>a</p></p></td>", "lxml": "<td><p></p><p>a</p></td>"}
+{"input": "\n<p><p>a</p></p>  ", "lxml": "<div><p></p><p>a</p>  </div>"}
+{"input": "<!-- c --><p><p>a</p></p>", "lxml": "<div><p></p><p>a</p></div>"}
+{"input": "<div><table><tr><td><p>a</p></td></tr></table></div>", "lxml": "<div><table><tr><td><p>a</p></td></tr></table></div>"}
+{"input": "<p><table><tr><td><p>a</p></td></tr></table></p>", "lxml": "<div><p></p><table><tr><td><p>a</p></td></tr></table></div>"}
+{"input": "<ul><li><table><tr><td><p>a</p></td></tr></table></li></ul>", "lxml": "<ul><li><table><tr><td><p>a</p></td></tr></table></li></ul>"}
+{"input": "<td><table><tr><td><p>a</p></td></tr></table></td>", "lxml": "<td><table><tr><td><p>a</p></td></tr></table></td>"}
+{"input": "\n<table><tr><td><p>a</p></td></tr></table>  ", "lxml": "<table><tr><td><p>a</p></td></tr></table>  "}
+{"input": "<!-- c --><table><tr><td><p>a</p></td></tr></table>", "lxml": "<table><tr><td><p>a</p></td></tr></table>"}
+{"input": "<div><p>a<table><tr><td>x</table>b</div>", "lxml": "<div><p>a</p><table><tr><td>x</td></tr></table>b</div>"}
+{"input": "<p><p>a<table><tr><td>x</table>b</p>", "lxml": "<div><p></p><p>a</p><table><tr><td>x</td></tr></table>b</div>"}
+{"input": "<ul><li><p>a<table><tr><td>x</table>b</li></ul>", "lxml": "<ul><li><p>a</p><table><tr><td>x</td></tr></table>b</li></ul>"}
+{"input": "<td><p>a<table><tr><td>x</table>b</td>", "lxml": "<td><p>a</p><table><tr><td>x</td></tr></table>b</td>"}
+{"input": "\n<p>a<table><tr><td>x</table>b  ", "lxml": "<div><p>a</p><table><tr><td>x</td></tr></table>b  </div>"}
+{"input": "<!-- c --><p>a<table><tr><td>x</table>b", "lxml": "<div><p>a</p><table><tr><td>x</td></tr></table>b</div>"}
+{"input": "<div><td>x</div>", "lxml": "<div><td>x</td></div>"}
+{"input": "<p><td>x</p>", "lxml": "<div><p></p><td>x</td></div>"}
+{"input": "<ul><li><td>x</li></ul>", "lxml": "<ul><li><td>x</td></li></ul>"}
+{"input": "<td><td>x</td>", "lxml": "<div><td></td><td>x</td></div>"}
+{"input": "\n<td>x  ", "lxml": "<td>x  </td>"}
+{"input": "<!-- c --><td>x", "lxml": "<td>x</td>"}
+{"input": "<div><tr><td>x</div>", "lxml": "<div><tr><td>x</td></tr></div>"}
+{"input": "<p><tr><td>x</p>", "lxml": "<div><p></p><tr><td>x</td></tr></div>"}
+{"input": "<ul><li><tr><td>x</li></ul>", "lxml": "<ul><li><tr><td>x</td></tr></li></ul>"}
+{"input": "<td><tr><td>x</td>", "lxml": "<div><td></td><tr><td>x</td></tr></div>"}
+{"input": "\n<tr><td>x  ", "lxml": "<tr><td>x  </td></tr>"}
+{"input": "<!-- c --><tr><td>x", "lxml": "<tr><td>x</td></tr>"}
+{"input": "<div><li>a</div>", "lxml": "<div><li>a</li></div>"}
+{"input": "<p><li>a</p>", "lxml": "<div><p></p><li>a</li></div>"}
+{"input": "<ul><li><li>a</li></ul>", "lxml": "<ul><li><li>a</li></ul>"}
+{"input": "<td><li>a</td>", "lxml": "<td><li>a</li></td>"}
+{"input": "\n<li>a  ", "lxml": "<li>a  </li>"}
+{"input": "<!-- c --><li>a", "lxml": "<li>a</li>"}
+{"input": "<div><caption>a</caption></div>", "lxml": "<div><caption>a</caption></div>"}
+{"input": "<p><caption>a</caption></p>", "lxml": "<div><p></p><caption>a</caption></div>"}
+{"input": "<ul><li><caption>a</caption></li></ul>", "lxml": "<ul><li><caption>a</caption></li></ul>"}
+{"input": "<td><caption>a</caption></td>", "lxml": "<td><caption>a</caption></td>"}
+{"input": "\n<caption>a</caption>  ", "lxml": "<caption>a</caption>  "}
+{"input": "<!-- c --><caption>a</caption>", "lxml": "<caption>a</caption>"}
+{"input": "<div><p</div>", "lxml": "<div><p< div></p<></div>"}
+{"input": "<p><p</p>", "lxml": "<p><p< p></p<></p>"}
+{"input": "<ul><li><p</li></ul>", "lxml": "<ul><li><p< li></p<></li></ul>"}
+{"input": "<td><p</td>", "lxml": "<td><p< td></p<></td>"}
+{"input": "\n<p  ", "lxml": "<span></span>"}
+{"input": "<!-- c --><p", "lxml": "<span></span>"}
+{"input": "<div><p </div>", "lxml": "<div><p < div></p></div>"}
+{"input": "<p><p </p>", "lxml": "<div><p></p><p < p></p></div>"}
+{"input": "<ul><li><p </li></ul>", "lxml": "<ul><li><p < li></p></li></ul>"}
+{"input": "<td><p </td>", "lxml": "<td><p < td></p></td>"}
+{"input": "\n<p   ", "lxml": "<span></span>"}
+{"input": "<!-- c --><p ", "lxml": "<span></span>"}
+{"input": "<div><p class=\"x</div>", "lxml": "<div></div>"}
+{"input": "<p><p class=\"x</p>", "lxml": "<p></p>"}
+{"input": "<ul><li><p class=\"x</li></ul>", "lxml": "<ul><li></ul>"}
+{"input": "<td><p class=\"x</td>", "lxml": "<td></td>"}
+{"input": "\n<p class=\"x  ", "lxml": "<span></span>"}
+{"input": "<!-- c --><p class=\"x", "lxml": "<span></span>"}
+{"input": "<div><</div>", "lxml": "<div>&lt;</div>"}
+{"input": "<p><</p>", "lxml": "<p>&lt;</p>"}
+{"input": "<ul><li><</li></ul>", "lxml": "<ul><li>&lt;</li></ul>"}
+{"input": "<td><</td>", "lxml": "<td>&lt;</td>"}
+{"input": "\n<  ", "lxml": "<span>&lt;  </span>"}
+{"input": "<!-- c --><", "lxml": "<span>&lt;</span>"}
+{"input": "<div><></div>", "lxml": "<div>&lt;&gt;</div>"}
+{"input": "<p><></p>", "lxml": "<p>&lt;&gt;</p>"}
+{"input": "<ul><li><></li></ul>", "lxml": "<ul><li>&lt;&gt;</li></ul>"}
+{"input": "<td><></td>", "lxml": "<td>&lt;&gt;</td>"}
+{"input": "\n<>  ", "lxml": "<span>&lt;&gt;  </span>"}
+{"input": "<!-- c --><>", "lxml": "<span>&lt;&gt;</span>"}
+{"input": "<div>< p></div>", "lxml": "<div>&lt; p&gt;</div>"}
+{"input": "<p>< p></p>", "lxml": "<p>&lt; p&gt;</p>"}
+{"input": "<ul><li>< p></li></ul>", "lxml": "<ul><li>&lt; p&gt;</li></ul>"}
+{"input": "<td>< p></td>", "lxml": "<td>&lt; p&gt;</td>"}
+{"input": "\n< p>  ", "lxml": "<span>&lt; p&gt;  </span>"}
+{"input": "<!-- c -->< p>", "lxml": "<span>&lt; p&gt;</span>"}
+{"input": "<div>&bogus;</div>", "lxml": "<div>&amp;bogus;</div>"}
+{"input": "<p>&bogus;</p>", "lxml": "<p>&amp;bogus;</p>"}
+{"input": "<ul><li>&bogus;</li></ul>", "lxml": "<ul><li>&amp;bogus;</li></ul>"}
+{"input": "<td>&bogus;</td>", "lxml": "<td>&amp;bogus;</td>"}
+{"input": "\n&bogus;  ", "lxml": "<span>&amp;bogus;  </span>"}
+{"input": "<!-- c -->&bogus;", "lxml": "<span>&amp;bogus;</span>"}
+{"input": "<div>\u0000</div>", "lxml": "<div>�</div>"}
+{"input": "<p>\u0000</p>", "lxml": "<p>�</p>"}
+{"input": "<ul><li>\u0000</li></ul>", "lxml": "<ul><li>�</li></ul>"}
+{"input": "<td>\u0000</td>", "lxml": "<td>�</td>"}
+{"input": "\n\u0000  ", "lxml": "<span>�  </span>"}
+{"input": "<!-- c -->\u0000", "lxml": "<span>�</span>"}
+{"input": "<div>\u0000a</div>", "lxml": "<div>�a</div>"}
+{"input": "<p>\u0000a</p>", "lxml": "<p>�a</p>"}
+{"input": "<ul><li>\u0000a</li></ul>", "lxml": "<ul><li>�a</li></ul>"}
+{"input": "<td>\u0000a</td>", "lxml": "<td>�a</td>"}
+{"input": "\n\u0000a  ", "lxml": "<span>�a  </span>"}
+{"input": "<!-- c -->\u0000a", "lxml": "<span>�a</span>"}
+{"input": "<div><div></div>", "lxml": "<div><div></div></div>"}
+{"input": "<p><div></p>", "lxml": "<div><p></p><div></div></div>"}
+{"input": "<ul><li><div></li></ul>", "lxml": "<ul><li><div></div></li></ul>"}
+{"input": "<td><div></td>", "lxml": "<td><div></div></td>"}
+{"input": "\n<div>  ", "lxml": "<div>  </div>"}
+{"input": "<!-- c --><div>", "lxml": "<div></div>"}
+{"input": "<div><div><p>a</div>", "lxml": "<div><div><p>a</p></div></div>"}
+{"input": "<p><div><p>a</p>", "lxml": "<div><p></p><div><p>a</p></div></div>"}
+{"input": "<ul><li><div><p>a</li></ul>", "lxml": "<ul><li><div><p>a</p></div></li></ul>"}
+{"input": "<td><div><p>a</td>", "lxml": "<td><div><p>a</p></div></td>"}
+{"input": "\n<div><p>a  ", "lxml": "<div><p>a  </p></div>"}
+{"input": "<!-- c --><div><p>a", "lxml": "<div><p>a</p></div>"}
+{"input": "<div></div>", "lxml": "<div></div>"}
+{"input": "<p></p>", "lxml": "<p></p>"}
+{"input": "<ul><li></li></ul>", "lxml": "<ul><li></ul>"}
+{"input": "<td></td>", "lxml": "<td></td>"}
+{"input": "\n  ", "error": "ParserError: Document is empty"}
+{"input": "<!-- c -->", "error": "ParserError: Document is empty"}
+{"input": "<div> </div>", "lxml": "<div> </div>"}
+{"input": "<p> </p>", "lxml": "<p> </p>"}
+{"input": "<ul><li> </li></ul>", "lxml": "<ul><li> </li></ul>"}
+{"input": "<td> </td>", "lxml": "<td> </td>"}
+{"input": "\n   ", "error": "ParserError: Document is empty"}
+{"input": "<!-- c --> ", "error": "ParserError: Document is empty"}
+{"input": "<div>\n\t </div>", "lxml": "<div>\n\t </div>"}
+{"input": "<p>\n\t </p>", "lxml": "<p>\n\t </p>"}
+{"input": "<ul><li>\n\t </li></ul>", "lxml": "<ul><li>\n\t </li></ul>"}
+{"input": "<td>\n\t </td>", "lxml": "<td>\n\t </td>"}
+{"input": "\n\n\t   ", "error": "ParserError: Document is empty"}
+{"input": "<!-- c -->\n\t ", "error": "ParserError: Document is empty"}
+{"input": "<div>\r</div>", "lxml": "<div>\n</div>"}
+{"input": "<p>\r</p>", "lxml": "<p>\n</p>"}
+{"input": "<ul><li>\r</li></ul>", "lxml": "<ul><li>\n</li></ul>"}
+{"input": "<td>\r</td>", "lxml": "<td>\n</td>"}
+{"input": "\n\r  ", "error": "ParserError: Document is empty"}
+{"input": "<!-- c -->\r", "error": "ParserError: Document is empty"}
+{"input": "<div>\f</div>", "lxml": "<div>\f</div>"}
+{"input": "<p>\f</p>", "lxml": "<p>\f</p>"}
+{"input": "<ul><li>\f</li></ul>", "lxml": "<ul><li>\f</li></ul>"}
+{"input": "<td>\f</td>", "lxml": "<td>\f</td>"}
+{"input": "\n\f  ", "error": "ParserError: Document is empty"}
+{"input": "<!-- c -->\f", "error": "ParserError: Document is empty"}
+{"input": "<div>hello</div>", "lxml": "<div>hello</div>"}
+{"input": "<p>hello</p>", "lxml": "<p>hello</p>"}
+{"input": "<ul><li>hello</li></ul>", "lxml": "<ul><li>hello</li></ul>"}
+{"input": "<td>hello</td>", "lxml": "<td>hello</td>"}
+{"input": "\nhello  ", "lxml": "<span>hello  </span>"}
+{"input": "<!-- c -->hello", "lxml": "<span>hello</span>"}
+{"input": "<div>+</div>", "lxml": "<div>+</div>"}
+{"input": "<p>+</p>", "lxml": "<p>+</p>"}
+{"input": "<ul><li>+</li></ul>", "lxml": "<ul><li>+</li></ul>"}
+{"input": "<td>+</td>", "lxml": "<td>+</td>"}
+{"input": "\n+  ", "lxml": "<span>+  </span>"}
+{"input": "<!-- c -->+", "lxml": "<span>+</span>"}
+{"input": "\f <a href=\"ü.png?x=1&y=2\">x</a>", "lxml": "<a href=\"%C3%BC.png?x=1&amp;y=2\">x</a>"}
+{"input": "<ol><li>a<li>b</ol><h1>a<h2>b</h1>", "lxml": "<div><ol><li>a</li><li>b</li></ol><h1>a<h2>b</h2></h1></div>"}
+{"input": "<p foo>x</p><input checked><p data-x=\"1\" data-y>z</p> <svg><circle r=\"1\"/></svg>", "lxml": "<div><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p> <svg><circle r=\"1\"></circle></svg></div>"}
+{"input": "<p>a<table><tr><td>x</table>b\n<p>a<br>b<br/>c</p>", "lxml": "<div><p>a</p><table><tr><td>x</td></tr></table>b\n<p>a<br>b<br>c</p></div>"}
+{"input": "<img SRC=\"ü.png\" ALT='x'>\n<p>a<p>b", "lxml": "<div><img src=\"%C3%BC.png\" alt=\"x\">\n<p>a</p><p>b</p></div>"}
+{"input": "<p  <table><tr><td>a<td>b<tr><td>c</table>", "lxml": "<div><p <table></p><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></div>"}
+{"input": "<p>a<p>b <a href=\"ü.png?x=1&y=2\">x</a>", "lxml": "<div><p>a</p><p>b <a href=\"%C3%BC.png?x=1&amp;y=2\">x</a></p></div>"}
+{"input": "<title>a &amp; b</title>\n<form><p>a</form>", "lxml": "<html><head><title>a &amp; b</title>\n</head><body><form><p>a</p></form></body></html>"}
+{"input": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component>\n<b><i>x</b></i>", "lxml": "<span><mention-component id=\"u1\" entity_name=\"user\"></mention-component>\n<b><i>x</i></b></span>"}
+{"input": "&bogus;<p title=a title=b>x</p>", "lxml": "<div>&amp;bogus;<p title=\"a\">x</p></div>"}
+{"input": "<table><tr><td>a<td>b<tr><td>c</table>\n<pre language=\"js\"><code spellcheck=\"false\">a</code></pre>", "lxml": "<div><table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>\n<pre language=\"js\"><code spellcheck=\"false\">a</code></pre></div>"}
+{"input": "<\n<p />", "lxml": "<div>&lt;\n<p></p></div>"}
+{"input": "<p><label data-x=\"1\">b</label></p> <svg><circle r=\"1\"/></svg>", "lxml": "<div><p><label data-x=\"1\">b</label></p> <svg><circle r=\"1\"></circle></svg></div>"}
+{"input": "<table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table> <ul><li>a<ul><li>b</ul></ul>", "lxml": "<div><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table> <ul><li>a<ul><li>b</li></ul></li></ul></div>"}
+{"input": "<style>.x{content:'<a>'}</style><!--x-->\u0000a", "lxml": "<html><head><style>.x{content:'<a>'}</style><!--x--></head><body>�a</body></html>"}
+{"input": "\r\n+", "lxml": "<span>+</span>"}
+{"input": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component> <li></li><li>a", "lxml": "<div><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component> <li><li>a</li></div>"}
+{"input": " \n<p>x</p></p>", "lxml": "<p>x</p>"}
+{"input": "<><!--x--><td></td><option></option>", "lxml": "<div>&lt;&gt;<!--x--><td></td><option></option></div>"}
+{"input": "<input type='checkbox' checked>\n ", "lxml": "<input type=\"checkbox\" checked>\n "}
+{"input": "<<p>&amp; &#38; &ampx; &AMP; &Amp; &notin; &not; &hellip; &check;</p>", "lxml": "<div>&lt;<p>&amp; &amp; &amp;x; &amp; &amp;Amp; ∉ ¬ … ✓</p></div>"}
+{"input": "<div><!--x--><P TITLE=x CLASS=y>z</P>", "lxml": "<div><!--x--><p title=\"x\" class=\"y\">z</p></div>"}
+{"input": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre><pre><code>let x = 1 &lt; 2;</code></pre>", "lxml": "<div><pre language=\"js\"><code spellcheck=\"false\">a</code></pre><pre><code>let x = 1 &lt; 2;</code></pre></div>"}
+{"input": "<td></td><option></option><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>", "lxml": "<div><td></td><option></option><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></div>"}
+{"input": "<tr><td>x<p title=\"a&amp;b&lt;c&gt;d\">x</p>", "lxml": "<tr><td>x<p title=\"a&amp;b&lt;c&gt;d\">x</p></td></tr>"}
+{"input": "<textarea>a &amp; b</textarea><h1>a<h2>b</h1>", "lxml": "<div><textarea>a &amp; b</textarea><h1>a<h2>b</h2></h1></div>"}
+{"input": "<input type='checkbox' checked><!--x--><br /><hr/><img src=x/>", "lxml": "<div><input type=\"checkbox\" checked><!--x--><br><hr><img src=\"x/\"></div>"}
+{"input": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component><a href=\" a b \">x</a>", "lxml": "<span><mention-component id=\"u1\" entity_name=\"user\"></mention-component><a href=\"a%20b%20\">x</a></span>"}
+{"input": "<p>a > b & c < d</p><p>a\r\nb</p>", "lxml": "<div><p>a &gt; b &amp; c &lt; d</p><p>a\nb</p></div>"}
+{"input": "<p class=\"x<!--x--><h1>a<h2>b</h1>", "lxml": "<span></span>"}
+{"input": "<table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>\n<p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p>", "lxml": "<div><table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>\n<p>� � A � 😀</p></div>"}
+{"input": "<p title=\"a\r\nb\">x</p>\n<p>a > b & c < d</p>", "lxml": "<div><p title=\"a\nb\">x</p>\n<p>a &gt; b &amp; c &lt; d</p></div>"}
+{"input": "<script>a<b && c>d</script> <p><label data-x=\"1\">b</label></p>", "lxml": "<html><head><script>a<b && c>d</script> </head><body><p><label data-x=\"1\">b</label></p></body></html>"}
+{"input": "<li></li><li>a <p title=\"a&quot;b'c\">x</p>", "lxml": "<div><li><li>a <p title=\"a&quot;b'c\">x</p></li></div>"}
+{"input": "<blockquote>quote</blockquote><hr>&bogus;", "lxml": "<div><blockquote>quote</blockquote><hr>&amp;bogus;</div>"}
+{"input": "<style>.x{content:'<a>'}</style><!--x-->&bogus;", "lxml": "<html><head><style>.x{content:'<a>'}</style><!--x--></head><body>&amp;bogus;</body></html>"}
+{"input": "<p title=\"a&amp;b&lt;c&gt;d\">x</p>\n<textarea>a &amp; b</textarea>", "lxml": "<div><p title=\"a&amp;b&lt;c&gt;d\">x</p>\n<textarea>a &amp; b</textarea></div>"}
+{"input": "<p title=a title=b>x</p>\n<div><p>a</div>", "lxml": "<div><p title=\"a\">x</p>\n<div><p>a</p></div></div>"}
+{"input": "<pre><code>let x = 1 &lt; 2;</code></pre><!--x--><li></li><li>a", "lxml": "<div><pre><code>let x = 1 &lt; 2;</code></pre><!--x--><li><li>a</li></div>"}
+{"input": "<div><p>a<!--x-->\n\t ", "lxml": "<div><p>a<!--x-->\n\t </p></div>"}
+{"input": "<p>a<p>b <b><i>x</b></i>", "lxml": "<div><p>a</p><p>b <b><i>x</i></b></p></div>"}
+{"input": "<<!--x--><p>a\r\nb</p>", "lxml": "<div>&lt;<!--x--><p>a\nb</p></div>"}
+{"input": "<li></li><li>a\n<p />", "lxml": "<div><li><li>a\n<p></p></li></div>"}
+{"input": "<svg><circle r=\"1\"/></svg> <body>text</body>", "lxml": "<span><svg><circle r=\"1\"></circle></svg> text</span>"}
+{"input": "+hello", "lxml": "<span>+hello</span>"}
+{"input": "<a href=x><a href=y>z</a>\n<input type='checkbox' checked>", "lxml": "<span><a href=\"x\"></a><a href=\"y\">z</a>\n<input type=\"checkbox\" checked></span>"}
+{"input": "<><!--x--><p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p>", "lxml": "<div>&lt;&gt;<!--x--><p>� � A � 😀</p></div>"}
+{"input": "<img SRC=\"ü.png\" ALT='x'>\n\u0000", "lxml": "<span><img src=\"%C3%BC.png\" alt=\"x\">\n�</span>"}
+{"input": "<caption>a</caption><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p>", "lxml": "<div><caption>a</caption><p foo>x</p><input checked><p data-x=\"1\" data-y>z</p></div>"}
+{"input": "<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component><!--x-->\u0000a", "lxml": "<span><image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component><!--x-->�a</span>"}
+{"input": "<blockquote>quote</blockquote><hr>\n<p", "lxml": "<div><blockquote>quote</blockquote><hr>\n</div>"}
+{"input": "\r<!--x--><table><tr><td><p>a</p></td></tr></table>", "lxml": "<table><tr><td><p>a</p></td></tr></table>"}
+{"input": "<html><head><title>t</title></head><body>x</body></html>\n<td>x", "lxml": "<html><head><title>t</title></head><body>x</body></html>"}
+{"input": "<p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p>\n<!DOCTYPE html><html><body><p>x</p></body></html>", "lxml": "<div><p>� � A � 😀</p>\n<p>x</p></div>"}
+{"input": "<mention-component id=\"u1\" entity_name=\"user\"></mention-component> <", "lxml": "<span><mention-component id=\"u1\" entity_name=\"user\"></mention-component> &lt;</span>"}
+{"input": " &bogus;", "lxml": "<span>&amp;bogus;</span>"}
+{"input": "<p>x</p></p> <html>  </html>", "lxml": "<p>x</p>   "}
+{"input": "<p>a\r\nb</p><svg><circle r=\"1\"/></svg>", "lxml": "<div><p>a\nb</p><svg><circle r=\"1\"></circle></svg></div>"}
+{"input": "hello\n<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component>", "lxml": "<span>hello\n<image-component id=\"a1\" src=\"https://example.com/x.png\"></image-component></span>"}
+{"input": "  <p>a</p><!-- c --><p>b</p>", "lxml": "<div><p>a</p><!-- c --><p>b</p></div>"}
+{"input": "<svg><circle r=\"1\"/></svg>\n<ol><li>a<li>b</ol>", "lxml": "<div><svg><circle r=\"1\"></circle></svg>\n<ol><li>a</li><li>b</li></ol></div>"}
+{"input": "<P TITLE=x CLASS=y>z</P><!--x--><ol><li>a<li>b</ol>", "lxml": "<div><p title=\"x\" class=\"y\">z</p><!--x--><ol><li>a</li><li>b</li></ol></div>"}
+{"input": "<p>a<table><tr><td>x</table>b\n<svg><circle r=\"1\"/></svg>", "lxml": "<div><p>a</p><table><tr><td>x</td></tr></table>b\n<svg><circle r=\"1\"></circle></svg></div>"}
+{"input": "<ol><li>a<li>b</ol><p>a<p>b", "lxml": "<div><ol><li>a</li><li>b</li></ol><p>a</p><p>b</p></div>"}
+{"input": "<p \n ", "lxml": "<span></span>"}
+{"input": "<table><tr><td>a<td>b<tr><td>c</table> <dl><dt>a<dd>b<dt>c</dl>", "lxml": "<div><table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table> <dl><dt>a</dt><dd>b</dd><dt>c</dt></dl></div>"}
+{"input": "<p>a<p>b\n<h1><p>a</p></h1>", "lxml": "<div><p>a</p><p>b\n</p><h1></h1><p>a</p></div>"}
+{"input": "<p>a<div>b</div>c<!--x--><b><i>x</b></i>", "lxml": "<div><p>a</p><div>b</div>c<!--x--><b><i>x</i></b></div>"}
+{"input": "<!DOCTYPE html><html><body><p>x</p></body></html><!--x--><dl><dt>a<dd>b<dt>c</dl>", "lxml": "<html><body><p>x</p></body></html>"}
+{"input": "<b><i>x</b></i>\n<p class=\"x", "lxml": "<b><i>x</i></b>\n"}
+{"input": "<p>a</p><!--x--> <title>a &amp; b</title>", "lxml": "<div><p>a</p><!--x--> <title>a &amp; b</title></div>"}
+{"input": "<p>a > b & c < d</p>\n\t ", "lxml": "<p>a &gt; b &amp; c &lt; d</p>\n\t "}
+{"input": "<p title=\"a\r\nb\">x</p> <ol><li>a<li>b</ol>", "lxml": "<div><p title=\"a\nb\">x</p> <ol><li>a</li><li>b</li></ol></div>"}
+{"input": "<dl><dt>a<dd>b<dt>c</dl><p>a</p><!--x-->", "lxml": "<div><dl><dt>a</dt><dd>b</dd><dt>c</dt></dl><p>a</p><!--x--></div>"}
+{"input": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre> <body>text</body>", "lxml": "<div><pre language=\"js\"><code spellcheck=\"false\">a</code></pre> text</div>"}
+{"input": "<span><p>a</p></span> <P TITLE=x CLASS=y>z</P>", "lxml": "<div><span><p>a</p></span> <p title=\"x\" class=\"y\">z</p></div>"}
+{"input": "<p>a</p><!-- c --><p>b</p><!--x--><ul><li>a<ul><li>b</ul></ul>", "lxml": "<div><p>a</p><!-- c --><p>b</p><!--x--><ul><li>a<ul><li>b</li></ul></li></ul></div>"}
+{"input": "<li>a<!--x--><p>a\r\nb</p>", "lxml": "<li>a<!--x--><p>a\nb</p></li>"}
+{"input": "<h1>a<h2>b</h1>\n<select><option>a<option>b</select>", "lxml": "<div><h1>a<h2>b</h2></h1>\n<select><option>a</option><option>b</option></select></div>"}
+{"input": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre><!--x--><input type='checkbox' checked>", "lxml": "<div><pre language=\"js\"><code spellcheck=\"false\">a</code></pre><!--x--><input type=\"checkbox\" checked></div>"}
+{"input": "<p<!--x--><b><i>x</b></i>", "lxml": "<p<!--x--><b><i>x</i></b></p<!--x-->"}
+{"input": "<ol><li>a<li>b</ol><p>emoji 😀 ünïcode</p>", "lxml": "<div><ol><li>a</li><li>b</li></ol><p>emoji 😀 ünïcode</p></div>"}
+{"input": "<p>a<p>b <img SRC=\"ü.png\" ALT='x'>", "lxml": "<div><p>a</p><p>b <img src=\"%C3%BC.png\" alt=\"x\"></p></div>"}
+{"input": "<p>&#x110000; &#xD800; &#65; &#0; &#x1F600;</p>\n<h1>a<h2>b</h1>", "lxml": "<div><p>� � A � 😀</p>\n<h1>a<h2>b</h2></h1></div>"}
+{"input": "<tr><td>x\n<tr><td>x", "lxml": "<div><tr><td>x\n</td></tr><tr><td>x</td></tr></div>"}
+{"input": "<!DOCTYPE html><html><body><p>x</p></body></html> <p ", "lxml": "<html><body><p>x</p></body></html>"}
+{"input": "+<p><p>a</p></p>", "lxml": "<div>+<p></p><p>a</p></div>"}
+{"input": "<pre><code>let x = 1 &lt; 2;</code></pre>\n<html><head><title>t</title></head><body>x</body></html>", "lxml": "<div><pre><code>let x = 1 &lt; 2;</code></pre>\n<title>t</title>x</div>"}
+{"input": "<div> <p>a<p>b", "lxml": "<div> <p>a</p><p>b</p></div>"}
+{"input": "<td>x\n<p title=\"a\r\nb\">x</p>", "lxml": "<td>x\n<p title=\"a\nb\">x</p></td>"}
+{"input": "<svg><circle r=\"1\"/></svg><td></td><option></option>", "lxml": "<div><svg><circle r=\"1\"></circle></svg><td></td><option></option></div>"}
+{"input": "<p>a</p><!-- c --><p>b</p><!--x--><a href=\" a b \">x</a>", "lxml": "<div><p>a</p><!-- c --><p>b</p><!--x--><a href=\"a%20b%20\">x</a></div>"}
+{"input": "<p>a</p><!--x--><!--x--><p/>x", "lxml": "<div><p>a</p><!--x--><!--x--><p></p>x</div>"}
+{"input": "<p>a\r\nb</p>\n<p>a<div>b</div>c", "lxml": "<div><p>a\nb</p>\n<p>a</p><div>b</div>c</div>"}
+{"input": "\r\n<p>x</p></p>", "lxml": "<p>x</p>"}
+{"input": "<\n<select><option>a<option>b</select>", "lxml": "<div>&lt;\n<select><option>a</option><option>b</option></select></div>"}
+{"input": "<img SRC=\"ü.png\" ALT='x'> <p><p>a</p></p>", "lxml": "<div><img src=\"%C3%BC.png\" alt=\"x\"> <p></p><p>a</p></div>"}
+{"input": "&bogus; <td></td><option></option>", "lxml": "<div>&amp;bogus; <td></td><option></option></div>"}
+{"input": "<p>emoji 😀 ünïcode</p><!--x--><p>a > b & c < d</p>", "lxml": "<div><p>emoji 😀 ünïcode</p><!--x--><p>a &gt; b &amp; c &lt; d</p></div>"}
+{"input": "< p> <p title=\"a&quot;b'c\">x</p>", "lxml": "<div>&lt; p&gt; <p title=\"a&quot;b'c\">x</p></div>"}
+{"input": "<html><head><title>t</title></head><body>x</body></html><html></html>", "lxml": "<html><head><title>t</title></head><body>x</body></html>"}
+{"input": "&bogus; <p>a</p><!--x-->", "lxml": "<div>&amp;bogus; <p>a</p><!--x--></div>"}
+{"input": "<br /><hr/><img src=x/>\n<a href=\" a b \">x</a>", "lxml": "<div><br><hr><img src=\"x/\">\n<a href=\"a%20b%20\">x</a></div>"}
+{"input": "<table><tr><td><p>a</p></td></tr></table>\n\n\t ", "lxml": "<table><tr><td><p>a</p></td></tr></table>\n\n\t "}
+{"input": "<ol><li>a<li>b</ol><!--x--><a href=\" a b \">x</a>", "lxml": "<div><ol><li>a</li><li>b</li></ol><!--x--><a href=\"a%20b%20\">x</a></div>"}
+{"input": "<!DOCTYPE html><html><body><p>x</p></body></html>\n<b>x<p>y</p></b>", "lxml": "<html><body><p>x</p></body></html>"}
+{"input": "<select><option>a<option>b</select> <svg><circle r=\"1\"/></svg>", "lxml": "<div><select><option>a</option><option>b</option></select> <svg><circle r=\"1\"></circle></svg></div>"}
+{"input": "<p>a<table><tr><td>x</table>b<!--x--><li></li><li>a", "lxml": "<div><p>a</p><table><tr><td>x</td></tr></table>b<!--x--><li><li>a</li></div>"}
+{"input": "<caption>a</caption><p><label data-x=\"1\">b</label></p>", "lxml": "<div><caption>a</caption><p><label data-x=\"1\">b</label></p></div>"}
+{"input": "<body>text</body> <html>  </html>", "lxml": "<span>text</span>   "}
+{"input": "<pre language=\"js\"><code spellcheck=\"false\">a</code></pre> <p>x</p></p>", "lxml": "<div><pre language=\"js\"><code spellcheck=\"false\">a</code></pre> <p>x</p></div>"}
+{"input": "<ol><li>a<li>b</ol><ul><li>a<ul><li>b</ul></ul>", "lxml": "<div><ol><li>a</li><li>b</li></ol><ul><li>a<ul><li>b</li></ul></li></ul></div>"}
+{"input": "<blockquote>quote</blockquote><hr> <table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table>", "lxml": "<div><blockquote>quote</blockquote><hr> <table><caption>c</caption><thead><tr><th>h</th></tr></thead><tbody><tr><td>d</td></tr></tbody></table></div>"}
+{"input": "<h1>a<h2>b</h1> <caption>a</caption>", "lxml": "<div><h1>a<h2>b</h2></h1> <caption>a</caption></div>"}
+{"input": "<b>x<p>y</p></b><!--x--><div><p>a", "lxml": "<div><b>x</b><p>y</p><!--x--><div><p>a</p></div></div>"}
+{"input": "<p>a<p>b<!DOCTYPE html><html><body><p>x</p></body></html>", "lxml": "<div><p>a</p><p>b</p><p>x</p></div>"}
+{"input": "<p title=\"a&amp;b&lt;c&gt;d\">x</p><div><p>a</div>", "lxml": "<div><p title=\"a&amp;b&lt;c&gt;d\">x</p><div><p>a</p></div></div>"}
+{"input": "\u0000<p", "lxml": "<span>�</span>"}
