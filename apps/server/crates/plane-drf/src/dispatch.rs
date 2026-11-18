@@ -259,13 +259,22 @@ impl Runtime {
                 // Only a family with its own `handle_exception` converts a
                 // non-`APIException` into a response.
                 re_raised = is_re_raised(route.family, &error);
-                render_api(route.family.exception(error))
+                let error = route.family.exception(error);
+                render_api_for(route, error)
             }
         };
 
         if route.family.is_drf() && !re_raised {
             if let Some(allow) = &route.allow {
                 response.set_header("Allow", allow.clone());
+            }
+            // `APIView.finalize_response` patches `Vary: Accept` only when the
+            // view offers a choice of renderers
+            // (`rest_framework/views.py:443-446`). Every Plane route has one
+            // except the three drf-spectacular views, so this is where the
+            // schema routes' `Vary: Accept` comes from.
+            if route.renderer_classes.len() > 1 {
+                response.patch_vary("Accept");
             }
             // Only `BaseAPIView.finalize_response` copies them
             // (`plane/api/views/base.py:123-136`). `BaseViewSet` and the two
@@ -335,7 +344,16 @@ impl Runtime {
         }
 
         // ---- initial(): content negotiation -------------------------------
-        negotiate::select_renderer(request)?;
+        // `renderer_classes` comes from routes.json. Every route but the three
+        // drf-spectacular ones has `[JSONRenderer]`; an unported renderer class
+        // is refused instead of negotiated as JSON.
+        let renderers = negotiate::renderer_specs(&route.renderer_classes).ok_or_else(|| {
+            ViewError::Unknown(format!(
+                "{}: renderer_classes {:?} are not ported",
+                route.view, route.renderer_classes
+            ))
+        })?;
+        negotiate::select_renderer_from(&renderers, request)?;
 
         // ---- perform_authentication ---------------------------------------
         let (auth, user_evaluated) = {
@@ -792,6 +810,26 @@ fn apply_logout(session: &SessionSlot, state: &mut RunState) {
         state.user = Some(RequestUser::Anonymous);
         state.django_user = Some(RequestUser::Anonymous);
     }
+}
+
+/// Render an error with the route's **first** renderer, as DRF's
+/// `finalize_response` does when negotiation did not select one
+/// (`rest_framework/views.py:437-442`).
+///
+/// Every Plane route's first renderer is `JSONRenderer`, so this is
+/// [`render_api`]. The exception is `/api/schema/`, whose first renderer is
+/// drf-spectacular's YAML one and whose 404/406/405 therefore carry YAML bodies
+/// ([`crate::yaml_error`]); the error shapes that module does not model fall
+/// back to the JSON body rather than inventing bytes.
+fn render_api_for(route: &RoutePolicy, error: ApiError) -> DrfResponse {
+    if let Some(specs) = negotiate::renderer_specs(&route.renderer_classes)
+        && let Some(first) = specs.first()
+        && first.format == "yaml"
+        && let Some(response) = crate::yaml_error::render(&error, first.media_type)
+    {
+        return response;
+    }
+    render_api(error)
 }
 
 /// Render an [`ApiError`] the way DRF plus Plane's handler do.

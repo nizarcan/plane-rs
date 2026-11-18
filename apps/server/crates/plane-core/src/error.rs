@@ -220,6 +220,43 @@ impl ApiError {
         }
     }
 
+    /// The `(message, code)` of a DRF `ErrorDetail`, for the errors DRF renders
+    /// as `{"detail": ErrorDetail(message, code)}`.
+    ///
+    /// The JSON renderer drops the code, but drf-spectacular's YAML renderer
+    /// keeps it (`rest_framework/views.py:437-442` renders an error response
+    /// with the view's **first** renderer, which for `/api/schema/` is
+    /// `OpenApiYamlRenderer`; its `error_detail_representer` writes
+    /// `{"string": str(data), "code": data.code}`,
+    /// `drf_spectacular/renderers.py:39-41`). `None` for the object-shaped and
+    /// HTML bodies, whose YAML form this port does not need.
+    #[must_use]
+    pub fn detail_and_code(&self) -> Option<(String, &'static str)> {
+        match self {
+            Self::NotAuthenticated => {
+                Some((NOT_AUTHENTICATED_DETAIL.to_string(), "not_authenticated"))
+            }
+            Self::AuthenticationFailed { detail, .. } => {
+                Some((detail.clone(), "authentication_failed"))
+            }
+            Self::PermissionDenied(detail) => Some((detail.clone(), "permission_denied")),
+            Self::NotFound => Some((NOT_FOUND_DETAIL.to_string(), "not_found")),
+            Self::NotFoundDetail(message) => Some((message.clone(), "not_found")),
+            Self::MethodNotAllowed { method, .. } => Some((
+                format!("Method \"{method}\" not allowed."),
+                "method_not_allowed",
+            )),
+            Self::NotAcceptable => Some((NOT_ACCEPTABLE_DETAIL.to_string(), "not_acceptable")),
+            Self::UnsupportedMediaType(content_type) => Some((
+                format!("Unsupported media type \"{content_type}\" in request."),
+                "unsupported_media_type",
+            )),
+            Self::ParseError(detail) => Some((detail.clone(), "parse_error")),
+            Self::NotImplemented => Some((NOT_IMPLEMENTED_DETAIL.to_string(), "not_implemented")),
+            _ => None,
+        }
+    }
+
     /// The response body, tagged with the JSON dialect that must render it.
     ///
     /// Multi-key objects use [`Object`] so key order matches Python's dict

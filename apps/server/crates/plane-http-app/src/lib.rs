@@ -53,6 +53,7 @@ pub mod labels;
 pub mod meta;
 pub mod modules;
 pub mod notifications;
+pub mod openapi;
 pub mod pages;
 pub mod projects;
 pub mod public;
@@ -102,6 +103,7 @@ pub fn register_all(registry: &mut Registry) -> Result<(), RegistryError> {
     stickies::register(registry)?;
     webhooks::register(registry)?;
     ai::register(registry)?;
+    openapi::register(registry)?;
     Ok(())
 }
 

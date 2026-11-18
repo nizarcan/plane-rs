@@ -100,8 +100,12 @@ _plane_env_pairs=(
   "PYTHONUNBUFFERED=1"
 
   # Off by default in common.py; pinned so a caller's shell cannot turn schema
-  # generation on and slow every management command down.
-  "ENABLE_DRF_SPECTACULAR=0"
+  # generation on and slow every management command down. A scenario that
+  # deliberately exercises the three drf-spectacular routes sets it in its
+  # `target_env` (`scenarios/read/openapi.yaml`); sourcing this file must not
+  # clobber that, or the Django target would 404 the routes the Rust target
+  # serves.
+  "ENABLE_DRF_SPECTACULAR=${ENABLE_DRF_SPECTACULAR:-0}"
 
   # Pass the isolation knobs through to child processes for readability.
   "PLANE_DB=$PLANE_DB"

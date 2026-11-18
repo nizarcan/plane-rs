@@ -293,7 +293,9 @@ mod tests {
     #[test]
     fn every_route_has_a_matching_sample_url() {
         let table = table();
-        assert_eq!(table.len(), 391, "routes.json entry count");
+        // 394 with the three drf-spectacular routes (generated with
+        // ENABLE_DRF_SPECTACULAR=1, owner `django`).
+        assert_eq!(table.len(), 394, "routes.json entry count");
         let mut checked = 0;
         for route in table.routes() {
             let sample = sample_path(&route.path_template, &route.params);

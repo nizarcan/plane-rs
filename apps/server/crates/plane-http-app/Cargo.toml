@@ -20,6 +20,7 @@ chrono-tz.workspace = true
 deadpool-postgres.workspace = true
 getrandom.workspace = true
 http.workspace = true
+lettre.workspace = true
 plane-auth = { path = "../plane-auth" }
 plane-cache = { path = "../plane-cache" }
 plane-core = { path = "../plane-core" }

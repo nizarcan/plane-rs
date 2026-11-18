@@ -95,6 +95,7 @@
 # | v1 | `PLANE_RS_GROUP_V1` | 79 | 297 | no |
 # | public | `PLANE_RS_GROUP_PUBLIC` | 25 | 88 | no |
 # | instances | `PLANE_RS_GROUP_INSTANCES` | 14 | 43 | no |
+# | schema | `PLANE_RS_GROUP_SCHEMA` | 3 | 9 | no |
 # | web | `PLANE_RS_GROUP_WEB` | 1 | 8 | no |
 
 # --------------------------------------------------------------------------

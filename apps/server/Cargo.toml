@@ -53,6 +53,16 @@ futures-util = "0.3.31"
 getrandom = "0.3.4"
 http = "1.5.0"
 ipnet = "2.12.2"
+# SMTP for the instance e-mail test (PUBLIC_INSTANCES.md §2c). Defaults are off:
+# native-tls and ring would add a second TLS stack and a second rustls crypto
+# provider (DECISIONS.md D9). `aws-lc-rs` + `webpki-roots` reuse the workspace
+# pins, and `tokio1` fits the server runtime.
+lettre = { version = "0.11.24", default-features = false, features = [
+  "smtp-transport",
+  "tokio1-rustls",
+  "aws-lc-rs",
+  "webpki-roots",
+] }
 md-5 = "0.10.6"
 mimalloc = "0.1.52"
 percent-encoding = "2.3.2"

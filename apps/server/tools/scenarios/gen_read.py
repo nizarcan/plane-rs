@@ -59,6 +59,12 @@ OUT_DIR = SERVER_DIR / "scenarios" / "read"
 FIXED_HOST = "plane-fixture.test"
 GEN_CADDY = SERVER_DIR / "tools" / "proxy" / "gen_caddy.py"
 
+# Groups whose read scenario is hand-written. `schema`'s routes are two HTML
+# pages and a DB-independent document, and their steps assert content
+# negotiation and `Content-Disposition`; `scenarios/read/openapi.yaml` owns
+# them, so regeneration must not write a `schema.yaml` next to it.
+HAND_WRITTEN_GROUPS = {"schema"}
+
 # ---------------------------------------------------------------------------
 # Request identities
 # ---------------------------------------------------------------------------
@@ -1415,6 +1421,8 @@ def main() -> int:
     written = 0
     stale: list[str] = []
     for group, steps in by_group.items():
+        if group in HAND_WRITTEN_GROUPS:
+            continue
         if args.only and group != args.only:
             continue
         text = render_scenario(group, steps, fixture)

@@ -4,7 +4,7 @@
     "django_version": "5.2.17",
     "drf_version": "3.18.3",
     "settings_module": "plane.settings.production",
-    "enable_drf_spectacular": false
+    "enable_drf_spectacular": true
   },
   "routes": [
     {
@@ -41835,6 +41835,279 @@
       "csrf_exempt": false,
       "drf_options": false,
       "implicit_methods": [],
+      "http_method_names_override": null,
+      "pattern_type": "path",
+      "trailing_slash": true,
+      "trailing_slash_form": "present",
+      "notes": []
+    },
+    {
+      "order": 391,
+      "base_family": "drf.APIView",
+      "use_read_replica": null,
+      "timezone_mixin": false,
+      "http_method_names": [
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "head",
+        "options",
+        "trace"
+      ],
+      "renderer_classes": [
+        "drf_spectacular.renderers.OpenApiYamlRenderer",
+        "drf_spectacular.renderers.OpenApiYamlRenderer2",
+        "drf_spectacular.renderers.OpenApiJsonRenderer",
+        "drf_spectacular.renderers.OpenApiJsonRenderer2"
+      ],
+      "parser_classes": [
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser"
+      ],
+      "content_negotiation_class": "rest_framework.negotiation.DefaultContentNegotiation",
+      "metadata_class": "rest_framework.metadata.SimpleMetadata",
+      "view_name": "Spectacular Api",
+      "view_description": "OpenApi3 schema for this API. Format can be selected via content negotiation.\n\n- YAML: application/vnd.oai.openapi\n- JSON: application/vnd.oai.openapi+json",
+      "lifecycle_overrides": {
+        "get_permissions": null,
+        "get_authenticators": null,
+        "get_throttles": null,
+        "initial": null,
+        "dispatch": null,
+        "handle_exception": null,
+        "finalize_response": null,
+        "options": null
+      },
+      "defined_methods": null,
+      "guard_actions": {},
+      "options_metadata": {
+        "attempts": [],
+        "actions_json": {},
+        "error": null,
+        "get_object_required": false
+      },
+      "group": "schema",
+      "django_pattern": "api/schema/",
+      "path": "/api/schema/",
+      "params": {},
+      "name": "schema",
+      "view": "drf_spectacular.views.SpectacularAPIView",
+      "kind": "APIView",
+      "methods": {
+        "get": "get"
+      },
+      "viewset_guard": {
+        "status": "not-applicable",
+        "refused_methods": []
+      },
+      "method_permissions": {
+        "get": []
+      },
+      "method_throttles": {
+        "get": []
+      },
+      "authentication_classes": [
+        "rest_framework.authentication.SessionAuthentication"
+      ],
+      "permission_classes": [
+        "rest_framework.permissions.AllowAny"
+      ],
+      "throttle_classes": [
+        "rest_framework.throttling.AnonRateThrottle"
+      ],
+      "dynamic_authenticators": false,
+      "dynamic_permissions": false,
+      "dynamic_throttles": false,
+      "dynamic_owners": {},
+      "csrf_exempt": true,
+      "drf_options": true,
+      "implicit_methods": [
+        "head",
+        "options"
+      ],
+      "http_method_names_override": null,
+      "pattern_type": "path",
+      "trailing_slash": true,
+      "trailing_slash_form": "present",
+      "notes": []
+    },
+    {
+      "order": 392,
+      "base_family": "drf.APIView",
+      "use_read_replica": null,
+      "timezone_mixin": false,
+      "http_method_names": [
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "head",
+        "options",
+        "trace"
+      ],
+      "renderer_classes": [
+        "rest_framework.renderers.TemplateHTMLRenderer"
+      ],
+      "parser_classes": [
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser"
+      ],
+      "content_negotiation_class": "rest_framework.negotiation.DefaultContentNegotiation",
+      "metadata_class": "rest_framework.metadata.SimpleMetadata",
+      "view_name": "Spectacular Swagger",
+      "view_description": "",
+      "lifecycle_overrides": {
+        "get_permissions": null,
+        "get_authenticators": null,
+        "get_throttles": null,
+        "initial": null,
+        "dispatch": null,
+        "handle_exception": null,
+        "finalize_response": null,
+        "options": null
+      },
+      "defined_methods": null,
+      "guard_actions": {},
+      "options_metadata": {
+        "attempts": [],
+        "actions_json": {},
+        "error": null,
+        "get_object_required": false
+      },
+      "group": "schema",
+      "django_pattern": "api/schema/swagger-ui/",
+      "path": "/api/schema/swagger-ui/",
+      "params": {},
+      "name": "swagger-ui",
+      "view": "drf_spectacular.views.SpectacularSwaggerView",
+      "kind": "APIView",
+      "methods": {
+        "get": "get"
+      },
+      "viewset_guard": {
+        "status": "not-applicable",
+        "refused_methods": []
+      },
+      "method_permissions": {
+        "get": []
+      },
+      "method_throttles": {
+        "get": []
+      },
+      "authentication_classes": [
+        "rest_framework.authentication.SessionAuthentication"
+      ],
+      "permission_classes": [
+        "rest_framework.permissions.AllowAny"
+      ],
+      "throttle_classes": [
+        "rest_framework.throttling.AnonRateThrottle"
+      ],
+      "dynamic_authenticators": false,
+      "dynamic_permissions": false,
+      "dynamic_throttles": false,
+      "dynamic_owners": {},
+      "csrf_exempt": true,
+      "drf_options": true,
+      "implicit_methods": [
+        "head",
+        "options"
+      ],
+      "http_method_names_override": null,
+      "pattern_type": "path",
+      "trailing_slash": true,
+      "trailing_slash_form": "present",
+      "notes": []
+    },
+    {
+      "order": 393,
+      "base_family": "drf.APIView",
+      "use_read_replica": null,
+      "timezone_mixin": false,
+      "http_method_names": [
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "head",
+        "options",
+        "trace"
+      ],
+      "renderer_classes": [
+        "rest_framework.renderers.TemplateHTMLRenderer"
+      ],
+      "parser_classes": [
+        "rest_framework.parsers.JSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser"
+      ],
+      "content_negotiation_class": "rest_framework.negotiation.DefaultContentNegotiation",
+      "metadata_class": "rest_framework.metadata.SimpleMetadata",
+      "view_name": "Spectacular Redoc",
+      "view_description": "",
+      "lifecycle_overrides": {
+        "get_permissions": null,
+        "get_authenticators": null,
+        "get_throttles": null,
+        "initial": null,
+        "dispatch": null,
+        "handle_exception": null,
+        "finalize_response": null,
+        "options": null
+      },
+      "defined_methods": null,
+      "guard_actions": {},
+      "options_metadata": {
+        "attempts": [],
+        "actions_json": {},
+        "error": null,
+        "get_object_required": false
+      },
+      "group": "schema",
+      "django_pattern": "api/schema/redoc/",
+      "path": "/api/schema/redoc/",
+      "params": {},
+      "name": "redoc",
+      "view": "drf_spectacular.views.SpectacularRedocView",
+      "kind": "APIView",
+      "methods": {
+        "get": "get"
+      },
+      "viewset_guard": {
+        "status": "not-applicable",
+        "refused_methods": []
+      },
+      "method_permissions": {
+        "get": []
+      },
+      "method_throttles": {
+        "get": []
+      },
+      "authentication_classes": [
+        "rest_framework.authentication.SessionAuthentication"
+      ],
+      "permission_classes": [
+        "rest_framework.permissions.AllowAny"
+      ],
+      "throttle_classes": [
+        "rest_framework.throttling.AnonRateThrottle"
+      ],
+      "dynamic_authenticators": false,
+      "dynamic_permissions": false,
+      "dynamic_throttles": false,
+      "dynamic_owners": {},
+      "csrf_exempt": true,
+      "drf_options": true,
+      "implicit_methods": [
+        "head",
+        "options"
+      ],
       "http_method_names_override": null,
       "pattern_type": "path",
       "trailing_slash": true,

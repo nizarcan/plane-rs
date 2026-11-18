@@ -671,7 +671,7 @@ mod tests {
             }
         }
         assert_eq!(
-            checked, 708,
+            checked, 711,
             "registered (route, method) pairs, v1 included"
         );
     }

@@ -5,7 +5,7 @@
 //! `DefaultContentNegotiation` (`rest_framework/negotiation.py`), with Plane's
 //! single renderer.
 //!
-//! Plane configures exactly one renderer, `JSONRenderer`
+//! Almost every Plane route has exactly one renderer, `JSONRenderer`
 //! (`plane/settings/common.py:147`), so the observable outcomes are:
 //!
 //! | Request | Result |
@@ -17,6 +17,13 @@
 //!
 //! Both errors are raised inside `initial()` **before** authentication, so an
 //! anonymous request with a bad `Accept` gets 406, not 401.
+//!
+//! The three drf-spectacular views are the only routes with more than one
+//! renderer (`drf_spectacular/views.py:45-49,122-137`): the schema view offers
+//! YAML and JSON in two media types each, the two HTML pages offer
+//! `text/html`. [`select_renderer_from`] is the route-aware form and
+//! [`renderer_specs`] maps the class names `routes.json` records; a class that
+//! is not mapped is refused by the dispatcher rather than negotiated as JSON.
 //!
 //! The returned *accepted media type* never reaches the wire in Plane: the
 //! renderer's `Content-Type` is its own `media_type` and `charset` is `None`,
@@ -207,21 +214,100 @@ pub fn accept_tokens(request: &ViewRequest<'_>) -> Vec<String> {
     tokens
 }
 
+/// One entry of a `routes.json` `renderer_classes` list, in the terms
+/// `DefaultContentNegotiation` needs.
+///
+/// Plane has one renderer for almost every route (`JSONRenderer`); the three
+/// drf-spectacular views under `/api/schema/` are the only exceptions, and they
+/// are why negotiation has to be route-aware
+/// (`drf_spectacular/views.py:45-49,122-137`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RendererSpec {
+    /// `renderer.media_type`.
+    pub media_type: &'static str,
+    /// `renderer.format` (`filter_renderers` compares it with `?format=`).
+    pub format: &'static str,
+}
+
+/// `JSONRenderer` (`rest_framework/renderers.py`).
+pub const JSON_RENDERER: RendererSpec = RendererSpec {
+    media_type: JSON_MEDIA_TYPE,
+    format: JSON_FORMAT,
+};
+
+/// The renderer classes this port knows how to negotiate, as Django's
+/// `renderer_classes` records them in `routes.json`.
+///
+/// A class missing here is a route whose rendering has not been ported; the
+/// dispatcher refuses it rather than negotiating with the wrong media type.
+pub fn renderer_specs(classes: &[String]) -> Option<Vec<RendererSpec>> {
+    let mut specs = Vec::with_capacity(classes.len());
+    for class in classes {
+        specs.push(match class.as_str() {
+            "rest_framework.renderers.JSONRenderer" => JSON_RENDERER,
+            // `OpenApiYamlRenderer2`/`OpenApiJsonRenderer2` only override the
+            // media type; the format is what `?format=` filters on.
+            "drf_spectacular.renderers.OpenApiYamlRenderer"
+            | "drf_spectacular.renderers.OpenApiYamlRenderer2" => RendererSpec {
+                media_type: if class.ends_with('2') {
+                    "application/yaml"
+                } else {
+                    "application/vnd.oai.openapi"
+                },
+                format: "yaml",
+            },
+            "drf_spectacular.renderers.OpenApiJsonRenderer"
+            | "drf_spectacular.renderers.OpenApiJsonRenderer2" => RendererSpec {
+                media_type: if class.ends_with('2') {
+                    JSON_MEDIA_TYPE
+                } else {
+                    "application/vnd.oai.openapi+json"
+                },
+                format: JSON_FORMAT,
+            },
+            "rest_framework.renderers.TemplateHTMLRenderer" => RendererSpec {
+                media_type: "text/html",
+                format: "html",
+            },
+            _ => return None,
+        });
+    }
+    Some(specs)
+}
+
 /// `DefaultContentNegotiation.select_renderer` for Plane's renderer set.
 ///
 /// Returns the renderer **format** (`"json"`). The error is the exception DRF
 /// raises, ready for `handle_exception`.
 pub fn select_renderer(request: &ViewRequest<'_>) -> Result<&'static str, ApiError> {
-    // `renderers` is `[JSONRenderer]`; `filter_renderers` keeps it only when
-    // the requested format is "json".
-    if let Some(format) = request.negotiation_format()
-        && format != JSON_FORMAT
-    {
-        // `filter_renderers` raises `Http404`.
-        return Err(ApiError::NotFound);
-    }
+    select_renderer_from(&[JSON_RENDERER], request).map(|spec| spec.format)
+}
 
-    let renderer = MediaType::parse(JSON_MEDIA_TYPE);
+/// `DefaultContentNegotiation.select_renderer` over an explicit renderer list.
+///
+/// Returns the selected renderer. The order is DRF's: `?format=` (or a format
+/// suffix) filters first, then the Accept tokens are bucketed by precedence
+/// (3 → 0) and, within a bucket, renderers are tried in declaration order.
+pub fn select_renderer_from<'a>(
+    renderers: &'a [RendererSpec],
+    request: &ViewRequest<'_>,
+) -> Result<&'a RendererSpec, ApiError> {
+    // `filter_renderers` keeps the renderers whose `format` matches; an empty
+    // result is `Http404`, not 406.
+    let filtered: Vec<&RendererSpec> = match request.negotiation_format() {
+        Some(format) => {
+            let kept: Vec<&RendererSpec> = renderers
+                .iter()
+                .filter(|renderer| renderer.format == format)
+                .collect();
+            if kept.is_empty() {
+                return Err(ApiError::NotFound);
+            }
+            kept
+        }
+        None => renderers.iter().collect(),
+    };
+
     let tokens: Vec<MediaType> = accept_tokens(request)
         .iter()
         .map(|token| MediaType::parse(token))
@@ -229,16 +315,21 @@ pub fn select_renderer(request: &ViewRequest<'_>) -> Result<&'static str, ApiErr
 
     // `order_parsed_by_precedence`: buckets 3, 2, 1, 0, empty buckets dropped.
     for precedence in (0..=3u8).rev() {
-        for token in tokens
-            .iter()
-            .filter(|token| token.precedence() == precedence)
-        {
-            if renderer.matches(token) {
-                // Accepted media type is `token.orig` when the client was at
-                // least as specific as the renderer, else the renderer's type
-                // with the token's parameters appended. Unobservable in Plane
-                // (see the module docs), so only the match is recorded.
-                return Ok(JSON_FORMAT);
+        for renderer in &filtered {
+            let media_type = MediaType::parse(renderer.media_type);
+            for token in tokens
+                .iter()
+                .filter(|token| token.precedence() == precedence)
+            {
+                if media_type.matches(token) {
+                    // The accepted media type (`token.orig` or the renderer's
+                    // type plus the token's parameters) only reaches the wire
+                    // through `Content-Type`, which is always the renderer's
+                    // own `media_type` plus its charset in DRF
+                    // (`rest_framework/renderers.py:BaseRenderer`). It is
+                    // therefore not returned.
+                    return Ok(renderer);
+                }
             }
         }
     }

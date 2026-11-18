@@ -1262,11 +1262,15 @@ mod tests {
                 route.view
             );
             if route.family.is_drf() {
-                assert_eq!(route.renderer_classes.len(), 1);
-                assert_eq!(
-                    route.renderer_classes[0],
-                    "rest_framework.renderers.JSONRenderer"
-                );
+                // Every renderer class must be mapped for negotiation; only the
+                // three drf-spectacular routes (group `schema`) differ from
+                // Plane's single `JSONRenderer`.
+                let specs = crate::negotiate::renderer_specs(&route.renderer_classes)
+                    .unwrap_or_else(|| panic!("{} has an unmapped renderer class", route.view));
+                assert!(!specs.is_empty(), "{} has no renderer", route.view);
+                if route.group != "schema" {
+                    assert_eq!(specs, vec![crate::negotiate::JSON_RENDERER]);
+                }
             }
         }
     }
