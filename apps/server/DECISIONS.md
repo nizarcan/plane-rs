@@ -465,6 +465,15 @@ workspace `Cargo.toml` and upgrade deliberately.
   evidence (`auth-oauth.yaml` 57/57, `auth-oauth-google-github.yaml` 52/52 with every
   provider call intercepted). Phase 6 is closed.
 
+## D22. Disk floor lowered to 20 GB for the build-heavy phases (decided by the owner 2026-11-18)
+
+- Each agent build takes about 3.3 GB with `CARGO_PROFILE_DEV_DEBUG=0` /
+  `CARGO_PROFILE_TEST_DEBUG=0` (4.3–5.3 GB with debug info). With about 32 GB free, the
+  previous 30 GB floor allowed one build at a time.
+- The floor is now **20 GB free** (`df -h /`): up to 3 builds in parallel. No new build is
+  launched below 20 GB, and agents are told to build without debug info and to delete
+  `target/debug/incremental`.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

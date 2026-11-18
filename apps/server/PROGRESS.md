@@ -1695,9 +1695,19 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      14 `test_oauth_callback_state_app.py` (patches the provider class by path) and 1
      `test_user_email_change_app.py` (`patch.object(cache, "incr")`). Both are in-process
      patches the plugin doesn't detect yet; the 983/3 run used `--methods GET,POST`, so
-     the PATCH one never reached Rust. Detector fix running (`rs/contract-detect`).
+     the PATCH one never reached Rust. Detector fix merged (`a46cffe1d3`).
+   - **Both P0 merges verified (2026-11-18)** at `63898624ba`/`8b2ce33d61`: fmt, clippy,
+     1220 tests, testkit 185, schema_check (http-app, auth, db, permissions); 110 files /
+     5253 steps clean; `auth-oauth.yaml` 57/57, `auth-oauth-google-github.yaml` 52/52.
+     Contract, every method routed by `ROUTES.md`: **979 passed, 7 failed** = the 3
+     baseline + 4 `test_refused_without_session_redirects_to_app_host[*]`, which set
+     `settings.APP_BASE_URL` with pytest's `settings` fixture (`plane-api` reads it from
+     the environment at startup). A settings-override detector is the next contract fix.
+   - Disk floor lowered to 20 GB (D22). On 2026-11-18 free space fell to 16 GB while
+     macOS prepared an OS update (`com.apple.os.update-MSUPrepareUpdate` snapshot); no
+     build is launched until it is back above 20 GB.
 
-   Running: browser-walk stack setup (D21); the contract detector fix. Then the final benchmark and the environment
+   Running: nothing (waiting for disk). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
