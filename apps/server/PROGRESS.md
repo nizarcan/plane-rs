@@ -1707,7 +1707,23 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      macOS prepared an OS update (`com.apple.os.update-MSUPrepareUpdate` snapshot); no
      build is launched until it is back above 20 GB.
 
-   Running: nothing (waiting for disk). Then the final benchmark and the environment
+   - Contract settings-override detector merged (`6aaa8698f0`): `ENV_SETTINGS` (13
+     URL/cookie/CORS settings `plane-core` reads at startup) snapshotted at session
+     start; an in-process override sends that request to Django. Probe: exactly the 4
+     `APP_BASE_URL` requests fire. Mixed-mode run pending disk.
+4. Phase 8 plan committed: `plans/CUTOVER.md`.
+   - 38 queue handlers (~177 h) and 4 version-sync jobs in a new `plane-admin` binary.
+   - Not ported: 4 dead or command-only tasks, plus `push_instance_metrics`, following
+     the brief's assumption for open question 5 (the owner hasn't ruled on it).
+   - Per-task switch through `ownership.rs`, never dual-publish; RabbitMQ is removed
+     after a verified drain; beat moves over with the existing advisory-lock handover.
+   - `plane-migrator` baseline at `db:0125`/`license:0006`.
+   - Sets: P0 + A–D, about 225 h; C, D and P0 can start before Phase 7 lands.
+   - Upstream findings: the AIO Caddyfile has no `/static/*` handle (invitation-email
+     logos 404 there); `clear_cache` runs `FLUSHDB` on every API start, wiping throttle
+     and magic-link keys. Phase 8 must port that too.
+
+   Running: nothing; builds wait for disk (15 GB free, macOS update being prepared). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
