@@ -60,6 +60,7 @@ django.setup()
 
 from django.conf import settings  # noqa: E402
 from django.core.mail import EmailMultiAlternatives  # noqa: E402
+from django.core.mail import message as mail_message  # noqa: E402
 from django.core.mail.message import BadHeaderError, sanitize_address  # noqa: E402
 from smtplib import quoteaddr  # noqa: E402
 
@@ -90,13 +91,20 @@ CONFIGURATION = {
     "EMAIL_FROM": ENDPOINT_FROM,
 }
 
-DATE_RE = re.compile(rb"(?m)^Date: [^\r\n]*(?=\r?$)")
-MESSAGE_ID_RE = re.compile(rb"(?m)^Message-ID: <[^>\r\n]*>(?=\r?$)")
+DATE_RE = re.compile(rb"(?m)^Date:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*")
+# A generated `Message-ID` may be folded onto continuation lines: Python's
+# header folder breaks after `Message-ID: ` when the value does not fit in 78
+# columns, and the value's length depends on the FQDN and the random digits
+# (`email/utils.py:make_msgid`). Match the header and every continuation line.
+MESSAGE_ID_RE = re.compile(rb"(?m)^Message-ID:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*")
 
 
 class Case:
-    def __init__(self, name, **kwargs):
+    def __init__(self, name, message_id=None, **kwargs):
         self.name = name
+        # A fixed Message-ID for the folding case: the generator patches
+        # `make_msgid` so the corpus pins Python's fold byte for byte.
+        self.message_id = message_id
         self.kwargs = kwargs
 
 
@@ -131,6 +139,18 @@ def cases() -> list[Case]:
         # separators.
         Case("endpoint_long_subject_word", **{**base, "subject": "A" * 100}),
         Case("endpoint_long_subject_words", **{**base, "subject": "word " * 30}),
+        # A long, fixed Message-ID folds after the header name
+        # (`Message-ID: ` + CRLF + `' '` + value). The generated one normally
+        # fits, but its length depends on `socket.getfqdn()` and
+        # `make_msgid`'s random digits, so this case pins the fold.
+        Case(
+            "endpoint_long_message_id",
+            message_id=(
+                "<179502453307.68922.11840213799578878381"
+                "@mailer.harness.very-long-hostname.example.test>"
+            ),
+            **base,
+        ),
         Case(
             "endpoint_long_recipients",
             **{
@@ -159,15 +179,15 @@ def cases() -> list[Case]:
     ]
 
 
-def mask(headers_and_body: bytes) -> bytes:
+def mask(headers_and_body: bytes, keep_message_id: bool) -> bytes:
     head, separator, body = headers_and_body.partition(b"\r\n\r\n")
     head = DATE_RE.sub(b"Date: <DATE>", head)
-    head = MESSAGE_ID_RE.sub(b"Message-ID: <MESSAGE-ID>", head)
+    if not keep_message_id:
+        head = MESSAGE_ID_RE.sub(b"Message-ID: <MESSAGE-ID>", head)
     return head + separator + body
 
 
 def message_case(case: Case) -> dict:
-    message = EmailMultiAlternatives(**case.kwargs)
     record = {
         "name": case.name,
         "subject": case.kwargs["subject"],
@@ -176,9 +196,29 @@ def message_case(case: Case) -> dict:
         "to": case.kwargs.get("to", []),
         "cc": case.kwargs.get("cc", []),
         "reply_to": case.kwargs.get("reply_to", []),
+        "message_id": case.message_id,
     }
+    message = EmailMultiAlternatives(**case.kwargs)
     try:
-        rendered = mask(message.message().as_bytes(linesep="\r\n"))
+        if case.message_id is None:
+            rendered = mask(message.message().as_bytes(linesep="\r\n"), keep_message_id=False)
+        else:
+            # `django.core.mail.message` imported `make_msgid` directly, so the
+            # patch has to go through that module's name.
+            original = mail_message.make_msgid
+            fixed = case.message_id
+
+            def make_fixed(domain=None):
+                return fixed
+
+            mail_message.make_msgid = make_fixed
+            try:
+                rendered = mask(
+                    message.message().as_bytes(linesep="\r\n"),
+                    keep_message_id=True,
+                )
+            finally:
+                mail_message.make_msgid = original
     except BadHeaderError as error:
         record["error"] = "bad_header"
         record["error_message"] = str(error)

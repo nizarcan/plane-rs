@@ -960,6 +960,22 @@ pub struct NormalizeRules {
     /// request glob). See [`UnorderedPathRule`].
     #[serde(default)]
     pub unordered_json_paths: Vec<UnorderedPathRule>,
+    /// Document paths at which the name-keyed `volatile_json_keys` rules must
+    /// not fire (see [`JsonKeyExclusion`]). A JSON-Schema document carries
+    /// field *definitions* under `properties`, where a key such as
+    /// `background_color` holds a schema object rather than the value the
+    /// rule was written for.
+    #[serde(default)]
+    pub json_key_exclusions: Vec<JsonKeyExclusion>,
+}
+
+/// A document path excluded from the name-keyed JSON rules.
+#[derive(Debug, Clone, Deserialize)]
+pub struct JsonKeyExclusion {
+    /// The same grammar as `unordered_json_paths` (`*` one component,
+    /// `**` any number).
+    pub path: String,
+    pub why: String,
 }
 
 impl NormalizeRules {
@@ -1108,6 +1124,17 @@ impl NormalizeRules {
                 bail!("normalize: empty schema name");
             }
         }
+        for exclusion in &self.json_key_exclusions {
+            if exclusion.path.trim().is_empty() {
+                bail!("normalize: json_key_exclusions entry has an empty path");
+            }
+            if exclusion.why.trim().is_empty() {
+                bail!(
+                    "normalize: json_key_exclusions entry {:?} has no justification",
+                    exclusion.path
+                );
+            }
+        }
         self.validate_name_scopes()?;
         Ok(())
     }
@@ -1238,9 +1265,12 @@ impl NormalizeRules {
 fn scopes_overlap(left: Option<&str>, right: Option<&str>) -> bool {
     match (left, right) {
         (Some(left), Some(right)) => {
+            // The most specific spelling of a scope: wildcards take their
+            // narrowest value (`*` is empty, `{}` is a one-character segment).
+            let sample = |scope: &str| scope.replace("{}", "x").replace('*', "");
             left == right
-                || glob_matches(left, &right.replace('*', ""))
-                || glob_matches(right, &left.replace('*', ""))
+                || glob_matches(left, &sample(right))
+                || glob_matches(right, &sample(left))
         }
         // An unscoped rule matches every request, so it overlaps every other.
         _ => true,

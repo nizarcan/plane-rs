@@ -284,9 +284,19 @@ steps:
       X-API-Key: "{{api_token_admin2}}"
 
   # -- HEAD/OPTIONS on an `as_view(http_method_names=…)` route -------------
-  # HEAD is deliberately absent: a HEAD 405 has an empty body and the harness
-  # cannot gunzip one (PROGRESS.md, "testkit can't gunzip an empty gzip HEAD
-  # body"). The contract suite covers HEAD.
+  # HEAD is a 405 here: the view is mounted with
+  # `as_view(http_method_names=["get", "post"])` (routes.json's
+  # `http_method_names_override`), and `View.setup` binds `head` to `get` only
+  # when `http_method_names` contains `head` (`django/views/generic/base.py:
+  # 126-129`). The 405 body is empty, so this step also checks that the harness
+  # does not try to gunzip it.
+  - name: v1a-307-projects-head-405
+    method: HEAD
+    path: "/api/v1/workspaces/{{ws}}/projects/"
+    jar: api_admin2
+    headers:
+      Host: plane-fixture.test
+      X-API-Key: "{{api_token_admin3}}"
   - name: v1a-307-projects-options
     method: OPTIONS
     path: "/api/v1/workspaces/{{ws}}/projects/"

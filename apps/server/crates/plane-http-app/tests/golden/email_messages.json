@@ -28,6 +28,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -41,6 +42,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: a@example.com, b@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -53,6 +55,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: webmaster@localhost\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -65,6 +68,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Plane <hello@plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -77,6 +81,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 8bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nHéllo wörld — ünïcode"
     },
     {
@@ -89,6 +94,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nline one\r\nline two\r\n"
     },
     {
@@ -101,6 +107,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\n"
     },
     {
@@ -113,6 +120,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: quoted-printable\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx=\r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     },
     {
@@ -125,6 +133,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: quoted-printable\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=\r\n=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=\r\n=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4=C3=A4"
     },
     {
@@ -137,6 +146,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: =?utf-8?b?R3LDvMOfZSBhdXMgQmVybGlu?=\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -149,6 +159,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: =?utf-8?b?R3LDvMOfZQ==?= <hello@plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -161,6 +172,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: \r\n AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -173,7 +185,21 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: word word word word word word word word word word word word word word\r\n word\r\n word word word word word word word word word word word word word word word\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
+    },
+    {
+      "name": "endpoint_long_message_id",
+      "subject": "Email Notification from Plane",
+      "body": "This is a sample email notification sent from Plane application.",
+      "from_email": "Team Plane <team@mailer.plane.so>",
+      "to": [
+        "receiver@example.com"
+      ],
+      "cc": [],
+      "reply_to": [],
+      "message_id": "<179502453307.68922.11840213799578878381@mailer.harness.very-long-hostname.example.test>",
+      "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: \r\n <179502453307.68922.11840213799578878381@mailer.harness.very-long-hostname.example.test>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
       "name": "endpoint_long_recipients",
@@ -187,6 +213,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: first.recipient@example.com, second.recipient@example.com,\r\n third.recipient@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -203,6 +230,7 @@
       "reply_to": [
         "reply@example.com"
       ],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nCc: c@example.com\r\nReply-To: reply@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nThis is a sample email notification sent from Plane application."
     },
     {
@@ -215,6 +243,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "bytes": "Content-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: 7bit\r\nSubject: Email Notification from Plane\r\nFrom: Team Plane <team@mailer.plane.so>\r\nTo: receiver@example.com\r\nDate: <DATE>\r\nMessage-ID: <MESSAGE-ID>\r\n\r\nFrom the desk of\r\n.dot line"
     },
     {
@@ -227,6 +256,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "error": "bad_header",
       "error_message": "Header values can't contain newlines (got 'a\\nb' for header 'Subject')"
     },
@@ -240,6 +270,7 @@
       ],
       "cc": [],
       "reply_to": [],
+      "message_id": null,
       "error": "bad_header",
       "error_message": "Header values can't contain newlines (got 'a@example.com\\nBcc: c@example.com' for header 'To')"
     }

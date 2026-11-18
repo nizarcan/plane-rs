@@ -1789,6 +1789,7 @@ mod tests {
             volatile_json_paths: Vec::new(),
             volatile_text_patterns: Vec::new(),
             unordered_json_paths: Vec::new(),
+            json_key_exclusions: Vec::new(),
             ignore_headers: vec!["content-length".to_string(), "date".to_string()],
             shapes: BTreeMap::new(),
             volatile_cookies: vec![],

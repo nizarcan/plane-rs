@@ -718,12 +718,17 @@ pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
             .await?;
         }
 
-        // `if intake_serializer: … intake_serializer.save()` (`:435-452`).
+        // `if intake_serializer: current_instance = json.dumps(
+        // IntakeIssueSerializer(intake_issue).data)` then `.save()`
+        // (`api/views/intake.py:434-440`). Unlike the app view, the v1 view
+        // dumps the intake pre-image **after** `issue_serializer.save()`
+        // (`:432`), so a nested edit is visible in `issue_detail`.
         let mut saved_link = link.clone();
         if let Some(edit) = &intake_edit {
+            let current_instance = single_pre_image(ctx, client, &link).await?;
             save_intake(client, edit, &mut saved_link, user).await?;
             let origin = issues::base_host(ctx)?;
-            let requested = plane_http_app::write::request_data_json_text(ctx)?;
+            let requested = popped.requested_data(ctx)?;
             issues::publish_issue_activity(
                 ctx,
                 plane_jobs::celery::tasks::IssueActivityCall::view_with_intake(
@@ -733,7 +738,7 @@ pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
                         user,
                         &issue_id.to_string(),
                         &project_id.to_string(),
-                        plane_jobs::celery::args::TaskArg::json_text(edit.current_instance.clone()),
+                        plane_jobs::celery::args::TaskArg::json_text(current_instance),
                     ),
                     origin,
                     false,
@@ -751,14 +756,29 @@ pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
 /// `request.data` after `pop("issue", False)` (`:359`).
 struct PoppedBody {
     issue: Json,
+    /// The JSON body with `issue` removed, i.e. what the later
+    /// `json.dumps(request.data)` (`:442`) sees. `None` for a form body: the
+    /// pops only succeed on a `.copy()`ed `QueryDict` (a multipart body with a
+    /// file), and that branch is a `TypeError` at the publish either way.
+    rest: Option<Json>,
 }
 
 impl PoppedBody {
     fn new(ctx: &ViewCtx<'_>) -> Result<Self, ViewError> {
         match ctx.data()? {
-            plane_drf::parsers::Data::Json(Json::Dict(object)) => Ok(Self {
-                issue: object.get("issue").cloned().unwrap_or(Json::Bool(false)),
-            }),
+            plane_drf::parsers::Data::Json(Json::Dict(object)) => {
+                let mut kept = PyDict::with_capacity(object.len());
+                for (key, value) in object.iter() {
+                    if key.as_str() == Some("issue") {
+                        continue;
+                    }
+                    kept.insert(key.clone(), value.clone());
+                }
+                Ok(Self {
+                    issue: object.get("issue").cloned().unwrap_or(Json::Bool(false)),
+                    rest: Some(Json::Dict(kept)),
+                })
+            }
             plane_drf::parsers::Data::Json(other) => Err(ViewError::Unknown(format!(
                 "AttributeError: '{}' object has no attribute 'pop'",
                 python_type_name(other)
@@ -777,9 +797,29 @@ impl PoppedBody {
                     Some(value) => Json::List(vec![Json::Str(PyStr::new(value))]),
                     None => Json::Bool(false),
                 };
-                Ok(Self { issue: value })
+                Ok(Self {
+                    issue: value,
+                    rest: None,
+                })
             }
         }
+    }
+
+    /// `json.dumps(request.data, cls=DjangoJSONEncoder)` (`:442`), with `issue`
+    /// already popped from the body the view is holding.
+    fn requested_data(
+        &self,
+        ctx: &ViewCtx<'_>,
+    ) -> Result<plane_jobs::celery::args::TaskArg, ViewError> {
+        let Some(rest) = &self.rest else {
+            return plane_http_app::write::request_data_json_text(ctx);
+        };
+        let bytes = plane_serde::to_vec(plane_serde::Dialect::Django, rest)
+            .map_err(|error| ViewError::Unknown(error.to_string()))?;
+        let text = String::from_utf8(bytes).map_err(|error| {
+            ViewError::Unknown(format!("json.dumps produced non-UTF-8: {error}"))
+        })?;
+        Ok(plane_jobs::celery::args::TaskArg::JsonText(text))
     }
 }
 
@@ -934,7 +974,6 @@ struct IntakeEdit {
     duplicate_to: Option<Option<Uuid>>,
     source: Option<Option<String>>,
     source_email: Option<Option<String>>,
-    current_instance: String,
     /// `issue.state.group`, for the accept transition.
     state_group: Option<String>,
 }
@@ -946,7 +985,6 @@ async fn prepare_intake(
     client: &Client,
     link: &IntakeIssue,
 ) -> Result<Prepared<IntakeEdit>, ViewError> {
-    let current_instance = single_pre_image(ctx, client, link).await?;
     let mut serializer = Serializer::new(ctx, true)?;
     plane_http_app::write::generated::intake_issue_update_serializer::validate(
         &mut serializer,
@@ -995,7 +1033,6 @@ async fn prepare_intake(
         source_email: validated
             .contains("source_email")
             .then(|| validated.text("source_email").map(str::to_owned)),
-        current_instance,
         state_group,
     }))
 }

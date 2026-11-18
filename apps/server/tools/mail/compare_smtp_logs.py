@@ -33,9 +33,10 @@ import pathlib
 import re
 import sys
 
-DATE = re.compile(rb"(?m)^Date: .*$")
-# The header value with its folding whitespace (continuations included).
-MESSAGE_ID = re.compile(rb"(?m)^Message-ID: (.*(?:\r?\n[ \t].*)*)")
+DATE = re.compile(rb"(?m)^Date:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*")
+# The header value with its folding whitespace (continuations included); a
+# long Message-ID is folded after the header name (`email/header.py`).
+MESSAGE_ID = re.compile(rb"(?m)^Message-ID:([^\r\n]*(?:\r?\n[ \t][^\r\n]*)*)")
 # Client commands whose line is compared; anything else a client sends is an
 # AUTH challenge response and is masked.
 COMMANDS = {"EHLO", "HELO", "AUTH", "MAIL", "RCPT", "DATA", "RSET", "QUIT", "NOOP", "STARTTLS"}

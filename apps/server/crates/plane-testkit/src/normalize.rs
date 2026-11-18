@@ -301,33 +301,69 @@ fn tokens_match(pattern: &[String], tokens: &[String]) -> bool {
     }
 }
 
-/// A glob with `*` wildcards over a whole string (`*group_by=labels__id*`).
+/// A glob with `*` and `{}` wildcards over a whole string.
+///
+/// `*` matches any run of characters, **including `/`**; `{}` matches exactly
+/// one path segment (one or more characters other than `/`). The
+/// request-scoped rules use `{}` wherever they mean "one route parameter", so
+/// a rule written for `.../projects/{}/` cannot silently match a deeper route.
+/// A pattern without a wildcard ignores the request's query string, so an
+/// exact route scope still matches `?order_by=` and `?limit=`.
 pub(crate) fn glob_matches(pattern: &str, text: &str) -> bool {
-    let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 {
-        return pattern == text;
-    }
-    let mut rest = text;
-    for (index, part) in parts.iter().enumerate() {
-        if part.is_empty() {
-            continue;
-        }
-        if index == 0 {
-            match rest.strip_prefix(part) {
-                Some(tail) => rest = tail,
-                None => return false,
+    let tokens = glob_tokens(pattern);
+    // A scope that names no wildcard names an endpoint, not a query: the
+    // project list must stay in scope for `?order_by=` and `?limit=` too.
+    let text = if pattern.contains('*') || pattern.contains('?') {
+        text
+    } else {
+        text.split_once('?').map_or(text, |(path, _)| path)
+    };
+    let characters: Vec<char> = text.chars().collect();
+    match_glob(&tokens, &characters)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GlobToken {
+    Literal(char),
+    /// `*`: any run of characters, including `/`.
+    Star,
+    /// `{}`: exactly one path segment, i.e. one or more non-`/` characters.
+    Segment,
+}
+
+fn glob_tokens(pattern: &str) -> Vec<GlobToken> {
+    let mut tokens = Vec::with_capacity(pattern.chars().count());
+    let mut characters = pattern.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '*' => tokens.push(GlobToken::Star),
+            '{' if characters.peek() == Some(&'}') => {
+                characters.next();
+                tokens.push(GlobToken::Segment);
             }
-            continue;
-        }
-        if index == parts.len() - 1 && !pattern.ends_with('*') {
-            return rest.ends_with(part);
-        }
-        match rest.find(part) {
-            Some(position) => rest = &rest[position + part.len()..],
-            None => return false,
+            other => tokens.push(GlobToken::Literal(other)),
         }
     }
-    pattern.ends_with('*') || rest.is_empty()
+    tokens
+}
+
+fn match_glob(tokens: &[GlobToken], text: &[char]) -> bool {
+    match tokens.split_first() {
+        None => text.is_empty(),
+        Some((GlobToken::Literal(expected), rest)) => {
+            text.first() == Some(expected) && match_glob(rest, &text[1..])
+        }
+        Some((GlobToken::Segment, rest)) => {
+            let length = text
+                .iter()
+                .take_while(|character| **character != '/')
+                .count();
+            (1..=length).any(|used| match_glob(rest, &text[used..]))
+        }
+        Some((GlobToken::Star, rest)) => {
+            (0..=text.len()).any(|used| match_glob(rest, &text[used..]))
+        }
+    }
 }
 
 /// Everything a target's normaliser needs that is not part of the rules file.
@@ -417,6 +453,9 @@ pub struct TargetNormalizer {
     json_paths: Vec<JsonPathNormalizer>,
     /// `volatile_text_patterns` after validation.
     text_patterns: Vec<TextPatternNormalizer>,
+    /// `json_key_exclusions` after validation: document paths where the
+    /// name-keyed rules must not fire.
+    json_key_exclusions: Vec<Vec<String>>,
     /// `METHOD path?query` of the request being normalised, for the rules that
     /// are scoped to an endpoint.
     request: Option<String>,
@@ -468,6 +507,11 @@ impl TargetNormalizer {
             .iter()
             .map(JsonPathNormalizer::from_spec)
             .collect();
+        let json_key_exclusions: Vec<Vec<String>> = rules
+            .json_key_exclusions
+            .iter()
+            .map(|exclusion| json_path_tokens(&exclusion.path))
+            .collect();
         let text_patterns: Vec<TextPatternNormalizer> = rules
             .volatile_text_patterns
             .iter()
@@ -483,6 +527,7 @@ impl TargetNormalizer {
             shapes: rules.compile_shapes().into_iter().collect(),
             unordered,
             json_paths,
+            json_key_exclusions,
             text_patterns,
             request: None,
             rules,
@@ -900,7 +945,19 @@ impl TargetNormalizer {
                         .iter()
                         .find(|rule| rule.applies(&child, request.as_deref()))
                         .cloned();
-                    let named_rule = scoped_rule(&self.json_keys, &key, request.as_deref());
+                    // A name-keyed rule names a *field*, not a JSON-Schema
+                    // property definition: inside a `properties` map the value
+                    // is a schema object, so the exclusion keeps the rule from
+                    // reading it as the field's value.
+                    let excluded = !self.json_key_exclusions.is_empty()
+                        && self
+                            .json_key_exclusions
+                            .iter()
+                            .any(|pattern| tokens_match(pattern, &json_path_tokens(&child)));
+                    let named_rule = match excluded {
+                        true => None,
+                        false => scoped_rule(&self.json_keys, &key, request.as_deref()),
+                    };
                     match (path_rule.map(|rule| rule.rule), named_rule) {
                         (Some(rule), _) | (None, Some(rule)) => {
                             let label = format!("json:{key}");
@@ -1156,6 +1213,12 @@ impl TargetNormalizer {
             }
         }
         *value = Value::String("<sigv4-date>".to_string());
+        // The same instant can be echoed inside an untyped string (the logger
+        // task's `log_data.response_body` repeats the upload response), where
+        // no key rule can see it. Registering the raw date in the shared map
+        // makes `substitute_known` spell it the same way there; a *different*
+        // date in a later echo stays literal and is still a difference.
+        self.placeholders.insert(text, "<sigv4-date>".to_string());
         self.record("sigv4-date", &rule.why);
     }
 
@@ -2089,6 +2152,59 @@ fn page_cache_ttl_bucket(ttl_ms: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glob_star_crosses_segments_and_braces_do_not() {
+        // `*` keeps its historical meaning: any run, slashes included.
+        assert!(glob_matches("*api/assets/*", "GET /api/assets/v2/x/"));
+        assert!(glob_matches(
+            "POST *api/*assets/*",
+            "POST /api/v1/assets/user-assets/"
+        ));
+        // `{}` is exactly one path segment.
+        assert!(glob_matches(
+            "GET /api/v1/workspaces/{}/projects/",
+            "GET /api/v1/workspaces/acme/projects/"
+        ));
+        assert!(!glob_matches(
+            "GET /api/v1/workspaces/{}/projects/",
+            "GET /api/v1/workspaces/acme/projects/p1/labels/"
+        ));
+        assert!(!glob_matches(
+            "GET /api/v1/workspaces/{}/projects/",
+            "GET /api/v1/workspaces//projects/"
+        ));
+        // A rule for the project list cannot reach a project-scoped list.
+        assert!(glob_matches(
+            "GET /api/v1/workspaces/{}/projects/*",
+            "GET /api/v1/workspaces/acme/projects/p1/labels/?limit=10"
+        ));
+        // Literal patterns still match exactly.
+        assert!(glob_matches("POST /api/x/", "POST /api/x/"));
+        assert!(!glob_matches("POST /api/x/", "POST /api/x"));
+        // An exact route scope ignores the query, but a `{}` still cannot
+        // swallow a deeper path.
+        assert!(glob_matches(
+            "GET /api/v1/workspaces/{}/projects/",
+            "GET /api/v1/workspaces/acme/projects/?order_by=-created_at"
+        ));
+        assert!(!glob_matches(
+            "GET /api/v1/workspaces/{}/projects/",
+            "GET /api/v1/workspaces/acme/projects/p1/?order_by=-created_at"
+        ));
+    }
+
+    #[test]
+    fn glob_braces_and_star_combine() {
+        assert!(glob_matches(
+            "GET /api/assets/v2/workspaces/{}*",
+            "GET /api/assets/v2/workspaces/acme/projects/p/download/a/"
+        ));
+        assert!(!glob_matches(
+            "GET /api/assets/v2/workspaces/{}*",
+            "GET /api/assets/v2/static/a/"
+        ));
+    }
     use crate::config::{DbRule, NamedRule, RuleMode, ShapeRule, TextPatternRule};
 
     fn shape(pattern: &str) -> ShapeRule {
@@ -2133,6 +2249,7 @@ mod tests {
         shapes.insert("hex64".to_string(), shape(r"^[0-9a-f]{64}$"));
         Arc::new(NormalizeRules {
             unordered_json_paths: Vec::new(),
+            json_key_exclusions: Vec::new(),
             volatile_json_paths: Vec::new(),
             volatile_text_patterns: Vec::new(),
             ignore_headers: default_ignore_headers_for_tests(),
@@ -2202,6 +2319,77 @@ mod tests {
             "server".to_string(),
             "content-length".to_string(),
         ]
+    }
+
+    fn normalizer_with(mut edit: impl FnMut(&mut NormalizeRules)) -> TargetNormalizer {
+        let mut rules = (*rules()).clone();
+        edit(&mut rules);
+        TargetNormalizer::new(NormalizerConfig {
+            rules: Arc::new(rules),
+            base_url: "http://127.0.0.1:1".to_string(),
+            known_uuids: Arc::new(HashSet::new()),
+            secret_key: Some(Arc::new(SECRET.to_vec())),
+            passwords: Arc::new(Vec::new()),
+            aws: None,
+        })
+    }
+
+    #[test]
+    fn a_json_key_rule_does_not_fire_inside_a_json_schema_properties_map() {
+        let mut normalizer = normalizer_with(|rules| {
+            rules
+                .json_key_exclusions
+                .push(crate::config::JsonKeyExclusion {
+                    path: "$.**.properties.*".to_string(),
+                    why: "test".to_string(),
+                });
+        });
+        let mut value = json!({
+            "components": {
+                "schemas": {
+                    "StickyRequest": {
+                        "properties": {
+                            "background_color": {"type": "string", "description": "x"},
+                            "name": {"type": "string"}
+                        }
+                    }
+                }
+            },
+            "background_color": "#AABBCC"
+        });
+        normalizer.normalize_json(&mut value, "$");
+        assert_eq!(
+            value["components"]["schemas"]["StickyRequest"]["properties"]["background_color"]["type"],
+            "string"
+        );
+        // The response's own field is still placeholdered.
+        assert_eq!(value["background_color"], "<colour:1>");
+        assert!(normalizer.take_violations().is_empty());
+    }
+
+    #[test]
+    fn a_sigv4_date_is_remembered_for_later_text_echoes() {
+        let mut normalizer = normalizer_with(|rules| {
+            rules.volatile_json_keys.push(crate::config::NamedRule {
+                name: "x-amz-date".to_string(),
+                why: "test".to_string(),
+                mode: RuleMode::Sigv4Date,
+                placeholder: None,
+                shape: None,
+                check: None,
+                request: None,
+            });
+        });
+        let start = parse_timestamp("2026-11-15T20:00:00Z").expect("start");
+        normalizer.start_step(start, start + Duration::seconds(1));
+        let mut value = json!({"x-amz-date": "20261115T200000Z"});
+        normalizer.normalize_json(&mut value, "$");
+        assert_eq!(value["x-amz-date"], "<sigv4-date>");
+        // The logger task repeats the upload response as a string, where no
+        // key rule can see the date.
+        let mut echo = json!({"response_body": "{\"x-amz-date\":\"20261115T200000Z\"}"});
+        normalizer.normalize_json(&mut echo, "$");
+        assert_eq!(echo["response_body"], "{\"x-amz-date\":\"<sigv4-date>\"}");
     }
 
     const SECRET: &[u8] = b"contract-test-secret-key-not-for-deployment";
