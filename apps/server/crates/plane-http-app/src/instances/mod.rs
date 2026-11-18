@@ -16,7 +16,10 @@
 //!
 //! * [`serializer`] — the manual `InstanceConfigurationSerializer`
 //!   (`PUBLIC_INSTANCES.md` §2e) and `PATCH`'s value normalisation (§2d);
-//! * [`queries`] — the configuration statements.
+//! * [`queries`] — the configuration statements;
+//! * [`mail`] — the SMTP transport §2c ports for
+//!   `email-credentials-check/` (Django's `EmailMultiAlternatives` bytes,
+//!   envelope and connection behaviour; set C calls it).
 //!
 //! Nothing is registered yet: `register_all` (`crate::register_all`) does not
 //! call an `instances::register` until the first handler exists, which is why
@@ -26,6 +29,7 @@ use deadpool_postgres::Client;
 use plane_drf::error::ViewError;
 use uuid::Uuid;
 
+pub mod mail;
 pub mod queries;
 pub mod serializer;
 

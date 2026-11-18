@@ -92,6 +92,7 @@ pub mod registry;
 pub mod request;
 pub mod token_log;
 pub mod view;
+pub mod yaml_error;
 
 pub use dispatch::{DispatchOutcome, DispatchRequest, Runtime, RuntimeError, UserOutcome};
 pub use error::ViewError;

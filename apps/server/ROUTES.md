@@ -12,11 +12,11 @@ DJANGO_SETTINGS_MODULE=plane.settings.production \
 SECRET_KEY=inventory \
 DATABASE_URL=postgresql://x:x@127.0.0.1:1/x \
 REDIS_URL=redis://127.0.0.1:1/0 \
-ENABLE_DRF_SPECTACULAR=0 \
+ENABLE_DRF_SPECTACULAR=1 \
 .venv/bin/python ../server/tools/inventory/routes.py
 ```
 
-Generated from commit `26c84a701e2cb05cc2dfbb2f02927a85d93454f6` with Django 5.2.17 and DRF 3.18.3 (`ENABLE_DRF_SPECTACULAR=0`). `routes.json` is the machine-readable form of the same data.
+Generated from commit `26c84a701e2cb05cc2dfbb2f02927a85d93454f6` with Django 5.2.17 and DRF 3.18.3 (`ENABLE_DRF_SPECTACULAR=1`). `routes.json` is the machine-readable form of the same data.
 
 `order` is the 0-based index in Django's first-match order. `methods` is the ViewSet action map for a ViewSet, the implemented handlers for an `APIView`/`GenericAPIView`, and the methods the class or decorators accept for a Django `View` or function view. `head` and `options` are omitted unless explicitly implemented; `drf_options` records that DRF answers `OPTIONS` on every DRF view even when it is not listed. A `[405]` after a method means the method is registered but `BaseViewSet.initial` refuses it at runtime — see hazard (g).
 
@@ -67,7 +67,8 @@ With `ENABLE_DRF_SPECTACULAR=1` Django adds `/api/schema/`, `/api/schema/swagger
 | auth | /auth/ | 37 | 37 | 0 | 37 |
 | instances | /api/instances/ | 14 | 14 | 0 | 21 |
 | web | (root) | 2 | — | — | 16 |
-| **total** | | **391** | **385** | **+6** | **708** |
+| schema | /api/schema/ | 3 | — | — | 3 |
+| **total** | | **394** | **385** | **+9** | **711** |
 
 The brief's counts are from `RUST_REWRITE.md` ("What exists today").
 They were produced by counting `path()` calls, which is not the same as counting resolver entries. Differences:
@@ -78,7 +79,7 @@ They were produced by counting `path()` calls, which is not the same as counting
 - **auth**: 37 resolver entries, 37 in the brief. No difference.
 - **instances**: 14 resolver entries, 14 in the brief. No difference.
 - **web**: 2 resolver entries (`robots.txt` and the health check at `/`). The brief's table does not list `plane.web`.
-- **schema**: 0 entries in this run. `ENABLE_DRF_SPECTACULAR=1` adds `/api/schema/`, `/api/schema/swagger-ui/` and `/api/schema/redoc/`.
+- **schema**: present only because `ENABLE_DRF_SPECTACULAR=1`; the brief's table does not list these routes. With the default (`0`) they do not exist.
 
 `Endpoint × method` counts one pair per HTTP method each resolver entry registers (ViewSet actions, implemented APIView handlers, and the methods a Django `View` or function view accepts). It is the number of method/path pairs the Rust router must account for, including pairs that Django answers with 405 because of the `BaseViewSet` guard (hazard (g)).
 
@@ -503,6 +504,14 @@ They were produced by counting `path()` calls, which is not the same as counting
 |---|---|---|---|---|---|---|
 | 389 | `/robots.txt` | ALL (robots_txt) | `plane.web.views.robots_txt` | - | django | not-started |
 | 390 | `/` | ALL (health_check) | `plane.web.views.health_check` | - | django | not-started |
+
+## schema (drf-spectacular)
+
+| # | Path | Methods | View | Permissions | Owner | Status |
+|---|---|---|---|---|---|---|
+| 391 | `/api/schema/` | GET | `drf_spectacular.views.SpectacularAPIView` | AllowAny | django | in-progress |
+| 392 | `/api/schema/swagger-ui/` | GET | `drf_spectacular.views.SpectacularSwaggerView` | AllowAny | django | verified |
+| 393 | `/api/schema/redoc/` | GET | `drf_spectacular.views.SpectacularRedocView` | AllowAny | django | verified |
 
 ## Routing hazards
 

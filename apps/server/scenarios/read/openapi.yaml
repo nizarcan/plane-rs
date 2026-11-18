@@ -1,0 +1,111 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Hand-written: the drf-spectacular routes (`PUBLIC_INSTANCES.md` §2g/§4).
+# `tools/scenarios/gen_read.py` skips the `schema` group (HAND_WRITTEN_GROUPS)
+# because the two HTML pages and the `Content-Disposition` contract need steps
+# the generator cannot infer from `routes.json`.
+#
+# Not in this scenario, and why:
+#
+# * The JSON renderings (`?format=json`, `Accept: application/json`,
+#   `Accept: application/vnd.oai.openapi+json`). The document is a JSON-Schema
+#   object, so the harness's name-keyed rules fire on its *definitions*
+#   (`components.schemas.*.properties.background_color` is an object, not a
+#   colour) and the step fails on a shape violation rather than a difference.
+#   `crates/plane-http-app/src/openapi/schema.rs` serves the same committed
+#   bytes for the JSON renderers, `negotiate::select_renderer_from` is unit
+#   tested over the four renderer specs, and `tools/openapi/check.py` verifies
+#   the committed JSON document against Django.
+# * `?lang=de` on the schema route: Django runs the generator under
+#   `translation.override("de")`, which translates DRF's own strings, so the
+#   document really differs from the committed default-language artefact. The
+#   Rust handler refuses it explicitly instead of serving the wrong language
+#   (an upstream client never sends it; the two HTML pages do accept it and
+#   are covered below).
+# * `HEAD /api/schema/`: the harness tries to gunzip the (empty) HEAD body of a
+#   response that advertises `Content-Encoding: gzip`, and fails the step on
+#   both targets. That framing is the generic pipeline's, not this route's.
+#
+# Django only mounts these three routes when `ENABLE_DRF_SPECTACULAR=1`
+# (`plane/urls.py:27-40`), so the flag is set for both targets. The document is
+# DB-independent, but the harness still runs against the rich fixture template
+# like every other read scenario, and the anon throttle needs Redis.
+name: read-openapi
+template_db: plane_fix_tpl
+redis_db: [6, 7]
+target_env:
+  # `plane/settings/common.py:602`: the three URLs exist only for "1".
+  ENABLE_DRF_SPECTACULAR: "1"
+  # Some views build a response from a Python `set`; pin the hash seed as the
+  # other read scenarios do so the two targets agree without normalising.
+  PYTHONHASHSEED: "0"
+steps:
+  # `SpectacularAPIView`'s four renderers, in `drf_spectacular/views.py:45-49`
+  # order. The default is the first (YAML at `application/vnd.oai.openapi`).
+  - name: schema-default-yaml
+    method: GET
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.61
+  # The two HTML pages. `Cross-Origin-Opener-Policy: unsafe-none` is the view's
+  # own header on the Swagger page (`drf_spectacular/views.py:155-158`).
+  - name: schema-swagger-ui
+    method: GET
+    path: "/api/schema/swagger-ui/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.67
+  # `?lang=&version=` are appended to the page's `schema_url` by
+  # `set_query_parameters` (`drf_spectacular/plumbing.py:1290-1297`), escaped
+  # once for JS and once for HTML.
+  - name: schema-swagger-ui-lang-version
+    method: GET
+    path: "/api/schema/swagger-ui/"
+    query:
+      lang: de
+      version: "1"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.68
+  - name: schema-redoc
+    method: GET
+    path: "/api/schema/redoc/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.69
+  - name: schema-redoc-lang-version
+    method: GET
+    path: "/api/schema/redoc/"
+    query:
+      lang: de
+      version: "1"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.70
+  # A 404 and a 406 are rendered by the view's *first* renderer — the YAML one
+  # (`rest_framework/views.py:437-442`) — not by `JSONRenderer`.
+  - name: schema-format-unknown-404
+    method: GET
+    path: "/api/schema/"
+    query:
+      format: xml
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.71
+  - name: schema-not-acceptable-406
+    method: GET
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.72
+      Accept: text/html

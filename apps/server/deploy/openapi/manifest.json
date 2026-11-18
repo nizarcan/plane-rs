@@ -1,0 +1,190 @@
+{
+  "cases": [
+    {
+      "file": "v1.yaml",
+      "request": {
+        "path": "/api/schema/",
+        "query": {}
+      },
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "application/vnd.oai.openapi; charset=utf-8"
+        ],
+        [
+          "Content-Disposition",
+          "inline; filename=\"The Plane REST API.yaml\""
+        ],
+        [
+          "Vary",
+          "Accept, Accept-Encoding, Cookie, origin"
+        ],
+        [
+          "Allow",
+          "GET, HEAD, OPTIONS"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Content-Length",
+          "545002"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "Referrer-Policy",
+          "same-origin"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ]
+      ]
+    },
+    {
+      "file": "v1.json",
+      "request": {
+        "path": "/api/schema/",
+        "query": {
+          "format": "json"
+        }
+      },
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "application/vnd.oai.openapi+json"
+        ],
+        [
+          "Content-Disposition",
+          "inline; filename=\"The Plane REST API.json\""
+        ],
+        [
+          "Vary",
+          "Accept, Accept-Encoding, Cookie, origin"
+        ],
+        [
+          "Allow",
+          "GET, HEAD, OPTIONS"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Content-Length",
+          "1026756"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "Referrer-Policy",
+          "same-origin"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ]
+      ]
+    },
+    {
+      "file": "swagger-ui.html",
+      "request": {
+        "path": "/api/schema/swagger-ui/",
+        "query": {}
+      },
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "unsafe-none"
+        ],
+        [
+          "Allow",
+          "GET, HEAD, OPTIONS"
+        ],
+        [
+          "Vary",
+          "Accept-Encoding, Cookie, origin"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Content-Length",
+          "4651"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "Referrer-Policy",
+          "same-origin"
+        ]
+      ]
+    },
+    {
+      "file": "redoc.html",
+      "request": {
+        "path": "/api/schema/redoc/",
+        "query": {}
+      },
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Allow",
+          "GET, HEAD, OPTIONS"
+        ],
+        [
+          "Vary",
+          "Accept-Encoding, Cookie, origin"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Content-Length",
+          "734"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "Referrer-Policy",
+          "same-origin"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ]
+      ]
+    }
+  ],
+  "masked": [
+    {
+      "file": "swagger-ui.html",
+      "field": "csrf_token",
+      "placeholder": "__CSRF_TOKEN__",
+      "why": "get_token() masks a fresh random mask on every call (django/middleware/csrf.py:96-114); the Rust handler substitutes the request's own token"
+    }
+  ]
+}

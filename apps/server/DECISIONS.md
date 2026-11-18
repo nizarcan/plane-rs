@@ -474,6 +474,46 @@ workspace `Cargo.toml` and upgrade deliberately.
   launched below 20 GB, and agents are told to build without debug info and to delete
   `target/debug/incremental`.
 
+## D23. Outbound mail: `lettre` 0.11.24 for SMTP, with the message bytes written in-house (decided 2026-11-18)
+
+- The brief names `lettre` (`RUST_REWRITE.md:119`). Only one Plane endpoint
+  sends mail from the API process: `EmailCredentialCheckEndpoint`
+  (`plane/license/api/views/configuration.py:80-171`). Every other plane e-mail
+  (magic links, invitations, notifications) goes through a Celery task and stays
+  on Django until Phase 8.
+- `lettre` is pinned with `default-features = false, features =
+  ["smtp-transport", "tokio1-rustls", "aws-lc-rs", "webpki-roots"]`. The default
+  feature set would add `native-tls` (a second TLS stack) and `ring` (a second
+  rustls crypto provider, which D9 forbids). `rustls-tls` also forces `ring`, so
+  the port uses `tokio1-rustls` + `aws-lc-rs` + `webpki-roots`; both crates are
+  already pinned in the workspace (`rustls` 0.23.46, `webpki-roots` 1.0.12).
+- The transport sends **raw bytes** (`AsyncTransport::send_raw`) rather than
+  lettre's `Message` builder. The contract is Django's
+  `EmailMultiAlternatives.message().as_bytes(linesep="\r\n")` byte for byte —
+  header order, RFC 2047 base64 encoded words, Python's 78-column folding and
+  the 7bit/8bit/quoted-printable body choice — and lettre's builder formats
+  differently. `crates/plane-http-app/src/instances/mail.rs` reproduces
+  `django/core/mail/message.py` and `email/header.py`; the corpus at
+  `crates/plane-http-app/tests/golden/email_messages.json` is recorded from the
+  real Django by `tools/mail/email_message_corpus.py` (18 messages, 7 envelope
+  addresses) and compared exactly.
+- Connection semantics follow `django.core.mail.backends.smtp.EmailBackend`:
+  plaintext, STARTTLS (`EMAIL_USE_TLS=1`) or implicit TLS (`EMAIL_USE_SSL=1`);
+  TLS and SSL together are an error Django answers with a 500; authentication
+  only when **both** username and password are non-empty; one connection per
+  send, closed with QUIT; no timeout, because Plane leaves `EMAIL_TIMEOUT`
+  unset.
+- Deliberate differences, all recorded in the module docs: the EHLO argument
+  (Django sends `socket.getfqdn()`, which needs libc; lettre sends its
+  hostname), the CA store (Django's system store vs `webpki-roots`, D9), the
+  AUTH mechanism order (no CRAM-MD5 in lettre), and sender-vs-recipient refusal
+  (lettre's error carries only the reply code, and 550/553 are used for both;
+  those two branches answer the endpoint's generic 400).
+- `tools/mail/fake_smtp.py` is the harness listener: it records the envelope,
+  the message bytes and the whole SMTP transcript as JSONL, with switches for
+  every failure branch the endpoint distinguishes. Ports 18410-18419 are
+  reserved for it.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

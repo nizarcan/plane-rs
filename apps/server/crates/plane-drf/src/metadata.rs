@@ -117,20 +117,21 @@ pub fn determine(route: &RoutePolicy, allowed: &[Method]) -> Result<Metadata, Me
         .clone()
         .ok_or_else(|| MetadataError::Invalid(format!("{} has no view name", route.view)))?;
     let description = route.view_description.clone().unwrap_or_default();
-    let renders: Vec<String> = route
-        .renderer_classes
-        .iter()
-        .map(|class| {
-            if class == "rest_framework.renderers.JSONRenderer" {
-                Ok("application/json".to_string())
-            } else {
-                Err(MetadataError::Invalid(format!(
-                    "unsupported renderer {class:?} on {}",
-                    route.view
-                )))
-            }
-        })
-        .collect::<Result<_, _>>()?;
+    // `[renderer.media_type for renderer in view.renderer_classes]`. The
+    // class → media-type map is the same one content negotiation uses, so the
+    // drf-spectacular routes' OPTIONS lists their four renderers.
+    let renders: Vec<String> = match crate::negotiate::renderer_specs(&route.renderer_classes) {
+        Some(specs) => specs
+            .iter()
+            .map(|spec| spec.media_type.to_string())
+            .collect(),
+        None => {
+            return Err(MetadataError::Invalid(format!(
+                "unsupported renderer_classes {:?} on {}",
+                route.renderer_classes, route.view
+            )));
+        }
+    };
     let parses: Vec<String> = route
         .parser_classes
         .iter()

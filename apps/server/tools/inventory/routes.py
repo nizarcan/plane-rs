@@ -2168,7 +2168,9 @@ def render_markdown(payload: dict[str, Any], ownership: dict[tuple[str, str, str
     lines.append("SECRET_KEY=inventory \\")
     lines.append("DATABASE_URL=postgresql://x:x@127.0.0.1:1/x \\")
     lines.append("REDIS_URL=redis://127.0.0.1:1/0 \\")
-    lines.append("ENABLE_DRF_SPECTACULAR=0 \\")
+    lines.append(
+        f"ENABLE_DRF_SPECTACULAR={1 if generated['enable_drf_spectacular'] else 0} \\"
+    )
     lines.append(".venv/bin/python ../server/tools/inventory/routes.py")
     lines.append("```")
     lines.append("")

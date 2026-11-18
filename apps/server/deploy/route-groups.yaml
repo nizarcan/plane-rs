@@ -292,6 +292,15 @@ groups:
     match:
       - "/api/instances/**"
 
+  # The drf-spectacular routes exist only when ENABLE_DRF_SPECTACULAR=1
+  # (`plane/urls.py:27-40`). They live under /api/ but after the `api/` include
+  # in Django's urlconf, and no app route starts with `schema/`
+  # (ROUTES.md, "`/api/` prefix shadowing"), so a separate group is exact.
+  - name: schema
+    description: The OpenAPI document and its Swagger UI / ReDoc pages (ENABLE_DRF_SPECTACULAR).
+    match:
+      - "/api/schema/**"
+
   # --- Last: the web app's own routes ----------------------------------------
   - name: web
     description: Root-level web routes (robots.txt).

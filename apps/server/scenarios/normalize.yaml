@@ -594,6 +594,16 @@ volatile_text_patterns:
     placeholder: magic-code
     request: "POST /auth/spaces/magic-generate/"
     why: "the space magic-generate view is the same provider (space/magic.py:53-57), so the code is random in the same two side effects"
+  # The Swagger UI page embeds `{{ csrf_token }}` from the template context: a
+  # masked token, `mask + cipher`, whose mask is a fresh `get_random_string`
+  # on every call (django/middleware/csrf.py:96-114). Even Django cannot render
+  # the same page twice, so the token is the only volatile value in the page
+  # (the committed golden carries a placeholder, see
+  # apps/server/tools/openapi/capture.py).
+  - pattern: '\b[A-Za-z0-9]{64}\b'
+    placeholder: csrf-token
+    request: "GET /api/schema/swagger-ui/*"
+    why: "the Swagger UI page embeds a freshly masked CSRF token (django/middleware/csrf.py:96-114); the mask is random per call"
 
 volatile_db_columns:
   - table: sessions
