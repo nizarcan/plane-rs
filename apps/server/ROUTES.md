@@ -411,18 +411,18 @@ They were produced by counting `path()` calls, which is not the same as counting
 
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
-| 234 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET) | verified |
-| 235 | `/api/public/anchor/{anchor}/intakes/{intake_id}/inbox-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET) | verified |
-| 236 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET) | verified |
+| 234 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET,POST) | verified |
+| 235 | `/api/public/anchor/{anchor}/intakes/{intake_id}/inbox-issues/` | GET:list, POST:create | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET,POST) | verified |
+| 236 | `/api/public/anchor/{anchor}/intakes/{intake_id}/intake-issues/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.intake.IntakeIssuePublicViewSet` | IsAuthenticated | rust(GET,PATCH,DELETE) | verified |
 | 237 | `/api/public/workspaces/{slug}/project-boards/` | GET | `plane.space.views.project.WorkspaceProjectDeployBoardEndpoint` | AllowAny | rust(GET) | verified |
 | 238 | `/api/public/anchor/{anchor}/issues/{issue_id}/` | GET | `plane.space.views.issue.IssueRetrievePublicEndpoint` | AllowAny | rust(GET) | verified |
-| 239 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/` | GET:list, POST:create | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | rust(GET) | verified |
-| 240 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | rust(GET) | verified |
-| 241 | `/api/public/anchor/{anchor}/issues/{issue_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.IssueReactionPublicViewSet` | IsAuthenticated | rust(GET) | verified |
-| 242 | `/api/public/anchor/{anchor}/issues/{issue_id}/reactions/{reaction_code}/` | DELETE:destroy | `plane.space.views.issue.IssueReactionPublicViewSet` | IsAuthenticated | django | not-started |
-| 243 | `/api/public/anchor/{anchor}/comments/{comment_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.CommentReactionPublicViewSet` | IsAuthenticated | rust(GET) | verified |
-| 244 | `/api/public/anchor/{anchor}/comments/{comment_id}/reactions/{reaction_code}/` | DELETE:destroy | `plane.space.views.issue.CommentReactionPublicViewSet` | IsAuthenticated | django | not-started |
-| 245 | `/api/public/anchor/{anchor}/issues/{issue_id}/votes/` | GET:list, POST:create, DELETE:destroy | `plane.space.views.issue.IssueVotePublicViewSet` | IsAuthenticated | rust(GET) | verified |
+| 239 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/` | GET:list, POST:create | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | rust(GET,POST) | verified |
+| 240 | `/api/public/anchor/{anchor}/issues/{issue_id}/comments/{pk}/` | GET:retrieve, PATCH:partial_update, DELETE:destroy | `plane.space.views.issue.IssueCommentPublicViewSet` | IsAuthenticated (dynamic) | rust(GET,PATCH,DELETE) | verified |
+| 241 | `/api/public/anchor/{anchor}/issues/{issue_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.IssueReactionPublicViewSet` | IsAuthenticated | rust(GET,POST) | verified |
+| 242 | `/api/public/anchor/{anchor}/issues/{issue_id}/reactions/{reaction_code}/` | DELETE:destroy | `plane.space.views.issue.IssueReactionPublicViewSet` | IsAuthenticated | rust(DELETE) | verified |
+| 243 | `/api/public/anchor/{anchor}/comments/{comment_id}/reactions/` | GET:list, POST:create | `plane.space.views.issue.CommentReactionPublicViewSet` | IsAuthenticated | rust(GET,POST) | verified |
+| 244 | `/api/public/anchor/{anchor}/comments/{comment_id}/reactions/{reaction_code}/` | DELETE:destroy | `plane.space.views.issue.CommentReactionPublicViewSet` | IsAuthenticated | rust(DELETE) | verified |
+| 245 | `/api/public/anchor/{anchor}/issues/{issue_id}/votes/` | GET:list, POST:create, DELETE:destroy | `plane.space.views.issue.IssueVotePublicViewSet` | IsAuthenticated | rust(GET,POST,DELETE) | verified |
 | 246 | `/api/public/anchor/{anchor}/meta/` | GET | `plane.space.views.meta.ProjectMetaDataEndpoint` | AllowAny | rust(GET) | verified |
 | 247 | `/api/public/anchor/{anchor}/settings/` | GET | `plane.space.views.project.ProjectDeployBoardPublicSettingsEndpoint` | AllowAny | rust(GET) | verified |
 | 248 | `/api/public/anchor/{anchor}/issues/` | GET | `plane.space.views.issue.ProjectIssuesPublicEndpoint` | AllowAny | django | not-started |
@@ -432,10 +432,10 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 252 | `/api/public/anchor/{anchor}/states/` | GET | `plane.space.views.state.ProjectStatesEndpoint` | AllowAny | rust(GET) | verified |
 | 253 | `/api/public/anchor/{anchor}/labels/` | GET | `plane.space.views.label.ProjectLabelsEndpoint` | AllowAny | rust(GET) | verified |
 | 254 | `/api/public/anchor/{anchor}/members/` | GET | `plane.space.views.project.ProjectMembersEndpoint` | AllowAny | rust(GET) | verified |
-| 255 | `/api/public/assets/v2/anchor/{anchor}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | rust(GET) | verified |
-| 256 | `/api/public/assets/v2/anchor/{anchor}/{pk}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | rust(GET) | verified |
-| 257 | `/api/public/assets/v2/anchor/{anchor}/restore/{pk}/` | POST | `plane.space.views.asset.AssetRestoreEndpoint` | IsAuthenticated | django | not-started |
-| 258 | `/api/public/assets/v2/anchor/{anchor}/{entity_id}/bulk/` | POST | `plane.space.views.asset.EntityBulkAssetEndpoint` | IsAuthenticated | django | not-started |
+| 255 | `/api/public/assets/v2/anchor/{anchor}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | rust(GET,POST,PATCH,DELETE) | verified |
+| 256 | `/api/public/assets/v2/anchor/{anchor}/{pk}/` | GET, POST, PATCH, DELETE | `plane.space.views.asset.EntityAssetEndpoint` | IsAuthenticated (dynamic) | rust(GET,POST,PATCH,DELETE) | verified |
+| 257 | `/api/public/assets/v2/anchor/{anchor}/restore/{pk}/` | POST | `plane.space.views.asset.AssetRestoreEndpoint` | IsAuthenticated | rust(POST) | verified |
+| 258 | `/api/public/assets/v2/anchor/{anchor}/{entity_id}/bulk/` | POST | `plane.space.views.asset.EntityBulkAssetEndpoint` | IsAuthenticated | rust(POST) | verified |
 
 ## auth (`/auth/`)
 
@@ -483,20 +483,20 @@ They were produced by counting `path()` calls, which is not the same as counting
 
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
-| 259 | `/api/instances/` | GET, PATCH | `plane.license.api.views.instance.InstanceEndpoint` | IsAuthenticated (dynamic) | django | not-started |
-| 260 | `/api/instances/admins/` | GET, POST, DELETE | `plane.license.api.views.admin.InstanceAdminEndpoint` | InstanceAdminPermission | django | not-started |
-| 261 | `/api/instances/admins/me/` | GET | `plane.license.api.views.admin.InstanceAdminUserMeEndpoint` | InstanceAdminPermission | django | not-started |
-| 262 | `/api/instances/admins/session/` | GET | `plane.license.api.views.admin.InstanceAdminUserSessionEndpoint` | AllowAny | django | not-started |
-| 263 | `/api/instances/admins/sign-out/` | POST | `plane.license.api.views.admin.InstanceAdminSignOutEndpoint` | - | django | not-started |
-| 264 | `/api/instances/admins/{pk}/` | GET, POST, DELETE | `plane.license.api.views.admin.InstanceAdminEndpoint` | InstanceAdminPermission | django | not-started |
-| 265 | `/api/instances/configurations/` | GET, PATCH | `plane.license.api.views.configuration.InstanceConfigurationEndpoint` | InstanceAdminPermission | django | not-started |
-| 266 | `/api/instances/configurations/disable-email-feature/` | DELETE | `plane.license.api.views.configuration.DisableEmailFeatureEndpoint` | InstanceAdminPermission | django | not-started |
-| 267 | `/api/instances/admins/sign-in/` | POST | `plane.license.api.views.admin.InstanceAdminSignInEndpoint` | - | django | not-started |
-| 268 | `/api/instances/admins/sign-up/` | POST | `plane.license.api.views.admin.InstanceAdminSignUpEndpoint` | - | django | not-started |
-| 269 | `/api/instances/admins/sign-up-screen-visited/` | POST | `plane.license.api.views.instance.SignUpScreenVisitedEndpoint` | AllowAny | django | not-started |
-| 270 | `/api/instances/email-credentials-check/` | POST | `plane.license.api.views.configuration.EmailCredentialCheckEndpoint` | InstanceAdminPermission | django | not-started |
-| 271 | `/api/instances/workspace-slug-check/` | GET | `plane.license.api.views.workspace.InstanceWorkSpaceAvailabilityCheckEndpoint` | InstanceAdminPermission | django | not-started |
-| 272 | `/api/instances/workspaces/` | GET, POST | `plane.license.api.views.workspace.InstanceWorkSpaceEndpoint` | InstanceAdminPermission | django | not-started |
+| 259 | `/api/instances/` | GET, PATCH | `plane.license.api.views.instance.InstanceEndpoint` | IsAuthenticated (dynamic) | rust(GET,PATCH) | verified |
+| 260 | `/api/instances/admins/` | GET, POST, DELETE | `plane.license.api.views.admin.InstanceAdminEndpoint` | InstanceAdminPermission | rust(GET,POST,DELETE) | verified |
+| 261 | `/api/instances/admins/me/` | GET | `plane.license.api.views.admin.InstanceAdminUserMeEndpoint` | InstanceAdminPermission | rust(GET) | verified |
+| 262 | `/api/instances/admins/session/` | GET | `plane.license.api.views.admin.InstanceAdminUserSessionEndpoint` | AllowAny | rust(GET) | verified |
+| 263 | `/api/instances/admins/sign-out/` | POST | `plane.license.api.views.admin.InstanceAdminSignOutEndpoint` | - | rust(POST) | verified |
+| 264 | `/api/instances/admins/{pk}/` | GET, POST, DELETE | `plane.license.api.views.admin.InstanceAdminEndpoint` | InstanceAdminPermission | rust(GET,POST,DELETE) | verified |
+| 265 | `/api/instances/configurations/` | GET, PATCH | `plane.license.api.views.configuration.InstanceConfigurationEndpoint` | InstanceAdminPermission | rust(GET,PATCH) | verified |
+| 266 | `/api/instances/configurations/disable-email-feature/` | DELETE | `plane.license.api.views.configuration.DisableEmailFeatureEndpoint` | InstanceAdminPermission | rust(DELETE) | verified |
+| 267 | `/api/instances/admins/sign-in/` | POST | `plane.license.api.views.admin.InstanceAdminSignInEndpoint` | - | rust(POST) | verified |
+| 268 | `/api/instances/admins/sign-up/` | POST | `plane.license.api.views.admin.InstanceAdminSignUpEndpoint` | - | rust(POST) | verified |
+| 269 | `/api/instances/admins/sign-up-screen-visited/` | POST | `plane.license.api.views.instance.SignUpScreenVisitedEndpoint` | AllowAny | rust(POST) | verified |
+| 270 | `/api/instances/email-credentials-check/` | POST | `plane.license.api.views.configuration.EmailCredentialCheckEndpoint` | InstanceAdminPermission | rust(POST) | verified |
+| 271 | `/api/instances/workspace-slug-check/` | GET | `plane.license.api.views.workspace.InstanceWorkSpaceAvailabilityCheckEndpoint` | InstanceAdminPermission | rust(GET) | verified |
+| 272 | `/api/instances/workspaces/` | GET, POST | `plane.license.api.views.workspace.InstanceWorkSpaceEndpoint` | InstanceAdminPermission | rust(GET,POST) | verified |
 
 ## web (`plane.web`)
 

@@ -94,7 +94,7 @@
 # | auth-oauth | `PLANE_RS_GROUP_AUTH_OAUTH` | 16 | 48 | yes |
 # | v1 | `PLANE_RS_GROUP_V1` | 79 | 297 | no |
 # | public | `PLANE_RS_GROUP_PUBLIC` | 25 | 88 | yes |
-# | instances | `PLANE_RS_GROUP_INSTANCES` | 14 | 43 | no |
+# | instances | `PLANE_RS_GROUP_INSTANCES` | 14 | 43 | yes |
 # | schema | `PLANE_RS_GROUP_SCHEMA` | 3 | 9 | no |
 # | web | `PLANE_RS_GROUP_WEB` | 1 | 8 | no |
 
@@ -549,10 +549,37 @@ handle @plane_rs_auth_oauth {
 	expression <<CEL
 		({env.PLANE_RS_GROUP_PUBLIC} == "" ? "rust" : {env.PLANE_RS_GROUP_PUBLIC}) == "rust"
 		&& (
-			(method("GET") && (path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/$") || path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/inbox-issues/$") || path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/workspaces/[^/]+/project-boards/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/comments/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/$") || path_regexp(r"^/api/public/anchor/[^/]+/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/votes/$") || path_regexp(r"^/api/public/anchor/[^/]+/meta/$") || path_regexp(r"^/api/public/anchor/[^/]+/settings/$") || path_regexp(r"^/api/public/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/anchor/$") || path_regexp(r"^/api/public/anchor/[^/]+/cycles/$") || path_regexp(r"^/api/public/anchor/[^/]+/modules/$") || path_regexp(r"^/api/public/anchor/[^/]+/states/$") || path_regexp(r"^/api/public/anchor/[^/]+/labels/$") || path_regexp(r"^/api/public/anchor/[^/]+/members/$") || path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/$") || path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			(method("GET", "POST") && (path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/$") || path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/inbox-issues/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/comments/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/$") || path_regexp(r"^/api/public/anchor/[^/]+/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/$")))
+			|| 			(method("GET", "PATCH", "DELETE") && (path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("GET") && (path_regexp(r"^/api/public/workspaces/[^/]+/project-boards/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/anchor/[^/]+/meta/$") || path_regexp(r"^/api/public/anchor/[^/]+/settings/$") || path_regexp(r"^/api/public/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/anchor/$") || path_regexp(r"^/api/public/anchor/[^/]+/cycles/$") || path_regexp(r"^/api/public/anchor/[^/]+/modules/$") || path_regexp(r"^/api/public/anchor/[^/]+/states/$") || path_regexp(r"^/api/public/anchor/[^/]+/labels/$") || path_regexp(r"^/api/public/anchor/[^/]+/members/$")))
+			|| 			(method("DELETE") && (path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/[^/]+/$") || path_regexp(r"^/api/public/anchor/[^/]+/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/[^/]+/$")))
+			|| 			(method("GET", "POST", "DELETE") && (path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/votes/$")))
+			|| 			(method("GET", "POST", "PATCH", "DELETE") && (path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/$") || path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("POST") && (path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/restore/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/bulk/$")))
 		)
 	CEL
 }
 handle @plane_rs_public {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# instances: Instance administration at /api/instances/.
+# 14 route(s), 43 endpoint x method pair(s); PLANE_RS_GROUP_INSTANCES=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_instances {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_INSTANCES} == "" ? "rust" : {env.PLANE_RS_GROUP_INSTANCES}) == "rust"
+		&& (
+			(method("GET", "PATCH") && (path_regexp(r"^/api/instances/$") || path_regexp(r"^/api/instances/configurations/$")))
+			|| 			(method("GET", "POST", "DELETE") && (path_regexp(r"^/api/instances/admins/$") || path_regexp(r"^/api/instances/admins/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
+			|| 			(method("GET") && (path_regexp(r"^/api/instances/admins/me/$") || path_regexp(r"^/api/instances/admins/session/$") || path_regexp(r"^/api/instances/workspace-slug-check/$")))
+			|| 			(method("POST") && (path_regexp(r"^/api/instances/admins/sign-out/$") || path_regexp(r"^/api/instances/admins/sign-in/$") || path_regexp(r"^/api/instances/admins/sign-up/$") || path_regexp(r"^/api/instances/admins/sign-up-screen-visited/$") || path_regexp(r"^/api/instances/email-credentials-check/$")))
+			|| 			(method("DELETE") && (path_regexp(r"^/api/instances/configurations/disable-email-feature/$")))
+			|| 			(method("GET", "POST") && (path_regexp(r"^/api/instances/workspaces/$")))
+		)
+	CEL
+}
+handle @plane_rs_instances {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }

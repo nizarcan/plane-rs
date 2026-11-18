@@ -1924,11 +1924,26 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      HEAD with an empty gzip body; the `background_color` rule inside JSON-Schema
      `properties` (then the OpenAPI JSON steps); `lxml_html_tables.py --check` in CI.
 
+   - **Verified at `ed49fb04fb`**: fmt, clippy, 1261 tests, testkit 188, selftest 141,
+     schema_check (http-app, http-public, auth, db, permissions); generators
+     `lxml_html_tables`, `attachment_mime_types`, `openapi/check` ok;
+     **126 scenario files / 5895 steps clean** (every read and write file incl. all
+     v1/public/instances); OAuth 57/57 + 52/52; all 9 SMTP modes clean (HTTP +
+     transcripts). Contract with every candidate row assumed Rust (Redis DB 12): 963
+     passed / 23 failed = the 3 baseline + 20 tests of methods not ported yet that the
+     orchestrator wrongly included (279 POST, 281 PATCH, 282 POST, 307 POST, 309
+     PATCH): they hit the 501. No SIGTERM this time.
+     - `email_message_corpus.py --check` failed once ("STALE"), then passed 6 times:
+       probably a folded long `Message-ID` header escaping the single-line mask
+       regex. Assigned to the harness clean-up, with a golden pinning Rust's folding.
+   - **Flipped with this entry: public writes and instances.** Every method of
+     234–247 and 249–258 (248 GET still held) and of 259–272, including 270.
+     **v1 is held** until the harness clean-up narrows the `GET
+     /api/v1/workspaces/*/projects/*` unordered-`$.results` rule, which also covers
+     the v1 project-scoped lists (so their ordering isn't verified yet).
+
    Running: v1 remaining writes (`rs/v1-c2`, 18020/18120, Redis 5/6, contract Redis
-   15), harness clean-up (`rs/harness-fix`, 18040/18140, Redis 9/10); the
-   orchestrator's verification of `ed49fb04fb`, which gates the pending flips (v1
-   D/A/C part 1, public B, instances C). v1 set B gets verified after the harness
-   clean-up, because the over-matching `$.results` rule would hide its ordering. Then the final benchmark and the environment
+   15), harness clean-up (`rs/harness-fix`, 18040/18140, Redis 9/10). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
