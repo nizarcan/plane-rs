@@ -428,7 +428,7 @@ jobs:
       SECRET_KEY: inventory
       DATABASE_URL: postgresql://x:x@127.0.0.1:1/x
       REDIS_URL: redis://127.0.0.1:1/0
-      ENABLE_DRF_SPECTACULAR: "0"
+      ENABLE_DRF_SPECTACULAR: "1"
     steps:
       - uses: actions/checkout@v6
 
@@ -490,6 +490,21 @@ jobs:
       - name: Check the generated serializer inventory is current
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/inventory/serializers.py --check
+
+      # The published v1 document is a committed artefact (Phase 7 exit: "the
+      # docs stay accurate"). `check.py --check` re-renders through Django and
+      # compares byte for byte, then asserts the document's path+method set
+      # equals the v1 route table in routes.json.
+      # The SMTP port reproduces Django's `EmailMultiAlternatives` bytes; the
+      # corpus is recorded from Django and compared by
+      # `crates/plane-http-app/tests/email_message_golden.rs`.
+      - name: Check the e-mail golden corpus is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/mail/email_message_corpus.py --check
+
+      - name: Check the OpenAPI goldens are current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/openapi/check.py --check
 
       - name: Check the generated proxy snippet is current
         working-directory: apps/api
