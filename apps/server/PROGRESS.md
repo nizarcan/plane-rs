@@ -1710,7 +1710,9 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
    - Contract settings-override detector merged (`6aaa8698f0`): `ENV_SETTINGS` (13
      URL/cookie/CORS settings `plane-core` reads at startup) snapshotted at session
      start; an in-process override sends that request to Django. Probe: exactly the 4
-     `APP_BASE_URL` requests fire. Mixed-mode run pending disk.
+     `APP_BASE_URL` requests fire. **Mixed run at `ee5fb9e9b6`, every method routed by
+     `ROUTES.md`: 983 passed, 3 failed (the baseline)**; the 4 `APP_BASE_URL` requests
+     were served by Django with the reason printed.
 4. Phase 8 plan committed: `plans/CUTOVER.md`.
    - 38 queue handlers (~177 h) and 4 version-sync jobs in a new `plane-admin` binary.
    - Not ported: 4 dead or command-only tasks, plus `push_instance_metrics`, following
