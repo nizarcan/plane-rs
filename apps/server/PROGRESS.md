@@ -1942,8 +1942,33 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      /api/v1/workspaces/*/projects/*` unordered-`$.results` rule, which also covers
      the v1 project-scoped lists (so their ordering isn't verified yet).
 
-   Running: v1 remaining writes (`rs/v1-c2`, 18020/18120, Redis 5/6, contract Redis
-   15), harness clean-up (`rs/harness-fix`, 18040/18140, Redis 9/10). Then the final benchmark and the environment
+   - **Remaining v1 writes merged (`2d064d39d0`, verification pending)**: 279 POST,
+     281 PATCH, 282 POST, 283 DELETE, 284 POST, 299 POST, 301 PATCH, 302 POST, 303
+     DELETE, 307 POST, 309 PATCH/DELETE. **Every v1 row and method is now ported.**
+     Agent: `write/v1-admin.yaml` 58/58, `write/v1-cycles-modules.yaml` 52/52,
+     `write/v1-work-items.yaml` 59/59; contract `api/` 311/0 with 24 requests on Rust;
+     1253 tests. Fixed `CYCLE_INSERT`/`MODULE_INSERT` (missing NOT NULL jsonb columns).
+     Visibility-only changes in `plane-http-app` (`convert_to_utc`, `write_transfer`);
+     contract plugin `IN_PROCESS_ORM_PATCH_TESTS` (2 nodeids patching a Django ORM
+     manager / raising task mock). Full sweeps not run by the agent.
+     - Follow-up: a project PATCH `IntegrityError` without "already exists" makes
+       Django return `None` → HTML 500 page; Rust answers the family JSON 500 (the
+       plain-view HTML-500 gap, `api/views/project.py:602-607`).
+     - Harness note: path-rule placeholders number by raw value, so two random v1
+       project creates in one scenario can renumber (`<colour:N>`); one create per
+       scenario. `plane-http-app/src/projects/write_queries.rs::PROJECT_UPDATE` is a
+       dead duplicate with a mismatched bind order.
+   - Phase 7 remaining gaps (`rs/p7-gaps`): 248's grouping variants
+     (`sub_group_by`, m2m and `state__group` grouping, per-group cursors);
+     `/api/schema/?version=`/`?lang=`; `OPTIONS /api/schema/` YAML.
+   - **Phase 8 started**: P0 (`rs/p8-p0`): handler registry and per-task policy,
+     `plane-worker` boot/lease/drain, task context, `plane-mail` (moving the
+     `instances::mail` code), minijinja templates, `difftest task`, and
+     `recent_visited_task` switched end to end.
+
+   Running: harness clean-up (`rs/harness-fix`, 18040/18140, Redis 9/10), Phase 7 gaps
+   (`rs/p7-gaps`, 18010/18110, Redis 3/4), Phase 8 P0 (`rs/p8-p0`, 18020/18120, Redis
+   5/6). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
