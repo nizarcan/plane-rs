@@ -1,0 +1,70 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Bench scenario: the authenticated write mix used by BENCH.md's Phase 8
+# measurement. Four app-surface write routes at concurrency 1, the same fixture
+# rows and the same admin session as `reads-mixed`:
+#
+#   POST   issue                 (the issue create transaction: sequence id,
+#                                 default state/assignee, activity fan-out)
+#   PATCH  issue                 (update + activity diff + task fan-out)
+#   POST   comment               (comment create, description sync, activity)
+#   PATCH  comment               (comment edit, description sync, activity)
+#
+# Deletes are not in the loop: the harness pre-renders one static URL per
+# template and has no per-request captures, so a DELETE can only ever succeed
+# once per target start. Measuring it would either restart the target per
+# request or count 403s after the first delete as errors. BENCH.md says so.
+#
+# Every route is Rust-owned in ROUTES.md. The fixture ids are the ones
+# `scenarios/write/issues.yaml` and `write/issue-comments.yaml` anchor on.
+#
+# See BENCH.md ("Phase 8 — final").
+name: writes-mixed
+template_db: plane_fix_tpl
+
+vars:
+  ws: "fix-workspace"
+  project_alpha: "b0063033-54f9-49d8-b5f3-6b7a1551c6a6"
+  issue_alpha: "292d4433-edc1-4f05-9cca-c6954821c078"
+  issue_commented: "d432015f-5a0f-4904-a2eb-d8bfea948a29"
+  comment_admin: "2ae9869b-6925-4521-9807-834d714eaef4"
+  session_admin: "8c87342210e6452c8a59179007df07dc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+requests:
+  - name: issue-create
+    method: POST
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/
+    headers: &auth
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+    json:
+      name: "Bench write issue"
+    expect_status: 201
+
+  - name: issue-update
+    method: PATCH
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_alpha}}/
+    headers: *auth
+    json:
+      name: "Bench issue updated"
+      priority: "high"
+    # `IssueViewSet.partial_update` answers 204, not 200 (both backends agree).
+    expect_status: 204
+
+  - name: comment-create
+    method: POST
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/
+    headers: *auth
+    json:
+      comment_html: "<p>Bench comment</p>"
+    expect_status: 201
+
+  - name: comment-update
+    method: PATCH
+    path: /api/workspaces/{{ws}}/projects/{{project_alpha}}/issues/{{issue_commented}}/comments/{{comment_admin}}/
+    headers: *auth
+    json:
+      comment_html: "<p>Bench comment edited</p>"
+    expect_status: 200
