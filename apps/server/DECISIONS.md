@@ -569,6 +569,38 @@ workspace `Cargo.toml` and upgrade deliberately.
   `soft_delete_related_objects` publish that `SoftDeleteModel.delete` makes; that is
   corrected in the next task set.)
 
+## D26. `difftest task` compares SQL, S3 and outbound HTTP per task case (decided 2026-11-19)
+
+- A case file (`tools/jobs/fixtures/*.case.json`) lists `sql` queries (columns cast to
+  text, compared in order), `s3` seeds and capture, `http` scripted responses, and
+  narrow `normalize` regexes.
+- S3: two run-owned buckets are created, seeded, read and deleted
+  (`plane-testkit/src/s3.rs`, a path-style SigV4 client for the five operations it
+  needs; it never touches `uploads`). Every object's key, bytes, `Content-Type` and ACL
+  grants are compared, because the exports bucket is public-read.
+- HTTP: a recorder on `127.0.0.1:0` stands in for the remote, `{{http}}` is substituted
+  into the kwargs, and method, path, query, `User-Agent` and body are compared per side
+  in order. No traffic leaves the machine.
+- The crawl task's SSRF guard blocks loopback, so loopback is opened only for a
+  differential run: `PLANE_DIFFTEST_ALLOW_LOOPBACK=1` patches Django's `is_blocked_ip`
+  in `tools/jobs/run_django_task.py`, and the Rust side's switch is compiled only
+  with a non-default `difftest` cargo feature, so a release worker can't read it.
+- Outgoing messages and jobs a task publishes are compared too (D25).
+
+## D27. The issue-export xlsx is written in-house (`plane-xlsx`) (decided 2026-11-19)
+
+- openpyxl 3.1.2 writes nine ZIP parts in a fixed order (`docProps/app.xml`,
+  `docProps/core.xml`, `xl/theme/theme1.xml`, `xl/worksheets/sheet1.xml`,
+  `xl/styles.xml`, `_rels/.rels`, `xl/workbook.xml`, `xl/_rels/workbook.xml.rels`,
+  `[Content_Types].xml`), with `inlineStr` cells and no `sharedStrings.xml`. No
+  crates.io writer (`rust_xlsxwriter`, `umya-spreadsheet`) emits that part set and
+  order, so none can be byte-compatible.
+- `plane-xlsx` reproduces it with an injected clock. The bytes depend on time twice: each
+  ZIP entry's DOS timestamp (`time.localtime()`) and `docProps/core.xml`
+  (`datetime.utcnow()`), and `export_task.py:29-36` wraps the workbook in a second ZIP.
+  `difftest task` decompresses both sides and normalises only those two timestamp
+  families; raw archive bytes are comparable only at a frozen clock.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

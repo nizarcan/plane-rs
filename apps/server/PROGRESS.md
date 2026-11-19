@@ -2054,11 +2054,24 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      4. `difftest task` needs `target/debug/plane-migrator`; the orchestrator's build now
         includes `-p plane-migrator`.
 
-   Running: Phase 8 set D (`rs/p8-d`: tasks 3–7, 9, 10, 19, 20, 27 + the
-   `recent_visited_task` publish correction; 18010/18110, Redis 3/4) and set C
-   (`rs/p8-c`: tasks 1, 8, 14, 15, 16, 35, 44, 46; 18020/18120, Redis 5/6). Then the final benchmark and the environment
-   revert (see "In flight").
-   - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
-     in scope or not.
-   - The Phase 6 browser walk needs `pnpm install` (no `node_modules` in the repo) and
-     the web/space frontends against the dev proxy. Pending the owner's go-ahead.
+   - **Phase 8 set C part 1 on its branch (`c311062f75`, not merged; merge after set D's
+     harness fix).** Switched: 35 `get_asset_object_metadata`, 44
+     `crawl_work_item_link_title` (every producer Rust). Handlers + evidence, still
+     Celery-owned (Celery Beat produces them): 15 `delete_old_s3_link`, 16
+     `delete_unuploaded_file_asset`. `difftest task` case files with SQL/S3/HTTP
+     capture (D26): file-asset, exporter-expired, storage-metadata, crawl-link and
+     recent-visited-21 pass. Agent: 1315 tests, testkit 204, beat test clean; sweeps
+     117/128, the 11 failures exactly the known `plane_jobs` 500s (11/11 clean with a
+     temporary local schema patch, since reverted).
+     - Not ported yet: 1, 8, 14, 46. D27 (in-house xlsx) recorded.
+     - Owed: the Rust loopback switch for the crawl SSRF guard is read in every build;
+       it goes behind a non-default `difftest` cargo feature (part 2).
+     - Upstream kept: the crawl's bare `save()` nulls `created_by`/`updated_by`;
+       `delete_unuploaded_file_asset` soft-deletes (rows accumulate, `is_deleted` stays
+       false); a blocked declared favicon suppresses the `/favicon.ico` fallback; export
+       zip bytes depend on the wall-clock second; `delete_old_s3_link` runs twice
+       nightly.
+
+   Running: Phase 8 set D (`rs/p8-d`, incl. the `plane_jobs` harness fix; 18010/18110,
+   Redis 3/4), set C part 2 (`rs/p8-c`: the loopback gate, then 14, 1, 8, 46;
+   18020/18120, Redis 5/6).
