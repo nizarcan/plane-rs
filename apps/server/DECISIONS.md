@@ -595,6 +595,9 @@ workspace `Cargo.toml` and upgrade deliberately.
   in `tools/jobs/run_django_task.py`, and the Rust side's switch is compiled only
   with a non-default `difftest` cargo feature, so a release worker can't read it.
 - Outgoing messages and jobs a task publishes are compared too (D25).
+- A `process_logs` delivery's `log_data.response_body` is the step's response body, so the
+  step's response-body rules (D16 key-set objects, D17 presigned URLs) are applied to it
+  when it is JSON; every other field, and a non-JSON body, compares exactly.
   Both sides' `(task, args, kwargs)` are compared as Python values (A's kombu UUID
   envelope decoded by the shared `python_value`), and a still Celery-owned delivery is
   additionally compared as its raw wire JSON, `epoch` → `<EPOCH>` (amended with set C
@@ -755,6 +758,14 @@ workspace `Cargo.toml` and upgrade deliberately.
   `tools/boot/compare_boot.py` and `scenarios/boot/static.yaml`.
 - `push_instance_metrics` is not ported (open owner question) and sits behind one
   `PUSH_INSTANCE_METRICS_ENABLED = false` switch; Django enqueues it once per boot.
+- The differential harness boots neither side through the entrypoint's setup (amended
+  after the `d9eedf323e` verification): `dev/django-serve.sh` starts after it, and
+  `scenarios/targets.yaml` sets `PLANE_RS_BOOT_STEPS=skip` on the Rust target only, so
+  `plane-api` still waits for the database and migrations but skips `register_instance`,
+  `configure_instance`, `create_bucket` and `clear_cache`. The default is `all`, and a skip
+  logs a warning (`ENV.md` §6). Boot parity is `compare_boot.py`'s and
+  `scenarios/boot/static.yaml`'s job (the latter names its Django command in the scenario's
+  `target_commands`). No normaliser covers `GET /api/instances/` boot fields.
 - Deliberate boot differences (not HTTP contract): `wait_for_db` really retries
   (Django's loop never opens a connection, `wait_for_db.py:17-22`); `create_bucket`
   branches on the HTTP status, so a non-numeric S3 error code (`AccessDenied`) is logged

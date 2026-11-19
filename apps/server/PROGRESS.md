@@ -2388,5 +2388,11 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        the logged copy isn't. Harness gap; fix (apply the step's body rules to the logged
        body) and `read/v1.yaml` back in the sweep assigned to the same agent.
 
-   Running: the `rs/p8-bootfix` follow-up. Then merge, the verification of the merged head,
-   the benchmark and the revert.
+   - **Boot-symmetry fix merged (`5133de4e9d`).** Follow-up: the logged response body is
+     normalised with the step's response rules (fixes 110/111 and a presigned-URL second
+     boundary flake on step 01); `read/v1.yaml` 241/241 and back in the sweep (read 53/53,
+     2854 steps). D34 and D26 amended.
+
+   Running: the orchestrator's final verification of the merged head (incl. `read/v1.yaml`,
+   `stickies-harness.yaml`, beat scripts, the strict exit check). Then the benchmark and
+   the revert.
