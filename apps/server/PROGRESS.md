@@ -2448,3 +2448,23 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
 
    **Done through Phase 8.** Open: the owner's `push_instance_metrics` decision (off behind
    `PUSH_INSTANCE_METRICS_ENABLED`, D34) and the follow-ups listed in the Phase 8 entries.
+
+## Post-Phase 8: publishing as plane-rs (owner request 2026-11-19)
+
+Owner decisions: remove `apps/api` and have the harness fetch upstream Django at the pin;
+new `main` from `rust-rewrite` as the default branch, `preview` left as the upstream mirror;
+rename `nizarcan/plane` → `nizarcan/plane-rs` (stays a fork); images on
+`ghcr.io/nizarcan/plane-rs-*`; **port `push_instance_metrics`** (reverses D34's default); a
+Helm chart verified on the homelab k3s cluster as a separate, internal-only ArgoCD app
+(`plane-rs` namespace, secrets generated into Vault `kv-apps/plane-rs`).
+- Environment raised again for this work: Colima 6 CPU / 10 GiB; dev Postgres `docker update`
+  2 GiB, RabbitMQ 768M. Revert at the end as before (Colima 2/2 + `docker start vmif`;
+  `docker compose -f dev/compose.yml up -d --force-recreate postgres`; RabbitMQ
+  `docker update --memory 320m --memory-swap 640m --restart no`).
+- `PLAYBOOK.md` (repository root): the method, technology-neutral, with this rewrite as the
+  worked example.
+
+Running: `rs/rs-telemetry` (`push_instance_metrics`; 18010/18110, Redis 3/4/11), `rs/rs-helm`
+(chart, GHCR CI, image names). Next: upstream pin + oracle fetch + `apps/api` removal, README,
+secret scan, publish, homelab.
+
