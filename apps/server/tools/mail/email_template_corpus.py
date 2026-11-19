@@ -16,11 +16,16 @@ database, no Redis) and writes:
 Usage (from apps/api, where the virtualenv lives):
 
   .venv/bin/python ../server/tools/mail/email_template_corpus.py
+  .venv/bin/python ../server/tools/mail/email_template_corpus.py --check
+
+`--check` renders everything in memory and fails with a non-zero exit when the
+committed corpus differs; it never writes the file (CI uses it).
 
 The multipart case masks the random boundary (`<BOUNDARY>`), `Date:` and the
 Message-ID local part, exactly as `email_message_corpus.py` does.
 """
 
+import argparse
 import json
 import os
 import sys
@@ -190,18 +195,40 @@ def record_multipart():
     return "\r\n".join(lines)
 
 
-def main():
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="compare the committed corpus with Django's output; never writes",
+    )
+    args = parser.parse_args(argv)
     configure()
     corpus = {
         "templates": record_templates(),
         "plain_text": record_plain_text(),
         "multipart": record_multipart(),
     }
+    rendered = json.dumps(corpus, indent=2, ensure_ascii=False) + "\n"
+    if args.check:
+        existing = ""
+        if os.path.exists(OUT_PATH):
+            with open(OUT_PATH, encoding="utf-8") as handle:
+                existing = handle.read()
+        if existing != rendered:
+            print(
+                f"STALE {os.path.relpath(OUT_PATH, REPO_ROOT)}: the committed corpus "
+                "does not match Django's current templates",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"{os.path.relpath(OUT_PATH, REPO_ROOT)} is current", file=sys.stderr)
+        return 0
     with open(OUT_PATH, "w", encoding="utf-8") as handle:
-        json.dump(corpus, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+        handle.write(rendered)
     print(f"wrote {OUT_PATH}", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

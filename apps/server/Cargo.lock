@@ -2766,9 +2766,12 @@ dependencies = [
  "plane-jobs",
  "plane-mail",
  "plane-net",
+ "plane-serde",
  "plane-storage",
+ "serde",
  "serde_json",
  "thiserror",
+ "tokio-postgres",
  "tracing",
  "uuid",
 ]

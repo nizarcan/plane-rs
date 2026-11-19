@@ -25,6 +25,15 @@ use std::sync::LazyLock;
 pub const RUST_TASKS: &[&str] = &[
     "plane.jobs.echo",
     "plane.bgtasks.recent_visited_task.recent_visited_task",
+    "plane.bgtasks.cleanup_task.delete_api_logs",
+    "plane.bgtasks.cleanup_task.delete_email_notification_logs",
+    "plane.bgtasks.cleanup_task.delete_page_versions",
+    "plane.bgtasks.cleanup_task.delete_issue_description_versions",
+    "plane.bgtasks.cleanup_task.delete_webhook_logs",
+    "plane.bgtasks.deletion_task.hard_delete",
+    "plane.bgtasks.issue_automation_task.archive_and_close_old_issues",
+    "plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues",
+    "plane.bgtasks.logger_task.process_logs",
 ];
 
 /// A task's owner.

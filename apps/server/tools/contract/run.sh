@@ -135,7 +135,7 @@ if [[ -n "$assume_rust" || -n "$methods" ]]; then
 fi
 
 if [[ "$backend" == "mixed" && "$build" == "1" ]]; then
-  (cd "$SERVER_DIR" && cargo build -p plane-api)
+  (cd "$SERVER_DIR" && cargo build -p plane-api -p plane-migrator)
 fi
 
 # The default is the whole contract directory; `--smoke` selects the plugin's

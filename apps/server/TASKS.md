@@ -1240,14 +1240,27 @@ consulted by `route::dispatch` and by the worker's handler registry.
 
 | Task | Phase 4 owner | Retry policy / handler |
 | --- | --- | --- |
-| every task in §4 except the test task | Celery | unchanged; the typed publisher in `plane-jobs::celery` is byte-identical |
+| every task in §4 except the rows below | Celery | unchanged; the typed publisher in `plane-jobs::celery` is byte-identical |
 | `plane.jobs.echo` (test-only) | Rust | no retries; handler in `bins/plane-worker` sleeps `payload.sleep_ms` |
+| `recent_visited_task` (P0, task 34) | Rust | no retries (`policy::DEAD_ON_FAILURE`); `plane-tasks::recent_visited`, including the `soft_delete_related_objects` publish the trim's `delete()` makes |
+| `delete_api_logs`, `delete_email_notification_logs`, `delete_page_versions`, `delete_issue_description_versions`, `delete_webhook_logs` (3-7) | Rust | no retries; `plane-tasks::cleanup` |
+| `hard_delete` (10) | Rust | no retries; `plane-tasks::deletion`, reproduces the upstream `DO_NOTHING` `IntegrityError` (see §6 of the cutover plan) |
+| `archive_and_close_old_issues`, `unsnooze_expired_intake_issues` (19, 20) | Rust | no retries; `plane-tasks::automation`; archive/close publishes `issue_activity` through `dispatch` |
+| `process_logs` (27) | Rust | no retries; `plane-tasks::logs`; `APITokenLogMiddleware` enqueues with `dispatch` |
+| `soft_delete_related_objects` (9) | Celery | handler ported (`plane-tasks::deletion`) but **not** switched: `page_version_task` (set A) still publishes it from Django (`plane/bgtasks/page_version_task.py:74`), so D25 keeps it on Celery |
 
-A **schedule** has the same split in `plane_jobs.schedules.owner`. All 13
-entries in §7.1 are Celery-owned; `plane.jobs.test-tick` is the test-only Rust
-entry. Moving a schedule sets its owner to `rust`; `plane-beat` then disables
-the matching `django_celery_beat_periodictask` row, and the `enabled=False`
-survives `DatabaseScheduler` restarts (the finding in `JOBS.md`).
+A **schedule** has the same split in `plane_jobs.schedules.owner`.
+`plane-jobs/src/beat.rs::RUST_SCHEDULES` lists the entries whose task is
+Rust-owned; `seed_schedules` flips those rows to `owner='rust'`, and the
+quiet-window handover in `Beat::run` then disables the matching
+`django_celery_beat_periodictask` row and records `handover_at`. The entries
+moved in Phase 8 set D: `check-every-five-minutes-to-unsnooze-intake-issues`,
+`check-every-day-to-delete-hard-delete`,
+`check-every-day-to-archive-and-close`, and the five
+`check-every-day-to-delete-*` cleanup entries. Every other entry in §7.1 stays
+Celery-owned; `plane.jobs.test-tick` is the test-only Rust entry. The
+`enabled=False` survives `DatabaseScheduler` restarts (the finding in
+`JOBS.md`).
 
 `PLANE_RS_JOBS_RUST_TASKS` is a comma-separated dev/test override for
 `ownership::owner`; it is not for deployments.

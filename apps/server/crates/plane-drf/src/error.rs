@@ -40,6 +40,24 @@ impl ViewError {
     pub fn api(error: ApiError) -> Self {
         Self::Api(error)
     }
+
+    /// The Python exception's text, for the `plane.exception` log line of a
+    /// rendered 500. Django's `log_exception` writes the traceback (the
+    /// exception's `str()` included); the port writes the same cause so an
+    /// operator can diagnose a 500 from the log instead of an empty access
+    /// line. Never rendered in a response.
+    #[must_use]
+    pub fn cause(&self) -> String {
+        match self {
+            Self::Api(error) => format!("{error:?}"),
+            Self::Integrity => "django.db.utils.IntegrityError".to_string(),
+            Self::Validation => "django.core.exceptions.ValidationError".to_string(),
+            Self::ObjectDoesNotExist => "ObjectDoesNotExist".to_string(),
+            Self::Key => "KeyError".to_string(),
+            Self::TooManyFields => "TooManyFieldsSent".to_string(),
+            Self::Unknown(message) => message.clone(),
+        }
+    }
 }
 
 impl From<ApiError> for ViewError {
@@ -125,5 +143,27 @@ impl From<plane_jobs::celery::PublishError> for ViewError {
     /// one place that *does* catch it (`plane/middleware/logger.py:160-161`).
     fn from(error: plane_jobs::celery::PublishError) -> Self {
         Self::Unknown(error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cause_names_the_exception_for_the_log() {
+        // A 500 rendered by the family handlers is otherwise only an access
+        // line in the log; the message is what Django's `log_exception`
+        // traceback carries and what the operator needs.
+        assert_eq!(
+            ViewError::Unknown("relation \"plane_jobs.jobs\" does not exist".to_string()).cause(),
+            "relation \"plane_jobs.jobs\" does not exist"
+        );
+        assert_eq!(
+            ViewError::Integrity.cause(),
+            "django.db.utils.IntegrityError"
+        );
+        assert_eq!(ViewError::Key.cause(), "KeyError");
+        assert_eq!(ViewError::ObjectDoesNotExist.cause(), "ObjectDoesNotExist");
     }
 }

@@ -140,6 +140,7 @@ SERVER_DIR = TOOLS_DIR.parents[1]
 REPO_ROOT = SERVER_DIR.parents[1]
 PROXY_DIR = SERVER_DIR / "tools" / "proxy"
 PLANE_API_BINARY = SERVER_DIR / "target" / "debug" / "plane-api"
+PLANE_MIGRATOR_BINARY = PLANE_API_BINARY.with_name("plane-migrator")
 DEV_ENV_SCRIPT = SERVER_DIR / "dev" / "django-env.sh"
 
 BACKENDS = ("django", "mixed")
@@ -328,6 +329,29 @@ class PlaneApi:
                 f"{PLANE_API_BINARY} does not exist; run `cargo build -p plane-api` "
                 "(tools/contract/run.sh does it)"
             )
+        # Production runs the migrator as a `service_completed_successfully`
+        # dependency. `plane-api` does not contact Postgres at startup, and a
+        # Rust-owned task now enqueues into `plane_jobs.jobs` from a GET route,
+        # so the schema has to exist before the first request. Create it the same
+        # way compose does, with the environment this target will read.
+        if not PLANE_MIGRATOR_BINARY.exists():
+            raise RuntimeError(
+                f"{PLANE_MIGRATOR_BINARY} does not exist; run `cargo build -p "
+                "plane-migrator` (tools/contract/run.sh does it). The Rust target "
+                "needs the plane_jobs schema that the compose migrator provides."
+            )
+        environment = self._environment()
+        migrated = subprocess.run(
+            [str(PLANE_MIGRATOR_BINARY)],
+            cwd=str(REPO_ROOT),
+            env=environment,
+            capture_output=True,
+        )
+        if migrated.returncode != 0:
+            raise RuntimeError(
+                "plane-migrator failed against "
+                f"{self.database}:\n{migrated.stderr.decode(errors='replace')}"
+            )
         if _port_in_use(self.port):
             raise RuntimeError(
                 f"port {self.port} is already in use; stop the process that owns it "
@@ -338,7 +362,7 @@ class PlaneApi:
         self.process = subprocess.Popen(
             [str(PLANE_API_BINARY)],
             cwd=str(REPO_ROOT),
-            env=self._environment(),
+            env=environment,
             stdout=log,
             stderr=subprocess.STDOUT,
         )
@@ -531,6 +555,20 @@ IN_PROCESS_ORM_PATCH_TESTS: tuple[tuple[str, str], ...] = (
     ),
 )
 
+# Tests that assert on a Python object type in `response.data`. A real HTTP
+# response carries DRF's JSON (`"id": "…"`), and the harness parses it with
+# `json.loads`, so a comparison against a `uuid.UUID` can only hold when Django
+# serialised the response in-process. The wire bytes are still covered by the
+# differential scenarios; this is a limitation of the Django test client, not
+# of the server.
+IN_PROCESS_TYPE_TESTS: tuple[tuple[str, str], ...] = (
+    (
+        "test_labels.py::TestLabelDetailAPIEndpoint::test_get_label_success",
+        "asserts response.data[\"id\"] equals a uuid.UUID "
+        "(`plane/tests/contract/api/test_labels.py:167`)",
+    ),
+)
+
 IN_PROCESS_EXCEPTION_TESTS: tuple[tuple[str, str], ...] = (
     (
         "test_authentication.py::TestMagicLinkGenerate::test_without_data",
@@ -684,7 +722,9 @@ def _in_process_exception_reason() -> str | None:
     if STATE.current is None:
         return None
     nodeid = STATE.current.nodeid
-    for suffix, why in IN_PROCESS_EXCEPTION_TESTS + IN_PROCESS_ORM_PATCH_TESTS:
+    for suffix, why in (
+        IN_PROCESS_EXCEPTION_TESTS + IN_PROCESS_ORM_PATCH_TESTS + IN_PROCESS_TYPE_TESTS
+    ):
         if nodeid.endswith(suffix):
             return f"{why}; served by Django"
     return None

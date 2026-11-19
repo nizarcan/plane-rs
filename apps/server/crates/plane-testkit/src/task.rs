@@ -2,36 +2,49 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // See the LICENSE file for details.
 
-//! `difftest task`: one Celery task, executed by both backends, DB effects
-//! compared.
+//! `difftest task`: one Celery task, executed by both backends, compared.
 //!
 //! A = the real Django task through `task.apply()` in-process
 //! (`tools/jobs/run_django_task.py`); B = a job enqueued into `plane_jobs` and
 //! executed by `plane-worker --once` in a fresh process. Both start from the
-//! same database clone plus the same fixture SQL, and the tool compares
-//! `user_recent_visits` row by row (`plans/CUTOVER.md` §2 "Handler
-//! correctness").
+//! same database clone plus the same fixture SQL. The tool compares
 //!
-//! Why a table comparison and not the harness's generic `diff_snapshots`:
-//! the task inserts a row with `uuid.uuid4()`, so each side's new primary key
-//! is legitimately different. The harness's diff keys rows by primary key and
-//! would report two inserts. The comparison here keeps every column that
-//! describes the effect (entity, user, project, workspace, audit user ids,
-//! soft-delete flag) and normalises only the generated timestamps and the new
-//! row's id.
+//! * the database diff (every table in schema `public`, keyed by primary key),
+//! * the Celery messages each side publishes (`task`, `args`, `kwargs`), and
+//! * the `plane_jobs` rows B's handler enqueues (the Rust-owned half of the
+//!   same comparison; A cannot enqueue those).
 //!
-//! `plane_jobs` on B is the transport, not an effect: it is excluded, and the
-//! tool fails if B's job is not `done` (a `dead` job names its `last_error`).
+//! (`plans/CUTOVER.md` §2 "Handler correctness"; `DECISIONS.md` D25: a handler
+//! reproduces every side effect, including the tasks it publishes.)
+//!
+//! ## Normalisation
+//!
+//! A task writes the clock and, for an insert, generates a new primary key.
+//! The diff normaliser therefore replaces a timestamp value that falls inside
+//! the run window with `<TS>` and an inserted row's `id` with `<ID>`. Fixture
+//! timestamps (days old) are compared exactly, so a task that forgets to bump
+//! `visited_at` still fails. The `epoch=` keyword of a published
+//! `issue_activity` message is `<EPOCH>` for the same reason; the rest of the
+//! published arguments must match exactly.
+//!
+//! ## Expected failures
+//!
+//! `--expect-django-failure`/`--expect-worker-failure` declare that the task
+//! itself is expected to fail (the upstream `hard_delete` `DO_NOTHING` bug,
+//! `plans/CUTOVER.md` §6). The DB effects committed before the failure are
+//! still compared, so B has to fail at the same statement.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use crate::celery::RabbitAdmin;
-use crate::db::DbAdmin;
+use crate::celery::{CeleryDrain, CeleryMessage, RabbitAdmin, amqp_url_with_vhost};
+use crate::db::{DbAdmin, DbDiff, diff_snapshots};
 use crate::util::{repo_root, validate_identifier};
 use anyhow::{Context, Result, bail};
+use chrono::{DateTime, Utc};
+use serde::Serialize;
 use tokio::process::Command;
 
 /// Everything one `difftest task` run needs.
@@ -51,8 +64,7 @@ pub struct TaskOptions {
     pub a_redis_db: i64,
     /// Redis index for the worker.
     pub b_redis_db: i64,
-    /// RabbitMQ vhost for the Django run's `.delay()` call, created and
-    /// dropped by this tool.
+    /// RabbitMQ vhost for the run, created and dropped by this tool.
     pub vhost: String,
     /// Keep the databases and vhost after the run.
     pub keep: bool,
@@ -60,12 +72,18 @@ pub struct TaskOptions {
     pub pg_url: String,
     /// RabbitMQ management URL and credentials, for creating the vhost.
     pub rabbit_http: String,
+    /// RabbitMQ AMQP URL (without a vhost), for draining published messages.
+    pub rabbit_amqp: String,
     pub rabbit_user: String,
     pub rabbit_password: String,
     /// `plane-worker` binary. Defaults to `target/debug/plane-worker`.
     pub worker: Option<PathBuf>,
     /// Template database cloned for both sides.
     pub template_db: String,
+    /// A substring of Django's failure, when the task is expected to fail.
+    pub expect_django_failure: Option<String>,
+    /// A substring of the worker's `last_error`, when it is expected to fail.
+    pub expect_worker_failure: Option<String>,
 }
 
 impl TaskOptions {
@@ -75,18 +93,21 @@ impl TaskOptions {
             task: task.into(),
             kwargs_path,
             setup_path: None,
-            a_db: "t_p8p0_task_a".to_string(),
-            b_db: "t_p8p0_task_b".to_string(),
-            a_redis_db: 5,
-            b_redis_db: 6,
-            vhost: "p8p0_task".to_string(),
+            a_db: "t_p8d_task_a".to_string(),
+            b_db: "t_p8d_task_b".to_string(),
+            a_redis_db: 3,
+            b_redis_db: 4,
+            vhost: "p8d_task".to_string(),
             keep: false,
             pg_url: "postgresql://plane:plane@127.0.0.1:55432/plane".to_string(),
             rabbit_http: "http://127.0.0.1:55673".to_string(),
+            rabbit_amqp: "amqp://plane:plane@127.0.0.1:55672".to_string(),
             rabbit_user: "plane".to_string(),
             rabbit_password: "plane".to_string(),
             worker: None,
             template_db: "plane_tpl".to_string(),
+            expect_django_failure: None,
+            expect_worker_failure: None,
         }
     }
 }
@@ -147,7 +168,7 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         .grant_full_permissions(&options.vhost, &options.rabbit_user)
         .await?;
 
-    let outcome = execute(options, &kwargs, &admin).await;
+    let outcome = execute(options, &kwargs, &admin, &rabbit).await;
 
     if !options.keep {
         let _ = admin.drop_database(&options.a_db).await;
@@ -157,31 +178,156 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
     outcome
 }
 
-async fn execute(options: &TaskOptions, kwargs: &serde_json::Value, admin: &DbAdmin) -> Result<()> {
-    run_django(options, kwargs).await?;
-    run_worker(options, kwargs, admin).await?;
+/// One side's published work, in the order it left the process.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct Outgoing {
+    task: String,
+    args: serde_json::Value,
+    kwargs: serde_json::Value,
+}
 
-    let a = visit_rows(admin, &options.a_db).await?;
-    let b = visit_rows(admin, &options.b_db).await?;
+async fn execute(
+    options: &TaskOptions,
+    kwargs: &serde_json::Value,
+    admin: &DbAdmin,
+    rabbit: &RabbitAdmin,
+) -> Result<()> {
+    let catalog = admin
+        .load_catalog(&options.a_db, &["public".to_string()], &[])
+        .await?;
+    let drain = CeleryDrain::connect(&amqp_url_with_vhost(
+        &options.rabbit_amqp,
+        &options.vhost,
+        &options.rabbit_user,
+        &options.rabbit_password,
+    )?)
+    .await?;
+
+    let started: DateTime<Utc> = Utc::now();
+    let before_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
+    let django = run_django(options, kwargs).await?;
+    let messages_a = drain_messages(rabbit, &drain, &options.vhost).await?;
+    let before_b = admin.snapshot(&options.b_db, &catalog).await?.snapshot;
+    let worker = run_worker(options, kwargs, admin).await?;
+    let messages_b = drain_messages(rabbit, &drain, &options.vhost).await?;
+    let jobs_b = rust_jobs(admin, &options.b_db, &worker.job_id).await?;
+    let after_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
+    let after_b = admin.snapshot(&options.b_db, &catalog).await?.snapshot;
+
+    let mut outgoing_a = messages_a
+        .iter()
+        .map(message_to_outgoing)
+        .collect::<Vec<_>>();
+    let mut outgoing_b = messages_b
+        .iter()
+        .map(message_to_outgoing)
+        .collect::<Vec<_>>();
+    outgoing_b.extend(jobs_b.iter().map(job_to_outgoing));
+    normalise_outgoing(&mut outgoing_a);
+    normalise_outgoing(&mut outgoing_b);
+
     println!(
-        "difftest task: {} — django rows={} rust rows={}",
+        "difftest task: {} — django {:?}, rust {:?}, django messages={} rust messages={} rust jobs={}",
         options.task,
-        a.len(),
-        b.len()
+        django.status,
+        worker.state,
+        outgoing_a.len(),
+        messages_b.len(),
+        jobs_b.len()
     );
-    if a != b {
-        let limit = a.len().max(b.len());
-        for index in 0..limit {
-            let left = a.get(index).map(Vec::as_slice).unwrap_or_default();
-            let right = b.get(index).map(Vec::as_slice).unwrap_or_default();
-            if left != right {
-                println!("row {index}:\n  django: {left:?}\n  rust:   {right:?}");
-            }
-        }
+
+    let mut diff_a = diff_snapshots(&before_a, &after_a);
+    let mut diff_b = diff_snapshots(&before_b, &after_b);
+    normalise_diff(&mut diff_a, started);
+    normalise_diff(&mut diff_b, started);
+    if diff_a != diff_b {
+        print_diff("django", &diff_a);
+        print_diff("rust", &diff_b);
         bail!("database effects differ");
     }
-    println!("PASS: database effects are identical");
+    println!(
+        "PASS: database effects are identical ({} row changes)",
+        diff_a.total_changes()
+    );
+    for (table, changes) in &diff_a.tables {
+        println!(
+            "  {table}: +{} -{} ~{}",
+            changes.inserted.len(),
+            changes.deleted.len(),
+            changes.updated.len()
+        );
+    }
+
+    if outgoing_a != outgoing_b {
+        for index in 0..outgoing_a.len().max(outgoing_b.len()) {
+            let left = outgoing_a.get(index);
+            let right = outgoing_b.get(index);
+            if left != right {
+                println!(
+                    "outgoing {index}:\n  django: {}\n  rust:   {}",
+                    serde_json::to_string_pretty(&left)
+                        .unwrap_or_else(|_| "<unserialisable>".to_string()),
+                    serde_json::to_string_pretty(&right)
+                        .unwrap_or_else(|_| "<unserialisable>".to_string())
+                );
+            }
+        }
+        bail!("published tasks differ");
+    }
+    println!(
+        "PASS: published tasks are identical ({} messages/jobs)",
+        outgoing_a.len()
+    );
     Ok(())
+}
+
+async fn drain_messages(
+    rabbit: &RabbitAdmin,
+    drain: &CeleryDrain,
+    vhost: &str,
+) -> Result<Vec<CeleryMessage>> {
+    // The publisher returns after the broker accepted the frame; a short pause
+    // keeps a slow local delivery from being read as "no message".
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let queues = rabbit.queues(vhost).await?;
+    drain.drain(&queues).await
+}
+
+fn message_to_outgoing(message: &CeleryMessage) -> Outgoing {
+    Outgoing {
+        task: message.task.clone().unwrap_or_default(),
+        args: message.args.clone(),
+        kwargs: message.kwargs.clone(),
+    }
+}
+
+fn job_to_outgoing(row: &tokio_postgres::Row) -> Outgoing {
+    let task: String = row.get(0);
+    let text: String = row.get(1);
+    let payload: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+    Outgoing {
+        task,
+        args: payload
+            .get("args")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        kwargs: payload
+            .get("kwargs")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    }
+}
+
+/// `epoch=int(timezone.now().timestamp())` is the only argument a task
+/// publishes that carries the clock (`issue_automation_task.py:82,145`).
+fn normalise_outgoing(outgoing: &mut [Outgoing]) {
+    for entry in outgoing {
+        if let Some(kwargs) = entry.kwargs.as_object_mut()
+            && kwargs.contains_key("epoch")
+        {
+            kwargs.insert("epoch".to_string(), serde_json::json!("<EPOCH>"));
+        }
+    }
 }
 
 async fn prepare_database(
@@ -204,8 +350,14 @@ async fn prepare_database(
     Ok(())
 }
 
+struct DjangoOutcome {
+    status: String,
+    exc_type: String,
+    result: String,
+}
+
 /// A = `task.apply()` in the real Django, with the dev stack's environment.
-async fn run_django(options: &TaskOptions, kwargs: &serde_json::Value) -> Result<()> {
+async fn run_django(options: &TaskOptions, kwargs: &serde_json::Value) -> Result<DjangoOutcome> {
     let root = repo_root();
     let env = dev_env(&options.a_db, options.a_redis_db, &options.vhost)?;
     let output = Command::new(root.join("apps/api/.venv/bin/python"))
@@ -220,6 +372,7 @@ async fn run_django(options: &TaskOptions, kwargs: &serde_json::Value) -> Result
         .output()
         .await
         .context("running the Django task")?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !output.status.success() {
         bail!(
             "Django task failed with {}: {}",
@@ -227,14 +380,55 @@ async fn run_django(options: &TaskOptions, kwargs: &serde_json::Value) -> Result
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    println!("django: {}", stdout.trim());
+    println!("django: {stdout}");
     let result: serde_json::Value =
-        serde_json::from_str(stdout.trim()).context("parsing the Django task result")?;
-    if result.get("status").and_then(serde_json::Value::as_str) != Some("SUCCESS") {
-        bail!("Django task ended with {}", stdout.trim());
+        serde_json::from_str(&stdout).context("parsing the Django task result")?;
+    let outcome = DjangoOutcome {
+        status: result
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        exc_type: result
+            .get("exc_type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        result: result
+            .get("result")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    };
+    match &options.expect_django_failure {
+        None => {
+            if outcome.status != "SUCCESS" {
+                bail!(
+                    "Django task ended with {}: {}",
+                    outcome.status,
+                    outcome.result
+                );
+            }
+        }
+        Some(needle) => {
+            if outcome.status != "FAILURE" {
+                bail!(
+                    "Django task was expected to fail but ended with {}",
+                    outcome.status
+                );
+            }
+            let text = format!("{}: {}", outcome.exc_type, outcome.result);
+            if !needle.is_empty() && !text.contains(needle.as_str()) {
+                bail!("Django failure {text:?} does not contain {needle:?}");
+            }
+        }
     }
-    Ok(())
+    Ok(outcome)
+}
+
+struct WorkerOutcome {
+    state: String,
+    job_id: String,
 }
 
 /// B = insert a job row, then `plane-worker --once` in a fresh process.
@@ -242,7 +436,7 @@ async fn run_worker(
     options: &TaskOptions,
     kwargs: &serde_json::Value,
     admin: &DbAdmin,
-) -> Result<()> {
+) -> Result<WorkerOutcome> {
     let root = repo_root();
     let worker = options
         .worker
@@ -310,13 +504,44 @@ async fn run_worker(
         .context("reading the job row")?;
     let state: String = row.try_get(0)?;
     let last_error: Option<String> = row.try_get(1)?;
-    if state != "done" {
-        bail!(
-            "Rust job ended in state {state}: {}",
-            last_error.unwrap_or_else(|| "no error recorded".to_string())
-        );
+    match &options.expect_worker_failure {
+        None => {
+            if state != "done" {
+                bail!(
+                    "Rust job ended in state {state}: {}",
+                    last_error.unwrap_or_else(|| "no error recorded".to_string())
+                );
+            }
+        }
+        Some(needle) => {
+            if state != "dead" {
+                bail!("Rust job was expected to fail but ended in state {state}");
+            }
+            let error = last_error.unwrap_or_default();
+            if !needle.is_empty() && !error.contains(needle.as_str()) {
+                bail!("Rust failure {error:?} does not contain {needle:?}");
+            }
+        }
     }
-    Ok(())
+    Ok(WorkerOutcome { state, job_id: id })
+}
+
+/// The jobs B's handler enqueued, excluding the one the harness inserted.
+async fn rust_jobs(
+    admin: &DbAdmin,
+    database: &str,
+    harness_job: &str,
+) -> Result<Vec<tokio_postgres::Row>> {
+    let client = admin.connect(database).await?;
+    client
+        .query(
+            "SELECT task, payload::text FROM plane_jobs.jobs \
+             WHERE id <> ($1::text)::uuid AND state IN ('queued', 'running', 'done') \
+             ORDER BY created_at, id",
+            &[&harness_job],
+        )
+        .await
+        .context("reading the jobs the handler enqueued")
 }
 
 /// A single-quoted SQL literal (the values are generated, not user input).
@@ -324,41 +549,72 @@ fn sql_literal(value: &str) -> String {
     value.replace('\'', "''")
 }
 
-/// The effect, one entry per physical row. See the module docs for why the id
-/// and generated timestamps are normalised.
-async fn visit_rows(admin: &DbAdmin, database: &str) -> Result<Vec<Vec<String>>> {
-    let client = admin.connect(database).await?;
-    let rows = client
-        .query(
-            "SELECT entity_name, \
-                    COALESCE(entity_identifier::text, 'NULL'), \
-                    user_id::text, \
-                    COALESCE(project_id::text, 'NULL'), \
-                    workspace_id::text, \
-                    COALESCE(created_by_id::text, 'NULL'), \
-                    COALESCE(updated_by_id::text, 'NULL'), \
-                    CASE WHEN deleted_at IS NULL THEN 'live' ELSE 'deleted' END, \
-                    CASE WHEN visited_at IS NULL THEN 'NULL' ELSE '<TS>' END, \
-                    CASE WHEN created_at IS NULL THEN 'NULL' ELSE '<TS>' END, \
-                    CASE WHEN updated_at IS NULL THEN 'NULL' ELSE '<TS>' END \
-             FROM user_recent_visits \
-             ORDER BY entity_identifier NULLS FIRST, entity_name, deleted_at NULLS FIRST, created_at",
-            &[],
-        )
-        .await
-        .context("reading user_recent_visits")?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (0..row.len())
-                .map(|index| {
-                    row.try_get::<_, Option<String>>(index)
-                        .unwrap_or_default()
-                        .unwrap_or_else(|| "NULL".to_string())
-                })
-                .collect()
-        })
-        .collect())
+/// Normalise the clock and generated primary keys. See the module docs.
+///
+/// Every value that parses as an RFC 3339 instant becomes `<TS>`: the two
+/// fixture applications call `now()` a few milliseconds apart, so the *same*
+/// unchanged fixture row would otherwise differ between the clones. A column
+/// the task moved still shows up as a `changed` entry, because the harness
+/// diffs before and after within each database — normalising the values only
+/// hides the clock, not the update.
+fn normalise_diff(diff: &mut DbDiff, _started: DateTime<Utc>) {
+    for table in diff.tables.values_mut() {
+        for row in table.inserted.iter_mut().chain(table.deleted.iter_mut()) {
+            if let Some(object) = row.as_object_mut() {
+                for (column, value) in object.iter_mut() {
+                    if column == "id" {
+                        *value = serde_json::json!("<ID>");
+                    } else {
+                        normalise_timestamp(value);
+                    }
+                }
+            }
+        }
+        for updated in &mut table.updated {
+            if let Some(changed) = updated.get_mut("changed").and_then(|v| v.as_object_mut()) {
+                for entry in changed.values_mut() {
+                    if let Some(pair) = entry.as_object_mut() {
+                        for side in ["a", "b"] {
+                            if let Some(value) = pair.get_mut(side) {
+                                normalise_timestamp(value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A timestamp becomes `<TS>`; a date (`archived_at`, `target_date`) is left
+/// alone, so an automation task that archives on the wrong day still fails.
+fn normalise_timestamp(value: &mut serde_json::Value) {
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    if text.contains('T') && DateTime::parse_from_rfc3339(text).is_ok() {
+        *value = serde_json::json!("<TS>");
+    }
+}
+
+fn print_diff(side: &str, diff: &DbDiff) {
+    for (table, changes) in &diff.tables {
+        println!(
+            "  {side} {table}: +{} -{} ~{}",
+            changes.inserted.len(),
+            changes.deleted.len(),
+            changes.updated.len()
+        );
+        for row in &changes.inserted {
+            println!("    + {row}");
+        }
+        for row in &changes.deleted {
+            println!("    - {row}");
+        }
+        for row in &changes.updated {
+            println!("    ~ {row}");
+        }
+    }
 }
 
 /// `dev/django-env.sh` evaluated with this run's database, Redis index and

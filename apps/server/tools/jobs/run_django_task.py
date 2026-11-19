@@ -37,7 +37,15 @@ def main() -> int:
     task = import_string(task_name)
     kwargs = json.loads(kwargs_json)
     result = task.apply(kwargs=kwargs, throw=False)
-    print(json.dumps({"status": result.status, "result": str(result.result)}))
+    print(
+        json.dumps(
+            {
+                "status": result.status,
+                "exc_type": type(result.result).__name__ if result.failed() else "",
+                "result": str(result.result),
+            }
+        )
+    )
     return 0
 
 

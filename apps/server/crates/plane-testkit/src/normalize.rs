@@ -1818,6 +1818,14 @@ impl TargetNormalizer {
         }
     }
 
+    /// Normalise a Rust-owned delivery's payload (`plane_jobs.jobs`) with the
+    /// same value rules a Celery message gets, so the two transports compare
+    /// after the same substitutions.
+    pub fn normalize_job(&mut self, args: &mut Value, kwargs: &mut Value) {
+        self.normalize_json(args, "celery:plane_jobs:args");
+        self.normalize_json(kwargs, "celery:plane_jobs:kwargs");
+    }
+
     // -- redis ------------------------------------------------------------
 
     /// Normalise a Redis step diff: key names and values.
