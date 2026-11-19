@@ -2166,6 +2166,29 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      a self-contained `gen_component_corpus.py --check` (needed `dev/django-env.sh`
      sourced) + its CI step assigned to set C part 4. A3's tasks stay Rust-owned.
 
-   Running: set A1 (`rs/p8-a1`: `issue_activity`; 18010/18110, Redis 3/4, contract Redis
-   11), set C part 4 (`rs/p8-c`:
-   the merge, task 1 duplication, 46; 18020/18120, Redis 5/6, contract Redis 15).
+   - **Phase 8 set C merged (`e5b7fe61b4`, verification running).** Part 4 resolved the
+     branch's merge with set D (one `difftest task` design: whole-schema diff, outgoing
+     messages, migrator provisioning, plus SQL/S3/HTTP/SMTP/ZIP case captures). Task 1
+     reproduces Django's LEFT JOIN duplication (`COUNT(*)`/`SUM` per matching
+     label/assignee/cycle/module row; NULL date axis `"-"`; the duplicate-keyword
+     `TypeError`). **46 `workspace_seed` switched.** 18 producers moved from `Job::new`
+     to `Job::from_message` (empty payloads once Rust-owned; D25 amended).
+     `gen_component_corpus.py` self-contained, in CI. `run-task-cases.sh --set all`
+     covers sets C, D, A3. Agent: C 31/31, D 20/20, read 52/52, write 75/75, OAuth
+     57/57 + 52/52, contract **984/2** (new baseline: Rust-queued jobs replayed into
+     `.delay` mocks), 1373 tests, testkit 209.
+     - Orchestrator's merge into `rust-rewrite` (A3 present): 7 conflicts, all unions;
+       A3's multiset test updated to `normalise_diff`'s new signature.
+     - `beat_handover.sh` failed 3× for the agent (parallel builds); **3/3 PASS** for the
+       orchestrator on a quieter host. Recorded as a cutover-runbook point (D28).
+     - Upstream kept: `filter_intake_status` reads `inbox_status` (an `intake_status`
+       alone → `__in=None` `TypeError`; no producer sends it).
+   - **Disk incident:** free space fell 34 → 21 GB with only 9 GB of builds. The dev
+     Postgres container's json-file log was 43.6 GB: someone had run `ALTER SYSTEM SET
+     log_statement = 'all'`. Log truncated, `fstrim` → 75 GB free; setting reset
+     (`ALTER SYSTEM RESET`, reload); `dev/compose.yml` caps every container's log (50 MB
+     × 2, applies on the next recreate, `33dd7bcc24`). Agents told never to change
+     server-wide settings on the shared stack.
+
+   Running: the orchestrator's verification of `33dd7bcc24`, set A1 (`rs/p8-a1`:
+   `issue_activity`; 18010/18110, Redis 3/4, contract Redis 11).
