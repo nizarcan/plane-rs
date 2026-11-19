@@ -19,6 +19,8 @@ Usage (the harness passes the environment from dev/django-env.sh):
 Prints one JSON line: the task status and the string form of its result.
 """
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -69,7 +71,13 @@ def main() -> int:
 
     task = import_string(task_name)
     kwargs = json.loads(kwargs_json)
-    result = task.apply(kwargs=kwargs, throw=False)
+    # `notification_task.py` prints its swallowed exception to stdout (`:673`),
+    # as do a few other tasks; keep the harness's one-line JSON protocol clean.
+    swallowed = io.StringIO()
+    with contextlib.redirect_stdout(swallowed):
+        result = task.apply(kwargs=kwargs, throw=False)
+    if text := swallowed.getvalue():
+        sys.stderr.write(text)
     print(
         json.dumps(
             {

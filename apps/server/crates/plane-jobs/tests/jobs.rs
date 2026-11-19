@@ -22,6 +22,7 @@ use plane_db::DbPools;
 use plane_jobs::beat::{Beat, BeatConfig};
 use plane_jobs::celery::args::TaskArg;
 use plane_jobs::celery::tasks::{self, RecentVisitedTask};
+use plane_jobs::ownership::{Owner, owner};
 use plane_jobs::queue::{self, Failure, Job};
 use plane_jobs::route::{self, Delivery};
 use plane_jobs::worker::{JobContext, TaskRegistry, Worker, WorkerConfig};
@@ -481,11 +482,14 @@ async fn dispatch_routes_to_celery_or_the_queue_by_ownership() {
 
     // A task that has not moved is Celery-owned: without a publisher the
     // dispatch must not fall through to Postgres or silently drop the message.
-    // (`recent_visited_task` moved to Rust in Phase 8 P0, so the example here
-    // is an activity task, which still has Celery producers.)
+    // Use a name that is deliberately not a registered task, so it can never
+    // appear in `RUST_TASKS` as the Phase 8 table grows; the assertion below
+    // makes the reason explicit if that assumption ever changes.
+    let celery_task = "plane.bgtasks.test_ownership.never_a_registered_task";
+    assert_eq!(owner(celery_task), Owner::Celery);
     let error = route::dispatch::<tokio_postgres::Client>(
-        "plane.bgtasks.issue_activities_task.issue_activity",
-        &Job::new("plane.bgtasks.issue_activities_task.issue_activity"),
+        celery_task,
+        &Job::new(celery_task),
         &message,
         None,
         Some(&client),

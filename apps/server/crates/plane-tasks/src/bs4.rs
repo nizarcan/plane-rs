@@ -36,6 +36,11 @@ use std::collections::HashMap;
 
 use crate::bs4_entities;
 
+/// A matched tag did not have the requested attribute: bs4's `tag[name]`
+/// raises `KeyError`, which `notification_task.extract_mentions` catches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingAttribute;
+
 /// `HTMLTreeBuilder.empty_element_tags` (`bs4/builder/__init__.py:389-395`).
 const EMPTY_TAGS: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "keygen", "link", "menuitem",
@@ -205,6 +210,43 @@ impl Soup {
                 self.collect_src_values(child, tag, out);
             }
         }
+    }
+
+    /// `soup.find_all(tag, attrs={match_name: match_value})` and, for each
+    /// match in document order, its `value_name` attribute.
+    ///
+    /// This is what `notification_task.extract_mentions`/`_comment_mentions`
+    /// read (`notification_task.py:115-142`): `mention_tag["entity_identifier"]`
+    /// raises `KeyError` when the attribute is missing, which the function's
+    /// bare `except` turns into `[]`; [`MissingAttribute`] is that `KeyError`.
+    pub fn matching_attribute_values(
+        &self,
+        tag: &str,
+        match_name: &str,
+        match_value: &str,
+        value_name: &str,
+    ) -> Result<Vec<String>, MissingAttribute> {
+        let mut out = Vec::new();
+        // `new_node` appends in token order, which is document order for tags
+        // (the tree builder never reorders or removes a node).
+        for node in self.nodes.iter().skip(1) {
+            if node.kind != Kind::Tag || node.name != tag {
+                continue;
+            }
+            let matches = node
+                .attrs
+                .iter()
+                .find(|attr| attr.name == match_name)
+                .is_some_and(|attr| attr.value == match_value);
+            if !matches {
+                continue;
+            }
+            let Some(attr) = node.attrs.iter().find(|attr| attr.name == value_name) else {
+                return Err(MissingAttribute);
+            };
+            out.push(attr.value.clone());
+        }
+        Ok(out)
     }
 
     /// `replace_asset_ids`: for every `<tag>` whose `src` equals `old`, set it

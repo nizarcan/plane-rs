@@ -59,6 +59,9 @@ pub const RUST_TASKS: &[&str] = &[
     // Phase 8 set A1: every producer is a Rust HTTP route, the Rust
     // `archive_and_close_old_issues`, or `transfer_cycle_issues`.
     "plane.bgtasks.issue_activities_task.issue_activity",
+    // Phase 8 set A2: its only producer is the Rust `issue_activity` handler's
+    // `notification=True` re-publish (`issue_activities_task.py:1632-1645`).
+    "plane.bgtasks.notification_task.notifications",
 ];
 
 /// A task's owner.
@@ -112,7 +115,7 @@ mod tests {
     #[test]
     fn default_is_celery() {
         assert_eq!(
-            owner_with("plane.bgtasks.notification_task.notifications", &[]),
+            owner_with("plane.bgtasks.webhook_task.webhook_send_task", &[]),
             Owner::Celery
         );
         assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);

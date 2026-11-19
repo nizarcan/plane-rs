@@ -232,10 +232,22 @@ impl Worker {
     }
 
     /// Claim and process until the queue has no runnable job for this worker.
-    /// Used by tests and by a future `plane-worker --once`.
+    /// Used by tests; `plane-worker --once` calls [`Self::drain_n`].
     pub async fn drain(&self) -> Result<usize, QueueError> {
+        self.drain_n(usize::MAX).await
+    }
+
+    /// Process at most `limit` runnable jobs, then return.
+    ///
+    /// `difftest task` uses this with a limit of one so a handler's published
+    /// Rust-owned job is compared as a `plane_jobs` row (the effect) instead of
+    /// being executed as a second job of the same `--once` run.
+    pub async fn drain_n(&self, limit: usize) -> Result<usize, QueueError> {
         let mut processed = 0;
         loop {
+            if processed >= limit {
+                return Ok(processed);
+            }
             let client = self.pool.write_pool().get().await?;
             let jobs = queue::claim(
                 &**client,
