@@ -2223,6 +2223,16 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `state_id` + `state` in one update append two rows; a bad `epoch` fails after
        partial bumps.
 
+   - **Verified at `8406d7a925`** (A1): fmt, clippy, 1387 tests, testkit 210, selftest
+     141, schema_check (5 crates), nine generator checks, **160/160 task cases** (worker
+     built `--features difftest`), 128 files / 6085 steps (`write/auth-session-email.yaml`
+     42/43 once, clean on rerun), OAuth 57/57 + 52/52, SMTP clean, contract 984/2.
+     **One real failure:** `plane-jobs/tests/jobs.rs::dispatch_routes_to_celery_or_the_
+     queue_by_ownership` used `issue_activity` as its Celery-owned example; A1 made it
+     Rust-owned (A1 ran the beat script, not this DB test). Test-only; fix assigned to A2
+     (a name that can never be Rust-owned). Every set now runs the DB-backed
+     `plane-jobs` test.
+
    - **Phase 8 set B part 1 on its branch (`f8256f72a0`, not merged).** Switched: 40–43
      (webhook chain: `get_model_data` per entity, `requests` JSON + HMAC, `WebhookLog`
      Python reprs, retry 0–600 s × 5, deactivation) and 17, 28, 32, 36–39, 45 (account
