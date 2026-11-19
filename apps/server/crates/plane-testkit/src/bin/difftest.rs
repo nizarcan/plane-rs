@@ -47,8 +47,8 @@ enum Command {
     Selftest,
     /// Print table/row counts and snapshot timing for a database.
     Snapshot(SnapshotArgs),
-    /// Execute one Celery task on both backends and compare the DB effect.
-    Task(TaskArgs),
+    /// Execute one Celery task on both backends and compare its effects.
+    Task(Box<TaskArgs>),
 }
 
 #[derive(Debug, Args)]
@@ -196,6 +196,23 @@ struct BenchArgs {
     rabbit_user: String,
     #[arg(long, default_value = "plane")]
     rabbit_password: String,
+    /// Per-task comparison case: extra SQL queries, an S3 capture and a local
+    /// fake HTTP server (`tools/jobs/fixtures/*.case.json`).
+    #[arg(long)]
+    case: Option<PathBuf>,
+    /// Dev MinIO endpoint for the S3 capture.
+    #[arg(long, default_value = "http://127.0.0.1:59000")]
+    s3_endpoint: String,
+    #[arg(long, default_value = "access-key")]
+    s3_access_key: String,
+    #[arg(long, default_value = "secret-key")]
+    s3_secret_key: String,
+    /// Bucket for the Django side; created, seeded and deleted by the tool.
+    #[arg(long)]
+    s3_bucket_a: Option<String>,
+    /// Bucket for the Rust side; created, seeded and deleted by the tool.
+    #[arg(long)]
+    s3_bucket_b: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -262,6 +279,23 @@ struct TaskArgs {
     rabbit_user: String,
     #[arg(long, default_value = "plane")]
     rabbit_password: String,
+    /// Per-task comparison case: extra SQL queries, an S3 capture and a local
+    /// fake HTTP server (`tools/jobs/fixtures/*.case.json`).
+    #[arg(long)]
+    case: Option<PathBuf>,
+    /// Dev MinIO endpoint for the S3 capture.
+    #[arg(long, default_value = "http://127.0.0.1:59000")]
+    s3_endpoint: String,
+    #[arg(long, default_value = "access-key")]
+    s3_access_key: String,
+    #[arg(long, default_value = "secret-key")]
+    s3_secret_key: String,
+    /// Bucket for the Django side; created, seeded and deleted by the tool.
+    #[arg(long)]
+    s3_bucket_a: Option<String>,
+    /// Bucket for the Rust side; created, seeded and deleted by the tool.
+    #[arg(long)]
+    s3_bucket_b: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -432,6 +466,12 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
             options.rabbit_http = args.rabbit_http;
             options.rabbit_user = args.rabbit_user;
             options.rabbit_password = args.rabbit_password;
+            options.case_path = args.case.as_ref().map(|path| resolve_input(path));
+            options.s3_endpoint = args.s3_endpoint;
+            options.s3_access_key = args.s3_access_key;
+            options.s3_secret_key = args.s3_secret_key;
+            options.s3_bucket_a = args.s3_bucket_a;
+            options.s3_bucket_b = args.s3_bucket_b;
             plane_testkit::task::run(&options).await?;
             Ok(ExitCode::SUCCESS)
         }

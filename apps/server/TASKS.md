@@ -1240,8 +1240,13 @@ consulted by `route::dispatch` and by the worker's handler registry.
 
 | Task | Phase 4 owner | Retry policy / handler |
 | --- | --- | --- |
-| every task in §4 except the test task | Celery | unchanged; the typed publisher in `plane-jobs::celery` is byte-identical |
+| every task in §4 except the rows below | Celery | unchanged; the typed publisher in `plane-jobs::celery` is byte-identical |
 | `plane.jobs.echo` (test-only) | Rust | no retries; handler in `bins/plane-worker` sleeps `payload.sleep_ms` |
+| `recent_visited_task` (P0) | Rust | `plane-tasks/src/recent_visited.rs`; no retries |
+| `storage_metadata_task.get_asset_object_metadata` (set C) | Rust | `plane-tasks/src/storage_metadata.rs`; no retries |
+| `work_item_link_task.crawl_work_item_link_title` (set C) | Rust | `plane-tasks/src/work_item_link.rs`; no retries |
+| `exporter_expired_task.delete_old_s3_link` (set C) | Celery (beat) | handler in `plane-tasks/src/exporter_expired.rs`; stays Celery until both `plane_jobs.schedules` rows flip to `rust` |
+| `file_asset_task.delete_unuploaded_file_asset` (set C) | Celery (beat) | handler in `plane-tasks/src/file_asset.rs`; stays Celery until its `plane_jobs.schedules` row flips to `rust` |
 
 A **schedule** has the same split in `plane_jobs.schedules.owner`. All 13
 entries in §7.1 are Celery-owned; `plane.jobs.test-tick` is the test-only Rust

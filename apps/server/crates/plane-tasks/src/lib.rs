@@ -21,7 +21,12 @@
 //! `Ok(())` after logging a data error. Only `webhook_send_task` retries
 //! (`plane_jobs::policy`).
 
+pub mod exporter_expired;
+pub mod file_asset;
+pub mod html;
 pub mod recent_visited;
+pub mod storage_metadata;
+pub mod work_item_link;
 
 use std::sync::Arc;
 
@@ -110,12 +115,22 @@ impl TaskContext {
 pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     let mut registry = TaskRegistry::new();
     recent_visited::register(&mut registry, Arc::clone(&context));
+    exporter_expired::register(&mut registry, Arc::clone(&context));
+    file_asset::register(&mut registry, Arc::clone(&context));
+    storage_metadata::register(&mut registry, Arc::clone(&context));
+    work_item_link::register(&mut registry, Arc::clone(&context));
     registry
 }
 
 /// The tasks [`registry`] installs, for the ownership/handler consistency
 /// test. Keep in step with the `register` calls above.
-pub const REGISTERED_TASKS: &[&str] = &[recent_visited::TASK];
+pub const REGISTERED_TASKS: &[&str] = &[
+    recent_visited::TASK,
+    exporter_expired::TASK,
+    file_asset::TASK,
+    storage_metadata::TASK,
+    work_item_link::TASK,
+];
 
 /// Decode `payload["kwargs"]`, the shape `Job::from_message` writes.
 ///

@@ -28,6 +28,8 @@ use crate::celery::CeleryMessage;
 pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.jobs.echo",
     "plane.bgtasks.recent_visited_task.recent_visited_task",
+    "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+    "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
 ];
 
 /// Whether `task` is published to `plane_jobs` rather than to RabbitMQ.

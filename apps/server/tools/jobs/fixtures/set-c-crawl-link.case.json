@@ -1,0 +1,27 @@
+{
+  "task": "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+  "sql": [
+    {
+      "label": "issue_links",
+      "query": "SELECT id::text, metadata::text, COALESCE(title, 'NULL'), url, CASE WHEN updated_at > created_at THEN 'moved' ELSE 'same' END, COALESCE(created_by_id::text, 'NULL'), COALESCE(updated_by_id::text, 'NULL'), CASE WHEN deleted_at IS NULL THEN 'live' ELSE deleted_at::text END FROM issue_links ORDER BY id::text"
+    }
+  ],
+  "http": {
+    "responses": {
+      "/go": {
+        "status": 302,
+        "headers": {"Location": "/page", "Content-Type": "text/html"}
+      },
+      "/page": {
+        "status": 200,
+        "headers": {"Content-Type": "text/html; charset=utf-8"},
+        "body": "<!DOCTYPE html><html><head><title>  Example &amp; Co  </title><link rel=\"icon\" href=\"/fav.ico\"></head><body><p>link target</p></body></html>"
+      },
+      "/fav.ico": {
+        "status": 200,
+        "headers": {"Content-Type": "image/png"},
+        "body_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+      }
+    }
+  }
+}

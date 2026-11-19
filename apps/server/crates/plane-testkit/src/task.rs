@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // See the LICENSE file for details.
 
-//! `difftest task`: one Celery task, executed by both backends, DB effects
-//! compared.
+//! `difftest task`: one Celery task, executed by both backends, its effects
+//! compared: database rows, S3 objects (bytes, content type, ACL) and the
+//! requests a task makes to a local fake HTTP server.
 //!
 //! A = the real Django task through `task.apply()` in-process
 //! (`tools/jobs/run_django_task.py`); B = a job enqueued into `plane_jobs` and
@@ -22,6 +23,14 @@
 //!
 //! `plane_jobs` on B is the transport, not an effect: it is excluded, and the
 //! tool fails if B's job is not `done` (a `dead` job names its `last_error`).
+//!
+//! # Case files
+//!
+//! With `--case` the run compares what the task's case file names
+//! (`crate::task_case`): arbitrary SQL queries, two agent-owned S3 buckets the
+//! tool creates/seeds/reads/deletes, and a `127.0.0.1` recorder whose responses
+//! the case scripts. Without `--case` the original `recent_visited_task`
+//! comparison applies, so the P0 fixtures keep working.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -30,6 +39,8 @@ use std::time::Duration;
 
 use crate::celery::RabbitAdmin;
 use crate::db::DbAdmin;
+use crate::s3::S3Admin;
+use crate::task_case::{Recorder, TaskCase, compare_objects, compare_requests, compare_rows};
 use crate::util::{repo_root, validate_identifier};
 use anyhow::{Context, Result, bail};
 use tokio::process::Command;
@@ -66,6 +77,16 @@ pub struct TaskOptions {
     pub worker: Option<PathBuf>,
     /// Template database cloned for both sides.
     pub template_db: String,
+    /// Per-task comparison case (SQL queries, S3 capture, fake HTTP server).
+    pub case_path: Option<PathBuf>,
+    /// Dev MinIO endpoint for the S3 capture.
+    pub s3_endpoint: String,
+    pub s3_access_key: String,
+    pub s3_secret_key: String,
+    /// Bucket for the Django side. Both are created, seeded and deleted by
+    /// this tool; they must not be the shared `uploads` bucket.
+    pub s3_bucket_a: Option<String>,
+    pub s3_bucket_b: Option<String>,
 }
 
 impl TaskOptions {
@@ -87,7 +108,62 @@ impl TaskOptions {
             rabbit_password: "plane".to_string(),
             worker: None,
             template_db: "plane_tpl".to_string(),
+            case_path: None,
+            s3_endpoint: "http://127.0.0.1:59000".to_string(),
+            s3_access_key: "access-key".to_string(),
+            s3_secret_key: "secret-key".to_string(),
+            s3_bucket_a: None,
+            s3_bucket_b: None,
         }
+    }
+}
+
+/// Replace `{{http}}` in every string of the kwargs with the recorder URL.
+fn substitute(value: &mut serde_json::Value, http: &str) {
+    match value {
+        serde_json::Value::String(text) => {
+            if text.contains("{{http}}") {
+                *text = text.replace("{{http}}", http);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                substitute(item, http);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                substitute(item, http);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The S3 half of a run: the admin client plus the two bucket names.
+struct S3Capture {
+    admin: S3Admin,
+    bucket_a: String,
+    bucket_b: String,
+}
+
+impl S3Capture {
+    async fn observe(
+        &self,
+    ) -> Result<(
+        Vec<crate::s3::ObservedObject>,
+        Vec<crate::s3::ObservedObject>,
+    )> {
+        let a = self.admin.observe(&self.bucket_a).await?;
+        let b = self.admin.observe(&self.bucket_b).await?;
+        Ok((a, b))
+    }
+
+    async fn cleanup(&self) {
+        let _ = self.admin.empty_bucket(&self.bucket_a).await;
+        let _ = self.admin.delete_bucket(&self.bucket_a).await;
+        let _ = self.admin.empty_bucket(&self.bucket_b).await;
+        let _ = self.admin.delete_bucket(&self.bucket_b).await;
     }
 }
 
@@ -101,7 +177,7 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
     validate_identifier(&options.b_db)?;
     validate_identifier(&options.template_db)?;
     validate_identifier(&options.vhost)?;
-    let kwargs: serde_json::Value = serde_json::from_str(
+    let mut kwargs: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&options.kwargs_path)
             .with_context(|| format!("reading {}", options.kwargs_path.display()))?,
     )
@@ -112,6 +188,64 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
             options.kwargs_path.display()
         );
     }
+    let case = match &options.case_path {
+        Some(path) => Some(TaskCase::load(path)?),
+        None => None,
+    };
+    if let Some(case) = &case
+        && let Some(task) = &case.task
+        && task != &options.task
+    {
+        bail!(
+            "case {} is for {task}, not {}",
+            options
+                .case_path
+                .as_ref()
+                .map_or_else(String::new, |path| path.display().to_string()),
+            options.task
+        );
+    }
+    let recorder = match case.as_ref().and_then(|case| case.http.clone()) {
+        Some(http) => {
+            let recorder = Recorder::start(http).await?;
+            substitute(&mut kwargs, recorder.url());
+            Some(recorder)
+        }
+        None => None,
+    };
+    let s3 = match case.as_ref().and_then(|case| case.s3.as_ref()) {
+        Some(s3_case) => {
+            let (Some(bucket_a), Some(bucket_b)) =
+                (options.s3_bucket_a.clone(), options.s3_bucket_b.clone())
+            else {
+                bail!("the case captures S3; pass --s3-bucket-a and --s3-bucket-b");
+            };
+            if !bucket_a.starts_with("p8") || !bucket_b.starts_with("p8") {
+                bail!("S3 test buckets must start with p8 (agent-owned names)");
+            }
+            if bucket_a == bucket_b {
+                bail!("--s3-bucket-a and --s3-bucket-b must differ");
+            }
+            let admin = S3Admin::new(
+                &options.s3_endpoint,
+                &options.s3_access_key,
+                &options.s3_secret_key,
+            );
+            admin.recreate_bucket(&bucket_a).await?;
+            admin.recreate_bucket(&bucket_b).await?;
+            for seed in &s3_case.seeds {
+                let object = seed.object()?;
+                admin.put_object(&bucket_a, &object).await?;
+                admin.put_object(&bucket_b, &object).await?;
+            }
+            Some(S3Capture {
+                admin,
+                bucket_a,
+                bucket_b,
+            })
+        }
+        None => None,
+    };
     let setup = match &options.setup_path {
         Some(path) => Some(
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
@@ -147,40 +281,95 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         .grant_full_permissions(&options.vhost, &options.rabbit_user)
         .await?;
 
-    let outcome = execute(options, &kwargs, &admin).await;
+    let outcome = execute(
+        options,
+        &kwargs,
+        &admin,
+        case.as_ref(),
+        recorder.as_ref(),
+        s3.as_ref(),
+    )
+    .await;
 
     if !options.keep {
         let _ = admin.drop_database(&options.a_db).await;
         let _ = admin.drop_database(&options.b_db).await;
         let _ = rabbit.delete_vhost(&options.vhost).await;
     }
+    // The buckets are always the tool's, so they always go, even with
+    // `--keep` (which keeps databases for inspection, not S3 corpora).
+    if let Some(s3) = &s3 {
+        s3.cleanup().await;
+    }
     outcome
 }
 
-async fn execute(options: &TaskOptions, kwargs: &serde_json::Value, admin: &DbAdmin) -> Result<()> {
-    run_django(options, kwargs).await?;
-    run_worker(options, kwargs, admin).await?;
+async fn execute(
+    options: &TaskOptions,
+    kwargs: &serde_json::Value,
+    admin: &DbAdmin,
+    case: Option<&TaskCase>,
+    recorder: Option<&Recorder>,
+    s3: Option<&S3Capture>,
+) -> Result<()> {
+    let bucket_a = s3.map(|s3| s3.bucket_a.as_str());
+    let bucket_b = s3.map(|s3| s3.bucket_b.as_str());
+    let http_start = recorder.map_or(0, Recorder::request_count);
+    run_django(options, kwargs, bucket_a).await?;
+    // Capture immediately: later requests append to the same log.
+    let django_http = recorder.map(|recorder| recorder.slice(http_start));
+    let rust_start = recorder.map_or(0, Recorder::request_count);
+    run_worker(options, kwargs, admin, bucket_b).await?;
+    let rust_http = recorder.map(|recorder| recorder.slice(rust_start));
 
-    let a = visit_rows(admin, &options.a_db).await?;
-    let b = visit_rows(admin, &options.b_db).await?;
-    println!(
-        "difftest task: {} — django rows={} rust rows={}",
-        options.task,
-        a.len(),
-        b.len()
-    );
-    if a != b {
-        let limit = a.len().max(b.len());
-        for index in 0..limit {
-            let left = a.get(index).map(Vec::as_slice).unwrap_or_default();
-            let right = b.get(index).map(Vec::as_slice).unwrap_or_default();
-            if left != right {
-                println!("row {index}:\n  django: {left:?}\n  rust:   {right:?}");
-            }
+    if let Some(case) = case {
+        for query in &case.sql {
+            let a = query_rows(admin, &options.a_db, &query.query).await?;
+            let b = query_rows(admin, &options.b_db, &query.query).await?;
+            println!(
+                "difftest task: {} — sql {}: django rows={} rust rows={}",
+                options.task,
+                query.label,
+                a.len(),
+                b.len()
+            );
+            compare_rows(case, &query.label, &a, &b)?;
         }
-        bail!("database effects differ");
+        if !case.sql.is_empty() {
+            println!("PASS: database effects are identical");
+        }
     }
-    println!("PASS: database effects are identical");
+
+    // No case file: the P0 behaviour, one table for `recent_visited_task`.
+    if case.is_none_or(|case| case.sql.is_empty()) {
+        let a = visit_rows(admin, &options.a_db).await?;
+        let b = visit_rows(admin, &options.b_db).await?;
+        println!(
+            "difftest task: {} — django rows={} rust rows={}",
+            options.task,
+            a.len(),
+            b.len()
+        );
+        if a != b {
+            for index in 0..a.len().max(b.len()) {
+                let left = a.get(index).map(Vec::as_slice).unwrap_or_default();
+                let right = b.get(index).map(Vec::as_slice).unwrap_or_default();
+                if left != right {
+                    println!("row {index}:\n  django: {left:?}\n  rust:   {right:?}");
+                }
+            }
+            bail!("database effects differ");
+        }
+        println!("PASS: database effects are identical");
+    }
+
+    if let Some(s3) = s3 {
+        let (a, b) = s3.observe().await?;
+        compare_objects(case.expect("S3 capture requires a case"), &a, &b)?;
+    }
+    if let (Some(a), Some(b)) = (django_http, rust_http) {
+        compare_requests(&a, &b)?;
+    }
     Ok(())
 }
 
@@ -205,9 +394,19 @@ async fn prepare_database(
 }
 
 /// A = `task.apply()` in the real Django, with the dev stack's environment.
-async fn run_django(options: &TaskOptions, kwargs: &serde_json::Value) -> Result<()> {
+async fn run_django(
+    options: &TaskOptions,
+    kwargs: &serde_json::Value,
+    bucket: Option<&str>,
+) -> Result<()> {
     let root = repo_root();
-    let env = dev_env(&options.a_db, options.a_redis_db, &options.vhost)?;
+    let env = dev_env(
+        &options.a_db,
+        options.a_redis_db,
+        &options.vhost,
+        bucket,
+        true,
+    )?;
     let output = Command::new(root.join("apps/api/.venv/bin/python"))
         .arg(root.join("apps/server/tools/jobs/run_django_task.py"))
         .arg(&options.task)
@@ -242,13 +441,20 @@ async fn run_worker(
     options: &TaskOptions,
     kwargs: &serde_json::Value,
     admin: &DbAdmin,
+    bucket: Option<&str>,
 ) -> Result<()> {
     let root = repo_root();
     let worker = options
         .worker
         .clone()
         .unwrap_or_else(|| root.join("apps/server/target/debug/plane-worker"));
-    let env = dev_env(&options.b_db, options.b_redis_db, &options.vhost)?;
+    let env = dev_env(
+        &options.b_db,
+        options.b_redis_db,
+        &options.vhost,
+        bucket,
+        true,
+    )?;
 
     // Create/modify the `plane_jobs` schema before the insert. The worker
     // migrates on boot too, but that would happen after the insert.
@@ -319,6 +525,26 @@ async fn run_worker(
     Ok(())
 }
 
+/// One case query, every column rendered as text (the query casts them).
+async fn query_rows(admin: &DbAdmin, database: &str, sql: &str) -> Result<Vec<Vec<String>>> {
+    let client = admin.connect(database).await?;
+    let messages = client
+        .simple_query(sql)
+        .await
+        .with_context(|| format!("running a case query on {database}"))?;
+    let mut rows = Vec::new();
+    for message in messages {
+        if let tokio_postgres::SimpleQueryMessage::Row(row) = message {
+            rows.push(
+                (0..row.len())
+                    .map(|index| row.get(index).unwrap_or("NULL").to_string())
+                    .collect(),
+            );
+        }
+    }
+    Ok(rows)
+}
+
 /// A single-quoted SQL literal (the values are generated, not user input).
 fn sql_literal(value: &str) -> String {
     value.replace('\'', "''")
@@ -364,7 +590,13 @@ async fn visit_rows(admin: &DbAdmin, database: &str) -> Result<Vec<Vec<String>>>
 /// `dev/django-env.sh` evaluated with this run's database, Redis index and
 /// vhost. The script is the single source of truth for the dev environment, so
 /// the worker and Django see the same variables the differential harness uses.
-fn dev_env(db: &str, redis_db: i64, vhost: &str) -> Result<BTreeMap<String, String>> {
+fn dev_env(
+    db: &str,
+    redis_db: i64,
+    vhost: &str,
+    bucket: Option<&str>,
+    allow_loopback: bool,
+) -> Result<BTreeMap<String, String>> {
     let script = repo_root().join("apps/server/dev/django-env.sh");
     let output = std::process::Command::new("bash")
         .arg("-c")
@@ -398,6 +630,22 @@ fn dev_env(db: &str, redis_db: i64, vhost: &str) -> Result<BTreeMap<String, Stri
         if let Some((key, value)) = text.split_once('=') {
             env.insert(key.to_string(), value.to_string());
         }
+    }
+    if let Some(bucket) = bucket {
+        // `settings.AWS_STORAGE_BUCKET_NAME` and `S3Storage`'s
+        // `AWS_S3_BUCKET_NAME` are read separately.
+        env.insert("AWS_STORAGE_BUCKET_NAME".to_string(), bucket.to_string());
+        env.insert("AWS_S3_BUCKET_NAME".to_string(), bucket.to_string());
+    }
+    if allow_loopback {
+        // `difftest task`'s local fake HTTP server is on 127.0.0.1. Django's
+        // runner patches its own `is_blocked_ip`; the worker's crawl handler
+        // reads this switch. Neither is set in a deployment.
+        env.insert("PLANE_DIFFTEST_ALLOW_LOOPBACK".to_string(), "1".to_string());
+        env.insert(
+            "PLANE_RS_DIFFTEST_ALLOW_LOOPBACK".to_string(),
+            "1".to_string(),
+        );
     }
     // `REDIS_URL` is derived by the harness's convention, not by
     // django-env.sh itself (it reads PLANE_REDIS_DB, which is already set).

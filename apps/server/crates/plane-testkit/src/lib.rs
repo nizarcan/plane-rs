@@ -28,9 +28,11 @@ pub mod record;
 pub mod redis;
 pub mod report;
 pub mod runner;
+pub mod s3;
 pub mod selftest;
 pub mod session;
 pub mod task;
+pub mod task_case;
 pub mod timeparse;
 pub mod util;
 

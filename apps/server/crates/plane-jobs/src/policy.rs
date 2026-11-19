@@ -121,6 +121,50 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
             Producer::RustHttp("plane/app/views/page/base.py:232"),
         ],
     ),
+    // Phase 8 set C. `get_asset_object_metadata` moves: ten call sites, every
+    // one on a Rust route (ROUTES.md rows 18-21, 24-25, 78-79, 326, 338,
+    // 255-256).
+    (
+        "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+        &[
+            Producer::RustHttp("plane/app/views/asset/v2.py:219"),
+            Producer::RustHttp("plane/app/views/asset/v2.py:460"),
+            Producer::RustHttp("plane/app/views/asset/v2.py:696"),
+            Producer::RustHttp("plane/app/views/issue/attachment.py:277"),
+            Producer::RustHttp("plane/api/views/asset.py:217"),
+            Producer::RustHttp("plane/api/views/asset.py:373"),
+            Producer::RustHttp("plane/api/views/asset.py:662"),
+            Producer::RustHttp("plane/api/views/issue.py:2254"),
+            Producer::RustHttp("plane/api/views/issue.py:2415"),
+            Producer::RustHttp("plane/space/views/asset.py:197"),
+        ],
+    ),
+    // Phase 8 set C. `crawl_work_item_link_title` moves: four call sites, two
+    // `/api/` (routes 74-75) and two `/api/v1/` (rows 319-320, 331-332).
+    (
+        "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+        &[
+            Producer::RustHttp("plane/app/views/issue/link.py:61"),
+            Producer::RustHttp("plane/app/views/issue/link.py:92"),
+            Producer::RustHttp("plane/api/views/issue.py:1284"),
+            Producer::RustHttp("plane/api/views/issue.py:1407"),
+        ],
+    ),
+    // Phase 8 set C, handler ported but not switched. The only producer is the
+    // Django beat entry (twice); a task moves only after its
+    // `plane_jobs.schedules` row is flipped to `owner='rust'`
+    // (CUTOVER.md §2 "Beat handover").
+    (
+        "plane.bgtasks.exporter_expired_task.delete_old_s3_link",
+        &[
+            Producer::CeleryBeat("plane/celery.py:69-72"),
+            Producer::CeleryBeat("plane/celery.py:97-100"),
+        ],
+    ),
+    (
+        "plane.bgtasks.file_asset_task.delete_unuploaded_file_asset",
+        &[Producer::CeleryBeat("plane/celery.py:73-76")],
+    ),
 ];
 
 /// The producers recorded for `task`, or `None` when the table has no row.

@@ -25,6 +25,10 @@ use std::sync::LazyLock;
 pub const RUST_TASKS: &[&str] = &[
     "plane.jobs.echo",
     "plane.bgtasks.recent_visited_task.recent_visited_task",
+    // Phase 8 set C: all ten producers are Rust HTTP routes.
+    "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+    // Phase 8 set C: four producers, all Rust HTTP routes.
+    "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
 ];
 
 /// A task's owner.

@@ -70,6 +70,7 @@ pub use headers::HeaderList;
 pub use ipaddr::{IpProperties, is_blocked_ip, properties};
 pub use preset::Preset;
 pub use pyurl::{Target, split_target};
+pub use reqwest::Method;
 pub use ssrf::{
     BLOCKED_NETWORK, NO_ADDRESSES, SsrfPolicy, UNRESOLVABLE, ValidatedHop, resolve_and_validate,
     validate_hop, validate_url,
