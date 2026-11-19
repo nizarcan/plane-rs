@@ -748,8 +748,7 @@ fn extract_mentions(value: &PyValue) -> Vec<String> {
     let html = html.to_string_lossy();
     match crate::bs4::Soup::parse(&html).matching_attribute_values(
         "mention-component",
-        "entity_name",
-        "user_mention",
+        Some(("entity_name", "user_mention")),
         "entity_identifier",
     ) {
         Ok(values) => values
@@ -769,8 +768,7 @@ fn extract_comment_mentions(value: Option<&PyValue>) -> Vec<String> {
     let html = html.to_string_lossy();
     match crate::bs4::Soup::parse(&html).matching_attribute_values(
         "mention-component",
-        "entity_name",
-        "user_mention",
+        Some(("entity_name", "user_mention")),
         "entity_identifier",
     ) {
         Ok(values) => values

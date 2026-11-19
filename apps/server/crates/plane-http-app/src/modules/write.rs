@@ -526,8 +526,13 @@ async fn publish_model_activity(
         slug: slug.to_owned(),
         origin: origin(ctx)?,
     });
-    crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await?;
+    crate::common::jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await?;
     Ok(())
 }
 

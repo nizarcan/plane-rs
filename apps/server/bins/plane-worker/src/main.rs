@@ -24,7 +24,26 @@ use plane_jobs::listener::Listener;
 use plane_jobs::worker::{JobContext, TaskRegistry, Worker, WorkerConfig};
 use plane_tasks::TaskContext;
 
+/// `--difftest-feature` answers, for `difftest task`'s HTTP cases.
+const DIFFTEST_FEATURE_ENABLED: &str = "difftest-feature=enabled";
+const DIFFTEST_FEATURE_DISABLED: &str = "difftest-feature=disabled";
+
 fn main() -> anyhow::Result<()> {
+    // `difftest task` asks this before an HTTP case: the harness's fake server
+    // is on loopback and the SSRF escape is compiled in only with the
+    // `difftest` feature (D26). A plain probe must not start the worker, touch
+    // the queue or print a log line.
+    if std::env::args().any(|arg| arg == "--difftest-feature") {
+        println!(
+            "{}",
+            if cfg!(feature = "difftest") {
+                DIFFTEST_FEATURE_ENABLED
+            } else {
+                DIFFTEST_FEATURE_DISABLED
+            }
+        );
+        return Ok(());
+    }
     init_logging();
     let once = std::env::args().skip(1).any(|arg| arg == "--once");
     let settings = Settings::from_env(Role::Worker).map_err(|error| anyhow::anyhow!("{error}"))?;

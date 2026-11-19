@@ -1,0 +1,5 @@
+{
+  "task": "plane.bgtasks.project_add_user_email_task.project_add_user_email",
+  "sql": [],
+  "smtp": {}
+}

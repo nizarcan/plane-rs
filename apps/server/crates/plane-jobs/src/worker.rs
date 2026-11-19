@@ -16,11 +16,11 @@ use std::time::Duration;
 
 use deadpool_postgres::Client;
 use plane_db::DbPools;
-use serde_json::Value;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use crate::listener::Listener;
+use crate::payload::Payload;
 use crate::queue::{self, ClaimedJob, Failure, QueueError};
 
 /// A handler failure and whether another attempt can help.
@@ -54,7 +54,9 @@ pub struct JobContext {
     pub client: Client,
     pub id: Uuid,
     pub task: String,
-    pub payload: Value,
+    /// The payload in the producer's key order (`payload::Payload`), which
+    /// dereferences to the sorted `serde_json::Value` handlers used before.
+    pub payload: Payload,
     pub attempts: i32,
 }
 

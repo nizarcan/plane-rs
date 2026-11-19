@@ -25,6 +25,7 @@ pub mod celery;
 pub mod beat;
 pub mod listener;
 pub mod ownership;
+pub mod payload;
 pub mod policy;
 pub mod queue;
 #[cfg(feature = "celery")]

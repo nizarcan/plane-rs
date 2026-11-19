@@ -222,8 +222,7 @@ impl Soup {
     pub fn matching_attribute_values(
         &self,
         tag: &str,
-        match_name: &str,
-        match_value: &str,
+        match_attr: Option<(&str, &str)>,
         value_name: &str,
     ) -> Result<Vec<String>, MissingAttribute> {
         let mut out = Vec::new();
@@ -233,13 +232,15 @@ impl Soup {
             if node.kind != Kind::Tag || node.name != tag {
                 continue;
             }
-            let matches = node
-                .attrs
-                .iter()
-                .find(|attr| attr.name == match_name)
-                .is_some_and(|attr| attr.value == match_value);
-            if !matches {
-                continue;
+            if let Some((match_name, match_value)) = match_attr {
+                let matches = node
+                    .attrs
+                    .iter()
+                    .find(|attr| attr.name == match_name)
+                    .is_some_and(|attr| attr.value == match_value);
+                if !matches {
+                    continue;
+                }
             }
             let Some(attr) = node.attrs.iter().find(|attr| attr.name == value_name) else {
                 return Err(MissingAttribute);
@@ -247,6 +248,68 @@ impl Soup {
             out.push(attr.value.clone());
         }
         Ok(out)
+    }
+
+    /// `soup.find_all("mention-component")`'s `entity_identifier` attributes,
+    /// in document order (`process_mention`'s read). A component without the
+    /// attribute is bs4's `KeyError`, reported as [`MissingAttribute`].
+    ///
+    /// # Errors
+    ///
+    /// A `<mention-component>` with no `entity_identifier`.
+    pub fn mention_ids(&self) -> Result<Vec<String>, MissingAttribute> {
+        self.matching_attribute_values("mention-component", None, "entity_identifier")
+    }
+
+    /// `mention.replace_with("@<display_name>")` for every
+    /// `<mention-component>`: each element (and its children) is replaced by
+    /// one text node. bs4's minimal formatter escapes the text on
+    /// serialisation, as [`Soup::serialize`] does for any text node.
+    ///
+    /// # Errors
+    ///
+    /// A missing `entity_identifier` ([`MissingAttribute`]) or the callback's
+    /// error for a name it cannot resolve (a missing user).
+    pub fn replace_mentions<F>(&mut self, mut display_name: F) -> Result<(), String>
+    where
+        F: FnMut(&str) -> Result<String, String>,
+    {
+        // `find_all` reads `mention["entity_identifier"]` for every match
+        // before `str(soup)`, so a missing attribute aborts before the
+        // mutation; the entity list is in document order, like the node ids.
+        let entities = self
+            .mention_ids()
+            .map_err(|_| "mention-component has no entity_identifier".to_string())?;
+        let targets: Vec<usize> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.kind == Kind::Tag && node.name == "mention-component")
+            .map(|(id, _)| id)
+            .collect();
+        for (id, entity) in targets.into_iter().zip(entities) {
+            let name = display_name(&entity)?;
+            let replacement = self.nodes.len();
+            let mut node = Node::new(Kind::Text);
+            node.text = format!("@{name}");
+            self.nodes.push(node);
+            if let Some(position) = self.roots.iter().position(|child| *child == id) {
+                self.roots[position] = replacement;
+                continue;
+            }
+            let parent = self
+                .nodes
+                .iter()
+                .position(|node| node.children.contains(&id))
+                .ok_or_else(|| "mention-component has no parent".to_string())?;
+            let position = self.nodes[parent]
+                .children
+                .iter()
+                .position(|child| *child == id)
+                .expect("contains");
+            self.nodes[parent].children[position] = replacement;
+        }
+        Ok(())
     }
 
     /// `replace_asset_ids`: for every `<tag>` whose `src` equals `old`, set it

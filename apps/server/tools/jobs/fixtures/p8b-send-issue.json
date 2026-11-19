@@ -1,0 +1,28 @@
+{
+  "webhook_id": "b0000000-0000-4000-8000-000000000021",
+  "slug": "p8b-ws",
+  "event": "issue",
+  "event_data": {
+    "id": "b0000000-0000-4000-8000-000000000013",
+    "name": "Webhook issue",
+    "priority": "high"
+  },
+  "action": "created",
+  "current_site": "https://app.example.com",
+  "activity": {
+    "field": "name",
+    "new_value": "Webhook issue",
+    "old_value": "Old name",
+    "actor": {
+      "id": "b0000000-0000-4000-8000-000000000001",
+      "first_name": "Ada",
+      "last_name": "Actor",
+      "email": "actor@example.com",
+      "avatar": "",
+      "avatar_url": null,
+      "display_name": "Ada Actor"
+    },
+    "old_identifier": null,
+    "new_identifier": null
+  }
+}

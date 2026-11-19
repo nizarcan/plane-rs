@@ -65,6 +65,219 @@ TEMPLATE_CASES = [
         "template": "emails/exports/analytics.html",
         "context": {},
     },
+    {
+        "name": "project_addition",
+        "template": "emails/notifications/project_addition.html",
+        "context": {
+            "project_name": "Alpha & Co",
+            "workspace_name": "Acme",
+            "email": "ada@example.com",
+            "inviter_first_name": "Rex",
+            "project_url": "https://plane.example.com/acme/projects/"
+            "b0000000-0000-4000-8000-000000000011/issues",
+        },
+    },
+    {
+        "name": "workspace_invitation",
+        "template": "emails/invitations/workspace_invitation.html",
+        "context": {
+            "email": "ada@example.com",
+            "first_name": "Rex <Receiver>",
+            "workspace_name": "Acme",
+            "abs_url": "https://plane.example.com/workspace-invitations/"
+            "?invitation_id=b0000000-0000-4000-8000-000000000030&slug=acme&token=t0k",
+        },
+    },
+    {
+        "name": "user_activation",
+        "template": "emails/user/user_activation.html",
+        "context": {"email": "ada@example.com", "profile_url": "https://plane.example.com/profile"},
+    },
+    {
+        "name": "user_deactivation",
+        "template": "emails/user/user_deactivation.html",
+        "context": {"email": "ada@example.com", "login_url": "https://plane.example.com/login"},
+    },
+    {
+        "name": "email_updated",
+        "template": "emails/user/email_updated.html",
+        "context": {"email": "ada@example.com"},
+    },
+    {
+        "name": "webhook_deactivate",
+        "template": "emails/notifications/webhook-deactivate.html",
+        "context": {
+            "email": "ada@example.com",
+            "message": "Webhook https://hooks.example.com/plane?x=1 has been deactivated due to "
+            "failed requests.",
+            "webhook_url": "https://plane.example.com/acme/settings/webhooks/"
+            "8a1b2c3d-4e5f-6789-abcd-ef0123456789",
+        },
+    },
+    {
+        "name": "issue_updates_fields",
+        "template": "emails/notifications/issue-updates.html",
+        "context": {
+            "data": [
+                {
+                    "actor_detail": {
+                        "avatar_url": "https://app.example.com/avatars/ada.png",
+                        "first_name": "Ada",
+                        "last_name": "Actor",
+                    },
+                    "changes": {
+                        "state": {"old_value": ["Backlog"], "new_value": ["In Progress", "Done"]},
+                        "priority": {"old_value": ["urgent"], "new_value": ["low"]},
+                        "target_date": {"old_value": ["2026-01-05"], "new_value": []},
+                        "labels": {
+                            "old_value": ["bug"],
+                            "new_value": ["backend", "regression", "urgent"],
+                        },
+                        "assignees": {"old_value": [], "new_value": ["Rex Receiver", "Avi Assignee"]},
+                        "link": {"old_value": ["None"], "new_value": ["https://example.com/pr/1"]},
+                        "blocking": {
+                            "old_value": ["P8B-1", "P8B-2", "P8B-3"],
+                            "new_value": ["P8B-4"],
+                        },
+                        "duplicate": {
+                            "old_value": ["P8B-5", "P8B-6", "P8B-7"],
+                            "new_value": ["P8B-8", "P8B-9", "P8B-10"],
+                        },
+                        "name": {"old_value": ["Old name"], "new_value": ["Webhook issue"]},
+                    },
+                    "issue_details": {"name": "Webhook issue", "identifier": "P8B-7"},
+                    "activity_time": "09:05 AM",
+                },
+                {
+                    "actor_detail": {
+                        "avatar_url": "",
+                        "first_name": "Rex",
+                        "last_name": "Receiver",
+                    },
+                    "changes": {"status": {"old_value": ["Todo"], "new_value": ["Done"]}},
+                    "issue_details": {"name": "Webhook issue", "identifier": "P8B-7"},
+                    "activity_time": "11:59 PM",
+                },
+            ],
+            "summary": "Updates were made to the issue by",
+            "actors_involved": 2,
+            "issue": {
+                "issue_identifier": "P8B-7",
+                "name": "Webhook issue",
+                "issue_url": "https://app.example.com/p8b-ws/projects/"
+                "b0000000-0000-4000-8000-000000000011/issues/"
+                "b0000000-0000-4000-8000-000000000013",
+            },
+            "receiver": {"email": "receiver@example.com"},
+            "issue_url": "https://app.example.com/p8b-ws/projects/"
+            "b0000000-0000-4000-8000-000000000011/issues/"
+            "b0000000-0000-4000-8000-000000000013",
+            "project_url": "https://app.example.com/p8b-ws/projects/"
+            "b0000000-0000-4000-8000-000000000011/issues/",
+            "workspace": "p8b-ws",
+            "project": "P8B project",
+            "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+            "comments": [],
+            "entity_type": "issue",
+        },
+    },
+    {
+        "name": "issue_updates_comments_and_mentions",
+        "template": "emails/notifications/issue-updates.html",
+        "context": {
+            "data": [],
+            "summary": "Updates were made to the issue by",
+            "actors_involved": 1,
+            "issue": {
+                "issue_identifier": "P8B-7",
+                "name": "Webhook issue",
+                "issue_url": "https://app.example.com/p8b-ws/issues/1",
+            },
+            "receiver": {"email": "receiver@example.com"},
+            "issue_url": "https://app.example.com/p8b-ws/issues/1",
+            "project_url": "https://app.example.com/p8b-ws/issues/",
+            "workspace": "p8b-ws",
+            "project": "P8B project",
+            "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+            "comments": [
+                {
+                    "actor_comments": {
+                        "old_value": [],
+                        "new_value": [
+                            "<p>A comment with a <b>bold</b> word &amp; an entity.</p>",
+                            "<p>Second line</p>",
+                        ],
+                    },
+                    "actor_detail": {
+                        "avatar_url": "https://app.example.com/avatars/rex.png",
+                        "first_name": "Rex",
+                        "last_name": "Receiver",
+                    },
+                },
+                {
+                    "actor_comments": {
+                        "old_value": ["<p>old mention</p>"],
+                        "new_value": ["<p>Hello @Ada Actor, see this</p>"],
+                    },
+                    "actor_detail": {
+                        "avatar_url": "",
+                        "first_name": "Avi",
+                        "last_name": "Assignee",
+                    },
+                },
+            ],
+            "entity_type": "issue",
+        },
+    },
+    {
+        "name": "issue_updates_empty_names_escaped",
+        "template": "emails/notifications/issue-updates.html",
+        "context": {
+            "data": [
+                {
+                    "actor_detail": {"avatar_url": "", "first_name": "", "last_name": ""},
+                    "changes": {
+                        "target_date": {"old_value": ["2026-01-05"], "new_value": ["2026-02-01"]},
+                        "priority": {"old_value": ["low"], "new_value": ["urgent"]},
+                    },
+                    "issue_details": {"name": "a<b&c", "identifier": "P8B-7"},
+                    "activity_time": "12:00 AM",
+                }
+            ],
+            "summary": "Updates were made to the issue by",
+            "actors_involved": 1,
+            "issue": {
+                "issue_identifier": "P8B-7",
+                "name": "<script>alert('x')</script> & \"quotes\"",
+                "issue_url": "https://app.example.com/p8b-ws/issues/1?x=\"'>",
+            },
+            "receiver": {"email": "a<b&c@example.com"},
+            "issue_url": "https://app.example.com/p8b-ws/issues/1?x=\"'>",
+            "project_url": "https://app.example.com/p8b-ws/issues/",
+            "workspace": "p8b-ws",
+            "project": "P8B <project>",
+            "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+            "comments": [
+                {
+                    "actor_comments": {
+                        "old_value": [],
+                        "new_value": ["<p>one</p><b>two</b>&lt;three&gt;<!-- comment -->four"],
+                    },
+                    "actor_detail": {"avatar_url": "", "first_name": "Ada", "last_name": "Actor"},
+                }
+            ],
+            "entity_type": "issue",
+        },
+    },
+    {
+        "name": "webhook_deactivate_escaped",
+        "template": "emails/notifications/webhook-deactivate.html",
+        "context": {
+            "email": "a<b&c@example.com",
+            "message": "Webhook <script> has been deactivated due to failed requests.",
+            "webhook_url": "https://plane.example.com/acme/settings/webhooks/1?x=\"'>",
+        },
+    },
 ]
 
 PLAIN_TEXT_CASES = [
@@ -213,6 +426,39 @@ def record_multipart():
     return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
 
 
+def record_webhook_multipart():
+    """The deactivation e-mail: a 32 KB HTML alternative with 4 KB lines.
+
+    The long lines make `SafeMIMEText` choose quoted-printable for the HTML
+    part, which is the only case in the corpus that exercises
+    `email.quoprimime.body_encode` (spaces stay literal, trailing spaces are
+    quoted, lines wrap at 76 with a soft break).
+    """
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    from plane_utils_email import generate_plain_text_from_html
+
+    html = render_to_string(
+        "emails/notifications/webhook-deactivate.html",
+        {
+            "email": "receiver@example.com",
+            "message": "Webhook http://127.0.0.1:1234/hook-one has been deactivated due to "
+            "failed requests.",
+            "webhook_url": "https://app.example.com/p8b-ws/settings/webhooks/"
+            "b0000000-0000-4000-8000-000000000021",
+        },
+    )
+    message = EmailMultiAlternatives(
+        subject="Webhook Deactivated",
+        body=generate_plain_text_from_html(html),
+        from_email="Team Plane <team@mailer.plane.so>",
+        to=["receiver@example.com"],
+    )
+    message.attach_alternative(html, "text/html")
+    return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
+
+
 def record_attachment():
     """`analytic_plot_export.send_export_email`'s exact message shape."""
     from django.core.mail import EmailMultiAlternatives
@@ -268,6 +514,7 @@ def main(argv: list[str]) -> int:
         "templates": record_templates(),
         "plain_text": record_plain_text(),
         "multipart": record_multipart(),
+        "webhook_multipart": record_webhook_multipart(),
         "attachment": record_attachment(),
     }
     rendered = json.dumps(corpus, indent=2, ensure_ascii=False) + "\n"

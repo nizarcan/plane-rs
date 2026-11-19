@@ -584,7 +584,7 @@ fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewEr
                 ctx,
                 message.task(),
                 &message,
-                plane_jobs::queue::Job::new(message.task()),
+                plane_jobs::queue::Job::from_message(&message),
             )
             .await?;
         }

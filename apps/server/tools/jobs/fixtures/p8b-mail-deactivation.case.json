@@ -1,0 +1,5 @@
+{
+  "task": "plane.bgtasks.user_deactivation_email_task.user_deactivation_email",
+  "sql": [],
+  "smtp": {}
+}

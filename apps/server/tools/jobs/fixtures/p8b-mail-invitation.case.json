@@ -1,0 +1,10 @@
+{
+  "task": "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+  "sql": [
+    {
+      "label": "workspace_member_invites",
+      "query": "SELECT id::text, token, COALESCE(message, 'NULL'), CASE WHEN updated_at > created_at THEN 'moved' ELSE 'same' END, COALESCE(created_by_id::text, 'NULL'), COALESCE(updated_by_id::text, 'NULL') FROM workspace_member_invites ORDER BY id::text"
+    }
+  ],
+  "smtp": {}
+}

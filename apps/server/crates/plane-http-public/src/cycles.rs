@@ -1948,7 +1948,7 @@ async fn publish_model_activity_named(
         ctx,
         task,
         &message,
-        plane_jobs::queue::Job::new(task),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await
     .map(|_| ())

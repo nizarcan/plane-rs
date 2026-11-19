@@ -135,6 +135,7 @@ pub const TEST_TASK: &str = "plane.jobs.echo";
 /// `'celery'`; the Django row is re-enabled by an operator, as the handover
 /// notes in `JOBS.md` describe.
 pub const RUST_SCHEDULES: &[&str] = &[
+    "check-every-five-minutes-to-send-email-notifications",
     "check-every-five-minutes-to-unsnooze-intake-issues",
     "check-every-day-to-delete-hard-delete",
     "check-every-day-to-archive-and-close",

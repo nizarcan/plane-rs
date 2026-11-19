@@ -279,6 +279,130 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
     // satisfied and the task moves with A3. The Rust handler reproduces the
     // observable effect: no row change and no publish
     // (`plane-tasks/src/versions.rs`).
+    // Phase 8 set B. `model_activity`'s 22 call sites are all Rust HTTP
+    // routes (`TASKS.md:844-873`): the `/api/` viewsets and the three v1 API
+    // endpoints. `webhook_activity` is published by `model_activity` (Rust)
+    // and by two delete routes; `webhook_send_task` only by
+    // `webhook_activity`, and the deactivation e-mail only by
+    // `webhook_send_task`.
+    (
+        "plane.bgtasks.webhook_task.model_activity",
+        &[
+            Producer::RustHttp("plane/app/views/module/base.py:340"),
+            Producer::RustHttp("plane/app/views/module/base.py:709"),
+            Producer::RustHttp("plane/app/views/cycle/base.py:319"),
+            Producer::RustHttp("plane/app/views/cycle/base.py:398"),
+            Producer::RustHttp("plane/app/views/project/base.py:301"),
+            Producer::RustHttp("plane/app/views/project/base.py:370"),
+            Producer::RustHttp("plane/app/views/issue/comment.py:135"),
+            Producer::RustHttp("plane/app/views/issue/comment.py:173"),
+            Producer::RustHttp("plane/app/views/issue/base.py:474"),
+            Producer::RustHttp("plane/app/views/issue/base.py:700"),
+            Producer::RustHttp("plane/api/views/cycle.py:339"),
+            Producer::RustHttp("plane/api/views/cycle.py:595"),
+            Producer::RustHttp("plane/api/views/module.py:232"),
+            Producer::RustHttp("plane/api/views/module.py:490"),
+            Producer::RustHttp("plane/api/views/issue.py:592"),
+            Producer::RustHttp("plane/api/views/issue.py:754"),
+            Producer::RustHttp("plane/api/views/issue.py:801"),
+            Producer::RustHttp("plane/api/views/issue.py:889"),
+            Producer::RustHttp("plane/api/views/issue.py:1602"),
+            Producer::RustHttp("plane/api/views/issue.py:1763"),
+            Producer::RustHttp("plane/api/views/project.py:295"),
+            Producer::RustHttp("plane/api/views/project.py:589"),
+            Producer::RustHttp("plane-http-public/src/issues.rs:2190 (public routes)"),
+        ],
+    ),
+    (
+        "plane.bgtasks.webhook_task.webhook_activity",
+        &[
+            Producer::RustTask("plane-tasks/src/webhook/mod.rs (model_activity)"),
+            Producer::RustHttp("plane/app/views/project/base.py:401"),
+            Producer::RustHttp("plane/api/views/project.py:637"),
+        ],
+    ),
+    (
+        "plane.bgtasks.webhook_task.webhook_send_task",
+        &[Producer::RustTask(
+            "plane-tasks/src/webhook/mod.rs (webhook_activity)",
+        )],
+    ),
+    (
+        "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+        &[Producer::RustTask(
+            "plane-tasks/src/webhook/mod.rs (webhook_send_task)",
+        )],
+    ),
+    // Phase 8 set B's e-mail notifications. 13's only producer is 12, whose
+    // only producer is the Django beat entry `plane/celery.py:48-51`, taken
+    // over through `beat::RUST_SCHEDULES`.
+    (
+        "plane.bgtasks.email_notification_task.stack_email_notification",
+        &[Producer::RustBeat(
+            "plane/celery.py:48-51 (check-every-five-minutes-to-send-email-notifications)",
+        )],
+    ),
+    (
+        "plane.bgtasks.email_notification_task.send_email_notification",
+        &[Producer::RustTask(
+            "plane-tasks/src/email_notification.rs (stack_email_notification)",
+        )],
+    ),
+    // Phase 8 set B's e-mail tasks. 17 and 28 are published by the Rust
+    // `/auth/` flows; 36 by the Rust sign-up adapter; 37-39 by
+    // `/api/users/me/`; 32 by the project-member invite POST; 45 by the
+    // workspace invitation POST.
+    (
+        "plane.bgtasks.forgot_password_task.forgot_password",
+        &[
+            Producer::RustHttp("plane-http-app/src/auth/password.rs:223"),
+            Producer::RustHttp("plane-auth/src/auth_flow/tasks.rs:104"),
+        ],
+    ),
+    (
+        "plane.bgtasks.magic_link_code_task.magic_link",
+        &[
+            Producer::RustHttp("plane-http-app/src/auth/magic.rs:158"),
+            Producer::RustHttp("plane-auth/src/auth_flow/tasks.rs:77"),
+        ],
+    ),
+    (
+        "plane.bgtasks.user_activation_email_task.user_activation_email",
+        &[
+            Producer::RustHook("plane-auth/src/auth_flow/adapter.rs:421"),
+            Producer::RustHttp("plane-auth/src/auth_flow/tasks.rs:127"),
+        ],
+    ),
+    (
+        "plane.bgtasks.user_deactivation_email_task.user_deactivation_email",
+        &[Producer::RustHttp(
+            "plane-http-app/src/users_me/write_deactivate.rs:153",
+        )],
+    ),
+    (
+        "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
+        &[Producer::RustHttp(
+            "plane-http-app/src/users_me/write_email.rs:131",
+        )],
+    ),
+    (
+        "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
+        &[Producer::RustHttp(
+            "plane-http-app/src/users_me/write_email.rs:268",
+        )],
+    ),
+    (
+        "plane.bgtasks.project_add_user_email_task.project_add_user_email",
+        &[Producer::RustHttp(
+            "plane-http-app/src/projects/member_write.rs:628",
+        )],
+    ),
+    (
+        "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+        &[Producer::RustHttp(
+            "plane-http-app/src/workspaces/invite_write.rs:576",
+        )],
+    ),
     (
         "plane.bgtasks.deletion_task.soft_delete_related_objects",
         &[

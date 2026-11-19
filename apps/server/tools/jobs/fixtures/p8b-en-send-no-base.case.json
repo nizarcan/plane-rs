@@ -1,0 +1,10 @@
+{
+  "task": "plane.bgtasks.email_notification_task.send_email_notification",
+  "sql": [
+    {
+      "label": "logs",
+      "query": "SELECT id::text, (processed_at IS NOT NULL)::text, (sent_at IS NOT NULL)::text FROM email_notification_logs ORDER BY id::text"
+    }
+  ],
+  "smtp": {}
+}

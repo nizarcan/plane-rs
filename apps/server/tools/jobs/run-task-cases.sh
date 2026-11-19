@@ -12,7 +12,7 @@
 #   --difftest PATH      difftest binary            (DIFFTEST)
 #   --fixtures DIR       fixture directory          (FIXTURES, default: next to this script)
 #   --list FILE          case list                  (TASK_CASES, default: tools/jobs/task-cases.txt)
-#   --set c|d|a3|a1|a2|all  which set column to run (TASK_CASE_SET, default: all)
+#   --set c|d|a3|a1|a2|b|all  which set column to run (TASK_CASE_SET, default: all)
 #   --a-db NAME          Django database            (DIFFTEST_A_DB, default: t_p8c_task_a)
 #   --b-db NAME          Rust database              (DIFFTEST_B_DB, default: t_p8c_task_b)
 #   --a-redis-db N       Django Redis index         (DIFFTEST_A_REDIS_DB, default: 5)
@@ -20,6 +20,9 @@
 #   --vhost NAME         RabbitMQ vhost             (DIFFTEST_VHOST, default: p8c_task)
 #   --s3-bucket-a NAME   Django bucket (p8*)        (DIFFTEST_S3_BUCKET_A)
 #   --s3-bucket-b NAME   Rust bucket (p8*)          (DIFFTEST_S3_BUCKET_B)
+#                        Any pair works: the harness replaces each side's own
+#                        bucket name with <BUCKET> before comparing, so no case
+#                        file hard-codes an agent's prefix.
 #   --live-url URL       LIVE_BASE_URL; {{http}}    (DIFFTEST_LIVE_URL)
 #                        expands to the case's fake HTTP server
 #   --worker PATH        plane-worker binary        (DIFFTEST_WORKER)
@@ -35,9 +38,16 @@
 # `--expect-django-failure`).
 #
 # The script never creates databases, buckets or vhosts itself: `difftest task`
-# owns and removes them. Point it at resources you own (`t_p8c_*`, Redis DBs 5
+# owns and removes them. Point it at resources you own (`t_<set>_*`, Redis DBs 5
 # and 6, a `p8*` bucket pair). Exit status is 0 only when every selected case
 # passed.
+#
+# A case with an `http` block (`set-c-crawl-link`, `set-c-copy-s3`, the webhook
+# delivery cases) needs a worker built with the `difftest` feature, because the
+# fake server is on loopback and the SSRF escape is compile-time only (D26).
+# `difftest task` probes `plane-worker --difftest-feature` first and refuses the
+# case with a build command in the message; a default-build worker cannot turn
+# that case into a silent database diff.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,8 +93,8 @@ done
 [[ -f "$TASK_CASES" ]] || { echo "error: case list not found: $TASK_CASES" >&2; exit 2; }
 [[ -d "$FIXTURES" ]] || { echo "error: fixture directory not found: $FIXTURES" >&2; exit 2; }
 case "$TASK_CASE_SET" in
-  c|d|a3|a1|a2|all) ;;
-  *) echo "error: --set must be c, d, a3, a1, a2 or all" >&2; exit 2 ;;
+  c|d|a3|a1|a2|b|all) ;;
+  *) echo "error: --set must be c, d, a3, a1, a2, b or all" >&2; exit 2 ;;
 esac
 
 pass=0

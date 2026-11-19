@@ -1,0 +1,42 @@
+{
+  "issue_id": "b1000000-0000-4000-8000-000000000013",
+  "notification_data": {
+    "b1000000-0000-4000-8000-000000000003": [
+      {
+        "issue_activity": {
+          "id": "b1000000-0000-4000-8000-000000000041",
+          "verb": "updated",
+          "field": "comment",
+          "actor": "b1000000-0000-4000-8000-000000000003",
+          "new_value": "<p>Avi first</p>",
+          "old_value": "",
+          "issue_comment": "",
+          "old_identifier": null,
+          "new_identifier": null,
+          "activity_time": "2026-01-02T09:06:00Z"
+        }
+      }
+    ],
+    "b1000000-0000-4000-8000-000000000001": [
+      {
+        "issue_activity": {
+          "id": "b1000000-0000-4000-8000-000000000041",
+          "verb": "updated",
+          "field": "comment",
+          "actor": "b1000000-0000-4000-8000-000000000001",
+          "new_value": "<p>Ada second</p>",
+          "old_value": "",
+          "issue_comment": "",
+          "old_identifier": null,
+          "new_identifier": null,
+          "activity_time": "2026-01-02T09:05:00Z"
+        }
+      }
+    ]
+  },
+  "receiver_id": "b1000000-0000-4000-8000-000000000002",
+  "email_notification_ids": [
+    "b1000000-0000-4000-8000-000000000031",
+    "b1000000-0000-4000-8000-000000000032"
+  ]
+}

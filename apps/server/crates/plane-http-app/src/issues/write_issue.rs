@@ -1521,7 +1521,13 @@ async fn publish_model_activity(
         slug: slug.to_owned(),
         origin: origin.to_owned(),
     });
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+    jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await?;
     Ok(())
 }
 

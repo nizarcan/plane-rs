@@ -1,0 +1,6 @@
+{
+  "webhook_id": "b0000000-0000-4000-8000-000000000021",
+  "receiver_id": "b0000000-0000-4000-8000-0000000000ff",
+  "reason": "Connection refused",
+  "current_site": "https://app.example.com"
+}

@@ -169,7 +169,7 @@ async fn forgot_password(ctx: &ViewCtx<'_>, is_space: bool) -> Result<ViewRespon
         ctx,
         task_name::FORGOT_PASSWORD,
         &message,
-        plane_jobs::queue::Job::new(task_name::FORGOT_PASSWORD),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await?;
 

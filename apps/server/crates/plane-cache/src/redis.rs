@@ -292,6 +292,27 @@ impl Redis {
         Ok(reply.is_some())
     }
 
+    /// `SET key value NX EX <seconds>`, the command redis-py issues for
+    /// `ri.set(key, value, nx=True, ex=300)` (`email_notification_task.py:35-38`).
+    /// Returns whether the key was written (`nil` when it already exists).
+    pub async fn set_bytes_nx_ex(
+        &self,
+        full_key: &str,
+        value: &[u8],
+        seconds: i64,
+    ) -> Result<bool, Error> {
+        let mut connection = self.connection().await?;
+        let reply: Option<String> = redis::cmd("SET")
+            .arg(full_key)
+            .arg(value)
+            .arg("NX")
+            .arg("EX")
+            .arg(seconds)
+            .query_async(&mut connection)
+            .await?;
+        Ok(reply.is_some())
+    }
+
     /// `SET key value NX PX <milliseconds>`: `cache.add(key, value, timeout)`
     /// (`django_redis/client/default.py:240-283`).
     pub async fn set_bytes_nx_px(
