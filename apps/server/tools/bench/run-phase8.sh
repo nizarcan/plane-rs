@@ -15,9 +15,10 @@
 #     work item and a comment, concurrency 1, 60 s per target. Deletes are not
 #     in the loop: one static URL per template can only be deleted once per
 #     target start (see the scenario's header);
-#   * `plane-worker` with its `LISTEN` connection up and four claimed echo
-#     jobs (`PLANE_RS_JOB_CONCURRENCY=4`), `plane-beat` after a real schedule
-#     tick has fired, `plane-api` idle;
+#   * `plane-worker` with its `LISTEN` connection up (the subscription is
+#     proven in `pg_stat_activity`), enqueue-to-claim latency, and four claimed
+#     echo jobs (`PLANE_RS_JOB_CONCURRENCY=4`), `plane-beat` after a real
+#     schedule tick has fired, `plane-api` idle;
 #   * a 10,000-job `recent_visited_task` drain on `plane-worker` vs
 #     `celery worker -c 4`, wall time and cgroup CPU, both paused while the
 #     queue is filled so the window starts from an empty consumer;
@@ -94,7 +95,8 @@ WORKER_CONCURRENCY=4
 usage() {
   cat <<'EOF'
 usage: run-phase8.sh [--keep] [--no-build] [--verify-only] [--down] [--tag NAME]
-                     [--scenarios LIST] [--skip-jobs] [--skip-drain]
+                     [--scenarios LIST] [--skip-jobs] [--skip-drain] [--jobs-only]
+                     [--worker-only]
 
   --keep          leave the containers and databases running at the end
   --no-build      reuse the images and target/release/difftest
@@ -107,6 +109,8 @@ usage: run-phase8.sh [--keep] [--no-build] [--verify-only] [--down] [--tag NAME]
   --skip-drain    skip the Rust-vs-Celery task throughput measurement
   --jobs-only     only the background-service and throughput measurements
                   (for development; needs a provisioned stack)
+  --worker-only   only the worker live-queue sample: LISTEN subscription, idle
+                  RSS/CPU and enqueue-to-claim latency
   --load-only     only the reads-mixed concurrency-8 window on fresh clones
 EOF
 }
@@ -118,6 +122,7 @@ down_only=0
 skip_jobs=0
 skip_drain=0
 jobs_only=0
+worker_only=0
 load_only=0
 scenarios_csv=""
 tag="phase8-$(date +%Y%m%d-%H%M%S)"
@@ -130,6 +135,7 @@ while (($# > 0)); do
     --skip-jobs) skip_jobs=1 ;;
     --skip-drain) skip_drain=1 ;;
     --jobs-only) jobs_only=1 ;;
+    --worker-only) worker_only=1 ;;
     --load-only) load_only=1 ;;
     --scenarios)
       shift
@@ -349,6 +355,32 @@ build_images() {
   note "building difftest (release)"
   cargo build --release --manifest-path "$PLANE_SERVER_DIR/crates/plane-testkit/Cargo.toml" \
     --bin difftest
+}
+
+# `--worker-only` needs the worker image and the migrator that creates the
+# queue schema, not the API, the beat image or difftest. The Dockerfile's
+# builder stage compiles all three jobs binaries behind one cache mount, so the
+# second target is a cached layer.
+build_worker_images() {
+  if ((skip_build == 1)); then
+    for image in "$WORKER_IMAGE" "$MIGRATOR_IMAGE"; do
+      docker image inspect "$image" >/dev/null || die "$image is missing"
+    done
+    return
+  fi
+  local target image
+  for target in worker migrator; do
+    case "$target" in
+      worker) image="$WORKER_IMAGE" ;;
+      migrator) image="$MIGRATOR_IMAGE" ;;
+    esac
+    note "building $image"
+    docker build --progress=plain \
+      --build-arg CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" \
+      --target "$target" \
+      -f "$PLANE_SERVER_DIR/deploy/docker/Dockerfile.plane-jobs" \
+      -t "$image" "$PLANE_REPO_ROOT" 2>&1 | tee "$out/build-$target-image.log"
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -673,17 +705,56 @@ run_as_jobs() {
     "${@:2}" >/dev/null
 }
 
+# Enqueue-to-claim latency for one live worker: insert `count` echo jobs 100 ms
+# apart (each with its own `pg_notify`, exactly like `queue::enqueue`), wait
+# for them to complete, and record `finished_at - created_at` from the
+# database's own clock. Five jobs sample the phase of the poll timer, so the
+# slowest is the poll interval when the NOTIFY is not delivered. Leaves the
+# queue empty again.
+measure_worker_claim_latency() {
+  local db="$1" count="${2:-5}" raw="$out/worker-claim-latency.txt" index poll_ms
+  poll_ms="$(grep -m1 '^PLANE_RS_JOB_POLL_MS=' "$run_dir/bench-p8-jobs.env" | cut -d= -f2)"
+  note "measuring enqueue-to-claim latency for $count NOTIFYs (PLANE_RS_JOB_POLL_MS=$poll_ms)"
+  psql_dev "$db" -c "DELETE FROM plane_jobs.jobs" >/dev/null
+  for ((index = 1; index <= count; index++)); do
+    psql_dev "$db" -tAc \
+      "INSERT INTO plane_jobs.jobs (id, task, payload, state)
+       VALUES (gen_random_uuid(), 'plane.jobs.echo',
+               json_build_object('args', '[]'::json, 'kwargs', '{}'::json), 'queued');
+       SELECT pg_notify('plane_jobs_jobs', 'latency-$index');" >/dev/null
+    sleep 0.1
+  done
+  wait_sql_count "$db" \
+    "SELECT count(*) FROM plane_jobs.jobs WHERE state = 'done'" "$count" 30 ||
+    note "  only $(psql_dev "$db" -tAc "SELECT count(*) FROM plane_jobs.jobs WHERE state = 'done'") of $count claimed"
+  psql_dev "$db" -tAc \
+    "SELECT round((EXTRACT(EPOCH FROM (finished_at - created_at)) * 1000)::numeric, 1)
+       FROM plane_jobs.jobs ORDER BY created_at" >"$raw"
+  "$SYSTEM_PYTHON" - "$raw" "$out/worker-claim-latency.json" <<'PY'
+import json
+import sys
+
+raw, summary = sys.argv[1:3]
+values = [float(line) for line in open(raw, encoding="utf-8") if line.strip()]
+values.sort()
+if not values:
+    raise SystemExit(f"no claim latencies in {raw}")
+middle = len(values) // 2
+median = values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
+entry = {"count": len(values), "min_ms": values[0], "median_ms": median, "max_ms": values[-1]}
+json.dump(entry, open(summary, "w", encoding="utf-8"))
+print("  claim latency ms: min {min_ms}, median {median_ms}, max {max_ms}".format(**entry))
+PY
+  psql_dev "$db" -c "DELETE FROM plane_jobs.jobs" >/dev/null
+}
+
 sample_worker_live() {
   note "starting $WORKER_CONTAINER and waiting for its LISTEN connection"
   run_as_jobs "$WORKER_CONTAINER" "$WORKER_IMAGE"
-  # Phase 8 finding: at this head the listener task never announces a LISTEN
-  # (see BENCH.md); it deadlocks on `batch_execute` before the connection
-  # future is polled, and the worker drains through its 1 s poll fallback. The
-  # measurement records the state instead of failing, so the worker's live-queue
-  # footprint is still measured; the exact connection list is kept below.
-  if ! try_wait_log "$WORKER_CONTAINER" '"job listener connected"' 20; then
-    note "  no 'job listener connected' line in 20 s (recorded as a finding)"
-  fi
+  # The listener drives the connection while `LISTEN` runs
+  # (`crates/plane-jobs/src/listener.rs`); a missing line means the wake-up
+  # half is broken again and the claim latency below would be poll-bound.
+  wait_log "$WORKER_CONTAINER" '"job listener connected"' 20
 
   psql_dev "$JOBS_DB" -c \
     "SELECT pid, state, wait_event_type, wait_event, left(coalesce(query, ''), 70) AS query
@@ -692,6 +763,8 @@ sample_worker_live() {
   psql_dev "$JOBS_DB" -tAc \
     "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND query ILIKE 'LISTEN%'" \
     >"$out/worker-listen.txt"
+
+  measure_worker_claim_latency "$JOBS_DB" 5
 
   note "sampling the worker idle with the listener up, then with $WORKER_CONCURRENCY claimed jobs"
   start_sampler worker "worker:$(container_id "$WORKER_CONTAINER")"
@@ -780,8 +853,10 @@ drain_rust() {
   note "throughput: $DRAIN_JOBS recent_visited_task jobs through $WORKER_CONTAINER"
   psql_dev "$JOBS_DB" -c "DELETE FROM plane_jobs.jobs" >/dev/null
   run_as_jobs "$WORKER_CONTAINER" "$WORKER_IMAGE"
+  # The throughput window is queue-bound, not wake-up-bound; wait for the
+  # listener anyway so the proof files show the subscription at this head.
   try_wait_log "$WORKER_CONTAINER" '"job listener connected"' 20 ||
-    note "  no 'job listener connected' line (Phase 8 finding; poll fallback is used)"
+    note "  no 'job listener connected' line (poll fallback still drains)"
   start_sampler drain-rust "worker:$(container_id "$WORKER_CONTAINER")"
   : >"$out/events-drain-rust.log"
   mark "$out/events-drain-rust.log" "drain-start"
@@ -1144,13 +1219,27 @@ PY
 # Main
 # ---------------------------------------------------------------------------
 preflight
-build_images
+if ((worker_only == 1)); then
+  build_worker_images
+else
+  build_images
+fi
 DJANGO_BASE_PYTHON="$(grep -m1 '^FROM python:' "$PLANE_API_DIR/Dockerfile.api" |
   sed -E 's/^FROM ([^ ]+).*/\1/')"
 [[ -n "$DJANGO_BASE_PYTHON" ]] || die "could not read the Python base image from Dockerfile.api"
 
 cleanup
 provision
+if ((worker_only == 1)); then
+  migrate_jobs_schema "$JOBS_DB" "$run_dir/bench-p8-jobs.env" "migrator-jobs.log"
+  sample_worker_live
+  render_totals
+  if ((keep == 0)); then
+    cleanup
+  fi
+  note "wrote $out"
+  exit 0
+fi
 if ((jobs_only == 1)); then
   migrate_jobs_schema "$JOBS_DB" "$run_dir/bench-p8-jobs.env" "migrator-jobs.log"
   sample_worker_live

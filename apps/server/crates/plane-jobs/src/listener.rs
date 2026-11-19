@@ -70,19 +70,42 @@ async fn listen_once(settings: &Settings, tx: &mpsc::Sender<()>) -> Result<(), Q
     let configs = DatabaseConfigs::from_settings(&settings.database)?;
     let postgres = PostgresSettings::build(&configs.primary)?;
     let (client, mut connection) = postgres.config.connect(postgres.connector).await?;
-    client
-        .batch_execute(&format!("LISTEN {}", crate::queue::NOTIFY_CHANNEL))
-        .await?;
-    tracing::info!(
-        target: "plane.jobs",
-        channel = crate::queue::NOTIFY_CHANNEL,
-        "job listener connected"
-    );
-    while let Some(message) = std::future::poll_fn(|cx| connection.poll_message(cx)).await {
-        let message = message?;
-        if matches!(message, AsyncMessage::Notification(_)) && tx.send(()).await.is_err() {
-            return Ok(());
+
+    // tokio-postgres only writes a request while its `Connection` is polled,
+    // and `Connection`'s `Future` impl discards `AsyncMessage::Notification`s
+    // (it only logs notices). So `LISTEN` must be awaited *while*
+    // `poll_message` drives the socket. Both branches run from the first poll:
+    // the request is written, its response is acknowledged, and a
+    // notification that arrives as soon as the subscription takes effect is
+    // read out of the same buffered stream and forwarded, never left waiting
+    // for a query that never comes.
+    let statement = format!("LISTEN {}", crate::queue::NOTIFY_CHANNEL);
+    let listen = client.batch_execute(&statement);
+    tokio::pin!(listen);
+    let mut subscribed = false;
+    loop {
+        tokio::select! {
+            result = &mut listen, if !subscribed => {
+                result?;
+                subscribed = true;
+                tracing::info!(
+                    target: "plane.jobs",
+                    channel = crate::queue::NOTIFY_CHANNEL,
+                    "job listener connected"
+                );
+            }
+            message = std::future::poll_fn(|cx| connection.poll_message(cx)) => {
+                match message {
+                    Some(Ok(AsyncMessage::Notification(_))) => {
+                        if tx.send(()).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => return Err(error.into()),
+                    None => return Ok(()),
+                }
+            }
         }
     }
-    Ok(())
 }

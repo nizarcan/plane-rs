@@ -12,9 +12,11 @@ rows, Redis keys, the bucket, the SMTP transcript and the command output.
     apps/api/.venv/bin/python tools/boot/compare_boot.py
 
 Uses only `t_p8boot_boot_a` / `t_p8boot_boot_b`, Redis DBs 7 and 8, the bucket
-`p8boot-boot`, the fake GitHub on 18420 and two `fake_smtp.py` listeners on
-18411/18412. Drops the databases and bucket and kills every child process it
-started on exit (PIDs are recorded as they are spawned).
+`p8boot-boot`, the fake GitHub on 18420 and one `fake_smtp.py` listener at a
+time on an ephemeral port (`--port 0 --port-file`, as `difftest task` does, so a
+concurrent run's SMTP wrapper cannot collide with it). Drops the databases and
+bucket and kills every child process it started on exit (PIDs are recorded as
+they are spawned).
 
 Two documented differences are asserted rather than hidden:
 
@@ -57,9 +59,10 @@ A_REDIS = 7
 B_REDIS = 8
 BUCKET = "p8boot-boot"
 GITHUB_PORT = 18420
-SMTP_PORT = 18411
 SMTP_LOG_A = Path("/tmp/p8boot-smtp-a.jsonl")
 SMTP_LOG_B = Path("/tmp/p8boot-smtp-b.jsonl")
+SMTP_PORT_A = Path("/tmp/p8boot-smtp-a.port")
+SMTP_PORT_B = Path("/tmp/p8boot-smtp-b.port")
 
 USER_ID = "6f1e7a52-2f5e-4c4a-9d38-2c0e2a9b6a11"
 USER_EMAIL = "p8boot-user@example.test"
@@ -102,14 +105,35 @@ def stop_process(process: subprocess.Popen) -> None:
         PIDS.remove(process.pid)
 
 
-def start_smtp(port: int, log: Path) -> subprocess.Popen:
+def start_smtp(log: Path, port_file: Path) -> tuple[subprocess.Popen, int]:
+    """Start a listener on an ephemeral port and return (process, port)."""
     log.write_text("", encoding="utf-8")
+    port_file.unlink(missing_ok=True)
     process = spawn(
-        [sys.executable, str(FAKE_SMTP), "--port", str(port), "--output", str(log)],
+        [
+            sys.executable,
+            str(FAKE_SMTP),
+            "--port",
+            "0",
+            "--port-file",
+            str(port_file),
+            "--output",
+            str(log),
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     deadline = time.monotonic() + 10
+    port: int | None = None
+    while time.monotonic() < deadline:
+        if port_file.exists():
+            text = port_file.read_text(encoding="utf-8").strip()
+            if text:
+                port = int(text)
+                break
+        time.sleep(0.05)
+    if port is None:
+        raise SystemExit("fake SMTP did not write its port file")
     while time.monotonic() < deadline:
         probe = run(["bash", "-c", f"exec 3<>/dev/tcp/127.0.0.1/{port}"], env=os.environ)
         if probe.returncode == 0:
@@ -117,7 +141,7 @@ def start_smtp(port: int, log: Path) -> subprocess.Popen:
             # the log holds only the command's message.
             time.sleep(0.2)
             log.write_text("", encoding="utf-8")
-            return process
+            return process, port
         time.sleep(0.1)
     raise SystemExit(f"fake SMTP on {port} did not start")
 
@@ -205,8 +229,12 @@ def create_database(env: dict, name: str, template: str = "plane_tpl") -> None:
         cursor.execute(f'CREATE DATABASE "{name}" TEMPLATE "{template}"')
 
 
-def seed(env: dict, smtp_port: int) -> None:
-    """The user the admin commands act on and the SMTP rows test_email reads."""
+def seed(env: dict) -> None:
+    """The user the admin commands act on and the SMTP rows test_email reads.
+
+    EMAIL_PORT starts at 0; the test-email step writes each listener's
+    ephemeral port into the side that is about to run.
+    """
     result = run(
         [str(API_PYTHON), str(TOOLS / "boot" / "run_django_boot.py"), "seed_user",
          USER_ID, USER_EMAIL, OLD_PASSWORD],
@@ -219,7 +247,7 @@ def seed(env: dict, smtp_port: int) -> None:
         "EMAIL_HOST": ("127.0.0.1", False),
         "EMAIL_HOST_USER": ("", False),
         "EMAIL_HOST_PASSWORD": ("", True),
-        "EMAIL_PORT": (str(smtp_port), False),
+        "EMAIL_PORT": ("0", False),
         "EMAIL_FROM": ("Team Plane <team@example.test>", False),
         "EMAIL_USE_TLS": ("0", False),
         "EMAIL_USE_SSL": ("0", False),
@@ -231,6 +259,15 @@ def seed(env: dict, smtp_port: int) -> None:
                 "WHERE key = %s",
                 (value, encrypted, key),
             )
+        connection.commit()
+
+
+def set_email_port(env: dict, port: int) -> None:
+    with psql(env) as connection, connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE instance_configurations SET value = %s WHERE key = 'EMAIL_PORT'",
+            (str(port),),
+        )
         connection.commit()
 
 
@@ -345,16 +382,16 @@ def main() -> int:
         },
     )
 
-    SMTP_LOG_A.unlink(missing_ok=True)
-    SMTP_LOG_B.unlink(missing_ok=True)
+    for path in (SMTP_LOG_A, SMTP_LOG_B, SMTP_PORT_A, SMTP_PORT_B):
+        path.unlink(missing_ok=True)
     docker = shutil.which("docker")
 
     try:
         print("== resources")
         create_database(env_a, A_DB)
         create_database(env_b, B_DB)
-        seed(env_a, SMTP_PORT)
-        seed(env_b, SMTP_PORT)
+        seed(env_a)
+        seed(env_b)
         s3_a = s3_client(env_a)
         delete_bucket(s3_a, BUCKET)
         redis_client(env_a).flushdb()
@@ -585,14 +622,18 @@ def main() -> int:
 
         # --- test_email -----------------------------------------------------
         print("== test-email")
-        # One listener on one port, started twice: both sides must see the same
-        # EMAIL_PORT row, and each log then holds exactly one message.
-        smtp_a = start_smtp(SMTP_PORT, SMTP_LOG_A)
+        # A listener per side on a kernel-chosen port: the fixed 18411 collided
+        # with the SMTP scenario wrapper's port once in a full verification
+        # run. Only the side under test points its EMAIL_PORT row at its
+        # listener, and each log then holds exactly one message.
+        smtp_a, port_a = start_smtp(SMTP_LOG_A, SMTP_PORT_A)
+        set_email_port(env_a, port_a)
         django_email = run(
             [str(API_PYTHON), "manage.py", "test_email", "receiver@example.test"], env=env_a, cwd=str(API_DIR)
         )
         stop_process(smtp_a)
-        smtp_b = start_smtp(SMTP_PORT, SMTP_LOG_B)
+        smtp_b, port_b = start_smtp(SMTP_LOG_B, SMTP_PORT_B)
+        set_email_port(env_b, port_b)
         rust_email = run([str(ADMIN), "test-email", "receiver@example.test"], env=env_b)
         stop_process(smtp_b)
         compare_output("test-email", django_email, rust_email)
@@ -621,8 +662,8 @@ def main() -> int:
             for name in (A_DB, B_DB):
                 drop_database(env_a, name)
             delete_bucket(s3_client(env_a), BUCKET)
-            SMTP_LOG_A.unlink(missing_ok=True)
-            SMTP_LOG_B.unlink(missing_ok=True)
+            for path in (SMTP_LOG_A, SMTP_LOG_B, SMTP_PORT_A, SMTP_PORT_B):
+                path.unlink(missing_ok=True)
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s):")
