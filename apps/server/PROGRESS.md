@@ -2370,5 +2370,23 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      `plane.exception` line. `JOBS_BINARY=plane-worker` CI-style build 63.2 MB, starts. Image
      sizes: api 83.5 MB, worker 62.3 MB, beat 53.8 MB, migrator 53.7 MB.
 
-   Running: the boot-asymmetry fix (`rs/p8-bootfix`; 18030/18130, Redis 7/8, contract
-   Redis 9). Then the verification of the merged head, the benchmark and the revert.
+   - **Boot-asymmetry fix on its branch (`rs/p8-bootfix`, uncommitted).** Cause confirmed:
+     `register_instance` at Rust's boot (failed GitHub lookup → `latest_version` = current
+     version, plus `last_checked_at`/`updated_at`), while `django-serve.sh` starts after the
+     entrypoint steps. Fix: `PLANE_RS_BOOT_STEPS=skip` (default `all`, WARN when skipping,
+     waits still run) set only on the harness's Rust target; boot parity stays with
+     `compare_boot.py` and `boot/static.yaml`. The two `GET /api/instances/` normalisers
+     removed (they hid half the difference). `boot/static.yaml` declares its Django command
+     (new scenario field `target_commands`). `baseline.py`/`verify_migrator.py` name
+     `--dump-url` on a connection failure. Agent: instance files 30/30, 25/25, 10/10, static
+     9/9, read 52/52, write 74/74 + wrapped files, `compare_boot` PASS, contract 984/2, 1424
+     tests, testkit 215.
+     - Found: `read/v1.yaml` (generated; excluded from the sweep since v1 was partial) 238/241.
+       Orchestrator's rerun: only steps 110/111 (project summary) differ, and only in the
+       `counts` key order inside `process_logs`' `log_data.response_body`. Django iterates a
+       `set` (`project.py:733-739`) and the HTTP body is already compared by key set (D16);
+       the logged copy isn't. Harness gap; fix (apply the step's body rules to the logged
+       body) and `read/v1.yaml` back in the sweep assigned to the same agent.
+
+   Running: the `rs/p8-bootfix` follow-up. Then merge, the verification of the merged head,
+   the benchmark and the revert.
