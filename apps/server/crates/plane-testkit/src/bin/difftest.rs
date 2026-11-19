@@ -274,8 +274,18 @@ struct TaskArgs {
     /// `plane-worker` binary (default: `target/debug/plane-worker`).
     #[arg(long)]
     worker: Option<PathBuf>,
+    /// The task is expected to fail on Django with this substring in its
+    /// exception (pass the flag with no value to accept any failure).
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    expect_django_failure: Option<String>,
+    /// The worker's job is expected to end `dead` with this substring in
+    /// `last_error` (pass the flag with no value to accept any failure).
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    expect_worker_failure: Option<String>,
     #[arg(long, default_value = DEFAULT_PG_URL)]
     pg_url: String,
+    #[arg(long, default_value = DEFAULT_RABBIT_AMQP)]
+    rabbit_amqp: String,
     #[arg(long, default_value = DEFAULT_RABBIT_HTTP)]
     rabbit_http: String,
     #[arg(long, default_value = "plane")]
@@ -457,6 +467,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Task(args) => {
+            let args = *args;
             let mut options =
                 plane_testkit::task::TaskOptions::defaults(args.task, resolve_input(&args.kwargs));
             options.setup_path = args.setup.as_ref().map(|path| resolve_input(path));
@@ -469,6 +480,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
             options.template_db = args.template_db;
             options.worker = args.worker.map(|path| resolve_input(&path));
             options.pg_url = args.pg_url;
+            options.rabbit_amqp = args.rabbit_amqp;
             options.rabbit_http = args.rabbit_http;
             options.rabbit_user = args.rabbit_user;
             options.rabbit_password = args.rabbit_password;
@@ -479,6 +491,8 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
             options.s3_bucket_a = args.s3_bucket_a;
             options.s3_bucket_b = args.s3_bucket_b;
             options.live_url = args.live_url;
+            options.expect_django_failure = args.expect_django_failure;
+            options.expect_worker_failure = args.expect_worker_failure;
             plane_testkit::task::run(&options).await?;
             Ok(ExitCode::SUCCESS)
         }

@@ -23,6 +23,7 @@ difftest = []
 base64.workspace = true
 chrono.workspace = true
 deadpool-postgres.workspace = true
+plane-auth = { path = "../plane-auth" }
 plane-cache = { path = "../plane-cache" }
 plane-core = { path = "../plane-core" }
 plane-db = { path = "../plane-db" }
@@ -32,6 +33,7 @@ plane-net = { path = "../plane-net" }
 plane-serde = { path = "../plane-serde" }
 plane-storage = { path = "../plane-storage" }
 plane-xlsx = { path = "../plane-xlsx" }
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio-postgres.workspace = true

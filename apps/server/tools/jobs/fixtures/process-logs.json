@@ -1,0 +1,14 @@
+{
+  "log_data": {
+    "token_identifier": "abc123",
+    "path": "/api/v1/workspaces/",
+    "method": "GET",
+    "query_params": "",
+    "headers": "{'X-Api-Key': '[REDACTED]'}",
+    "body": null,
+    "response_code": 200,
+    "response_body": "{}",
+    "ip_address": "127.0.0.1",
+    "user_agent": "curl/8.0"
+  }
+}

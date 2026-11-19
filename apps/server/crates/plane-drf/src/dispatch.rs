@@ -252,6 +252,18 @@ impl Runtime {
         let mut response = match result {
             Ok(response) => response,
             Err(error) => {
+                // Django logs every exception its handler renders
+                // (`log_exception` in the family bases); do the same for the
+                // non-DRF errors, whose 500 would otherwise leave only the
+                // access line. `ViewError::Api` is a 4xx DRF error chosen by a
+                // handler and is not an operator-facing failure.
+                if !matches!(error, ViewError::Api(_)) {
+                    tracing::error!(
+                        target: "plane.exception",
+                        error = %error.cause(),
+                        "unhandled handler error"
+                    );
+                }
                 // `APIView.dispatch`: when `handle_exception` returns `None` the
                 // exception is re-raised, so `finalize_response` never runs and
                 // the response Django builds carries **no** `default_response_

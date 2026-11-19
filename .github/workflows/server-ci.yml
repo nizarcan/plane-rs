@@ -506,6 +506,13 @@ jobs:
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/inventory/lxml_html_tables.py --check
 
+      # `crates/plane-tasks/src/versions.rs` parses page components with the
+      # same `html.parser` behaviour `page_transaction_task.extract_all_components`
+      # has; the corpus is Django's output for the parser's case list.
+      - name: Check the page component corpus is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/jobs/gen_component_corpus.py --check
+
       # The published v1 document is a committed artefact (Phase 7 exit: "the
       # docs stay accurate"). `check.py --check` re-renders through Django and
       # compares byte for byte, then asserts the document's path+method set
@@ -516,6 +523,12 @@ jobs:
       - name: Check the e-mail golden corpus is current
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/mail/email_message_corpus.py --check
+
+      # `crates/plane-mail` renders the embedded minijinja templates; the
+      # corpus is Django's `render_to_string` output for the same contexts.
+      - name: Check the e-mail template corpus is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/mail/email_template_corpus.py --check
 
       - name: Check the OpenAPI goldens are current
         working-directory: apps/api

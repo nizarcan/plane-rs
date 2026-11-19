@@ -58,7 +58,7 @@ impl DbSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct TableDiff {
     pub inserted: Vec<Value>,
     pub deleted: Vec<Value>,
@@ -66,7 +66,7 @@ pub struct TableDiff {
     pub updated: Vec<Value>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct DbDiff {
     pub tables: BTreeMap<String, TableDiff>,
 }

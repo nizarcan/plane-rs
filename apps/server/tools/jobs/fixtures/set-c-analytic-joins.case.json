@@ -1,0 +1,6 @@
+{
+  "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+  "sql": [],
+  "smtp": {},
+  "normalize": []
+}

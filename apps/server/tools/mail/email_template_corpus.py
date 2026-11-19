@@ -16,11 +16,16 @@ database, no Redis) and writes:
 Usage (from apps/api, where the virtualenv lives):
 
   .venv/bin/python ../server/tools/mail/email_template_corpus.py
+  .venv/bin/python ../server/tools/mail/email_template_corpus.py --check
+
+`--check` renders everything in memory and fails with a non-zero exit when the
+committed corpus differs; it never writes the file (CI uses it).
 
 The multipart case masks the random boundary (`<BOUNDARY>`), `Date:` and the
 Message-ID local part, exactly as `email_message_corpus.py` does.
 """
 
+import argparse
 import json
 import os
 import sys
@@ -195,6 +200,19 @@ def record_multipart():
     return "\r\n".join(lines)
 
 
+def record_multipart():
+    from django.core.mail import EmailMultiAlternatives
+
+    message = EmailMultiAlternatives(
+        subject="Your unique Plane login code is A1B2C3",
+        body="\n\nHello from Plane\n\n",
+        from_email="Team Plane <team@mailer.plane.so>",
+        to=["ada@example.com"],
+    )
+    message.attach_alternative("<html><body><p>Hello from Plane</p></body></html>", "text/html")
+    return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
+
+
 def record_attachment():
     """`analytic_plot_export.send_export_email`'s exact message shape."""
     from django.core.mail import EmailMultiAlternatives
@@ -214,10 +232,13 @@ def record_attachment():
 
 
 def mask_generated(encoded: str) -> str:
+    # The boundary is random; replace every occurrence including the header.
     start = encoded.index('boundary="') + len('boundary="')
     end = encoded.index('"', start)
     boundary = encoded[start:end]
     encoded = encoded.replace(boundary, "<BOUNDARY-0000000000000000000000000>")
+    # Date and the Message-ID local part are generated per send. The
+    # Message-ID can be folded across two lines by Python's header writer.
     lines = []
     skip_continuation = False
     for line in encoded.split("\r\n"):
@@ -234,7 +255,14 @@ def mask_generated(encoded: str) -> str:
     return "\r\n".join(lines)
 
 
-def main():
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="compare the committed corpus with Django's output; never writes",
+    )
+    args = parser.parse_args(argv)
     configure()
     corpus = {
         "templates": record_templates(),
@@ -242,11 +270,26 @@ def main():
         "multipart": record_multipart(),
         "attachment": record_attachment(),
     }
+    rendered = json.dumps(corpus, indent=2, ensure_ascii=False) + "\n"
+    if args.check:
+        existing = ""
+        if os.path.exists(OUT_PATH):
+            with open(OUT_PATH, encoding="utf-8") as handle:
+                existing = handle.read()
+        if existing != rendered:
+            print(
+                f"STALE {os.path.relpath(OUT_PATH, REPO_ROOT)}: the committed corpus "
+                "does not match Django's current templates",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"{os.path.relpath(OUT_PATH, REPO_ROOT)} is current", file=sys.stderr)
+        return 0
     with open(OUT_PATH, "w", encoding="utf-8") as handle:
-        json.dump(corpus, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+        handle.write(rendered)
     print(f"wrote {OUT_PATH}", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

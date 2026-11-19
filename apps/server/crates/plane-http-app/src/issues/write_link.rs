@@ -858,7 +858,13 @@ async fn publish_crawl(
 ) -> Result<(), ViewError> {
     let task = plane_jobs::celery::task_name::CRAWL_WORK_ITEM_LINK_TITLE;
     let message = tasks::crawl_work_item_link_title(id, url);
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+    jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await?;
     Ok(())
 }
 

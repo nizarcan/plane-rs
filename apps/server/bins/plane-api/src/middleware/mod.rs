@@ -411,8 +411,14 @@ async fn response_phase(
         LAYER_XFRAME => Ok(xframe::response(resp)),
         LAYER_GZIP => Ok(gzip::response(ctx, resp)),
         LAYER_TOKEN_LOG => {
-            extensions::api_token_log_response(&state.settings, ctx, &resp, state.drf.celery())
-                .await;
+            extensions::api_token_log_response(
+                &state.settings,
+                ctx,
+                &resp,
+                state.drf.celery(),
+                Some(&state.db),
+            )
+            .await;
             Ok(resp)
         }
         LAYER_LOGGER => {

@@ -1,0 +1,9 @@
+{
+  "log_data": {
+    "token_identifier": "abc123",
+    "path": "/api/v1/workspaces/",
+    "method": "GET",
+    "response_code": 200,
+    "ip_address": "not-an-ip"
+  }
+}

@@ -1,0 +1,755 @@
+{
+ "cases": [
+  {
+   "images": [],
+   "input": "",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<p>plain text</p>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<p></p>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<mention-component></mention-component>",
+   "mentions": [
+    {
+     "attributes": {}
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name=\"user\" entity_identifier=\"b\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_identifier": "b",
+      "entity_name": "user",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<MENTION-COMPONENT id='a' ENTITY_NAME='user'></MENTION-COMPONENT>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "user",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=a entity_name=user></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "user",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" id=\"b\" entity_name=\"first\" entity_name=\"last\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "last",
+      "id": "b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component ID=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a&amp;b\" entity_name=\"u&quot;x\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u\"x",
+      "id": "a&b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a&amp\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a&"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a&notit;\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a¬it;"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"&#65;&#x42;\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "AB"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": ""
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\"/>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" / >",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" />text",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component/id=\"a\">",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component\tid=\"a\"\nentity_name=\"u\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a>b\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a>b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id='a\"b'></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a\"b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=1 entity_identifier=2 ></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_identifier": "2",
+      "id": "1"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name=\"u?v\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u?v",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name=\"u&v\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u&v",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name=\"u v\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u v",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name=\"user\"",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<mention-component id='a\" entity_name='b'>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a\" entity_name="
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-componentx id=\"a\"></mention-componentx>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<mention-component- id=\"a\"></mention-component->",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<script><mention-component id=\"a\"></mention-component></script>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<SCRIPT><mention-component id=\"a\"></mention-component></SCRIPT>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<style><mention-component id=\"a\"></mention-component></style>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<textarea><mention-component id=\"a\"></mention-component></textarea>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<title><mention-component id=\"a\"></mention-component></title>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<noscript><mention-component id=\"a\"></mention-component></noscript>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<script>if (a < b) { x(\"<mention-component id=\\\"a\\\">\") }</script><mention-component id=\"b\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<!-- <mention-component id=\"a\"> --><mention-component id=\"b\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<!-- unterminated <mention-component id=\"a\">",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<![CDATA[<mention-component id=\"a\">]]><mention-component id=\"b\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<?x <mention-component id=\"a\"> ?><mention-component id=\"b\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<!DOCTYPE html><mention-component id=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<!x><mention-component id=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<p>a < b</p><mention-component id=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "</><mention-component id=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "</ p><mention-component id=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "b",
+      "src": "/x/"
+     }
+    }
+   ],
+   "input": "<p><mention-component id=\"a\"><image-component id=\"b\" src=\"/x/\"/></mention-component></p>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "a",
+      "src": "https://e.test/x.png"
+     }
+    }
+   ],
+   "input": "<image-component id=\"a\" src=\"https://e.test/x.png\"></image-component>",
+   "mentions": []
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "a",
+      "src": ""
+     }
+    }
+   ],
+   "input": "<image-component id=\"a\" src>",
+   "mentions": []
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "b",
+      "src": "a"
+     }
+    }
+   ],
+   "input": "<image-component src=\"a\" id=\"b\"></image-component>",
+   "mentions": []
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "a&b",
+      "src": "/api/assets/1?a=1&b=2"
+     }
+    }
+   ],
+   "input": "<image-component id=\"a&amp;b\" src=\"/api/assets/1?a=1&amp;b=2\"/>",
+   "mentions": []
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "a",
+      "src": "/x/"
+     }
+    }
+   ],
+   "input": "<div><image-component id=\"a\" src=\"/x/\"></image-component></div>",
+   "mentions": []
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "a",
+      "src": "/x/"
+     }
+    }
+   ],
+   "input": "<image-component id=\"a\" width=\"10\" height=\"20\" src=\"/x/\"></image-component>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name=\"user\" entity_type=\"issue\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "user",
+      "entity_type": "issue",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_identifier=\"uuid\" entity_name=\"user\" extra=\"x\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_identifier": "uuid",
+      "entity_name": "user",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<p>text</p>",
+   "mentions": []
+  },
+  {
+   "images": [],
+   "input": "text<mention-component id=\"a\"></mention-component>text",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\"></mention-component >",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component\nid=\"a\"\rentity_name=\"u\"\fid=\"b\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u",
+      "id": "b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"é\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "é"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id='a&' entity_name='u'></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u",
+      "id": "a&"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component data-id=\"a\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {}
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" id></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": ""
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id= ></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": ""
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id==a></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "=a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" =b></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=a/b></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a/b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" /entity_name=\"u\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u",
+      "id": "a"
+     }
+    }
+   ]
+  },
+  {
+   "images": [],
+   "input": "<mention-component id=\"a\" entity_name=\"u\"/><mention-component id=\"b\" entity_name=\"v\">",
+   "mentions": [
+    {
+     "attributes": {
+      "entity_name": "u",
+      "id": "a"
+     }
+    },
+    {
+     "attributes": {
+      "entity_name": "v",
+      "id": "b"
+     }
+    }
+   ]
+  },
+  {
+   "images": [
+    {
+     "attributes": {
+      "id": "b",
+      "src": "c"
+     }
+    }
+   ],
+   "input": "<mention-component id=\"a\"></mention-component><image-component id=\"b\" src=\"c\"><mention-component id=\"d\" entity_name=\"e\"></mention-component>",
+   "mentions": [
+    {
+     "attributes": {
+      "id": "a"
+     }
+    },
+    {
+     "attributes": {
+      "entity_name": "e",
+      "id": "d"
+     }
+    }
+   ]
+  }
+ ]
+}

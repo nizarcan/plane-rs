@@ -95,7 +95,7 @@
 # | v1 | `PLANE_RS_GROUP_V1` | 79 | 297 | yes |
 # | public | `PLANE_RS_GROUP_PUBLIC` | 25 | 88 | yes |
 # | instances | `PLANE_RS_GROUP_INSTANCES` | 14 | 43 | yes |
-# | schema | `PLANE_RS_GROUP_SCHEMA` | 3 | 9 | no |
+# | schema | `PLANE_RS_GROUP_SCHEMA` | 3 | 9 | yes |
 # | web | `PLANE_RS_GROUP_WEB` | 1 | 8 | no |
 
 # --------------------------------------------------------------------------
@@ -576,7 +576,7 @@ handle @plane_rs_v1 {
 		&& (
 			(method("GET", "POST") && (path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/$") || path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/inbox-issues/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/comments/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/$") || path_regexp(r"^/api/public/anchor/[^/]+/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/$")))
 			|| 			(method("GET", "PATCH", "DELETE") && (path_regexp(r"^/api/public/anchor/[^/]+/intakes/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/intake-issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
-			|| 			(method("GET") && (path_regexp(r"^/api/public/workspaces/[^/]+/project-boards/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/anchor/[^/]+/meta/$") || path_regexp(r"^/api/public/anchor/[^/]+/settings/$") || path_regexp(r"^/api/public/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/anchor/$") || path_regexp(r"^/api/public/anchor/[^/]+/cycles/$") || path_regexp(r"^/api/public/anchor/[^/]+/modules/$") || path_regexp(r"^/api/public/anchor/[^/]+/states/$") || path_regexp(r"^/api/public/anchor/[^/]+/labels/$") || path_regexp(r"^/api/public/anchor/[^/]+/members/$")))
+			|| 			(method("GET") && (path_regexp(r"^/api/public/workspaces/[^/]+/project-boards/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$") || path_regexp(r"^/api/public/anchor/[^/]+/meta/$") || path_regexp(r"^/api/public/anchor/[^/]+/settings/$") || path_regexp(r"^/api/public/anchor/[^/]+/issues/$") || path_regexp(r"^/api/public/workspaces/[^/]+/projects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/anchor/$") || path_regexp(r"^/api/public/anchor/[^/]+/cycles/$") || path_regexp(r"^/api/public/anchor/[^/]+/modules/$") || path_regexp(r"^/api/public/anchor/[^/]+/states/$") || path_regexp(r"^/api/public/anchor/[^/]+/labels/$") || path_regexp(r"^/api/public/anchor/[^/]+/members/$")))
 			|| 			(method("DELETE") && (path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/[^/]+/$") || path_regexp(r"^/api/public/anchor/[^/]+/comments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/reactions/[^/]+/$")))
 			|| 			(method("GET", "POST", "DELETE") && (path_regexp(r"^/api/public/anchor/[^/]+/issues/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/votes/$")))
 			|| 			(method("GET", "POST", "PATCH", "DELETE") && (path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/$") || path_regexp(r"^/api/public/assets/v2/anchor/[^/]+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$")))
@@ -606,5 +606,21 @@ handle @plane_rs_public {
 	CEL
 }
 handle @plane_rs_instances {
+	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
+}
+
+# --------------------------------------------------------------------------
+# schema: The OpenAPI document and its Swagger UI / ReDoc pages (ENABLE_DRF_SPECTACULAR).
+# 3 route(s), 9 endpoint x method pair(s); PLANE_RS_GROUP_SCHEMA=django sends them back.
+# --------------------------------------------------------------------------
+@plane_rs_schema {
+	expression <<CEL
+		({env.PLANE_RS_GROUP_SCHEMA} == "" ? "rust" : {env.PLANE_RS_GROUP_SCHEMA}) == "rust"
+		&& (
+			(method("GET") && (path_regexp(r"^/api/schema/$") || path_regexp(r"^/api/schema/swagger-ui/$") || path_regexp(r"^/api/schema/redoc/$")))
+		)
+	CEL
+}
+handle @plane_rs_schema {
 	reverse_proxy {$PLANE_RS_API_UPSTREAM:plane-api:8000}
 }

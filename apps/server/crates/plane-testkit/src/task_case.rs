@@ -66,6 +66,8 @@ pub struct TaskCase {
     /// Capture the task's outbound SMTP through `tools/mail/fake_smtp.py`.
     #[serde(default)]
     pub smtp: Option<SmtpCase>,
+    /// Normalisers for the case's SQL rows and S3 keys, and for the values the
+    /// whole-schema database diff prints.
     #[serde(default)]
     pub normalize: Vec<Normalize>,
 }

@@ -316,7 +316,13 @@ pub fn v2_patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, 
             let message = plane_jobs::celery::tasks::get_asset_object_metadata_positional(
                 asset.id.to_string(),
             );
-            jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+            jobs::dispatch_task(
+                ctx,
+                task,
+                &message,
+                plane_jobs::queue::Job::from_message(&message),
+            )
+            .await?;
         }
         asset.updated_at = write::now();
         asset.updated_by_id = Some(user);

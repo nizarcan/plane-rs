@@ -22,26 +22,35 @@
 //! (`plane_jobs::policy`).
 
 pub mod analytic_export;
+pub mod automation;
 pub mod bs4;
 mod bs4_entities;
+pub mod cleanup;
 pub mod copy_s3_object;
+pub mod deletion;
 pub mod export_task;
 pub mod exporter_expired;
 pub mod file_asset;
 pub mod html;
+pub mod logs;
+pub mod model_graph;
 pub mod recent_visited;
 pub mod storage_metadata;
 pub mod work_item_link;
+pub mod workspace_seed;
 
 use std::sync::Arc;
 
 use plane_cache::Redis;
 use plane_core::config::Settings;
 use plane_db::DbPools;
+use plane_jobs::celery::{CeleryPublisher, Message};
+use plane_jobs::queue::Job;
 use plane_jobs::worker::{HandlerError, TaskRegistry};
 use plane_mail::EmailConfiguration;
 use plane_net::HttpEngine;
 use plane_storage::Storage;
+use tokio_postgres::GenericClient;
 
 /// The resources a task handler shares for the life of the worker.
 ///
@@ -62,6 +71,11 @@ pub struct TaskContext {
     pub storage: Option<Storage>,
     /// The SSRF-pinned HTTP client (`plane-net`) for webhook and link tasks.
     pub http: HttpEngine,
+    /// The Celery publisher, for the tasks a handler still publishes while the
+    /// target task is Celery-owned (`deletion_task`, `issue_automation_task`).
+    /// A process built without a broker leaves it `None` and a publish fails
+    /// the handler, which is what `.delay()` does in Django.
+    pub publisher: Option<CeleryPublisher>,
 }
 
 impl TaskContext {
@@ -80,12 +94,19 @@ impl TaskContext {
                 error
             })
             .ok();
+        let publisher = CeleryPublisher::from_settings(&settings)
+            .map_err(|error| {
+                tracing::warn!(target: "plane.tasks", %error, "celery publisher unavailable");
+                error
+            })
+            .ok();
         Self {
             db,
             settings,
             redis,
             storage,
             http: HttpEngine::system(),
+            publisher,
         }
     }
 
@@ -121,12 +142,17 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     let mut registry = TaskRegistry::new();
     recent_visited::register(&mut registry, Arc::clone(&context));
     analytic_export::register(&mut registry, Arc::clone(&context));
+    automation::register(&mut registry, Arc::clone(&context));
+    cleanup::register(&mut registry, Arc::clone(&context));
+    copy_s3_object::register(&mut registry, Arc::clone(&context));
+    deletion::register(&mut registry, Arc::clone(&context));
     export_task::register(&mut registry, Arc::clone(&context));
     exporter_expired::register(&mut registry, Arc::clone(&context));
     file_asset::register(&mut registry, Arc::clone(&context));
+    logs::register(&mut registry, Arc::clone(&context));
     storage_metadata::register(&mut registry, Arc::clone(&context));
     work_item_link::register(&mut registry, Arc::clone(&context));
-    copy_s3_object::register(&mut registry, Arc::clone(&context));
+    workspace_seed::register(&mut registry, Arc::clone(&context));
     registry
 }
 
@@ -135,13 +161,56 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
 pub const REGISTERED_TASKS: &[&str] = &[
     recent_visited::TASK,
     analytic_export::TASK,
+    automation::ARCHIVE_AND_CLOSE,
+    automation::UNSNOOZE,
+    cleanup::DELETE_API_LOGS,
+    cleanup::DELETE_EMAIL_NOTIFICATION_LOGS,
+    cleanup::DELETE_ISSUE_DESCRIPTION_VERSIONS,
+    cleanup::DELETE_PAGE_VERSIONS,
+    cleanup::DELETE_WEBHOOK_LOGS,
+    copy_s3_object::TASK,
+    deletion::HARD_DELETE,
+    deletion::SOFT_DELETE_RELATED_OBJECTS,
     export_task::TASK,
     exporter_expired::TASK,
     file_asset::TASK,
+    logs::TASK,
     storage_metadata::TASK,
     work_item_link::TASK,
-    copy_s3_object::TASK,
+    workspace_seed::TASK,
 ];
+
+/// Publish a task the way the Python call site's `.delay()` does.
+///
+/// `plane_jobs::route::dispatch` owns the decision: a Celery-owned task goes to
+/// RabbitMQ (`DECISIONS.md` D7's byte-identical path), a Rust-owned task is
+/// inserted into `plane_jobs.jobs` on the handler's own connection. A handler
+/// therefore never needs to know which side owns the task it publishes, and a
+/// task switch is transport-only (`plans/CUTOVER.md` §2).
+///
+/// # Errors
+///
+/// A broker failure, a Rust-owned task with no connection, or a process built
+/// without a publisher. Django's `.delay()` would raise in the first and third
+/// cases; the task then fails like Celery's `FAILURE`.
+pub async fn publish_or_enqueue<C: GenericClient + Sync>(
+    context: &TaskContext,
+    client: &C,
+    task: &str,
+    message: &Message,
+    job: Job,
+) -> Result<(), HandlerError> {
+    plane_jobs::route::dispatch(
+        task,
+        &job,
+        message,
+        context.publisher.as_ref(),
+        Some(client),
+    )
+    .await
+    .map(|_| ())
+    .map_err(|error| HandlerError::fatal(error.to_string()))
+}
 
 /// Decode `payload["kwargs"]`, the shape `Job::from_message` writes.
 ///

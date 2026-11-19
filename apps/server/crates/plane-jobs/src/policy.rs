@@ -161,6 +161,13 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
         "plane.bgtasks.analytic_plot_export.analytic_export_task",
         &[Producer::RustHttp("plane/app/views/analytic/base.py:256")],
     ),
+    // Phase 8 set C: the workspace create POST (route 186) is Rust and calls
+    // `workspace_seed.delay(serializer.data["id"])` positionally
+    // (`plane/app/views/workspace/base.py:138`).
+    (
+        "plane.bgtasks.workspace_seed_task.workspace_seed",
+        &[Producer::RustHttp("plane/app/views/workspace/base.py:138")],
+    ),
     // Phase 8 set C: `PageDuplicateEndpoint.post` (route 133) is Rust.
     (
         "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
@@ -180,6 +187,74 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
     (
         "plane.bgtasks.file_asset_task.delete_unuploaded_file_asset",
         &[Producer::CeleryBeat("plane/celery.py:73-76")],
+    ),
+    // Phase 8 set D's cleanup jobs: the only producer is the Django beat entry,
+    // which `plane-beat` takes over (`beat::RUST_SCHEDULES`).
+    (
+        "plane.bgtasks.cleanup_task.delete_api_logs",
+        &[Producer::RustBeat(
+            "plane/celery.py:77-80 (check-every-day-to-delete-api-logs)",
+        )],
+    ),
+    (
+        "plane.bgtasks.cleanup_task.delete_email_notification_logs",
+        &[Producer::RustBeat(
+            "plane/celery.py:81-84 (check-every-day-to-delete-email-notification-logs)",
+        )],
+    ),
+    (
+        "plane.bgtasks.cleanup_task.delete_page_versions",
+        &[Producer::RustBeat(
+            "plane/celery.py:85-88 (check-every-day-to-delete-page-versions)",
+        )],
+    ),
+    (
+        "plane.bgtasks.cleanup_task.delete_issue_description_versions",
+        &[Producer::RustBeat(
+            "plane/celery.py:89-92 (check-every-day-to-delete-issue-description-versions)",
+        )],
+    ),
+    (
+        "plane.bgtasks.cleanup_task.delete_webhook_logs",
+        &[Producer::RustBeat(
+            "plane/celery.py:93-96 (check-every-day-to-delete-webhook-logs)",
+        )],
+    ),
+    (
+        "plane.bgtasks.deletion_task.hard_delete",
+        &[Producer::RustBeat(
+            "plane/celery.py:61-64 (check-every-day-to-delete-hard-delete)",
+        )],
+    ),
+    (
+        "plane.bgtasks.issue_automation_task.archive_and_close_old_issues",
+        &[Producer::RustBeat(
+            "plane/celery.py:65-68 (check-every-day-to-archive-and-close)",
+        )],
+    ),
+    (
+        "plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues",
+        &[Producer::RustBeat(
+            "plane/celery.py:52-55 (check-every-five-minutes-to-unsnooze-intake-issues)",
+        )],
+    ),
+    (
+        "plane.bgtasks.logger_task.process_logs",
+        &[Producer::RustHttp(
+            "bins/plane-api/src/middleware/extensions.rs:56 (APITokenLogMiddleware)",
+        )],
+    ),
+    // Not Rust-owned yet: the handler is ported and `difftest task` proves it,
+    // but `page_version_task` is still a Django task (set A) whose
+    // `PageVersion.objects...first().delete()` publishes this task through
+    // `.delay()` (`plane/bgtasks/page_version_task.py:74`). D25 keeps the task
+    // on Celery until that producer is Rust.
+    (
+        "plane.bgtasks.deletion_task.soft_delete_related_objects",
+        &[
+            Producer::RustHttp("plane-http-app::write::publish_soft_delete_cascade (H03 sites)"),
+            Producer::Celery("plane/bgtasks/page_version_task.py:74"),
+        ],
     ),
 ];
 

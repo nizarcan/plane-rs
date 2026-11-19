@@ -2035,10 +2035,93 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `schema_version` check; `countdown`/`eta` not mapped to `run_at`;
        `difftest task` compares DB rows only (Redis/S3/SMTP capture to add).
 
-   Running: the orchestrator's verification of `90724f9c00` (gates 248 and the schema
-   rows); Phase 8 set D. Then the final benchmark and the environment
-   revert (see "In flight").
-   - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
-     in scope or not.
-   - The Phase 6 browser walk needs `pnpm install` (no `node_modules` in the repo) and
-     the web/space frontends against the dev proxy. Pending the owner's go-ahead.
+   - **Verification of `90724f9c00` — not passed, no flip (248, 391–393 held).** Gates
+     fine: 1303 tests, testkit 198, selftest 141, schema_check (5 crates), the lxml/MIME/
+     message/OpenAPI generator checks; OAuth 57/57 + 52/52; SMTP success clean. Found:
+     1. **P0 regression (harness):** 20 files fail (108 clean / 4596 steps), e.g.
+        `read/projects.yaml` 49/52, `read/issues-list-extra.yaml` 32/102; contract
+        (`--assume-rust 248`) 972/14 = baseline + 11. Every failing step is a Rust
+        retrieve that publishes `recent_visited_task` answering 500: the task is
+        Rust-owned since P0, so it enqueues to `plane_jobs.jobs`, and the harness/contract
+        DB clones have no `plane_jobs` schema (production creates it in `plane-migrator`).
+        P0's clean sweeps are unexplained. Fix assigned to set D: create the schema in
+        managed mode and the contract runner, compare A's Celery message to B's job row,
+        keep `plane_jobs` out of the table diff.
+     2. Rust logged that 500 with the access line only, no cause (Django logs the
+        traceback). Same fix.
+     3. `email_template_corpus.py` ignores `--check` and rewrites the golden (bytes were
+        identical). Same fix, plus a CI step.
+     4. `difftest task` needs `target/debug/plane-migrator`; the orchestrator's build now
+        includes `-p plane-migrator`.
+
+   - **Phase 8 set C part 1 on its branch (`c311062f75`, not merged; merge after set D's
+     harness fix).** Switched: 35 `get_asset_object_metadata`, 44
+     `crawl_work_item_link_title` (every producer Rust). Handlers + evidence, still
+     Celery-owned (Celery Beat produces them): 15 `delete_old_s3_link`, 16
+     `delete_unuploaded_file_asset`. `difftest task` case files with SQL/S3/HTTP
+     capture (D26): file-asset, exporter-expired, storage-metadata, crawl-link and
+     recent-visited-21 pass. Agent: 1315 tests, testkit 204, beat test clean; sweeps
+     117/128, the 11 failures exactly the known `plane_jobs` 500s (11/11 clean with a
+     temporary local schema patch, since reverted).
+     - Not ported yet: 1, 8, 14, 46. D27 (in-house xlsx) recorded.
+     - Owed: the Rust loopback switch for the crawl SSRF guard is read in every build;
+       it goes behind a non-default `difftest` cargo feature (part 2).
+     - Upstream kept: the crawl's bare `save()` nulls `created_by`/`updated_by`;
+       `delete_unuploaded_file_asset` soft-deletes (rows accumulate, `is_deleted` stays
+       false); a blocked declared favicon suppresses the `/favicon.ico` fallback; export
+       zip bytes depend on the wall-clock second; `delete_old_s3_link` runs twice
+       nightly.
+
+   - **Set C part 2 on its branch (`4653efe7cb`, not merged).** The crawl's loopback
+     switch now compiles only with `plane-tasks/difftest` (test proves a default build
+     ignores it). Switched: 14 `issue_export_task` (`crates/plane-xlsx`,
+     `tools/inventory/xlsx_corpus.py --check`; csv/json/xlsx/invalid-provider cases) and
+     1 `analytic_export_task` (analytics template + text attachment in `plane-mail`;
+     state/priority cases with SMTP bytes compared). 1332 tests, testkit 204.
+     - **Owed before set C merges:** task 1 drops a literal `"None"` in UUID filters
+       (Django adds `IS NULL`), doesn't reproduce `logged_by`'s `FieldError`, nor the
+       module-segment `KeyError` with labels.
+     - The agent used Redis 7 and flushed 5–9 (assigned 5/6); part 3 told 5/6 only. It
+       ran the OAuth files without their wrapper, so its OAuth results don't count.
+     - Upstream kept: module segment names looked up in `label_details`; segment column
+       order from `list(set())`; `intake_status` reads `inbox_status`; export's `except`
+       can raise; `sub_issues_count`/`link_count`/`attachment_count` never annotated (25
+       columns); the analytics HTML body is rendered but never attached.
+
+   - **Phase 8 set D merged (`a5f68cd40b`, verification running).** D28 recorded.
+     - Harness fix for `90724f9c00`: `plane-migrator` provisions `plane_jobs` on Rust
+       targets (`plane-testkit/src/provision.rs`, contract plugin); `plane_jobs` out of
+       the DB diff; A's Celery message compared to B's job row. 500 causes logged at
+       `plane.exception`. `email_template_corpus.py --check` real, in CI. Contract
+       plugin `IN_PROCESS_TYPE_TESTS` (`test_get_label_success` asserts a `uuid.UUID`).
+     - P0's "clean sweeps" most likely predate the switch; its `difftest task` evidence
+       stands. The whole-schema task diff found P0's missing `visited_at` bump (fixed).
+     - Switched: 3–7 (cleanup), 10 `hard_delete` (Django's FK `IntegrityError` reproduced,
+       same partial effects), 19, 20 (automation), 27 `process_logs` (token-log
+       middleware now dispatches). Handler only: 9 `soft_delete_related_objects`
+       (`page_version_task.py:74`, set A, still publishes it). Eight beat entries in
+       `beat::RUST_SCHEDULES`, handed over at `plane-beat` startup.
+     - Agent: 20/20 `difftest task`, 1317 tests, testkit 201, beat 8/8, read 52/52, write
+       75/75 after per-file reruns (Redis races), contract 983/3.
+     - Left: a soft-cascade hook raising after `deleted_at` (unreachable with valid data);
+       `process_logs` rejects non-string `log_data` (only producer sends strings).
+     - Upstream kept: `hard_delete` order violates the `DO_NOTHING` FK;
+       `archive_and_close_old_issues` publishes twice through un-`DISTINCT` joins;
+       `Project.identifier`, `State.slug` and `*_stripped` recomputed by the cascade's
+       full saves.
+     - The 20-case suite ran from an untracked `/tmp` script; set C part 3 makes it
+       `tools/jobs/run-task-cases.sh` + a case list.
+
+   - **Verified at `a5f68cd40b`**: fmt, clippy, 1317 tests, testkit 201, selftest 141,
+     schema_check (5 crates), beat 8/8, all five generator checks (incl. the template
+     corpus's real `--check`), set D's `difftest task` suite 19/19 (run from a `/tmp`
+     copy until the tracked runner lands), **128 files / 6085 steps clean in one pass**,
+     OAuth 57/57 + 52/52, SMTP success clean, contract with 248 and 391–393 assumed Rust
+     983/3 (baseline). **Flipped with this entry: 248 GET and 391–393 GET**; Caddy routes
+     only GET for the schema group, so the unported `OPTIONS` on swagger-ui/redoc stays
+     on Django. ROUTES.md: **392 rows Rust**; Django keeps only `/robots.txt` and `/`
+     (health, never routed to the API by Caddy).
+
+   Running: set C part 3 (`rs/p8-c`: task 1 gaps, then 8, 46, the tracked case runner; 18020/18120,
+   Redis 5/6), set A3 (`rs/p8-a3`: tasks 23, 30, 31, then 9, and the `plane-admin`
+   backfills; 18010/18110, Redis 3/4).

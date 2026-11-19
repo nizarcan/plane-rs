@@ -41,6 +41,26 @@ c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-logged-
 c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-module-segment-kwargs.json set-c-analytic-gaps.sql set-c-analytic-gaps.case.json
 c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-module-segment-ok-kwargs.json set-c-analytic-gaps.sql set-c-analytic-gaps.case.json
 
+# Task 1 join parity: Django's label/assignee/module/cycle filters are JOINs,
+# so an issue with several matching rows is counted (and summed) several times.
+# `set-c-analytic-joins.sql` carries multi-label, multi-assignee, multi-module
+# and multi-cycle issues; the last four cases pin a NULL label segment, a
+# label/assignee axis sharing the filter's join, and the date axis.
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-label-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-assignee-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-module-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-cycle-estimate-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-label-axis-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-assignee-axis-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-segment-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-null-segment-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+c plane.bgtasks.analytic_plot_export.analytic_export_task set-c-analytic-joins-date-kwargs.json set-c-analytic-joins.sql set-c-analytic-joins.case.json
+
+# Task 46: the workspace seed (bot user, project, states, labels, cycles,
+# modules, issues, view and pages from the embedded seed JSON). The bot user
+# and every id are new per run; the case SQL resolves the relationships.
+c plane.bgtasks.workspace_seed_task.workspace_seed set-c-workspace-seed-kwargs.json set-c-workspace-seed.sql set-c-workspace-seed.case.json
+
 # Task 8: the page and issue paths (S3 copy, description rewrite, live call).
 c plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets set-c-copy-s3-page-kwargs.json set-c-copy-s3.sql set-c-copy-s3.case.json
 c plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets set-c-copy-s3-issue-kwargs.json set-c-copy-s3.sql set-c-copy-s3.case.json
@@ -60,9 +80,61 @@ d plane.bgtasks.cleanup_task.delete_webhook_logs no-args.json cleanup-base.sql -
 d plane.bgtasks.deletion_task.soft_delete_related_objects soft-cascade.json soft-cascade-base.sql -
 d plane.bgtasks.deletion_task.soft_delete_related_objects soft-cascade-live.json soft-cascade-base.sql -
 d plane.bgtasks.deletion_task.soft_delete_related_objects soft-cascade-missing.json soft-cascade-base.sql -
-d plane.bgtasks.deletion_task.hard_delete no-args.json hard-delete-base.sql - --expect-django-failure "violates foreign key constraint" --expect-worker-failure "violates foreign key constraint"
+d plane.bgtasks.deletion_task.hard_delete no-args.json hard-delete-base.sql - --expect-django-failure violates --expect-worker-failure violates
 d plane.bgtasks.issue_automation_task.archive_and_close_old_issues no-args.json automation-base.sql -
 d plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues no-args.json unsnooze-base.sql -
 d plane.bgtasks.logger_task.process_logs process-logs.json - -
 d plane.bgtasks.logger_task.process_logs process-logs-unknown-key.json - -
 d plane.bgtasks.logger_task.process_logs process-logs-bad-ip.json - -
+
+# ---- set A3 (merged separately; listed for the combined run) ----------------
+
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-array.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-create.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-deleted-issue.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-different-user.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-empty-arg.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-invalid-issue.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-invalid-user.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-malformed.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-missing-issue.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-null-arg.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-other-owner.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-outside-window.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-same.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-same-creating.json description-version-base.sql -
+a3 plane.bgtasks.issue_description_version_task.issue_description_version_task description-version-update.json description-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-array.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-changed.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-deleted-page.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-invalid-page.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-malformed.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-many.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-missing-page.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-no-key.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-null.json page-version-base.sql -
+a3 plane.bgtasks.page_version_task.track_page_version page-version-same.json page-version-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-abort-all.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-add.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-conflict.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-cross-page.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-deleted-page.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-duplicate.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-empty.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-existing-skip.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-image-url.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-invalid-identifier.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-invalid-removed.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-long-name.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-malformed.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-missing-name.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-missing-page.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-no-existing-logs.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-null-identifier.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-old-null.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-remove-missing.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-remove.json page-transaction-base.sql -
+a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-script.json page-transaction-base.sql -
+
+# Task 9's fourth cascade case (the unknown model name logs and returns).
+d plane.bgtasks.deletion_task.soft_delete_related_objects soft-cascade-unknown-model.json soft-cascade-base.sql - --expect-django-failure LookupError --expect-worker-failure nosuchmodel

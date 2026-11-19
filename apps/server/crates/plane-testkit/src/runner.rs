@@ -176,6 +176,12 @@ struct SideOutcome {
     body: NormalizedBody,
     formatting: FormattingStatus,
     db_diff: DbDiff,
+    /// Rust-owned deliveries read back from `plane_jobs` before the diff is
+    /// normalised, so their payloads keep the raw UUIDs for matching.
+    jobs: Vec<crate::ownership::TransportJob>,
+    /// A's Rust-owned Celery deliveries, removed from `messages` and decoded to
+    /// the `plane_jobs` payload shape for [`crate::ownership::compare_transports`].
+    owned: Vec<crate::ownership::TransportJob>,
     redis_diff: RedisDiff,
     messages: Vec<CeleryMessage>,
     violations: Vec<crate::normalize::Violation>,
@@ -351,6 +357,7 @@ async fn run_inner(
         let mut ports_b = PortAllocator::new(plan.b_ports.0, plan.b_ports.1);
         let port_a = ports_a.allocate().await?;
         let port_a_context = target_context(port_a, &a_db, a_redis_db, &a_vhost);
+        crate::provision::ensure_queue_schema("a", &spec_a, &port_a_context, &log_dir)?;
         let mut target_a = TargetInstance::start("a", &spec_a, &port_a_context, &log_dir).await?;
         // A and B may share one `port_range` (the same target definition on
         // both sides, which is how Django-vs-Django is run). B must not be
@@ -358,6 +365,7 @@ async fn run_inner(
         ports_b.reserve(port_a);
         let port_b = ports_b.allocate().await?;
         let port_b_context = target_context(port_b, &b_db, b_redis_db, &b_vhost);
+        crate::provision::ensure_queue_schema("b", &spec_b, &port_b_context, &log_dir)?;
         let mut target_b = TargetInstance::start("b", &spec_b, &port_b_context, &log_dir).await?;
         let (health_a, health_b) = tokio::join!(
             target_a.wait_healthy(
@@ -703,10 +711,13 @@ async fn run_inner(
                 for message in a_messages.iter_mut().chain(b_messages.iter_mut()) {
                     mask_pass_through_response(message);
                 }
-                // A task that moved to the Postgres queue is delivered only by
-                // the Rust producer; its absence from B's Celery drain is the
-                // switch itself, not an effect difference.
-                crate::ownership::drop_rust_owned(&mut a_messages);
+                // A task that moved to the Postgres queue is delivered by
+                // B's producer as a `plane_jobs` row instead of a Celery
+                // message; compare the two representations.
+                differences.extend(crate::ownership::compare_transports(
+                    &a_outcome.owned,
+                    &b_outcome.jobs,
+                ));
                 differences.extend(compare_celery(&a_messages, &b_messages));
             }
         } else {
@@ -750,12 +761,18 @@ async fn run_inner(
                 &a_outcome.formatting,
                 &b_outcome.formatting,
             ));
+            // The transport switch happens before the comparisons:
+            // `plane_jobs` is the queue, not an effect, and a Rust-owned
+            // task's Celery message on A is compared with its job row on B.
+            let a_messages = a_outcome.messages.clone();
+            differences.extend(crate::ownership::compare_transports(
+                &a_outcome.owned,
+                &b_outcome.jobs,
+            ));
             differences.extend(compare_db(&a_outcome.db_diff, &b_outcome.db_diff));
             differences.extend(compare_redis(&a_outcome.redis_diff, &b_outcome.redis_diff));
-            let mut a_messages = a_outcome.messages.clone();
             // See the probe branch above: a Rust-owned task is not delivered
             // to RabbitMQ by the Rust producer.
-            crate::ownership::drop_rust_owned(&mut a_messages);
             differences.extend(compare_celery(&a_messages, &b_outcome.messages));
         }
         // A violation is a difference on its own: a target that writes an
@@ -1197,9 +1214,15 @@ async fn execute_step(
             .await
             .with_context(|| format!("draining {} queue(s)", queues.len()))?;
     }
+    // Rust-owned tasks moved from RabbitMQ to `plane_jobs`; decode A's delivery
+    // before the normaliser can mask the kombu uuid envelope.
+    let mut owned = crate::ownership::take_owned_messages(&mut messages);
 
     // The raw diff is needed by `db` captures before it is normalised below.
     let mut db_diff = diff_snapshots(&before, &after);
+    // `plane_jobs` is the queue, not an effect; taking it out before
+    // normalisation keeps the placeholder numbering identical on both sides.
+    let jobs = crate::ownership::take_plane_jobs(&mut db_diff);
     let captures = collect_captures(side, step, &response, &db_diff)?;
 
     // Normalisation order is fixed: headers (Location first), body, database,
@@ -1216,6 +1239,11 @@ async fn execute_step(
     side.normalizer.normalize_db_diff(&mut db_diff);
     for message in &mut messages {
         side.normalizer.normalize_celery(message);
+    }
+    let mut jobs = jobs;
+    for job in owned.iter_mut().chain(jobs.iter_mut()) {
+        side.normalizer
+            .normalize_job(&mut job.args, &mut job.kwargs);
     }
     // Redis is left raw: the caller filters the keys a pass-through step
     // introduced **before** normalising. A page-cache placeholder contains its
@@ -1252,6 +1280,8 @@ async fn execute_step(
         body,
         formatting,
         db_diff,
+        jobs,
+        owned,
         redis_diff,
         messages,
         violations,

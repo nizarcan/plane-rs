@@ -1,0 +1,12 @@
+{
+  "email": "ada-joins@example.com",
+  "data": {
+    "x_axis": "labels__id",
+    "y_axis": "issue_count",
+    "labels": [
+      "d0000000-0000-4000-8000-000000000041"
+    ]
+  },
+  "slug": "p8c-joins",
+  "user_id": "d0000000-0000-4000-8000-000000000001"
+}

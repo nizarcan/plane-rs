@@ -31,12 +31,18 @@
 //!   overwrites both attributes with `None` before writing them. The row keeps
 //!   `NULL` (`recent_visited_task.py:54-56`). The oracle run in `difftest task`
 //!   proves it.
-//! * The trim's `delete()` also publishes `soft_delete_related_objects.delay`.
-//!   For this model `_meta.get_fields()` has no auto-created reverse relation,
-//!   so that task only re-saves the already-soft-deleted row and changes
-//!   nothing (`plane/bgtasks/deletion_task.py:16-94`). The handler performs the
-//!   soft delete directly; the no-op message is not re-published, and the
-//!   database effect is identical.
+//! * The trim's `delete()` also publishes `soft_delete_related_objects.delay`
+//!   (`plane/db/mixins.py:78`). For this model `_meta.get_fields()` has no
+//!   auto-created reverse relation, so that task only re-saves the
+//!   already-soft-deleted row and changes nothing
+//!   (`plane/bgtasks/deletion_task.py:17-105`). The message is still
+//!   observable on the broker while the task is Celery-owned, so the handler
+//!   publishes exactly what Django publishes (`DECISIONS.md` D25) through
+//!   [`crate::publish_or_enqueue`]; once task 9 is Rust-owned the same call
+//!   becomes a Rust→Rust enqueue.
+//! * A failed publish is the Python `except Exception` branch: the soft delete
+//!   has already committed, the new row is **not** inserted, and the task
+//!   succeeds (`recent_visited_task.py:59-61`).
 //! * Every exception, including `DatabaseError`, is swallowed by the outer
 //!   `except Exception` (`recent_visited_task.py:59-61`), so the handler
 //!   returns `Ok(())` after logging. The queue must not retry it.
@@ -45,17 +51,18 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use deadpool_postgres::Client;
+use plane_jobs::queue::Job;
 use plane_jobs::worker::{HandlerError, JobContext, TaskRegistry};
 use uuid::Uuid;
 
-use crate::{TaskContext, kwargs, string_value, swallow, uuid_value};
+use crate::{TaskContext, kwargs, publish_or_enqueue, string_value, swallow, uuid_value};
 
 /// The Celery task name (`plane.bgtasks.recent_visited_task.recent_visited_task`).
 pub const TASK: &str = "plane.bgtasks.recent_visited_task.recent_visited_task";
 
 /// Register the handler; the worker's registry owns the closure.
-pub fn register(registry: &mut TaskRegistry, _context: Arc<TaskContext>) {
-    registry.register(TASK, handle);
+pub fn register(registry: &mut TaskRegistry, context: Arc<TaskContext>) {
+    registry.register(TASK, move |job| handle(Arc::clone(&context), job));
 }
 
 /// One `recent_visited_task.delay(...)` payload.
@@ -94,12 +101,12 @@ impl Visit {
 }
 
 /// The handler entry point. Always `Ok(())`: see the module docs.
-async fn handle(context: JobContext) -> Result<(), HandlerError> {
-    let Some(visit) = Visit::from_payload(&context.payload) else {
+async fn handle(context: Arc<TaskContext>, job: JobContext) -> Result<(), HandlerError> {
+    let Some(visit) = Visit::from_payload(&job.payload) else {
         swallow("invalid recent_visited_task payload", TASK);
         return Ok(());
     };
-    match run(&context.client, &visit).await {
+    match run(&context, &job.client, &visit).await {
         Ok(()) => Ok(()),
         // `except Exception as e: log_exception(e); return`.
         Err(error) => {
@@ -110,7 +117,7 @@ async fn handle(context: JobContext) -> Result<(), HandlerError> {
 }
 
 /// The body, with every failure mapped to the outer `except`.
-async fn run(client: &Client, visit: &Visit) -> Result<(), HandlerError> {
+async fn run(context: &TaskContext, client: &Client, visit: &Visit) -> Result<(), HandlerError> {
     // `Workspace.objects.get(slug=slug)`. `.get()` on more than one live row
     // raises and is swallowed like any other exception.
     let workspace = client
@@ -195,18 +202,31 @@ async fn run(client: &Client, visit: &Visit) -> Result<(), HandlerError> {
             let id: Uuid = oldest.try_get(0).map_err(db)?;
             // `SoftDeleteModel.delete()` -> `self.deleted_at = now();
             // self.save()`. `BaseModel.save` with no request user nulls
-            // `created_by`/`updated_by` and writes every field, so
-            // `updated_at` moves too (`plane/db/models/base.py:23-50`).
+            // `created_by`/`updated_by` and writes every field, so `auto_now`
+            // moves both `updated_at` **and** `visited_at`
+            // (`plane/db/models/recent_visit.py:30`; `base.py:23-50`).
             client
                 .execute(
                     "UPDATE user_recent_visits \
-                     SET deleted_at = now(), updated_at = now(), \
+                     SET deleted_at = now(), updated_at = now(), visited_at = now(), \
                          created_by_id = NULL, updated_by_id = NULL \
                      WHERE id = $1",
                     &[&id],
                 )
                 .await
                 .map_err(db)?;
+            // `soft_delete_related_objects.delay(app_label, model_name, pk,
+            // using=None)` (`plane/db/mixins.py:78`): the same message Django
+            // publishes, routed by the ownership table.
+            let task = plane_jobs::celery::task_name::SOFT_DELETE_RELATED_OBJECTS;
+            let message = plane_jobs::celery::tasks::soft_delete_related_objects(
+                "db".to_string(),
+                "userrecentvisit".to_string(),
+                id,
+                None,
+            );
+            let queued = Job::from_message(&message);
+            publish_or_enqueue(context, &***client, task, &message, queued).await?;
         }
     }
 

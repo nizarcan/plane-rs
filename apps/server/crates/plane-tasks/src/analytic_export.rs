@@ -29,11 +29,32 @@
 //! The x-axis becomes a `dimension`: a date axis is `EXTRACT(year) || '-' ||
 //! EXTRACT(month)` (unpadded: `2026-1`), everything else the column itself.
 //! Rows are `COUNT(*)` or `SUM(CAST(estimate_point.value AS double precision))`
-//! per dimension (and per segment), ordered by the dimension. Python then
-//! groups by `str(dimension)` and applies `sort_data`
-//! (`analytics_plot.py:56-68`): priority uses the fixed low/medium/high/
-//! urgent/none order (dropping anything else), everything else sorts
-//! lexicographically with `"none"` last.
+//! per dimension (and per segment), ordered by the dimension. A NULL dimension
+//! is excluded (`extract_axis` always names it `dimension`, and
+//! `analytics_plot.py:91-92` excludes a NULL one). Python then groups by
+//! `str(dimension)` and applies `sort_data` (`analytics_plot.py:56-68`):
+//! priority uses the fixed low/medium/high/urgent/none order (dropping
+//! anything else), everything else sorts lexicographically with `"none"`
+//! last.
+//!
+//! **Upstream bug kept: the filters JOIN, so counts and sums are inflated.**
+//! `filter_labels`, `filter_assignees`, `filter_cycle` and `filter_module`
+//! (`issue_filters.py:159-180,283-317`) add a `*_deleted_at__isnull=True`
+//! child and an `__in`, and Django compiles each pair to one JOIN to the
+//! through table. An issue with three live labels is three rows, so
+//! `COUNT(*)` (or `SUM`) counts it three times; only `EXISTS` would avoid it,
+//! and this port must reproduce Django. `mentions`, `subscriber` and the intake
+//! status filters join the same way. The join is INNER when the `__in` list is
+//! present and LEFT OUTER when only the `deleted_at` child is (an issue with no
+//! related rows survives; one whose rows are all soft-deleted does not). A
+//! filter and an axis over the same relation share the join, as Django reuses
+//! it, so `labels__in` plus an `x_axis` of `labels__id` groups by the matching
+//! labels only.
+//!
+//! A segment over such a relation is a LEFT OUTER join, so an issue with no
+//! related rows still contributes to its group's total and a NULL segment
+//! becomes a column with an empty header (`generate_segmented_rows` includes
+//! `None` in `list(set(...))`, and `csv.writer` writes `None` as "").
 //!
 //! **Upstream bug kept:** the MODULE segment branch of
 //! `generate_segmented_rows` looks names up in `label_details`
@@ -173,12 +194,15 @@ async fn run(context: &TaskContext, client: &Client, args: &Args) -> Result<(), 
     } else {
         "estimate"
     };
+    // Python evaluates these in this order (`analytic_plot_export.py:378-400`),
+    // which decides which failure surfaces first.
     let assignee_details = if x_axis == ASSIGNEE_ID || segment == ASSIGNEE_ID {
         detail_rows(client, &args.slug, &filter, Detail::Assignees).await?
     } else {
         Vec::new()
     };
     let label_details = if x_axis == LABEL_ID || segment == LABEL_ID {
+        no_duplicate_detail_filter(data, "labels", "label_issue__deleted_at__isnull")?;
         detail_rows(client, &args.slug, &filter, Detail::Labels).await?
     } else {
         Vec::new()
@@ -189,11 +213,13 @@ async fn run(context: &TaskContext, client: &Client, args: &Args) -> Result<(), 
         Vec::new()
     };
     let cycle_details = if x_axis == CYCLE_ID || segment == CYCLE_ID {
+        no_duplicate_detail_filter(data, "cycle", "issue_cycle__deleted_at__isnull")?;
         detail_rows(client, &args.slug, &filter, Detail::Cycles).await?
     } else {
         Vec::new()
     };
     let module_details = if x_axis == MODULE_ID || segment == MODULE_ID {
+        no_duplicate_detail_filter(data, "module", "issue_module__deleted_at__isnull")?;
         detail_rows(client, &args.slug, &filter, Detail::Modules).await?
     } else {
         Vec::new()
@@ -236,6 +262,28 @@ async fn run(context: &TaskContext, client: &Client, args: &Args) -> Result<(), 
     Ok(())
 }
 
+/// **Upstream bug kept:** `get_label_details`, `get_cycle_details` and
+/// `get_module_details` pass their own `*_deleted_at__isnull=True` keyword
+/// (`analytic_plot_export.py:118,165,183`) while `filter_labels`,
+/// `filter_cycle` and `filter_module` already put the same key in `filters`
+/// (`issue_filters.py:159-180,283-317`). Python's call becomes
+/// `filter(**filters, key=True)`, which is
+/// `TypeError: ... got multiple values for keyword argument ...`; the task's
+/// outer `except` logs it and sends no e-mail. The axis/segment must be the
+/// same relation for the detail query to be fetched at all.
+fn no_duplicate_detail_filter(
+    data: &serde_json::Map<String, Value>,
+    key: &str,
+    kwarg: &str,
+) -> Result<(), Failure> {
+    if data.contains_key(key) {
+        return Err(format!(
+            "QuerySet.filter() got multiple values for keyword argument '{kwarg}'"
+        ));
+    }
+    Ok(())
+}
+
 const ASSIGNEE_ID: &str = "assignees__id";
 const LABEL_ID: &str = "labels__id";
 const STATE_ID: &str = "state_id";
@@ -259,10 +307,23 @@ const VALID_ANALYTICS_FIELDS: [&str; 12] = [
 
 const VALID_YAXIS: [&str; 2] = ["issue_count", "estimate"];
 
-/// The WHERE clauses and their bound parameters.
+/// One JOIN the filters and axes need. Django keeps one join per relation and
+/// reuses it for the axis, so `labels__in` as a filter and `labels__id` as the
+/// x-axis share the same `issue_labels` join (and its `__in` restriction).
+struct Relation {
+    table: &'static str,
+    alias: String,
+    /// `false` = INNER. A join is LEFT OUTER unless a filter condition on it
+    /// rejects NULL (an `__in` list); `deleted_at IS NULL` accepts NULL, so it
+    /// stays OUTER (`django/db/models/sql/query.py`, `join promotion`).
+    outer: bool,
+}
+
+/// The WHERE clauses, the joins they need, and their bound parameters.
 #[derive(Default)]
 struct Filter {
     parts: Vec<String>,
+    joins: Vec<Relation>,
     params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>>,
     /// Django's `EmptyResultSet`: an `__in` whose items are all `None`
     /// compiles to no rows at all (`django/db/models/lookups.py:546-556`).
@@ -279,6 +340,52 @@ impl Filter {
     {
         self.params.push(Box::new(value));
         self.params.len()
+    }
+
+    /// The relation's join, created LEFT OUTER when it does not exist yet.
+    fn join_alias(&mut self, table: &'static str) -> String {
+        if let Some(join) = self.joins.iter().find(|join| join.table == table) {
+            return join.alias.clone();
+        }
+        let alias = format!("fj{}", self.joins.len());
+        self.joins.push(Relation {
+            table,
+            alias: alias.clone(),
+            outer: true,
+        });
+        alias
+    }
+
+    /// The relation's join, promoted to INNER because the filter's condition
+    /// rejects NULL rows (an `__in` on one of its columns).
+    fn inner_join_alias(&mut self, table: &'static str) -> String {
+        let alias = self.join_alias(table);
+        if let Some(join) = self.joins.iter_mut().find(|join| join.table == table) {
+            join.outer = false;
+        }
+        alias
+    }
+
+    /// The alias of an existing join, for an axis that reuses it.
+    fn existing_alias(&self, table: &str) -> Option<&str> {
+        self.joins
+            .iter()
+            .find(|join| join.table == table)
+            .map(|join| join.alias.as_str())
+    }
+
+    fn joins_sql(&self) -> String {
+        let mut out = String::new();
+        for join in &self.joins {
+            out.push_str(if join.outer { " LEFT JOIN " } else { " JOIN " });
+            out.push_str(join.table);
+            out.push(' ');
+            out.push_str(&join.alias);
+            out.push_str(" ON ");
+            out.push_str(&join.alias);
+            out.push_str(".issue_id = i.id");
+        }
+        out
     }
 
     fn where_sql(&self) -> String {
@@ -368,20 +475,13 @@ fn build_filters(
         }
     }
     if present("labels") {
-        post_related_uuids(
-            filter,
-            values("labels"),
-            "issue_labels",
-            "issue_id",
-            "label_id",
-        )?;
+        post_related_uuids(filter, values("labels"), "issue_labels", "label_id")?;
     }
     if present("assignees") {
         post_related_uuids(
             filter,
             values("assignees"),
             "issue_assignees",
-            "issue_id",
             "assignee_id",
         )?;
     }
@@ -389,11 +489,14 @@ fn build_filters(
         match post_uuid_list(filter, values("mentions"))? {
             UuidList::Skip | UuidList::Empty => {}
             UuidList::Ids(ids) => {
+                // `issue_mention__mention__id__in` has no `deleted_at` child
+                // (`issue_filters.py:193-201`), so soft-deleted mentions still
+                // match and rows multiply per mention.
+                let alias = filter.inner_join_alias("issue_mentions");
                 let index = filter.bind(ids);
-                filter.parts.push(format!(
-                    "EXISTS (SELECT 1 FROM issue_mentions fm WHERE fm.issue_id = i.id \
-                     AND fm.deleted_at IS NULL AND fm.mention_id = ANY(${index}::uuid[]))"
-                ));
+                filter
+                    .parts
+                    .push(format!("{alias}.mention_id = ANY(${index}::uuid[])"));
             }
         }
     }
@@ -484,22 +587,10 @@ fn build_filters(
         }
     }
     if present("cycle") {
-        post_related_uuids(
-            filter,
-            values("cycle"),
-            "cycle_issues",
-            "issue_id",
-            "cycle_id",
-        )?;
+        post_related_uuids(filter, values("cycle"), "cycle_issues", "cycle_id")?;
     }
     if present("module") {
-        post_related_uuids(
-            filter,
-            values("module"),
-            "module_issues",
-            "issue_id",
-            "module_id",
-        )?;
+        post_related_uuids(filter, values("module"), "module_issues", "module_id")?;
     }
     // `filter_intake_status` and `filter_inbox_status` both read
     // `inbox_status` in the POST branch (`issue_filters.py:253-279`).
@@ -507,11 +598,13 @@ fn build_filters(
         && let Some(list) = text_list(values("inbox_status"), "inbox_status")?
         && !list.is_empty()
     {
+        // `issue_intake__status__in`: a JOIN, with no `deleted_at` child, so
+        // several intake rows for one issue multiply the count.
+        let alias = filter.inner_join_alias("intake_issues");
         let index = filter.bind(list);
-        filter.parts.push(format!(
-            "EXISTS (SELECT 1 FROM intake_issues fi WHERE fi.issue_id = i.id \
-                     AND fi.status = ANY(${index}::text[]))"
-        ));
+        filter
+            .parts
+            .push(format!("{alias}.status = ANY(${index}::text[])"));
     }
     if present("sub_issue") {
         let toggle = values("sub_issue")
@@ -526,7 +619,6 @@ fn build_filters(
             filter,
             values("subscriber"),
             "issue_subscribers",
-            "issue_id",
             "subscriber_id",
         )?;
     }
@@ -676,12 +768,11 @@ fn post_uuid_list(filter: &mut Filter, value: Option<&Value>) -> Result<UuidList
 fn post_related_uuids(
     filter: &mut Filter,
     value: Option<&Value>,
-    table: &str,
-    issue_column: &str,
+    table: &'static str,
     match_column: &str,
 ) -> Result<(), Failure> {
     let list = post_uuid_list(filter, value)?;
-    push_related_uuids(filter, list, table, issue_column, match_column);
+    push_related_uuids(filter, list, table, match_column);
     Ok(())
 }
 
@@ -689,31 +780,31 @@ fn post_related_uuids(
 /// `filter_subscribed_issues`: the `*_deleted_at__isnull=True` child Django adds
 /// outside the guard, plus the `__in` child inside it.
 ///
-/// With no value list, Django's LEFT JOIN keeps an issue that has no related
-/// row *or* at least one live one; an issue whose rows are all soft-deleted is
-/// dropped. (Django's count and estimate are also inflated once an issue has
-/// more than one matching row; this EXISTS form is not. `analytic_export.rs`
-/// documents that upstream join bug.)
+/// **Upstream bug kept:** these are JOINs, not `EXISTS`. Django groups by the
+/// axis and counts/estimates over the joined rows, so an issue with three live
+/// labels is counted three times when a labels filter (or just the
+/// `label_issue__deleted_at` child) is present. An `__in` list promotes the
+/// join to INNER; the `deleted_at` child alone leaves it LEFT OUTER, which
+/// keeps an issue with no related rows and drops one whose rows are all
+/// soft-deleted.
 fn push_related_uuids(
     filter: &mut Filter,
     list: UuidList,
-    table: &str,
-    issue_column: &str,
+    table: &'static str,
     match_column: &str,
 ) {
     match list {
-        UuidList::Skip => filter.parts.push(format!(
-            "(EXISTS (SELECT 1 FROM {table} r0 WHERE r0.{issue_column} = i.id \
-             AND r0.deleted_at IS NULL) \
-             OR NOT EXISTS (SELECT 1 FROM {table} r1 WHERE r1.{issue_column} = i.id))"
-        )),
+        UuidList::Skip => {
+            let alias = filter.join_alias(table);
+            filter.parts.push(format!("{alias}.deleted_at IS NULL"));
+        }
         // `FALSE` is already a part.
         UuidList::Empty => {}
         UuidList::Ids(ids) => {
+            let alias = filter.inner_join_alias(table);
             let index = filter.bind(ids);
             filter.parts.push(format!(
-                "EXISTS (SELECT 1 FROM {table} r2 WHERE r2.{issue_column} = i.id \
-                 AND r2.deleted_at IS NULL AND r2.{match_column} = ANY(${index}::uuid[]))"
+                "{alias}.deleted_at IS NULL AND {alias}.{match_column} = ANY(${index}::uuid[])"
             ));
         }
     }
@@ -812,117 +903,129 @@ fn relative_duration(text: &str) -> Option<(i64, &'static str)> {
     }
 }
 
-/// The base `Issue.issue_objects` FROM/WHERE, with the project and state joins
-/// the filters and axes need.
-fn base_from(filter: &Filter, joins: &str) -> String {
+/// The base `Issue.issue_objects` FROM/WHERE, with the project and state joins,
+/// the filters' joins and the axes' joins.
+fn base_from(filter: &Filter, joins: &str, extra_where: Option<&str>) -> String {
+    let mut where_sql = filter.where_sql();
+    if let Some(extra) = extra_where {
+        where_sql.push_str(" AND ");
+        where_sql.push_str(extra);
+    }
     format!(
         "FROM issues i \
          JOIN projects p ON p.id = i.project_id \
-         LEFT JOIN states s ON s.id = i.state_id{joins} \
+         LEFT JOIN states s ON s.id = i.state_id{}{joins} \
          WHERE i.deleted_at IS NULL AND i.archived_at IS NULL \
            AND (s.\"group\" IS DISTINCT FROM 'triage') \
            AND p.archived_at IS NULL AND i.is_draft = FALSE \
            AND i.workspace_id = (SELECT id FROM workspaces WHERE slug = ${{slug}} AND deleted_at IS NULL) \
-           AND {}",
-        filter.where_sql()
+           AND {where_sql}",
+        filter.joins_sql(),
     )
 }
 
 /// The joins an axis needs, with their aliases reused when the x-axis and the
 /// segment touch the same table (Django reuses the join for one relation).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AxisRelation {
+    Labels,
+    Assignees,
+    Estimate,
+    Cycles,
+    Modules,
+}
+
+impl AxisRelation {
+    fn table(self) -> &'static str {
+        match self {
+            Self::Labels => "issue_labels",
+            Self::Assignees => "issue_assignees",
+            Self::Estimate => "estimate_points",
+            Self::Cycles => "cycle_issues",
+            Self::Modules => "module_issues",
+        }
+    }
+
+    fn column(self) -> &'static str {
+        match self {
+            Self::Labels => "label_id",
+            Self::Assignees => "assignee_id",
+            Self::Estimate => "value",
+            Self::Cycles => "cycle_id",
+            Self::Modules => "module_id",
+        }
+    }
+
+    fn on(self, alias: &str) -> String {
+        match self {
+            // `estimate_point` is a foreign key, not a child relation.
+            Self::Estimate => format!("{alias}.id = i.estimate_point_id"),
+            _ => format!("{alias}.issue_id = i.id"),
+        }
+    }
+
+    fn slot(self) -> &'static str {
+        match self {
+            Self::Labels => "label",
+            Self::Assignees => "assignee",
+            Self::Estimate => "estimate",
+            Self::Cycles => "cycle",
+            Self::Modules => "module",
+        }
+    }
+}
+
 #[derive(Default)]
 struct AxisJoins {
-    labels: Option<String>,
-    assignees: Option<String>,
-    estimate: Option<String>,
-    cycles: Option<String>,
-    modules: Option<String>,
+    aliases: Vec<(AxisRelation, String)>,
     next: usize,
 }
 
 impl AxisJoins {
-    fn for_axis(&mut self, field: &str, joins: &mut String) -> String {
+    fn for_axis(&mut self, filter: &Filter, field: &str, joins: &mut String) -> String {
         match field {
-            "labels__id" => {
-                let alias = self
-                    .labels
-                    .get_or_insert_with(|| {
-                        let alias = format!("axlab{}", self.next);
-                        self.next += 1;
-                        joins.push_str(&format!(
-                            " JOIN issue_labels {alias} ON {alias}.issue_id = i.id"
-                        ));
-                        alias
-                    })
-                    .clone();
-                format!("{alias}.label_id")
-            }
-            "assignees__id" => {
-                let alias = self
-                    .assignees
-                    .get_or_insert_with(|| {
-                        let alias = format!("axasg{}", self.next);
-                        self.next += 1;
-                        joins.push_str(&format!(
-                            " JOIN issue_assignees {alias} ON {alias}.issue_id = i.id"
-                        ));
-                        alias
-                    })
-                    .clone();
-                format!("{alias}.assignee_id")
-            }
-            "estimate_point__value" => {
-                let alias = self
-                    .estimate
-                    .get_or_insert_with(|| {
-                        let alias = format!("axest{}", self.next);
-                        self.next += 1;
-                        joins.push_str(&format!(
-                            " JOIN estimate_points {alias} ON {alias}.id = i.estimate_point_id"
-                        ));
-                        alias
-                    })
-                    .clone();
-                format!("{alias}.value")
-            }
-            "issue_cycle__cycle_id" => {
-                let alias = self
-                    .cycles
-                    .get_or_insert_with(|| {
-                        let alias = format!("axcyc{}", self.next);
-                        self.next += 1;
-                        joins.push_str(&format!(
-                            " JOIN cycle_issues {alias} ON {alias}.issue_id = i.id"
-                        ));
-                        alias
-                    })
-                    .clone();
-                format!("{alias}.cycle_id")
-            }
-            "issue_module__module_id" => {
-                let alias = self
-                    .modules
-                    .get_or_insert_with(|| {
-                        let alias = format!("axmod{}", self.next);
-                        self.next += 1;
-                        joins.push_str(&format!(
-                            " JOIN module_issues {alias} ON {alias}.issue_id = i.id"
-                        ));
-                        alias
-                    })
-                    .clone();
-                format!("{alias}.module_id")
-            }
+            "labels__id" => self.relation(filter, AxisRelation::Labels, joins),
+            "assignees__id" => self.relation(filter, AxisRelation::Assignees, joins),
+            "estimate_point__value" => self.relation(filter, AxisRelation::Estimate, joins),
+            "issue_cycle__cycle_id" => self.relation(filter, AxisRelation::Cycles, joins),
+            "issue_module__module_id" => self.relation(filter, AxisRelation::Modules, joins),
             "state_id" => "i.state_id".to_string(),
             "state__group" => "s.\"group\"".to_string(),
             "priority" => "i.priority".to_string(),
             other => {
-                // A date axis: `EXTRACT(year) || '-' || EXTRACT(month)`.
+                // A date axis: `Concat(ExtractYear, '-', ExtractMonth)` with
+                // `output_field=CharField()`. Django's `Concat` coalesces a
+                // NULL part to `''`, so a NULL date is the dimension `"-"`,
+                // not NULL (`django/db/models/functions/text.py:48-67`).
                 format!(
-                    "(EXTRACT(YEAR FROM i.{other})::text || '-' || EXTRACT(MONTH FROM i.{other})::text)"
+                    "(COALESCE(EXTRACT(YEAR FROM i.{other})::text, '') || '-' || \
+                     COALESCE(EXTRACT(MONTH FROM i.{other})::text, ''))"
                 )
             }
         }
+    }
+
+    /// The axis join for one relation. A filter that already joined the table
+    /// owns the alias, as Django reuses its join; otherwise a LEFT OUTER join
+    /// is added (Django's `values()` join), and the dimension's NULL rows are
+    /// removed by the query's `IS NOT NULL` clause.
+    fn relation(&mut self, filter: &Filter, relation: AxisRelation, joins: &mut String) -> String {
+        let table = relation.table();
+        let column = relation.column();
+        if let Some(alias) = filter.existing_alias(table) {
+            return format!("{alias}.{column}");
+        }
+        if let Some((_, alias)) = self.aliases.iter().find(|(known, _)| *known == relation) {
+            return format!("{alias}.{column}");
+        }
+        let alias = format!("ax{}{}", relation.slot(), self.next);
+        self.next += 1;
+        joins.push_str(&format!(
+            " LEFT JOIN {table} {alias} ON {}",
+            relation.on(&alias)
+        ));
+        self.aliases.push((relation, alias.clone()));
+        format!("{alias}.{column}")
     }
 }
 
@@ -943,11 +1046,11 @@ async fn build_graph_plot(
 ) -> Result<Vec<(String, Vec<PlotRow>)>, Failure> {
     let mut joins = String::new();
     let mut axes = AxisJoins::default();
-    let dimension = axes.for_axis(x_axis, &mut joins);
+    let dimension = axes.for_axis(filter, x_axis, &mut joins);
     let segmented = segment.map(|segment| {
         // `annotate_with_monthly_dimension` replaces the axis with
         // `segmented` for the date fields; the column expression is the same.
-        axes.for_axis(segment, &mut joins)
+        axes.for_axis(filter, segment, &mut joins)
     });
 
     let mut select = format!("SELECT {dimension}::text AS dimension");
@@ -960,8 +1063,12 @@ async fn build_graph_plot(
         select.push_str(", SUM(CAST(ep_sum.value AS double precision)) AS estimate");
         joins.push_str(" LEFT JOIN estimate_points ep_sum ON ep_sum.id = i.estimate_point_id");
     }
-    let from =
-        base_from(filter, &joins).replace("${slug}", &format!("${}", filter.params.len() + 1));
+    // `extract_axis` always names the axis `dimension`, and
+    // `analytics_plot.py:91-92` excludes a NULL dimension. A date axis with a
+    // NULL date and a LEFT JOINed label/assignee dimension both land here.
+    let extra_where = format!("{dimension} IS NOT NULL");
+    let from = base_from(filter, &joins, Some(&extra_where))
+        .replace("${slug}", &format!("${}", filter.params.len() + 1));
     let mut sql = format!("{select} {from}");
     if let Some(segmented) = &segmented {
         // The alias is not usable in GROUP BY's expression form on every
@@ -1079,19 +1186,21 @@ async fn detail_rows(
         }
     };
     // The detail queries are `Issue.issue_objects.filter(workspace__slug=slug,
-    // **filters)` plus the join; the base already has the project/state joins.
+    // **filters)` plus the join; the base already has the project/state joins,
+    // and the filters' joins are reused exactly as Django reuses them.
     let slug_index = filter.params.len() + 1;
     let mut params = filter.params();
     params.push(&slug as &(dyn tokio_postgres::types::ToSql + Sync));
     let sql = format!(
         "SELECT DISTINCT ON ({distinct_column}) {id_column}, {name_column} \
          FROM issues i JOIN projects p ON p.id = i.project_id \
-         LEFT JOIN states s ON s.id = i.state_id{joins} \
+         LEFT JOIN states s ON s.id = i.state_id{}{joins} \
          WHERE i.deleted_at IS NULL AND i.archived_at IS NULL \
            AND (s.\"group\" IS DISTINCT FROM 'triage') \
            AND p.archived_at IS NULL AND i.is_draft = FALSE \
            AND i.workspace_id = (SELECT id FROM workspaces WHERE slug = ${slug_index} AND deleted_at IS NULL) \
            AND {} ORDER BY {distinct_column}",
+        filter.joins_sql(),
         filter.where_sql()
     );
     let rows = client
@@ -1205,14 +1314,14 @@ fn segmented_rows(
     key: &str,
     details: &Details,
 ) -> Result<Vec<Vec<CsvValue>>, Failure> {
-    // `list(set(...))`: first-seen here (see the module docs).
-    let mut segment_zero: Vec<String> = Vec::new();
+    // `list(set(...))`: first-seen here (see the module docs). A NULL segment
+    // (an issue with no label, assignee, ... under a LEFT JOIN) is a column of
+    // its own with an empty header, exactly as Python writes `None`.
+    let mut segment_zero: Vec<Option<String>> = Vec::new();
     for (_, rows) in distribution {
         for row in rows {
-            if let Some(value) = &row.segment
-                && !segment_zero.contains(value)
-            {
-                segment_zero.push(value.clone());
+            if !segment_zero.contains(&row.segment) {
+                segment_zero.push(row.segment.clone());
             }
         }
     }
@@ -1238,7 +1347,10 @@ fn segmented_rows(
         }),
     ];
     for value in &segment_zero {
-        row_zero.push(CsvValue::Text(display_segment(value, segment, details)));
+        row_zero.push(match value {
+            Some(value) => CsvValue::Text(display_segment(value, segment, details)),
+            None => CsvValue::Null,
+        });
     }
     let mut rows = vec![row_zero];
     for (item, data) in distribution {
@@ -1253,7 +1365,7 @@ fn segmented_rows(
         for value in &segment_zero {
             let cell = data
                 .iter()
-                .find(|row| row.segment.as_deref() == Some(value.as_str()))
+                .find(|row| row.segment == *value)
                 .map_or(CsvValue::Null, |row| csv_value_for(row, key));
             row.push(cell);
         }
@@ -1366,6 +1478,90 @@ mod tests {
         let error =
             post_uuid_list(&mut filter, Some(&serde_json::json!(5))).expect_err("TypeError");
         assert_eq!(error, "object of type 'int' has no len()");
+    }
+
+    #[test]
+    fn a_related_filter_is_a_join_not_an_exists() {
+        // Django counts one row per matching label (upstream bug); the filter
+        // therefore emits a JOIN and a `deleted_at`/`__in` pair, and the join
+        // is promoted to INNER when the `__in` rejects NULL.
+        let mut filter = Filter::default();
+        let ids = UuidList::Ids(vec![
+            uuid::Uuid::parse_str("d0000000-0000-4000-8000-000000000041").expect("uuid"),
+        ]);
+        push_related_uuids(&mut filter, ids, "issue_labels", "label_id");
+        assert_eq!(
+            filter.joins_sql(),
+            " JOIN issue_labels fj0 ON fj0.issue_id = i.id"
+        );
+        assert_eq!(
+            filter.where_sql(),
+            "fj0.deleted_at IS NULL AND fj0.label_id = ANY($1::uuid[])"
+        );
+
+        let mut filter = Filter::default();
+        push_related_uuids(&mut filter, UuidList::Skip, "issue_labels", "label_id");
+        assert_eq!(
+            filter.joins_sql(),
+            " LEFT JOIN issue_labels fj0 ON fj0.issue_id = i.id"
+        );
+        assert_eq!(filter.where_sql(), "fj0.deleted_at IS NULL");
+    }
+
+    #[test]
+    fn an_axis_reuses_the_filter_join() {
+        let mut filter = Filter::default();
+        push_related_uuids(
+            &mut filter,
+            UuidList::Ids(vec![
+                uuid::Uuid::parse_str("d0000000-0000-4000-8000-000000000041").expect("uuid"),
+            ]),
+            "issue_labels",
+            "label_id",
+        );
+        let mut joins = String::new();
+        let mut axes = AxisJoins::default();
+        let dimension = axes.for_axis(&filter, LABEL_ID, &mut joins);
+        assert_eq!(dimension, "fj0.label_id");
+        assert_eq!(joins, "", "the filter's join is reused, not duplicated");
+    }
+
+    #[test]
+    fn an_axis_without_a_filter_adds_a_left_join() {
+        let filter = Filter::default();
+        let mut joins = String::new();
+        let mut axes = AxisJoins::default();
+        let dimension = axes.for_axis(&filter, LABEL_ID, &mut joins);
+        assert_eq!(dimension, "axlabel0.label_id");
+        assert_eq!(
+            joins,
+            " LEFT JOIN issue_labels axlabel0 ON axlabel0.issue_id = i.id"
+        );
+    }
+
+    #[test]
+    fn a_date_axis_coalesces_a_null_date_to_a_dash() {
+        let filter = Filter::default();
+        let mut joins = String::new();
+        let mut axes = AxisJoins::default();
+        let dimension = axes.for_axis(&filter, "start_date", &mut joins);
+        assert!(dimension.contains("COALESCE(EXTRACT(YEAR FROM i.start_date)::text, '')"));
+        assert!(dimension.contains("COALESCE(EXTRACT(MONTH FROM i.start_date)::text, '')"));
+    }
+
+    #[test]
+    fn a_detail_query_rejects_the_duplicate_filter_kwarg() {
+        let mut data = serde_json::Map::new();
+        data.insert("labels".to_string(), serde_json::json!([]));
+        let error = no_duplicate_detail_filter(&data, "labels", "label_issue__deleted_at__isnull")
+            .expect_err("TypeError");
+        assert!(
+            error.contains("multiple values for keyword argument"),
+            "{error}"
+        );
+        assert!(
+            no_duplicate_detail_filter(&data, "cycle", "issue_cycle__deleted_at__isnull").is_ok()
+        );
     }
 
     #[test]
