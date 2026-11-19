@@ -2035,8 +2035,26 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `schema_version` check; `countdown`/`eta` not mapped to `run_at`;
        `difftest task` compares DB rows only (Redis/S3/SMTP capture to add).
 
-   Running: the orchestrator's verification of `90724f9c00` (gates 248 and the schema
-   rows); Phase 8 set D (`rs/p8-d`: tasks 3–7, 9, 10, 19, 20, 27 + the
+   - **Verification of `90724f9c00` — not passed, no flip (248, 391–393 held).** Gates
+     fine: 1303 tests, testkit 198, selftest 141, schema_check (5 crates), the lxml/MIME/
+     message/OpenAPI generator checks; OAuth 57/57 + 52/52; SMTP success clean. Found:
+     1. **P0 regression (harness):** 20 files fail (108 clean / 4596 steps), e.g.
+        `read/projects.yaml` 49/52, `read/issues-list-extra.yaml` 32/102; contract
+        (`--assume-rust 248`) 972/14 = baseline + 11. Every failing step is a Rust
+        retrieve that publishes `recent_visited_task` answering 500: the task is
+        Rust-owned since P0, so it enqueues to `plane_jobs.jobs`, and the harness/contract
+        DB clones have no `plane_jobs` schema (production creates it in `plane-migrator`).
+        P0's clean sweeps are unexplained. Fix assigned to set D: create the schema in
+        managed mode and the contract runner, compare A's Celery message to B's job row,
+        keep `plane_jobs` out of the table diff.
+     2. Rust logged that 500 with the access line only, no cause (Django logs the
+        traceback). Same fix.
+     3. `email_template_corpus.py` ignores `--check` and rewrites the golden (bytes were
+        identical). Same fix, plus a CI step.
+     4. `difftest task` needs `target/debug/plane-migrator`; the orchestrator's build now
+        includes `-p plane-migrator`.
+
+   Running: Phase 8 set D (`rs/p8-d`: tasks 3–7, 9, 10, 19, 20, 27 + the
    `recent_visited_task` publish correction; 18010/18110, Redis 3/4) and set C
    (`rs/p8-c`: tasks 1, 8, 14, 15, 16, 35, 44, 46; 18020/18120, Redis 5/6). Then the final benchmark and the environment
    revert (see "In flight").
