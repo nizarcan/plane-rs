@@ -2190,6 +2190,24 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      × 2, applies on the next recreate, `33dd7bcc24`). Agents told never to change
      server-wide settings on the shared stack.
 
+   - **Phase 8 set A1 on its branch (`e6a0c0937e`, not merged).** `issue_activity`
+     switched: 27 builders, 63 `difftest task` cases (DB, Redis, published messages);
+     31 producers in 19 files moved to `Job::from_message`; `difftest task` diffs Redis;
+     the contract plugin replays `plane_jobs` rows (983/3 at its base). Agent: write
+     75/75, read 51/51 + OAuth 21/21/57/57/52/52, beat clean, 1330 tests.
+     - **Owed before merge:** the `notifications` publish sends UUIDs as strings where
+       Django sends kombu UUID envelopes (Celery-owned, so D25 requires the same wire);
+       the agent had normalised it away. The orchestrator merged `rust-rewrite` (set C)
+       into `rs/p8-a1`: 5 files conflict, incl. two replays of `plane_jobs` in the
+       contract plugin. Both assigned back to A1.
+     - Upstream kept (27 builders): removing an estimate point always aborts
+       (`issue_activities_task.py:501`); `create_issue_activity` inserts a row before
+       parsing and can abort after it; `create_comment_reaction_activity` unpacks `None`;
+       `track_closed_to` uses `.get`; v4-only `is_valid_uuid`; `track_description`
+       rewrites the previous row's `created_at`; asymmetric inverse relation on delete;
+       `state_id` + `state` in one update append two rows; a bad `epoch` fails after
+       partial bumps.
+
    Running: the orchestrator's verification of `33dd7bcc24`, set A1 (`rs/p8-a1`:
    `issue_activity`; 18010/18110, Redis 3/4, contract Redis 11), set B (`rs/p8-b`: tasks
    12, 13, 17, 28, 32, 36–43, 45; 18020/18120, Redis 5/6, contract Redis 15, SMTP
