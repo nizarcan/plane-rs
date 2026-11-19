@@ -208,6 +208,20 @@ jobs:
         working-directory: apps/api
         run: uv run --no-sync python manage.py migrate --noinput
 
+      # `plane-migrator` owns the schema from a checked-in `pg_dump` of the
+      # pinned Django migration set (`plans/CUTOVER.md` §4). `--check` migrates
+      # a second, fresh database with the venv's Django and compares the dump
+      # and the `django_migrations` rows with `deploy/schema/`. pg_dump must be
+      # the server's major version, so it runs inside the service container.
+      - name: Check the plane-migrator baseline is current
+        working-directory: apps/api
+        run: |
+          uv run --no-sync python ../server/tools/schema/baseline.py --check \
+            --database t_baseline_check \
+            --database-url postgresql://plane:plane@127.0.0.1:5432/plane_ci \
+            --dump-url "postgresql://plane:plane@127.0.0.1:5432/<db>" \
+            --pg-dump "docker exec ${{ job.services.postgres.id }} pg_dump"
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -529,6 +543,17 @@ jobs:
       - name: Check the e-mail template corpus is current
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/mail/email_template_corpus.py --check
+
+      # `plane-bootstrap` embeds the 36 `InstanceConfiguration` defaults and the
+      # eight `/static/` files; both generators parse/compare Django's copies so
+      # a change in apps/api cannot drift from the Rust assets silently.
+      - name: Check the instance-configuration seed is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/boot/gen_instance_config.py --check
+
+      - name: Check the embedded static files are byte-identical
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/boot/static_files.py --check
 
       - name: Check the OpenAPI goldens are current
         working-directory: apps/api

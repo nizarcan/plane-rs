@@ -43,6 +43,10 @@ COMMANDS = {"EHLO", "HELO", "AUTH", "MAIL", "RCPT", "DATA", "RSET", "QUIT", "NOO
 # `MAIL FROM:<a@b> size=<len(msg)>`: the length moves with the Message-ID's
 # random decimal digits, so only the parameter's presence is compared.
 SIZE = re.compile(r"size=\d+")
+# `EmailMultiAlternatives` alternatives get a random MIME boundary
+# (`email/generator.py:_make_boundary`); it is the only content difference a
+# body with alternatives has, and it is random on both sides.
+BOUNDARY = re.compile(rb"===============\d+==")
 
 
 def unfold(value: bytes) -> bytes:
@@ -63,6 +67,7 @@ def normalise_data(data: str | None) -> tuple[str | None, str | None]:
             domain = tail.rstrip(b">").decode("latin-1")
     raw = MESSAGE_ID.sub(b"Message-ID: <MESSAGE-ID>", raw)
     raw = DATE.sub(b"Date: <DATE>", raw)
+    raw = BOUNDARY.sub(b"===============<BOUNDARY>==", raw)
     return raw.decode("latin-1"), domain
 
 

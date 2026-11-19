@@ -41,6 +41,12 @@
 # Value shapes, verified before placeholdering. Each shape cites the Django
 # code or observed value it comes from.
 shapes:
+  # Django's `DateTimeField` serialisation: `isoformat()` with a `Z` suffix when
+  # the value is UTC, six fractional digits when non-zero. Used for boot-time
+  # state the harness's two targets cannot share (see `volatile_json_paths`).
+  iso_datetime:
+    pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$'
+    why: "DRF DateTimeField renders ISO-8601 with a Z suffix (rest_framework/fields.py:1390-1396)"
   # plane/db/models/session.py:14-15,36-42:
   # VALID_KEY_CHARS = string.ascii_lowercase + string.digits,
   # get_random_string(128, VALID_KEY_CHARS), retried while the key exists.
@@ -639,6 +645,24 @@ volatile_json_keys:
 # `**` any number. A rule without `request` would apply to every response, so
 # both are scoped.
 volatile_json_paths:
+  # `plane-api` runs the entrypoint's `register_instance` before it listens
+  # (`docker-entrypoint-api.sh:24`, `plans/CUTOVER.md` §3); the harness starts
+  # Django with `dev/django-serve.sh`, which deliberately skips the boot steps.
+  # The Rust side's boot therefore stamps `last_checked_at`/`updated_at` while
+  # Django leaves the template row untouched. After cutover there is no second
+  # writer; these two fields are boot-time state, not request behaviour.
+  - path: "$.instance.last_checked_at"
+    request: "GET /api/instances/"
+    mode: placeholder
+    placeholder: boot-last-checked
+    shape: iso_datetime
+    why: "the Rust boot's register_instance stamps last_checked_at; the harness's Django target skips the boot steps (docker-entrypoint-api.sh:24)"
+  - path: "$.instance.updated_at"
+    request: "GET /api/instances/"
+    mode: placeholder
+    placeholder: boot-updated
+    shape: iso_datetime
+    why: "register_instance's save() bumps updated_at of the single instance row (register_instance.py:87)"
   - path: "$.token"
     request: "POST /api/users/api-tokens/"
     placeholder: api-token

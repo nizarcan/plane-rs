@@ -27,5 +27,5 @@ pub use plain_text::generate_plain_text_from_html;
 pub use template::{TemplateError, render, render_with_environment};
 pub use transport::{
     DEFAULT_FROM_EMAIL, EmailConfiguration, MailError, Message, default_date, default_message_id,
-    dns_name, quoteaddr, sanitize_address, send,
+    dns_name, quoteaddr, sanitize_address, send, send_with_timeout,
 };

@@ -2,11 +2,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // See the LICENSE file for details.
 
-//! `plane-migrator`: create the Rust-owned `plane_jobs` schema.
+//! `plane-migrator`: own the schema from the last Django migration on.
 //!
-//! It is deliberately separate from Django's `manage.py migrate`: the queue is
-//! the one schema addition and it must not appear in
-//! `apps/api/migrations_lockfile.txt`.
+//! Two things happen here, in this order, under one advisory lock
+//! (`plans/CUTOVER.md` §4):
+//!
+//! 1. the Django baseline: a fresh install applies the embedded `pg_dump` and
+//!    its `django_migrations` rows; an existing database must carry exactly
+//!    the baseline's migration set (older and newer are both refused);
+//! 2. the Rust-owned `plane_jobs` schema, which must not appear in
+//!    `apps/api/migrations_lockfile.txt`.
+//!
+//! It is deliberately separate from Django's `manage.py migrate`.
+
+mod schema;
 
 use anyhow::Context;
 use plane_core::config::{Role, Settings};
@@ -21,15 +30,28 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("building the tokio runtime")?;
     runtime.block_on(async move {
-        let client = db
+        let mut client = db
             .write_pool()
             .get()
             .await
             .context("connecting to Postgres")?;
-        plane_jobs::migrate(&**client)
-            .await
-            .context("creating the plane_jobs schema")?;
-        println!("plane-migrator: plane_jobs schema is up to date");
+        match schema::migrate(&mut client).await.context("migrating")? {
+            schema::Outcome::FreshInstall { migrations } => {
+                println!(
+                    "plane-migrator: fresh install: applied the Django baseline \
+                     ({migrations} migrations) and created the plane_jobs schema"
+                );
+            }
+            schema::Outcome::Upgrade { migrations } => {
+                println!(
+                    "plane-migrator: baseline matched ({migrations} migrations); \
+                     plane_jobs schema is up to date"
+                );
+            }
+            schema::Outcome::AlreadyCurrent => {
+                println!("plane-migrator: already up to date");
+            }
+        }
         Ok(())
     })
 }

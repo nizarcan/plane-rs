@@ -50,18 +50,14 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("building the tokio runtime")?;
     runtime.block_on(async move {
-        // The migrator is the production owner; running the idempotent DDL
-        // here keeps a fresh worker (and `difftest task`) usable without it.
-        {
-            let client = db
-                .write_pool()
-                .get()
-                .await
-                .context("connecting to the job database")?;
-            plane_jobs::migrate(&**client)
-                .await
-                .context("creating the plane_jobs schema")?;
-        }
+        // The migrator is the only process that migrates
+        // (`plans/CUTOVER.md` §3): wait for its marker, never run its DDL.
+        plane_bootstrap::wait::wait_for_db(&db)
+            .await
+            .context("waiting for the database")?;
+        plane_bootstrap::wait::wait_for_migrations(&db)
+            .await
+            .context("waiting for migrations")?;
         if once {
             // `difftest task` sets this to 1: the job under test only. Anything
             // it publishes stays in `plane_jobs` for the harness to compare.
