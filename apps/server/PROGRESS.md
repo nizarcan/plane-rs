@@ -2269,6 +2269,14 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        uncoerced data (`"3"` vs `3` fires); deactivation mail never sends for
        API-created webhooks and ignores `reason`.
 
+   - **Verified at `f4e33cc6e2`** (A2): fmt, clippy, 1394 tests, testkit 210, selftest
+     141, schema_check (5 crates), `plane-jobs` DB test 8/8, nine generator checks;
+     **242/242 task cases** (5 analytics cases failed in the full run with "django sent 2
+     message(s), rust sent 1" and passed alone: `difftest task`'s SMTP listeners use the
+     fixed ports 18418/18419 and set B's run delivered into them; ephemeral ports
+     assigned to set B part 3); **128 files / 6085 steps clean in one pass**; OAuth 57/57 +
+     52/52; SMTP clean; contract 984/2. **A1–A3, C and D are verified on `rust-rewrite`.**
+
    - **Phase 8 set B part 2 on its branch (`8ae6eb5898`).** Switched 12
      `stack_email_notification` (beat entry in `RUST_SCHEDULES`) and 13
      `send_email_notification` (Redis lock, `issue-updates` template with `slice`/`add`/
