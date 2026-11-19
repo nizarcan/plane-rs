@@ -50,7 +50,7 @@ psql "$PG_URL/postgres" -q -c "DROP DATABASE IF EXISTS \"$TEST_DB\" WITH (FORCE)
 psql "$PG_URL/postgres" -q -c "CREATE DATABASE \"$TEST_DB\" TEMPLATE plane_fix_tpl" >/dev/null
 
 export PLANE_DB="$TEST_DB"
-export PLANE_REDIS_DB=5
+export PLANE_REDIS_DB=3
 export PLANE_MQ_VHOST=plane
 export PLANE_RS_JOBS_TEST_SCHEDULE_SECONDS=2
 export PLANE_RS_BEAT_POLL_MS=100

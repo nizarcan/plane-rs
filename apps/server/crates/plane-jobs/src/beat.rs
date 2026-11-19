@@ -51,7 +51,7 @@ pub const REAL_SCHEDULES: &[ScheduleSeed] = &[
         interval_seconds: None,
     },
     ScheduleSeed {
-        name: "push-instance-metrics",
+        name: METRICS_SCHEDULE,
         task: "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
         cron: None,
         interval_seconds: Some(360 * 60),
@@ -118,6 +118,10 @@ pub const REAL_SCHEDULES: &[ScheduleSeed] = &[
     },
 ];
 
+/// The interval schedule whose length is `METRICS_PUSH_INTERVAL_MINUTES`
+/// (`celery.py:27-38`); `seed_schedules` takes it from the settings.
+pub const METRICS_SCHEDULE: &str = "push-instance-metrics";
+
 pub const TEST_SCHEDULE: &str = "plane.jobs.test-tick";
 pub const TEST_TASK: &str = "plane.jobs.echo";
 
@@ -144,6 +148,7 @@ pub const RUST_SCHEDULES: &[&str] = &[
     "check-every-day-to-delete-page-versions",
     "check-every-day-to-delete-issue-description-versions",
     "check-every-day-to-delete-webhook-logs",
+    METRICS_SCHEDULE,
 ];
 
 /// A parsed cron with minute/hour fields. The real entries do not constrain
@@ -341,6 +346,9 @@ pub struct BeatConfig {
     /// have time to observe the tracker bump before it; 15 s is three times
     /// its 5 s loop.
     pub handover_margin: Duration,
+    /// `METRICS_PUSH_INTERVAL_MINUTES` for the `push-instance-metrics` entry
+    /// (`celery.py:27-38`). The seeded default is 360.
+    pub metrics_push_interval_minutes: i64,
 }
 
 impl Default for BeatConfig {
@@ -349,6 +357,7 @@ impl Default for BeatConfig {
             poll: Duration::from_secs(1),
             handover_gap: Duration::from_secs(30),
             handover_margin: Duration::from_secs(15),
+            metrics_push_interval_minutes: 360,
         }
     }
 }
@@ -368,7 +377,12 @@ impl Beat {
         test_interval: Option<i64>,
     ) -> Result<Self, QueueError> {
         let client = pool.write_pool().get().await?;
-        seed_schedules(&**client, test_interval).await?;
+        seed_schedules(
+            &**client,
+            test_interval,
+            config.metrics_push_interval_minutes * 60,
+        )
+        .await?;
         let django_table: bool = client
             .query_one(
                 "SELECT to_regclass('django_celery_beat_periodictask') IS NOT NULL",
@@ -573,12 +587,18 @@ async fn bump_tracker<C: GenericClient + Sync>(client: &C) -> Result<(), QueueEr
 pub async fn seed_schedules<C: GenericClient + Sync>(
     client: &C,
     test_interval: Option<i64>,
+    metrics_interval_seconds: i64,
 ) -> Result<(), QueueError> {
     for seed in REAL_SCHEDULES {
         let kind = if seed.cron.is_some() {
             "cron"
         } else {
             "interval"
+        };
+        let interval_seconds = if seed.name == METRICS_SCHEDULE {
+            Some(metrics_interval_seconds)
+        } else {
+            seed.interval_seconds
         };
         client
             .execute(
@@ -589,13 +609,7 @@ pub async fn seed_schedules<C: GenericClient + Sync>(
                      task = EXCLUDED.task, kind = EXCLUDED.kind, \
                      cron = EXCLUDED.cron, interval_seconds = EXCLUDED.interval_seconds, \
                      updated_at = now()",
-                &[
-                    &seed.name,
-                    &seed.task,
-                    &kind,
-                    &seed.cron,
-                    &seed.interval_seconds,
-                ],
+                &[&seed.name, &seed.task, &kind, &seed.cron, &interval_seconds],
             )
             .await?;
     }

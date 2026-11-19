@@ -26,6 +26,9 @@ fn main() -> anyhow::Result<()> {
         handover_margin: Duration::from_secs(
             env_u64("PLANE_RS_JOBS_HANDOVER_MARGIN_SECONDS", 15).max(1),
         ),
+        // `METRICS_PUSH_INTERVAL_MINUTES` (`celery.py:27-38`); `plane-core`
+        // has already applied Python's `int()`/range fallback.
+        metrics_push_interval_minutes: settings.broker.metrics_push_interval_minutes,
     };
     let test_interval = std::env::var("PLANE_RS_JOBS_TEST_SCHEDULE_SECONDS")
         .ok()

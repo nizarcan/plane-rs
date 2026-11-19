@@ -82,6 +82,10 @@ pub const RUST_TASKS: &[&str] = &[
     // Phase 8 set A2: its only producer is the Rust `issue_activity` handler's
     // `notification=True` re-publish (`issue_activities_task.py:1632-1645`).
     "plane.bgtasks.notification_task.notifications",
+    // Phase 8 set T (D34 amendment): the boot step `register_instance` and the
+    // `push-instance-metrics` beat entry are both Rust (`plane-bootstrap`,
+    // `plane-beat`).
+    "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
 ];
 
 /// A task's owner.
@@ -134,16 +138,20 @@ mod tests {
 
     #[test]
     fn default_is_celery() {
-        // `push_instance_metrics` is never ported (owner decision 5,
-        // `RUST_REWRITE.md:237`), so it stays a Celery-owned task for good.
+        // A task that is not registered is Celery-owned, never silently Rust.
+        // The name is deliberately not a registered task, so it can never
+        // appear in `RUST_TASKS` as the Phase 8 table grows.
+        let name = "plane.bgtasks.test_ownership.never_a_registered_task";
+        assert_eq!(owner_with(name, &[]), Owner::Celery);
+        assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);
+        // The one task that used to be the "never Rust" example is Rust now.
         assert_eq!(
             owner_with(
                 "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
                 &[]
             ),
-            Owner::Celery
+            Owner::Rust
         );
-        assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);
     }
 
     #[test]

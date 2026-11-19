@@ -701,6 +701,69 @@ impl RecordedRequest {
     }
 }
 
+/// A request body in the form the comparison uses.
+///
+/// Text bodies (every call site but the OTLP protobuf exporter) go through the
+/// case's normalisers. Binary bodies compare byte for byte: `from_utf8_lossy`
+/// turns every non-UTF-8 byte into the same replacement character, which would
+/// hide a changed count in a protobuf field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ComparableBody {
+    Text(String),
+    Bytes(Vec<u8>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ComparableRequest {
+    method: String,
+    path: String,
+    query: String,
+    user_agent: Option<String>,
+    body: ComparableBody,
+}
+
+impl ComparableRequest {
+    fn describe(&self) -> String {
+        let body = match &self.body {
+            ComparableBody::Text(text) => {
+                let preview: String = text.chars().take(120).collect();
+                format!("{}B {:?}", text.len(), preview)
+            }
+            ComparableBody::Bytes(bytes) => {
+                format!("{}B {:02x?}", bytes.len(), &bytes[..bytes.len().min(48)])
+            }
+        };
+        format!(
+            "{} {}{} ua={:?} body={body}",
+            self.method,
+            self.path,
+            if self.query.is_empty() {
+                String::new()
+            } else {
+                format!("?{}", self.query)
+            },
+            self.user_agent,
+        )
+    }
+}
+
+fn comparable_body(
+    body: &[u8],
+    http: Option<&HttpCase>,
+    side: &dyn Fn(&str) -> String,
+) -> ComparableBody {
+    match std::str::from_utf8(body) {
+        // The case's normalisers also apply to a request body: a task that
+        // copies an object embeds the fresh asset id in its `convert-document`
+        // payload, and that id is legitimately different on each side.
+        Ok(text) => ComparableBody::Text(match http {
+            Some(http) => http.normalize_text(text),
+            None => side(text),
+        }),
+        Err(_) => ComparableBody::Bytes(body.to_vec()),
+    }
+}
+
 /// Compare the requests each side made, in order.
 pub fn compare_requests(
     case: &TaskCase,
@@ -708,27 +771,19 @@ pub fn compare_requests(
     a: &[RecordedRequest],
     b: &[RecordedRequest],
 ) -> Result<()> {
-    // The case's normalisers also apply to a request body: a task that copies
-    // an object embeds the fresh asset id in its `convert-document` payload,
-    // and that id is legitimately different on each side.
     let http = case.http.as_ref();
-    let normalize = |request: &RecordedRequest, side: &dyn Fn(&str) -> String| RecordedRequest {
+    let normalize = |request: &RecordedRequest, side: &dyn Fn(&str) -> String| ComparableRequest {
         method: request.method.clone(),
         path: request.path.clone(),
         query: request.query.clone(),
         user_agent: request.user_agent.clone(),
-        body: match http {
-            Some(http) => http
-                .normalize_text(&String::from_utf8_lossy(&request.body))
-                .into_bytes(),
-            None => side(&String::from_utf8_lossy(&request.body)).into_bytes(),
-        },
+        body: comparable_body(&request.body, http, side),
     };
-    let a: Vec<RecordedRequest> = a
+    let a: Vec<ComparableRequest> = a
         .iter()
         .map(|r| normalize(r, &|v| buckets.a(case, v)))
         .collect();
-    let b: Vec<RecordedRequest> = b
+    let b: Vec<ComparableRequest> = b
         .iter()
         .map(|r| normalize(r, &|v| buckets.b(case, v)))
         .collect();
@@ -742,8 +797,8 @@ pub fn compare_requests(
         if left != right {
             bail!(
                 "http request {index} differs:\n  django: {}\n  rust:   {}",
-                left.map_or_else(|| "<none>".to_string(), RecordedRequest::describe),
-                right.map_or_else(|| "<none>".to_string(), RecordedRequest::describe),
+                left.map_or_else(|| "<none>".to_string(), ComparableRequest::describe),
+                right.map_or_else(|| "<none>".to_string(), ComparableRequest::describe),
             );
         }
     }
@@ -991,6 +1046,54 @@ mod tests {
             b: None,
         };
         assert_eq!(empty.a(&case, "plain"), "plain");
+    }
+
+    #[test]
+    fn binary_bodies_compare_byte_for_byte() {
+        let case = TaskCase {
+            task: None,
+            sql: Vec::new(),
+            s3: None,
+            http: Some(HttpCase {
+                responses: BTreeMap::new(),
+                normalize: vec![Normalize {
+                    pattern: ".".to_string(),
+                    replacement: String::new(),
+                }],
+            }),
+            smtp: None,
+            redis: Vec::new(),
+            attempts: None,
+            normalize: Vec::new(),
+        };
+        let request = |body: &[u8]| RecordedRequest {
+            method: "POST".to_string(),
+            path: "/v1/metrics".to_string(),
+            query: String::new(),
+            user_agent: None,
+            body: body.to_vec(),
+        };
+        let buckets = SideBuckets::default();
+        // A one-byte difference in a protobuf field is a difference, even
+        // though both bytes decode to U+FFFD as lossy text.
+        // `0xff`/`0xfe` are not UTF-8, so the body must not take the text path
+        // (the `.` normaliser would erase both and hide the difference).
+        let error = compare_requests(
+            &case,
+            buckets,
+            &[request(&[0x0a, 0xff])],
+            &[request(&[0x0a, 0xfe])],
+        )
+        .expect_err("different bytes");
+        assert!(error.to_string().contains("differs"), "{error}");
+        // The same bytes pass even though the text normaliser would erase them.
+        compare_requests(
+            &case,
+            buckets,
+            &[request(&[0x0a, 0xff])],
+            &[request(&[0x0a, 0xff])],
+        )
+        .expect("identical bytes");
     }
 
     #[test]

@@ -23,8 +23,9 @@ The script exits 0 only when every required step passes; it prints `PASS`,
 `FAIL` and `SKIP` lines and a summary. The cutover gate is strict: invite and
 webhook delivery must work, and **any** `celery publish failed`,
 `plane.exception` or `amqp: IO error` line in the api, worker or beat log is a
-failure. That is what proves nothing still needs the broker; the only task not
-ported is `push_instance_metrics`, and nothing publishes it (D34).
+failure. That is what proves nothing still needs the broker; every task,
+including `push_instance_metrics` (D34 amendment), is Rust-owned and
+published through `plane_jobs`.
 
 On a branch that predates set B (`rust-rewrite` before `29dd5da1d9`) the same
 run necessarily fails: the walk's project/work-item requests publish
