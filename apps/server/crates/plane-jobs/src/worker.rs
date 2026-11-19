@@ -16,11 +16,11 @@ use std::time::Duration;
 
 use deadpool_postgres::Client;
 use plane_db::DbPools;
-use serde_json::Value;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use crate::listener::Listener;
+use crate::payload::Payload;
 use crate::queue::{self, ClaimedJob, Failure, QueueError};
 
 /// A handler failure and whether another attempt can help.
@@ -54,7 +54,9 @@ pub struct JobContext {
     pub client: Client,
     pub id: Uuid,
     pub task: String,
-    pub payload: Value,
+    /// The payload in the producer's key order (`payload::Payload`), which
+    /// dereferences to the sorted `serde_json::Value` handlers used before.
+    pub payload: Payload,
     pub attempts: i32,
 }
 
@@ -232,17 +234,22 @@ impl Worker {
     }
 
     /// Claim and process until the queue has no runnable job for this worker.
-    /// Used by tests and by a future `plane-worker --once`.
+    /// Used by tests; `plane-worker --once` calls [`Self::drain_n`].
     pub async fn drain(&self) -> Result<usize, QueueError> {
         self.drain_n(usize::MAX).await
     }
 
-    /// [`drain`] with a cap on the jobs executed. `difftest task` caps it at
-    /// one so a handler's published tasks stay queued, exactly as they do when
-    /// Django's `task.apply()` publishes them (`D25`).
+    /// Process at most `limit` runnable jobs, then return.
+    ///
+    /// `difftest task` uses this with a limit of one so a handler's published
+    /// Rust-owned job is compared as a `plane_jobs` row (the effect) instead of
+    /// being executed as a second job of the same `--once` run.
     pub async fn drain_n(&self, limit: usize) -> Result<usize, QueueError> {
         let mut processed = 0;
-        while processed < limit {
+        loop {
+            if processed >= limit {
+                return Ok(processed);
+            }
             let client = self.pool.write_pool().get().await?;
             let jobs = queue::claim(
                 &**client,
@@ -260,7 +267,6 @@ impl Worker {
                 processed += 1;
             }
         }
-        Ok(processed)
     }
 
     fn spawn(&self, inflight: &mut JoinSet<()>, job: ClaimedJob) {

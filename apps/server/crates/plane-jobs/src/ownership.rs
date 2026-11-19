@@ -79,6 +79,9 @@ pub const RUST_TASKS: &[&str] = &[
     // (`beat::RUST_SCHEDULES`).
     "plane.bgtasks.email_notification_task.stack_email_notification",
     "plane.bgtasks.email_notification_task.send_email_notification",
+    // Phase 8 set A2: its only producer is the Rust `issue_activity` handler's
+    // `notification=True` re-publish (`issue_activities_task.py:1632-1645`).
+    "plane.bgtasks.notification_task.notifications",
 ];
 
 /// A task's owner.
@@ -131,8 +134,13 @@ mod tests {
 
     #[test]
     fn default_is_celery() {
+        // `push_instance_metrics` is never ported (owner decision 5,
+        // `RUST_REWRITE.md:237`), so it stays a Celery-owned task for good.
         assert_eq!(
-            owner_with("plane.bgtasks.notification_task.notifications", &[]),
+            owner_with(
+                "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+                &[]
+            ),
             Owner::Celery
         );
         assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);

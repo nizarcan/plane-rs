@@ -91,9 +91,13 @@ fn parse_id(id: &str) -> Result<Uuid, EntityError> {
 // Key order
 // ---------------------------------------------------------------------------
 
-/// The serializer's `_readable_fields` order, for a value that has already
-/// travelled through `plane_jobs`' `jsonb` payload (which sorts keys): the
-/// webhook body must keep Django's insertion order, so a handler rebuilds it.
+/// The serializer's `_readable_fields` order.
+///
+/// `webhook_activity` (the producer) applies this before publishing, because
+/// `model_data` returns Python dicts whose field order is not the serializer's
+/// (`_readable_fields` is). The queue now keeps that order (`json` payload,
+/// `plane_jobs::payload`), so `webhook_send_task` no longer re-applies it; the
+/// function stays as the producer's order definition.
 fn reorder(value: &Value, fields: &[&str]) -> Value {
     let Value::Dict(dict) = value else {
         return value.clone();

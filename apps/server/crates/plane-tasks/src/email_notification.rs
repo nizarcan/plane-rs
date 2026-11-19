@@ -25,17 +25,14 @@
 //! JSON column; the issue key is `entity_identifier`, a `UUID` object in
 //! Python (kombu's `uuid` envelope on the wire) and possibly `None`.
 //!
-//! # The queue re-orders dict keys
+//! # The queue keeps dict key order
 //!
-//! The `plane_jobs` payload is `jsonb`, which stores object keys sorted, and
-//! `serde_json`'s map is a `BTreeMap` in this workspace. A Python dict's
-//! insertion order — which decides `data.0` in the template and the order of
-//! the comments — is therefore lost between 12 and 13. The handler iterates
-//! what it receives (sorted), so a multi-actor notification lists actors in
-//! uuid order where Django lists them in row order. Everything else (values,
-//! grouping, counts) is unchanged. This is a property of D8's transport, not
-//! of these tasks; the differential cases pin the content with one actor per
-//! change.
+//! The `plane_jobs` payload is a `json` column, so the producer's text and key
+//! order survive the queue (`plane_jobs::payload`). `create_payload` iterates
+//! the ordered `notification_data`, so `data.0` and the comments follow the
+//! producer's order exactly as Django's `dict.items()` does. The fixtures use
+//! actor ids whose uuid order differs from the row order (`p8b-en-send-order`),
+//! which would have failed while the column was `jsonb`.
 //!
 //! # 13's lock and its asymmetric release
 //!
@@ -80,13 +77,14 @@ use deadpool_postgres::Client;
 use plane_db::models::JsonText;
 use plane_jobs::celery::args::TaskArg;
 use plane_jobs::celery::{Message, task_name};
+use plane_jobs::payload::Payload;
 use plane_jobs::queue::Job;
 use plane_jobs::worker::{HandlerError, JobContext, TaskRegistry};
 use plane_serde::pyjson::{self, Value as PyValue};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::{TaskContext, kwargs, publish_or_enqueue, string_value};
+use crate::{TaskContext, publish_or_enqueue};
 
 /// The per-issue half of 12's grouping: `{str(triggered_by_id): [data, …]}` in
 /// first-appearance order.
@@ -294,7 +292,9 @@ struct SendArgs {
     /// where the ORM would coerce it (inside the try), so a bad value releases
     /// the lock like any other lookup failure.
     issue_id: String,
-    notification_data: Value,
+    /// The ordered actor dict, as the producer wrote it. Its iteration order
+    /// decides `data.0` and the comments' order in the e-mail.
+    notification_data: PyValue,
     receiver_id: String,
     ids: Vec<String>,
 }
@@ -349,20 +349,30 @@ enum SendOutcome {
     Sent,
 }
 
-fn decode_send(payload: &Value) -> Option<SendArgs> {
-    let kwargs = kwargs(payload)?;
-    let issue_id = string_value(kwargs.get("issue_id"))?;
-    let receiver_id = string_value(kwargs.get("receiver_id"))?;
-    let ids = kwargs
-        .get("email_notification_ids")?
-        .as_array()?
+fn decode_send(payload: &Payload) -> Option<SendArgs> {
+    let Some(PyValue::Dict(kwargs)) = payload.py_at(&["kwargs"]) else {
+        return None;
+    };
+    let text = |name: &str| -> Option<String> {
+        match kwargs.get(name)? {
+            PyValue::Str(value) => Some(value.to_string_lossy().into_owned()),
+            _ => None,
+        }
+    };
+    let PyValue::List(items) = kwargs.get("email_notification_ids")? else {
+        return None;
+    };
+    let ids = items
         .iter()
-        .map(|item| string_value(Some(item)))
+        .map(|item| match item {
+            PyValue::Str(value) => Some(value.to_string_lossy().into_owned()),
+            _ => None,
+        })
         .collect::<Option<Vec<String>>>()?;
     Some(SendArgs {
-        issue_id,
+        issue_id: text("issue_id")?,
         notification_data: kwargs.get("notification_data")?.clone(),
-        receiver_id,
+        receiver_id: text("receiver_id")?,
         ids,
     })
 }
@@ -650,38 +660,41 @@ async fn load_user(client: &Client, id: &str) -> Result<Option<MailUser>, String
 /// Returns the actor map in payload order. Every actor entry carries an
 /// `activity_time` string and zero or more field entries shaped
 /// `{"old_value": [...], "new_value": [...]}`.
-fn create_payload(notification_data: &Value) -> Result<ActorChanges, String> {
-    let Some(actors) = notification_data.as_object() else {
+fn create_payload(notification_data: &PyValue) -> Result<ActorChanges, String> {
+    let PyValue::Dict(actors) = notification_data else {
         return Err("notification_data is not a dict".to_string());
     };
     let mut data: ActorChanges = Vec::new();
-    for (actor_id, changes) in actors {
-        let Some(changes) = changes.as_array() else {
+    // `dict.items()` order, not the sorted `serde_json` view: which actor is
+    // `data.0` and the order of the comments are user-visible.
+    for (actor_id, changes) in actors.iter() {
+        let actor_id = actor_id.to_string_lossy().into_owned();
+        let PyValue::List(changes) = changes else {
             return Err("notification_data actor value is not a list".to_string());
         };
         for change in changes {
-            let Some(change) = change.as_object() else {
+            let PyValue::Dict(change) = change else {
                 return Err("a notification change is not a dict".to_string());
             };
             // `if issue_activity:` is Python truthiness: `None`, `{}`, `[]`,
             // `""`, `0` and `False` all skip the change.
             let Some(activity) = change
                 .get("issue_activity")
-                .filter(|value| is_python_truthy(value))
+                .filter(|value| is_python_truthy_py(value))
             else {
                 continue;
             };
-            let Some(activity) = activity.as_object() else {
+            let PyValue::Dict(activity) = activity else {
                 return Err("issue_activity is not a dict".to_string());
             };
             let field = activity
                 .get("field")
-                .map(python_str)
+                .map(python_str_py)
                 .unwrap_or_else(|| "None".to_string());
-            let old_value = python_str(activity.get("old_value").unwrap_or(&Value::Null));
-            let new_value = python_str(activity.get("new_value").unwrap_or(&Value::Null));
+            let old_value = python_str_py(activity.get("old_value").unwrap_or(&PyValue::Null));
+            let new_value = python_str_py(activity.get("new_value").unwrap_or(&PyValue::Null));
             if !old_value.is_empty() {
-                let entry = field_entry(&mut data, actor_id, &field)?;
+                let entry = field_entry(&mut data, &actor_id, &field)?;
                 let list = entry
                     .entry("old_value".to_string())
                     .or_insert_with(|| Value::Array(Vec::new()));
@@ -694,7 +707,7 @@ fn create_payload(notification_data: &Value) -> Result<ActorChanges, String> {
                 }
             }
             if !new_value.is_empty() {
-                let entry = field_entry(&mut data, actor_id, &field)?;
+                let entry = field_entry(&mut data, &actor_id, &field)?;
                 let list = entry
                     .entry("new_value".to_string())
                     .or_insert_with(|| Value::Array(Vec::new()));
@@ -709,16 +722,16 @@ fn create_payload(notification_data: &Value) -> Result<ActorChanges, String> {
             // The guard reads the literal `"actor_id"` key (`:120`), so it is
             // always true for a real actor; a missing actor entry is the
             // `KeyError` Python raises when both values were empty.
-            let Some((_, actor_data)) = data.iter_mut().find(|(id, _)| id == actor_id) else {
+            let Some((_, actor_data)) = data.iter_mut().find(|(id, _)| id == &actor_id) else {
                 return Err(format!("KeyError: {actor_id}"));
             };
-            let activity_time = activity
-                .get("activity_time")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "activity_time is not a string".to_string())?;
+            let activity_time = match activity.get("activity_time") {
+                Some(PyValue::Str(value)) => value.to_string_lossy().into_owned(),
+                _ => return Err("activity_time is not a string".to_string()),
+            };
             actor_data.insert(
                 "activity_time".to_string(),
-                Value::String(format_activity_stamp(activity_time)?),
+                Value::String(format_activity_stamp(&activity_time)?),
             );
         }
     }
@@ -803,7 +816,10 @@ async fn process_html_content(
 async fn process_mention(client: &Client, html: &str) -> Result<String, String> {
     let soup = crate::bs4::Soup::parse(html);
     let mut names: BTreeMap<String, String> = BTreeMap::new();
-    for entity in soup.mention_ids()? {
+    for entity in soup
+        .mention_ids()
+        .map_err(|_| "mention-component has no entity_identifier".to_string())?
+    {
         if names.contains_key(&entity) {
             continue;
         }
@@ -830,26 +846,30 @@ fn remove_unwanted_characters(text: &str) -> String {
         .collect()
 }
 
-/// Python `str()` for a value `json.loads` produces.
-fn python_str(value: &Value) -> String {
+/// Python `str()` for the ordered `json.loads` tree.
+fn python_str_py(value: &PyValue) -> String {
     match value {
-        Value::String(text) => text.clone(),
-        Value::Null => "None".to_string(),
-        Value::Bool(true) => "True".to_string(),
-        Value::Bool(false) => "False".to_string(),
-        Value::Number(number) => number.to_string(),
-        other => {
-            // `str(list)`/`str(dict)` is their repr: single quotes and Python
-            // number spelling.
-            let text = serde_json::to_vec(other).unwrap_or_else(|_| b"null".to_vec());
-            pyjson::loads(&text, "utf-8")
-                .map(|value| crate::webhook::pyrepr::python_repr(&value))
-                .unwrap_or_else(|_| "None".to_string())
-        }
+        PyValue::Str(text) => text.to_string_lossy().into_owned(),
+        PyValue::Null => "None".to_string(),
+        PyValue::Bool(true) => "True".to_string(),
+        PyValue::Bool(false) => "False".to_string(),
+        PyValue::Int(number) => number.to_decimal_string(),
+        PyValue::Float(number) => plane_serde::float_repr(*number).unwrap_or_else(|| {
+            if number.is_nan() {
+                "nan".to_string()
+            } else if number.is_sign_negative() {
+                "-inf".to_string()
+            } else {
+                "inf".to_string()
+            }
+        }),
+        // `str(list)`/`str(dict)` is their repr: single quotes and Python
+        // number spelling.
+        other => crate::webhook::pyrepr::python_repr(other),
     }
 }
 
-/// Python truthiness for a JSON value.
+/// Python truthiness for the `serde_json` values `create_payload` stores.
 fn is_python_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
@@ -861,28 +881,37 @@ fn is_python_truthy(value: &Value) -> bool {
     }
 }
 
+/// Python truthiness for the ordered `json.loads` tree.
+fn is_python_truthy_py(value: &PyValue) -> bool {
+    match value {
+        PyValue::Null => false,
+        PyValue::Bool(value) => *value,
+        PyValue::Int(number) => number.to_decimal_string() != "0",
+        PyValue::Float(number) => *number != 0.0,
+        PyValue::Str(text) => !text.is_empty(),
+        PyValue::List(items) => !items.is_empty(),
+        PyValue::Dict(dict) => !dict.is_empty(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn create_payload_dedupes_and_timestamps() {
-        let data = serde_json::json!({
-            "b0000000-0000-4000-8000-000000000001": [
-                {"issue_activity": {
-                    "field": "name",
-                    "old_value": "Old",
-                    "new_value": "New",
-                    "activity_time": "2026-01-01T09:05:00Z",
-                }},
-                {"issue_activity": {
-                    "field": "name",
-                    "old_value": "Old",
-                    "new_value": "Newer",
-                    "activity_time": "2026-01-01T09:06:00Z",
-                }},
-            ],
-        });
+        let data = plane_serde::pyjson::loads(
+            br#"{
+                "b0000000-0000-4000-8000-000000000001": [
+                    {"issue_activity": {"field": "name", "old_value": "Old",
+                     "new_value": "New", "activity_time": "2026-01-01T09:05:00Z"}},
+                    {"issue_activity": {"field": "name", "old_value": "Old",
+                     "new_value": "Newer", "activity_time": "2026-01-01T09:06:00Z"}}
+                ]
+            }"#,
+            "utf-8",
+        )
+        .expect("json");
         let payload = create_payload(&data).expect("payload");
         let (actor, changes) = &payload[0];
         assert_eq!(actor, "b0000000-0000-4000-8000-000000000001");
@@ -904,16 +933,13 @@ mod tests {
 
     #[test]
     fn create_payload_skips_empty_activity_and_rejects_orphans() {
-        let skipped = serde_json::json!({
-            "a": [{"issue_activity": null}],
-        });
+        let py = |text: &str| plane_serde::pyjson::loads(text.as_bytes(), "utf-8").expect("json");
+        let skipped = py(r#"{"a": [{"issue_activity": null}]}"#);
         assert!(create_payload(&skipped).expect("skipped").is_empty());
-        let orphan = serde_json::json!({
-            "a": [{"issue_activity": {
-                "field": "name", "old_value": "", "new_value": "",
-                "activity_time": "2026-01-01T00:00:00Z",
-            }}],
-        });
+        let orphan = py(
+            r#"{"a": [{"issue_activity": {"field": "name", "old_value": "",
+                 "new_value": "", "activity_time": "2026-01-01T00:00:00Z"}}]}"#,
+        );
         assert!(
             create_payload(&orphan).is_err(),
             "KeyError when both values are empty"
@@ -930,7 +956,7 @@ mod tests {
     fn lock_key_is_sorted_and_canonical() {
         let args = SendArgs {
             issue_id: "b0000000-0000-4000-8000-000000000013".to_string(),
-            notification_data: Value::Null,
+            notification_data: PyValue::Null,
             receiver_id: "b0000000-0000-4000-8000-000000000002".to_string(),
             ids: vec![
                 "b0000000-0000-4000-8000-0000000000FF".to_string(),
@@ -947,9 +973,10 @@ mod tests {
 
     #[test]
     fn python_str_matches_pythons_spellings() {
-        assert_eq!(python_str(&Value::Null), "None");
-        assert_eq!(python_str(&Value::Bool(true)), "True");
-        assert_eq!(python_str(&serde_json::json!([1, "a"])), "[1, 'a']");
+        let py = |text: &str| plane_serde::pyjson::loads(text.as_bytes(), "utf-8").expect("json");
+        assert_eq!(python_str_py(&py("null")), "None");
+        assert_eq!(python_str_py(&py("true")), "True");
+        assert_eq!(python_str_py(&py("[1, \"a\"]")), "[1, 'a']");
     }
 
     #[test]

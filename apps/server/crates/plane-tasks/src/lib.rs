@@ -39,6 +39,7 @@ pub mod html;
 pub mod issue_activity;
 pub mod logs;
 pub mod model_graph;
+pub mod notifications;
 pub mod recent_visited;
 pub mod storage_metadata;
 pub mod versions;
@@ -162,6 +163,7 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     versions::register(&mut registry, Arc::clone(&context));
     webhook::register(&mut registry, Arc::clone(&context));
     issue_activity::register(&mut registry, Arc::clone(&context));
+    notifications::register(&mut registry, Arc::clone(&context));
     storage_metadata::register(&mut registry, Arc::clone(&context));
     work_item_link::register(&mut registry, Arc::clone(&context));
     workspace_seed::register(&mut registry, Arc::clone(&context));
@@ -205,6 +207,7 @@ pub const REGISTERED_TASKS: &[&str] = &[
     webhook::WEBHOOK_SEND,
     webhook::DEACTIVATION_EMAIL,
     issue_activity::ISSUE_ACTIVITY,
+    notifications::TASK,
     storage_metadata::TASK,
     work_item_link::TASK,
     workspace_seed::TASK,

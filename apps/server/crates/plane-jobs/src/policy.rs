@@ -438,6 +438,14 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
             Producer::RustTask("plane-tasks/src/automation.rs (archive/close)"),
         ],
     ),
+    // Phase 8 set A2. The only producer is the Rust `issue_activity` handler
+    // (`issue_activities_task.py:1632-1645`), so the re-publish is Rust→Rust.
+    (
+        "plane.bgtasks.notification_task.notifications",
+        &[Producer::RustTask(
+            "plane-tasks/src/issue_activity.rs (notification=True re-publish)",
+        )],
+    ),
 ];
 
 /// The producers recorded for `task`, or `None` when the table has no row.

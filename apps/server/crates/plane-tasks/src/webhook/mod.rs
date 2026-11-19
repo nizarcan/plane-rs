@@ -58,6 +58,7 @@ use plane_db::models::webhook::Webhook;
 use plane_db::models::{Workspace, with_alias};
 use plane_jobs::celery::args::TaskArg;
 use plane_jobs::celery::tasks;
+use plane_jobs::payload::Payload;
 use plane_jobs::queue::Job;
 use plane_jobs::worker::{HandlerError, JobContext, TaskRegistry};
 use plane_net::pyurl::repr_str;
@@ -67,7 +68,7 @@ use serde_json::Value;
 use sha2::Sha256;
 use uuid::Uuid;
 
-use crate::webhook::entity::{EntityError, reorder_activity, reorder_event_data};
+use crate::webhook::entity::{EntityError, reorder_event_data};
 use crate::webhook::pyrepr::python_repr;
 use crate::{TaskContext, kwargs, publish_or_enqueue, string_value, swallow, uuid_value};
 
@@ -459,35 +460,52 @@ async fn load_webhooks(
 // 41 — webhook_send_task
 // ---------------------------------------------------------------------------
 
-/// The 41 payload.
+/// The 41 payload. `event_data` and `activity` are the ordered Python values
+/// the producer wrote, so the body keeps the serializer's dict order.
 struct SendArgs {
     webhook_id: Uuid,
     slug: String,
     event: String,
-    event_data: Value,
+    event_data: Json,
     action: String,
     current_site: Option<String>,
-    activity: Value,
+    activity: Json,
 }
 
-fn decode_send(payload: &Value) -> Option<SendArgs> {
-    let kw = kwargs(payload)?;
+fn decode_send(payload: &Payload) -> Option<SendArgs> {
+    let Some(Json::Dict(kw)) = payload.py_at(&["kwargs"]) else {
+        return None;
+    };
+    let text = |name: &str| -> Option<String> {
+        match kw.get(name)? {
+            Json::Str(value) => Some(value.to_string_lossy().into_owned()),
+            _ => None,
+        }
+    };
     let optional = |name: &str| -> Option<Option<String>> {
         match kw.get(name) {
-            None | Some(Value::Null) => Some(None),
-            Some(Value::String(text)) => Some(Some(text.clone())),
+            None | Some(Json::Null) => Some(None),
+            Some(Json::Str(value)) => Some(Some(value.to_string_lossy().into_owned())),
             _ => None,
         }
     };
     Some(SendArgs {
-        webhook_id: uuid_value(kw.get("webhook_id"))?,
-        slug: string_value(kw.get("slug"))?,
-        event: string_value(kw.get("event"))?,
-        event_data: kw.get("event_data").cloned().unwrap_or(Value::Null),
-        action: string_value(kw.get("action"))?,
+        webhook_id: py_uuid(kw.get("webhook_id"))?,
+        slug: text("slug")?,
+        event: text("event")?,
+        event_data: kw.get("event_data").cloned().unwrap_or(Json::Null),
+        action: text("action")?,
         current_site: optional("current_site")?,
-        activity: kw.get("activity").cloned().unwrap_or(Value::Null),
+        activity: kw.get("activity").cloned().unwrap_or(Json::Null),
     })
+}
+
+/// A UUID string in the ordered pyjson tree.
+fn py_uuid(value: Option<&Json>) -> Option<Uuid> {
+    match value? {
+        Json::Str(text) => Uuid::parse_str(&text.to_string_lossy()).ok(),
+        _ => None,
+    }
 }
 
 /// `webhook_send_task` (`webhook_task.py:242-389`).
@@ -607,20 +625,12 @@ fn build_delivery(webhook: &Webhook, args: &SendArgs) -> Option<Delivery> {
         ),
         ("X-Plane-Event".to_string(), args.event.clone()),
     ];
-    // `event_data = json.loads(json.dumps(event_data, cls=DjangoJSONEncoder))`:
-    // a UUID/datetime object becomes its string, and the dict order is the
-    // serializer's. The payload travelled through `jsonb`, which sorts keys, so
-    // the handler rebuilds the serializer's order (`reorder_event_data`).
-    let event_data = match &args.event_data {
-        Value::Null => Json::Null,
-        Value::Object(_) => reorder_event_data(&args.event, &json_from_serde(&args.event_data)),
-        other => json_from_serde(other),
-    };
-    let activity = match &args.activity {
-        Value::Null => Json::Null,
-        Value::Object(_) => reorder_activity(&json_from_serde(&args.activity)),
-        other => json_from_serde(other),
-    };
+    // `event_data`/`activity` arrive in the producer's order: the queue's
+    // `json` payload keeps it (`plane_jobs::payload`), and `webhook_activity`
+    // built them in serializer order. No per-serializer reordering is needed
+    // (the old `reorder_event_data`/`reorder_activity` workaround is gone).
+    let event_data = args.event_data.clone();
+    let activity = args.activity.clone();
     let action = match args.action.as_str() {
         "POST" => "create",
         "PATCH" | "PUT" => "update",

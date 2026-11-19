@@ -6,10 +6,9 @@
 -- target), one workspace with two projects/does-not-matter, two issues, and
 -- `EmailNotificationLog` rows for the grouping and the e-mail body.
 --
--- Actor ids sort in the same order the rows are inserted
--- (`…0001` before `…0003`), because the `plane_jobs` payload is `jsonb` and
--- sorts object keys: a multi-actor payload is compared in uuid order on the
--- Rust side and in insertion order on Django's (see the handler module docs).
+-- The queue keeps the producer's dict order (`json` payload), so the actor
+-- order here is the one the e-mail renders in. `p8b-en-send-order` deliberately
+-- uses the opposite (uuid) order to prove it.
 INSERT INTO users (
     password, id, username, email, first_name, last_name, avatar,
     date_joined, created_at, updated_at, last_location, created_location,

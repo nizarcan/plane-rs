@@ -254,6 +254,91 @@ a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-vote-delete
 a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-bad-epoch.json issue-activity-base.sql -
 a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-unknown-type-bad-epoch.json issue-activity-base.sql -
 
+# ---- set A2 (notifications, task 29) --------------------------------------
+# Inputs are the payloads A1's issue_activity publishes with notification=True
+# (captured from the real Django task on issue-activity-base.sql).
+a2 plane.bgtasks.notification_task.notifications a2-activities-element-string.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-activities-malformed.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-activities-not-list.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-activities-null.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-activity-missing-issue-detail.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-actor-excluded.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-bad-actor-id.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-bad-issue-id.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-bad-project-id.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-comment-created-mention.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-comment-mention-invalid-uuid.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-comment-mention-missing-comment.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-comment-mention-non-member.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-comment-updated-add-mention.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-comment-updated-remove-mention.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-comment-updated-same-mention.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-extra-kwarg.json notifications-base.sql - --expect-django-failure TypeError --expect-worker-failure notifications()
+a2 plane.bgtasks.notification_task.notifications a2-issue-deleted-no-subscriber.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-issue-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-issue-no-state.json notifications-issue-no-state.sql -
+a2 plane.bgtasks.notification_task.notifications a2-issue-null.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-add-uppercase.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-add.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-duplicate.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-empty-activities.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-invalid-uuid.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-malformed-html.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-no-subscribers.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-non-member.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-non-string.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-remove.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-missing-subscriber.json notifications-base.sql - --expect-django-failure TypeError --expect-worker-failure notifications()
+a2 plane.bgtasks.notification_task.notifications a2-prefs-comment-off.json notifications-comment-off.sql -
+a2 plane.bgtasks.notification_task.notifications a2-prefs-duplicate.json notifications-duplicate-preference.sql -
+a2 plane.bgtasks.notification_task.notifications a2-prefs-inactive-member.json notifications-inactive-member.sql -
+a2 plane.bgtasks.notification_task.notifications a2-prefs-missing.json notifications-no-preference.sql -
+a2 plane.bgtasks.notification_task.notifications a2-prefs-off.json notifications-prefs-off.sql -
+a2 plane.bgtasks.notification_task.notifications a2-prefs-state-completed.json notifications-state-completed.sql -
+a2 plane.bgtasks.notification_task.notifications a2-prefs-state-not-completed.json notifications-state-completed.sql -
+a2 plane.bgtasks.notification_task.notifications a2-project-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-requested-data-malformed.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-sender-assigned.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-sender-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-sender-subscribed.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-subscriber-param-false.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-subscriber-param-true.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-attachment-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-attachment-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-comment-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-comment-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-comment-activity-updated.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-comment_reaction-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-comment_reaction-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-cycle-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-cycle-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-intake-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue-activity-restored.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue-activity-updated.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_draft-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_draft-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_draft-activity-updated.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_reaction-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_reaction-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_relation-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_relation-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_vote-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-issue_vote-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-link-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-link-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-link-activity-updated.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-module-activity-created.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-module-activity-deleted.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-mystery-activity.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-type-non-string.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-description-bool-receiver.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-mention-removed-invalid-uuid.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-activity-different-issue.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-actor-missing.json notifications-base.sql -
+a2 plane.bgtasks.notification_task.notifications a2-issue-no-state-empty-activities.json notifications-issue-no-state.sql -
+a2 plane.bgtasks.notification_task.notifications a2-issue-no-state-mention.json notifications-issue-no-state.sql -
 # Task 41's retry budget. `attempts` runs the case as the Nth delivery (A:
 # `request.retries = n-1` through Celery's tracer, one attempt only; B: the job
 # row starts at n-1). Attempts 1-4 must schedule the next run with a 0-600 s
@@ -271,9 +356,10 @@ b plane.bgtasks.webhook_task.webhook_send_task p8b-send-retry-exhausted.json p8b
 b plane.bgtasks.webhook_task.webhook_send_task p8b-send-timeout.json p8b-webhook-base.sql p8b-send-timeout.case.json
 
 # Tasks 12 and 13: the issue-update e-mail. `EmailNotificationLog` rows are
-# written by task 29 (set A2), so these fixtures seed them directly. 12 runs
-# with `single_job`: Django's `apply()` does not run the 13 it publishes, and
-# the worker must leave those jobs queued to compare like with like.
+# written by task 29 (set A2), so these fixtures seed them directly. Every
+# `difftest task` run executes exactly the harness-inserted job, so 12 leaves
+# its published 13 jobs queued, exactly as Django's `apply()` leaves the Celery
+# messages it publishes (`D25`).
 b plane.bgtasks.email_notification_task.stack_email_notification no-args.json p8b-email-notification-base.sql p8b-en-stack-grouped.case.json
 b plane.bgtasks.email_notification_task.stack_email_notification no-args.json p8b-email-notification-empty.sql p8b-en-stack-grouped.case.json
 b plane.bgtasks.email_notification_task.stack_email_notification no-args.json p8b-email-notification-null-issue.sql p8b-en-stack-grouped.case.json
@@ -287,3 +373,10 @@ b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-lock
 b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-missing-issue.json p8b-email-notification-base.sql p8b-en-send-missing-issue.case.json
 b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-missing-user.json p8b-email-notification-base.sql p8b-en-send-missing-user.case.json
 b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-html.json p8b-email-notification-html.sql p8b-en-send-html.case.json
+
+# Dict order survives the queue (`json` payload). `p8b-en-send-order` puts the
+# actors in the opposite order to their uuids and `p8b-send-order` sends
+# `event_data`/`activity` in an order that is not sorted; both bodies are
+# compared byte for byte (SMTP / the recorder).
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-order.json p8b-email-notification-base.sql p8b-en-send-order.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-order.json p8b-webhook-base.sql p8b-send-order.case.json

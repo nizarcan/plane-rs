@@ -2223,7 +2223,55 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `state_id` + `state` in one update append two rows; a bad `epoch` fails after
        partial bumps.
 
-   Running: the orchestrator's verification of `8406d7a925`, set A2 (`rs/p8-a2`:
-   `notifications`; 18010/18110, Redis 3/4, contract Redis 11), set B (`rs/p8-b`: tasks
-   12, 13, 17, 28, 32, 36–43, 45; 18020/18120, Redis 5/6, contract Redis 15, SMTP
-   18410–18417).
+   - **Phase 8 set A2 merged (`f4e33cc6e2`, verification running).** `notifications`
+     switched (only producer: the Rust `issue_activity` handler); 82 cases (every
+     activity type, mentions, subscribers, preferences, e-mail log rows, malformed
+     payloads); `difftest task` runs exactly one job (`PLANE_RS_JOB_ONCE_JOBS=1`, D32);
+     the dispatch ownership test now uses a name that can never be Rust-owned. Agent:
+     **242/242 task cases**, read 52/52, write 75/75, OAuth, contract 984/2, `plane-jobs`
+     DB test 8/8, 1394 tests. **The activity chain (A1–A3) is complete.**
+     - Follow-up: the typed-UUID branch (automation → `notifications`) is proven by a
+       unit test and a manual comparison only; add a chained `difftest task` case.
+     - Set B part 1 added the same one-job mechanism under other names; told to adopt
+       A2's before its merge.
+     - Upstream kept: e-mail log receiver is the last subscriber (or the bool
+       `subscriber`, then an FK failure); `actor` always `"None"`; `UnboundLocalError` on
+       an empty activity list; preference `get()` aborts and gates only e-mail;
+       `print(e)` to stdout; a non-UUID comment mention kills the task.
+
+   - **Verified at `8406d7a925`** (A1): fmt, clippy, 1387 tests, testkit 210, selftest
+     141, schema_check (5 crates), nine generator checks, **160/160 task cases** (worker
+     built `--features difftest`), 128 files / 6085 steps (`write/auth-session-email.yaml`
+     42/43 once, clean on rerun), OAuth 57/57 + 52/52, SMTP clean, contract 984/2.
+     **One real failure:** `plane-jobs/tests/jobs.rs::dispatch_routes_to_celery_or_the_
+     queue_by_ownership` used `issue_activity` as its Celery-owned example; A1 made it
+     Rust-owned (A1 ran the beat script, not this DB test). Test-only; fix assigned to A2
+     (a name that can never be Rust-owned). Every set now runs the DB-backed
+     `plane-jobs` test.
+
+   - **Phase 8 set B part 1 on its branch (`f8256f72a0`, not merged).** Switched: 40–43
+     (webhook chain: `get_model_data` per entity, `requests` JSON + HMAC, `WebhookLog`
+     Python reprs, retry 0–600 s × 5, deactivation) and 17, 28, 32, 36–39, 45 (account
+     e-mails; six templates added). `Job::from_message` maps `countdown`/`eta` to
+     `run_at`; 27 more producers moved off `Job::new`; quoted-printable fixed (spaces stay
+     literal, as CPython). Task harness: `<BUCKET>` per side, a worker without the
+     `difftest` feature is refused for `http` cases. Agent: 129/129 task cases, 10 write
+     files, 1388 tests, testkit 212.
+     - **Owed:** full sweeps, OAuth, SMTP, beat, contract (not run); webhook retry and
+       deactivation have no `difftest task` evidence; `WebhookLog.response_headers` is
+       title-cased where Python keeps the wire casing (to investigate: hyper can preserve
+       header case); 12/13 not ported.
+     - The orchestrator merged `rust-rewrite` (A1) into `rs/p8-b` (`f08f191d8a`): list
+       unions, set B's case files (bucket rule removed), 33 Rust-owned tasks, 192 cases.
+     - Upstream kept: issue webhooks never carry `cycle`/`module` (reverse manager
+       `AttributeError`); `intake_issue`/`user` events reach every active webhook;
+       `WebhookLog.request_method` stores the verb (`create`); `model_activity` compares
+       uncoerced data (`"3"` vs `3` fires); deactivation mail never sends for
+       API-created webhooks and ignores `reason`.
+
+   Running: the orchestrator's verification of `f4e33cc6e2` (A2); set B part 2
+   (`rs/p8-b`: webhook retry/deactivation cases, header casing, 12, 13, all sweeps,
+   A2's one-job mechanism; 18020/18120, Redis 5/6, contract Redis 15, SMTP 18410–18417);
+   start-up + `plane-migrator` (`rs/p8-boot`: §3 and §4 of `plans/CUTOVER.md`, with
+   `push_instance_metrics` not ported by default as one marked point; 18030/18130,
+   Redis 7/8, contract Redis 9). Deployment and the exit check (§5) follow.

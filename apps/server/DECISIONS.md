@@ -693,6 +693,25 @@ workspace `Cargo.toml` and upgrade deliberately.
 - The Python tasks stay registered in the Celery worker while it exists; no Rust path
   publishes them.
 
+## D32. `notifications` moves with set A2; `difftest task` runs exactly one job (decided 2026-11-19)
+
+- Its only producer is the Rust `issue_activity` handler's `notification=True`
+  re-publish (`issue_activities_task.py:1632-1645`), now a Rust→Rust enqueue through
+  `dispatch`. The `uuid_kwargs` hint (D25) keeps the one observable type difference:
+  `issue_detail.id` is a string, so a `uuid.UUID` `issue_id` (from the automation task)
+  never equals it and no per-subscriber activity notification is written
+  (`notification_task.py:323`). That branch is proven by a unit test and a manual
+  two-database comparison; a chained `difftest task` case (run `issue_activity`, then
+  the job it queues) is a follow-up.
+- The handler ports the Python body and its bugs (mention extraction with bs4, the
+  wrong e-mail receiver at `:576`/`:625`, `actor` always `"None"`, the leaked-variable
+  `UnboundLocalError` at `:559-567`, preference `get()` aborts, no transaction so
+  partial effects commit).
+- `difftest task` runs `plane-worker --once` with `PLANE_RS_JOB_ONCE_JOBS=1`: only the
+  harness-inserted job executes, so a Rust-owned task the handler publishes stays a
+  `plane_jobs` row and is compared as `(task, args, kwargs)` (D28). A default `--once`
+  still drains everything.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

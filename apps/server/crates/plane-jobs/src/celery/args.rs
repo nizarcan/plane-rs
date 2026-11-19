@@ -93,6 +93,35 @@ impl TaskArg {
         }
     }
 
+    /// The Python runtime value as an ordered `pyjson` tree.
+    ///
+    /// [`TaskArg::python_value`] is the `serde_json` view (a sorted map); the
+    /// queue's payload keeps this one too, because a Python dict's order is
+    /// observable when it is iterated (the e-mail actor order, the webhook
+    /// request body). Every variant maps to the same Python type it names.
+    #[must_use]
+    pub fn python_pyvalue(&self) -> plane_serde::pyjson::Value {
+        use plane_serde::pyjson::{PyDict, PyStr, Value as PyValue};
+
+        match self {
+            Self::Null => PyValue::Null,
+            Self::Bool(value) => PyValue::Bool(*value),
+            Self::Int(value) => PyValue::from(*value),
+            Self::Float(value) => PyValue::from(*value),
+            Self::Str(value) | Self::JsonText(value) => PyValue::from(value.clone()),
+            Self::Uuid(value) => PyValue::from(value.hyphenated().to_string()),
+            Self::List(items) => PyValue::List(items.iter().map(Self::python_pyvalue).collect()),
+            Self::Map(entries) => {
+                let mut dict = PyDict::with_capacity(entries.len());
+                for (key, value) in entries {
+                    dict.insert(PyStr::new(key), value.python_pyvalue());
+                }
+                PyValue::Dict(dict)
+            }
+            Self::Json(value) => value.clone(),
+        }
+    }
+
     /// A Python `str`.
     #[must_use]
     pub fn str(value: impl Into<String>) -> Self {

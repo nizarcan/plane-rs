@@ -262,25 +262,34 @@ impl SmtpCapture {
         let python = root.join("apps/api/.venv/bin/python");
         let dir = std::env::temp_dir().join(format!("plane-difftest-smtp-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        let start_one = |port: u16, name: &str| -> Result<SmtpListener> {
+        // Port 0: the kernel picks a free port, so two `difftest task` runs
+        // (another agent's and this one's) never deliver into each other's
+        // listener. The script writes the bound port to `--port-file`; the
+        // HTTP recorder already binds `127.0.0.1:0` the same way.
+        let start_one = |name: &str| -> Result<SmtpListener> {
             let path = dir.join(format!("{name}.jsonl"));
             let _ = std::fs::remove_file(&path);
+            let port_path = dir.join(format!("{name}.port"));
+            let _ = std::fs::remove_file(&port_path);
             let child = std::process::Command::new(&python)
                 .arg(&script)
                 .arg("--port")
-                .arg(port.to_string())
+                .arg("0")
+                .arg("--port-file")
+                .arg(&port_path)
                 .arg("--output")
                 .arg(&path)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .spawn()
-                .with_context(|| format!("starting fake_smtp.py on {port}"))?;
+                .with_context(|| format!("starting fake_smtp.py for {name}"))?;
+            let port = wait_for_port_file(&port_path)?;
             Ok(SmtpListener { child, path, port })
         };
         let _ = case;
-        let a = start_one(18418, "a")?;
-        let b = start_one(18419, "b")?;
+        let a = start_one("a")?;
+        let b = start_one("b")?;
         Ok(Self { a, b })
     }
 
@@ -323,6 +332,26 @@ impl Drop for SmtpCapture {
     fn drop(&mut self) {
         let _ = self.finish();
     }
+}
+
+/// The port `fake_smtp.py` bound, read from the file it writes after `bind`.
+///
+/// The child writes the file before it starts serving, so a short poll is
+/// enough; a missing file after the budget is a start-up failure, not a hang.
+fn wait_for_port_file(path: &std::path::Path) -> Result<u16> {
+    for _ in 0..200 {
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(port) = text.trim().parse::<u16>()
+            && port != 0
+        {
+            return Ok(port);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    bail!(
+        "fake_smtp.py did not write its bound port to {}",
+        path.display()
+    )
 }
 
 /// Run one differential task case.
@@ -1222,7 +1251,7 @@ async fn run_worker(
     let insert = format!(
         "INSERT INTO plane_jobs.jobs \
          (id, task, payload, max_retries, retry_backoff_seconds, retry_jitter, attempts) \
-         VALUES ('{id}'::uuid, '{}', '{}'::jsonb, {max_retries}, {backoff}, {jitter}, {attempts_before})",
+         VALUES ('{id}'::uuid, '{}', '{}'::json, {max_retries}, {backoff}, {jitter}, {attempts_before})",
         sql_literal(&options.task),
         sql_literal(&payload.to_string()),
     );
@@ -1237,9 +1266,8 @@ async fn run_worker(
         .envs(&env)
         .env("PLANE_RS_JOB_CONCURRENCY", "1")
         .env("PLANE_RS_JOB_POLL_MS", "10")
-        // A = Django's `task.apply()` publishes a handler's child tasks but
-        // never runs them, so B must run exactly the harness-inserted job and
-        // leave the ones the handler queued in place (`D25`).
+        // Execute only the harness-inserted job. A Rust-owned task the handler
+        // publishes stays queued so `rust_jobs` compares its payload.
         .env("PLANE_RS_JOB_ONCE_JOBS", "1")
         .stdin(Stdio::null())
         .output()
@@ -1726,8 +1754,26 @@ mod tests {
     }
 
     #[test]
+    fn a_bound_port_is_read_back_from_the_port_file() {
+        let path = std::env::temp_dir().join(format!(
+            "plane-difftest-port-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |value| value.as_nanos())
+        ));
+        std::fs::write(&path, "54321").expect("write port file");
+        assert_eq!(wait_for_port_file(&path).expect("port"), 54321);
+        // An unreadable file is a start-up failure, not a hang.
+        std::fs::write(&path, "not a port").expect("write port file");
+        assert!(wait_for_port_file(&path).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn a_celery_owned_wire_difference_is_still_a_difference() {
-        let task = "plane.bgtasks.notification_task.notifications";
+        // Never ported (owner decision 5), so its wire form is compared.
+        let task = "plane.license.bgtasks.telemetry_metrics.push_instance_metrics";
         let id = "00000000-0000-0000-0000-000000000020";
         let envelope = serde_json::json!({
             "__type__": "uuid",
@@ -1738,7 +1784,7 @@ mod tests {
         assert_ne!(raw_celery_payloads(&[a]), raw_celery_payloads(&[b]));
         // A Rust-owned delivery is excluded from the wire comparison.
         let owned = message(
-            "plane.bgtasks.workspace_seed_task.workspace_seed",
+            "plane.bgtasks.webhook_task.webhook_send_task",
             serde_json::json!([]),
             serde_json::json!({}),
         );

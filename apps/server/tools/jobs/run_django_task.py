@@ -32,6 +32,8 @@ Prints one JSON line: the task status, the string form of its result, and (for
 a retry) the countdown Celery asked for.
 """
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -140,8 +142,20 @@ def main() -> int:
     task = import_string(task_name)
     kwargs = json.loads(kwargs_json)
     args = json.loads(args_json)
-    if retries_arg != "":
-        status, retval, countdown = apply_single_attempt(task, args, kwargs, int(retries_arg))
+    # `notification_task.py` prints its swallowed exception to stdout (`:673`),
+    # as do a few other tasks; keep the harness's one-line JSON protocol clean.
+    swallowed = io.StringIO()
+    result = None
+    outcome = None
+    with contextlib.redirect_stdout(swallowed):
+        if retries_arg != "":
+            outcome = apply_single_attempt(task, args, kwargs, int(retries_arg))
+        else:
+            result = task.apply(args=args, kwargs=kwargs, throw=False)
+    if text := swallowed.getvalue():
+        sys.stderr.write(text)
+    if outcome is not None:
+        status, retval, countdown = outcome
         print(
             json.dumps(
                 {
@@ -153,7 +167,6 @@ def main() -> int:
             )
         )
         return 0
-    result = task.apply(args=args, kwargs=kwargs, throw=False)
     print(
         json.dumps(
             {

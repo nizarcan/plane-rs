@@ -28,7 +28,9 @@ after masking `Date:`/`Message-ID:` with the scenario's normaliser.
 does not, so the parameters are recorded but are not part of the envelope a
 scenario compares.
 
-Run it (ports 18410-18419 are reserved for this listener):
+Run it (the scenario wrapper reserves 18410/18411; `difftest task`
+passes `--port 0` and reads the kernel-chosen port from `--port-file`,
+so two runs cannot deliver into each other's listener):
 
     apps/api/.venv/bin/python apps/server/tools/mail/fake_smtp.py \\
         --port 18410 --output /tmp/mail-a.jsonl
@@ -288,7 +290,10 @@ def serve(args: argparse.Namespace) -> int:
     Handler.options = Options(args)
     Handler.recorder = Recorder(pathlib.Path(args.output) if args.output else None)
     server = Server((args.bind, args.port), Handler)
-    print(f"fake-smtp listening on {args.bind}:{args.port}", flush=True)
+    port = server.server_address[1]
+    if args.port_file:
+        pathlib.Path(args.port_file).write_text(str(port), encoding="utf-8")
+    print(f"fake-smtp listening on {args.bind}:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -341,6 +346,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=18410)
+    parser.add_argument(
+        "--port-file",
+        help="write the bound port here (use with --port 0 for an ephemeral port)",
+    )
     parser.add_argument("--output", help="JSONL file to append transactions to")
     parser.add_argument(
         "--greeting",

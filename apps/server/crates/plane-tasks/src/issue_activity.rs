@@ -653,7 +653,7 @@ async fn insert_rows(client: &Client, rows: &[Row]) -> R<Vec<Inserted>> {
 // ---------------------------------------------------------------------------
 
 /// Convert a `serde_json` payload value into the Python-shaped one.
-fn serde_to_py(value: &Value) -> PyValue {
+pub(crate) fn serde_to_py(value: &Value) -> PyValue {
     match value {
         Value::Null => PyValue::Null,
         Value::Bool(value) => PyValue::Bool(*value),
@@ -679,7 +679,7 @@ fn serde_to_py(value: &Value) -> PyValue {
 }
 
 /// `str(value)`.
-fn py_str(value: &PyValue) -> String {
+pub(crate) fn py_str(value: &PyValue) -> String {
     match value {
         PyValue::Null => "None".to_string(),
         PyValue::Bool(value) => {
@@ -786,7 +786,7 @@ fn serde_truthy(value: Option<&Value>) -> bool {
 }
 
 /// Python truthiness.
-fn py_truthy(value: Option<&PyValue>) -> bool {
+pub(crate) fn py_truthy(value: Option<&PyValue>) -> bool {
     match value {
         None | Some(PyValue::Null) => false,
         Some(PyValue::Bool(value)) => *value,
@@ -800,7 +800,7 @@ fn py_truthy(value: Option<&PyValue>) -> bool {
 
 /// Python `==` for JSON values: `1 == 1.0 == True`, NaN never equals itself,
 /// and dict order is irrelevant.
-fn py_eq(left: &PyValue, right: &PyValue) -> bool {
+pub(crate) fn py_eq(left: &PyValue, right: &PyValue) -> bool {
     match (left, right) {
         (PyValue::Null, PyValue::Null) => true,
         (PyValue::Bool(a), PyValue::Bool(b)) => a == b,
@@ -846,7 +846,7 @@ fn parse_json(value: Option<&PyValue>) -> R<Option<PyValue>> {
     }
 }
 
-fn python_type_name(value: &PyValue) -> &'static str {
+pub(crate) fn python_type_name(value: &PyValue) -> &'static str {
     match value {
         PyValue::Null => "NoneType",
         PyValue::Bool(_) => "bool",
@@ -911,7 +911,7 @@ fn python_uuid(value: &PyValue) -> R<Uuid> {
 
 /// `uuid.UUID(hex=...)` for a string. Rust's parser accepts the same four
 /// spellings CPython's `hex` branch does (hyphenated, simple, braced, urn).
-fn parse_uuid_text(text: &str) -> Option<Uuid> {
+pub(crate) fn parse_uuid_text(text: &str) -> Option<Uuid> {
     Uuid::try_parse(text).ok()
 }
 

@@ -1020,6 +1020,7 @@ unchanged.
 | `PLANE_RS_JOBS_TEST_SCHEDULE_SECONDS` | unset | Positive integer; unset disables the test entry. | `plane-beat` (test builds) | Test-only time compression for `tools/jobs/beat_exactly_once.sh`; no production equivalent. |
 | `PLANE_RS_JOBS_HANDOVER_GAP_SECONDS` | `30` | Positive integer, minimum 0. | `plane-beat` | Minimum age of the previous due tick at handover; `DatabaseScheduler`'s loop is 5 s, so 30 s is 6× and proves Celery fired it. |
 | `PLANE_RS_JOBS_HANDOVER_MARGIN_SECONDS` | `15` | Positive integer, minimum 1. | `plane-beat` | Minimum distance to the next due tick at handover; 15 s is 3× the 5 s loop, enough for the tracker bump to be observed. |
+| `PLANE_RS_JOB_ONCE_JOBS` | `0` | Non-negative integer; `0` means all runnable jobs, otherwise the maximum `plane-worker --once` processes. | `plane-worker` (test) | `difftest task` must not execute a handler's published job as a second job of the same run; the published row is the compared effect. A deployment never passes `--once`. |
 | `PLANE_RS_JOBS_RUST_TASKS` | unset (all Celery) | Comma-separated task names; whitespace trimmed; empty entries ignored. | `plane-api`, `plane-worker`, `plane-beat` (test/dev) | Phase 4 exit-check override. The production ownership table is `crates/plane-jobs/src/ownership.rs` and `TASKS.md` §10; this variable must not be used in a deployment. |
 
 `PLANE_RS_BIND`'s `PORT` fallback keeps the container contract: compose sets

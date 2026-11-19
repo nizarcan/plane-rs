@@ -36,6 +36,11 @@ use std::collections::HashMap;
 
 use crate::bs4_entities;
 
+/// A matched tag did not have the requested attribute: bs4's `tag[name]`
+/// raises `KeyError`, which `notification_task.extract_mentions` catches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingAttribute;
+
 /// `HTMLTreeBuilder.empty_element_tags` (`bs4/builder/__init__.py:389-395`).
 const EMPTY_TAGS: &[&str] = &[
     "area", "base", "br", "col", "embed", "hr", "img", "input", "keygen", "link", "menuitem",
@@ -207,28 +212,53 @@ impl Soup {
         }
     }
 
+    /// `soup.find_all(tag, attrs={match_name: match_value})` and, for each
+    /// match in document order, its `value_name` attribute.
+    ///
+    /// This is what `notification_task.extract_mentions`/`_comment_mentions`
+    /// read (`notification_task.py:115-142`): `mention_tag["entity_identifier"]`
+    /// raises `KeyError` when the attribute is missing, which the function's
+    /// bare `except` turns into `[]`; [`MissingAttribute`] is that `KeyError`.
+    pub fn matching_attribute_values(
+        &self,
+        tag: &str,
+        match_attr: Option<(&str, &str)>,
+        value_name: &str,
+    ) -> Result<Vec<String>, MissingAttribute> {
+        let mut out = Vec::new();
+        // `new_node` appends in token order, which is document order for tags
+        // (the tree builder never reorders or removes a node).
+        for node in self.nodes.iter().skip(1) {
+            if node.kind != Kind::Tag || node.name != tag {
+                continue;
+            }
+            if let Some((match_name, match_value)) = match_attr {
+                let matches = node
+                    .attrs
+                    .iter()
+                    .find(|attr| attr.name == match_name)
+                    .is_some_and(|attr| attr.value == match_value);
+                if !matches {
+                    continue;
+                }
+            }
+            let Some(attr) = node.attrs.iter().find(|attr| attr.name == value_name) else {
+                return Err(MissingAttribute);
+            };
+            out.push(attr.value.clone());
+        }
+        Ok(out)
+    }
+
     /// `soup.find_all("mention-component")`'s `entity_identifier` attributes,
-    /// in document order. `mention["entity_identifier"]` on a component
-    /// without one is a `KeyError`, which the caller reports.
+    /// in document order (`process_mention`'s read). A component without the
+    /// attribute is bs4's `KeyError`, reported as [`MissingAttribute`].
     ///
     /// # Errors
     ///
-    /// A `<mention-component>` with no `entity_identifier` attribute.
-    pub fn mention_ids(&self) -> Result<Vec<String>, String> {
-        let mut out = Vec::new();
-        for node in &self.nodes {
-            if node.kind == Kind::Tag && node.name == "mention-component" {
-                let Some(attr) = node
-                    .attrs
-                    .iter()
-                    .find(|attr| attr.name == "entity_identifier")
-                else {
-                    return Err("mention-component has no entity_identifier".to_string());
-                };
-                out.push(attr.value.clone());
-            }
-        }
-        Ok(out)
+    /// A `<mention-component>` with no `entity_identifier`.
+    pub fn mention_ids(&self) -> Result<Vec<String>, MissingAttribute> {
+        self.matching_attribute_values("mention-component", None, "entity_identifier")
     }
 
     /// `mention.replace_with("@<display_name>")` for every
@@ -238,27 +268,26 @@ impl Soup {
     ///
     /// # Errors
     ///
-    /// The callback's error for a name it cannot resolve (a missing user).
+    /// A missing `entity_identifier` ([`MissingAttribute`]) or the callback's
+    /// error for a name it cannot resolve (a missing user).
     pub fn replace_mentions<F>(&mut self, mut display_name: F) -> Result<(), String>
     where
         F: FnMut(&str) -> Result<String, String>,
     {
-        let targets: Vec<(usize, String)> = self
+        // `find_all` reads `mention["entity_identifier"]` for every match
+        // before `str(soup)`, so a missing attribute aborts before the
+        // mutation; the entity list is in document order, like the node ids.
+        let entities = self
+            .mention_ids()
+            .map_err(|_| "mention-component has no entity_identifier".to_string())?;
+        let targets: Vec<usize> = self
             .nodes
             .iter()
             .enumerate()
             .filter(|(_, node)| node.kind == Kind::Tag && node.name == "mention-component")
-            .map(|(id, node)| {
-                let entity = node
-                    .attrs
-                    .iter()
-                    .find(|attr| attr.name == "entity_identifier")
-                    .map(|attr| attr.value.clone())
-                    .ok_or_else(|| "mention-component has no entity_identifier".to_string())?;
-                Ok((id, entity))
-            })
-            .collect::<Result<_, String>>()?;
-        for (id, entity) in targets {
+            .map(|(id, _)| id)
+            .collect();
+        for (id, entity) in targets.into_iter().zip(entities) {
             let name = display_name(&entity)?;
             let replacement = self.nodes.len();
             let mut node = Node::new(Kind::Text);
