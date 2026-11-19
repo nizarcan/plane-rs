@@ -168,25 +168,55 @@ impl Job {
     /// a handler can be tested against both representations
     /// (`plans/CUTOVER.md` §2 "Payload equivalence").
     ///
+    /// When an argument was a `uuid.UUID`, the payload also carries
+    /// `"uuid_args": [index, …]` / `"uuid_kwargs": [name, …]`. The value is
+    /// still the Python string (a handler reads it as one), but a handler that
+    /// re-publishes the task to Celery (`issue_activity` → `notifications`)
+    /// must recreate kombu's UUID envelope to stay byte-identical; without the
+    /// hint the distinction between `str(uuid)` and a UUID object is lost.
+    /// The keys are absent when no argument was a UUID, so the common payload
+    /// is exactly `(args, kwargs)`.
+    ///
     /// The task's retry policy is applied from [`crate::policy`]: neither the
     /// Celery message nor the call site carries it.
     #[cfg(feature = "celery")]
     #[must_use]
     pub fn from_message(message: &crate::celery::Message) -> Self {
-        let args: Vec<serde_json::Value> = message
-            .args()
-            .iter()
-            .map(crate::celery::args::TaskArg::python_value)
-            .collect();
+        use crate::celery::args::TaskArg;
+
+        let args: Vec<serde_json::Value> =
+            message.args().iter().map(TaskArg::python_value).collect();
         let kwargs: serde_json::Map<String, serde_json::Value> = message
             .kwargs()
             .iter()
             .map(|(key, value)| ((*key).to_string(), value.python_value()))
             .collect();
-        let mut job = Self::new(message.task()).payload(serde_json::json!({
+        let uuid_args: Vec<usize> = message
+            .args()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| matches!(value, TaskArg::Uuid(_)).then_some(index))
+            .collect();
+        let uuid_kwargs: Vec<&str> = message
+            .kwargs()
+            .iter()
+            .filter_map(|(key, value)| matches!(value, TaskArg::Uuid(_)).then_some(*key))
+            .collect();
+        let mut payload = serde_json::json!({
             "args": args,
             "kwargs": kwargs,
-        }));
+        });
+        if !uuid_args.is_empty()
+            && let Some(object) = payload.as_object_mut()
+        {
+            object.insert("uuid_args".to_string(), serde_json::json!(uuid_args));
+        }
+        if !uuid_kwargs.is_empty()
+            && let Some(object) = payload.as_object_mut()
+        {
+            object.insert("uuid_kwargs".to_string(), serde_json::json!(uuid_kwargs));
+        }
+        let mut job = Self::new(message.task()).payload(payload);
         let policy = crate::policy::policy(message.task());
         job.max_retries = policy.max_retries;
         job.retry_backoff_seconds = policy.retry_backoff_seconds;
@@ -501,6 +531,9 @@ mod tests {
                     "entity_identifier": user.hyphenated().to_string(),
                     "user_id": user.hyphenated().to_string(),
                 },
+                // The three UUID arguments keep their type so a re-publish can
+                // recreate kombu's envelope.
+                "uuid_kwargs": ["project_id", "entity_identifier", "user_id"],
             })
         );
         assert_eq!(job.max_retries, 0);

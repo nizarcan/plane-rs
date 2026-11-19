@@ -562,6 +562,11 @@ workspace `Cargo.toml` and upgrade deliberately.
   payload is provably the Celery `(args, kwargs)`.
   Every producer passes `Job::from_message(&message)`; `Job::new(task)` queues an empty
   payload once the task is Rust-owned (found at 18 call sites in sets A3 and C).
+- UUID types survive the queue: `Job::from_message` records which arguments were
+  `uuid.UUID` objects (`uuid_args`/`uuid_kwargs`, only when non-empty; values stay
+  strings, so handlers see what Python's task sees). A handler that re-publishes a
+  still Celery-owned task (`issue_activity` → `notifications`) re-creates kombu's UUID
+  envelope from the hint. A UUID-vs-string difference on the wire is never normalised.
 - Scenario sweeps drop A's Celery delivery for Rust-owned tasks; handler correctness is
   proven by `difftest task` (A = Django `task.apply()`, B = `plane-worker --once`),
   which compares the task's effects.
@@ -635,8 +640,9 @@ workspace `Cargo.toml` and upgrade deliberately.
   `django_celery_beat_periodictask` row. A unit test fails if a listed entry's task is
   not Rust-owned. Rollback is removing the name from the list and re-enabling the
   Django row.
-- The contract plugin replays the `plane_jobs.jobs` rows a Rust request inserted into a
-  patched `.delay` mock, like RabbitMQ messages, so a test asserting `.delay` keeps
+- The contract plugin replays the `plane_jobs.jobs` rows a Rust request inserted (those
+  created after a pre-request `created_at` watermark, each once, never deleted) into a
+  patched `.delay` mock through the same `_replay_call` as RabbitMQ messages, so a test asserting `.delay` keeps
   working when its task is Rust-owned. Contract baseline from set C: 984 passed /
   2 failed (the two legacy file-asset POST mocks).
 - The beat handover's quiet window is timing-sensitive: `tools/jobs/beat_handover.sh`

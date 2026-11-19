@@ -67,6 +67,7 @@ use std::time::Duration;
 
 use crate::celery::{CeleryDrain, CeleryMessage, RabbitAdmin, amqp_url_with_vhost};
 use crate::db::{DbAdmin, DbDiff, diff_snapshots};
+use crate::redis::{RedisAdmin, RedisDiff, RedisSnapshotter, diff_snapshots as redis_diff};
 use crate::s3::S3Admin;
 use crate::task_case::{
     Recorder, SideBuckets, SmtpCase, TaskCase, compare_objects, compare_requests, compare_rows,
@@ -567,6 +568,13 @@ async fn execute(
     )?)
     .await?;
 
+    let mut redis_a = redis_side(&options.a_db, options.a_redis_db, &options.vhost).await?;
+    let mut redis_b = redis_side(&options.b_db, options.b_redis_db, &options.vhost).await?;
+    redis_a.0.flush_db(options.a_redis_db).await?;
+    redis_b.0.flush_db(options.b_redis_db).await?;
+    let before_redis_a = redis_a.1.snapshot().await?.snapshot;
+    let before_redis_b = redis_b.1.snapshot().await?.snapshot;
+
     let started: DateTime<Utc> = Utc::now();
     let before_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
     let http_start = recorder.map_or(0, Recorder::request_count);
@@ -574,6 +582,7 @@ async fn execute(
     // Capture immediately: later requests append to the same log.
     let django_http = recorder.map(|recorder| recorder.slice(http_start));
     let messages_a = drain_messages(rabbit, &drain, &options.vhost).await?;
+    let after_redis_a = redis_a.1.snapshot().await?.snapshot;
     let before_b = admin.snapshot(&options.b_db, &catalog).await?.snapshot;
     let rust_start = recorder.map_or(0, Recorder::request_count);
     let worker = run_worker(
@@ -589,6 +598,7 @@ async fn execute(
     let rust_http = recorder.map(|recorder| recorder.slice(rust_start));
     let messages_b = drain_messages(rabbit, &drain, &options.vhost).await?;
     let jobs_b = rust_jobs(admin, &options.b_db, &worker.job_id).await?;
+    let after_redis_b = redis_b.1.snapshot().await?.snapshot;
     let after_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
     let after_b = admin.snapshot(&options.b_db, &catalog).await?.snapshot;
 
@@ -702,6 +712,22 @@ async fn execute(
         outgoing_a.len()
     );
 
+    // Redis is a side effect too: `issue_activity` writes the request origin
+    // under the issue id with `EX 600` (`issue_activities_task.py:1574-1577`).
+    // Each side's DB was flushed first, so only the task's writes appear. The
+    // TTL is measured a few milliseconds apart; everything else is exact.
+    let redis_a_diff = redis_diff(&before_redis_a, &after_redis_a);
+    let redis_b_diff = redis_diff(&before_redis_b, &after_redis_b);
+    if !same_redis_diff(&redis_a_diff, &redis_b_diff) {
+        println!("redis django: {}", redis_a_diff.to_json());
+        println!("redis rust:   {}", redis_b_diff.to_json());
+        bail!("redis effects differ");
+    }
+    println!(
+        "PASS: redis effects are identical ({} keys)",
+        redis_a_diff.total_changes()
+    );
+
     if let Some(s3) = captures.s3 {
         let (a, b) = s3.observe().await?;
         compare_objects(case.expect("S3 capture requires a case"), buckets, &a, &b)?;
@@ -710,6 +736,68 @@ async fn execute(
         compare_requests(case.expect("http capture requires a case"), buckets, &a, &b)?;
     }
     Ok(())
+}
+
+/// A fresh `RedisAdmin` and snapshotter for one side's logical database.
+async fn redis_side(
+    database: &str,
+    index: i64,
+    vhost: &str,
+) -> Result<(RedisAdmin, RedisSnapshotter)> {
+    let env = dev_env(database, index, vhost, None, None, false)?;
+    let url = env
+        .get("REDIS_URL")
+        .ok_or_else(|| anyhow::anyhow!("django-env.sh did not set REDIS_URL"))?;
+    let admin = RedisAdmin::from_url(url)?;
+    let snapshotter = admin.snapshotter(index).await?;
+    Ok((admin, snapshotter))
+}
+
+/// Compare two Redis diffs, allowing the `PTTL` a few seconds of skew (the
+/// two sides run at different instants; the value and key are exact).
+fn same_redis_diff(a: &RedisDiff, b: &RedisDiff) -> bool {
+    if a.removed != b.removed
+        || a.added.len() != b.added.len()
+        || !a.changed.is_empty()
+        || !b.changed.is_empty()
+    {
+        return false;
+    }
+    for (key, entry) in &a.added {
+        let Some(other) = b.added.get(key) else {
+            return false;
+        };
+        if entry.kind != other.kind
+            || entry.size != other.size
+            || entry.value != other.value
+            || (entry.ttl_ms - other.ttl_ms).abs() > 10_000
+        {
+            return false;
+        }
+    }
+    true
+}
+
+/// Normalise the values `IssueActivitySerializer` renders that are not part
+/// of the effect: the row's random uuid and its two insert timestamps. The
+/// array is sorted because a Python `set` decides the label/assignee order
+/// (`PYTHONHASHSEED`), and D26 compares inserted rows as a multiset.
+fn normalise_activity_payload(value: &mut serde_json::Value) {
+    let serde_json::Value::Array(items) = value else {
+        return;
+    };
+    for item in items.iter_mut() {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        object.insert("id".to_string(), serde_json::json!("<ID>"));
+        for key in ["created_at", "updated_at"] {
+            if object.contains_key(key) {
+                object.insert(key.to_string(), serde_json::json!("<TS>"));
+            }
+        }
+    }
+    items.sort_by_cached_key(|item| serde_json::to_string(item).unwrap_or_default());
 }
 
 async fn drain_messages(
@@ -762,10 +850,28 @@ fn raw_celery_payloads(messages: &[CeleryMessage]) -> Vec<String> {
         })
         .map(|message| {
             let mut kwargs = message.kwargs.clone();
-            if let Some(object) = kwargs.as_object_mut()
-                && object.contains_key("epoch")
-            {
-                object.insert("epoch".to_string(), serde_json::json!("<EPOCH>"));
+            if let Some(object) = kwargs.as_object_mut() {
+                if object.contains_key("epoch") {
+                    object.insert("epoch".to_string(), serde_json::json!("<EPOCH>"));
+                }
+                // `notifications`' `issue_activities_created` is a JSON string
+                // holding the created rows. Their ids, `auto_now` timestamps
+                // and (for label/assignee sets) order are random, so replace
+                // only those; everything else, including each row's key order,
+                // is still compared.
+                if message.task.as_deref() == Some("plane.bgtasks.notification_task.notifications")
+                    && let Some(serde_json::Value::String(text)) =
+                        object.get("issue_activities_created")
+                    && let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text)
+                {
+                    normalise_activity_payload(&mut value);
+                    object.insert(
+                        "issue_activities_created".to_string(),
+                        serde_json::Value::String(
+                            serde_json::to_string(&value).unwrap_or_default(),
+                        ),
+                    );
+                }
             }
             format!(
                 "{}\u{0}{}\u{0}{}",
@@ -798,10 +904,20 @@ fn job_to_outgoing(row: &tokio_postgres::Row) -> Outgoing {
 /// publishes that carries the clock (`issue_automation_task.py:82,145`).
 fn normalise_outgoing(outgoing: &mut [Outgoing]) {
     for entry in outgoing {
-        if let Some(kwargs) = entry.kwargs.as_object_mut()
-            && kwargs.contains_key("epoch")
-        {
+        let Some(kwargs) = entry.kwargs.as_object_mut() else {
+            continue;
+        };
+        if kwargs.contains_key("epoch") {
             kwargs.insert("epoch".to_string(), serde_json::json!("<EPOCH>"));
+        }
+        // `notifications(issue_activities_created=json.dumps(...))`: the
+        // serialised rows carry a fresh uuid and two `auto_now` timestamps.
+        // Parse the string so a key-order difference cannot matter.
+        if let Some(serde_json::Value::String(text)) = kwargs.get("issue_activities_created")
+            && let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text)
+        {
+            normalise_activity_payload(&mut value);
+            kwargs.insert("issue_activities_created".to_string(), value);
         }
     }
 }
@@ -1465,7 +1581,7 @@ mod tests {
 
     #[test]
     fn a_celery_owned_wire_difference_is_still_a_difference() {
-        let task = "plane.bgtasks.issue_activities_task.issue_activity";
+        let task = "plane.bgtasks.notification_task.notifications";
         let id = "00000000-0000-0000-0000-000000000020";
         let envelope = serde_json::json!({
             "__type__": "uuid",

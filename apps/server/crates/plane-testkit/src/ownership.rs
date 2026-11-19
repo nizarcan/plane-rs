@@ -61,6 +61,7 @@ pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
     "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
     "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+    "plane.bgtasks.issue_activities_task.issue_activity",
 ];
 
 /// Whether `task` is published to `plane_jobs` rather than to RabbitMQ.
@@ -307,7 +308,7 @@ mod tests {
                     "user_id": {"__type__": "uuid", "__value__": {"hex": id.replace('-', "")}},
                 }),
             ),
-            empty_message("plane.bgtasks.issue_activities_task.issue_activity"),
+            empty_message("plane.bgtasks.notification_task.notifications"),
         ];
         let owned = take_owned_messages(&mut messages);
         assert_eq!(owned.len(), 1);

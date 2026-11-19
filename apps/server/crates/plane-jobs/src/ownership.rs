@@ -71,6 +71,9 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
     "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
     "plane.bgtasks.workspace_invitation_task.workspace_invitation",
+    // Phase 8 set A1: every producer is a Rust HTTP route, the Rust
+    // `archive_and_close_old_issues`, or `transfer_cycle_issues`.
+    "plane.bgtasks.issue_activities_task.issue_activity",
 ];
 
 /// A task's owner.
@@ -124,7 +127,7 @@ mod tests {
     #[test]
     fn default_is_celery() {
         assert_eq!(
-            owner_with("plane.bgtasks.issue_activities_task.issue_activity", &[]),
+            owner_with("plane.bgtasks.notification_task.notifications", &[]),
             Owner::Celery
         );
         assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);
