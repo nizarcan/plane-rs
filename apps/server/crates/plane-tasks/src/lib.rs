@@ -42,6 +42,7 @@ pub mod model_graph;
 pub mod notifications;
 pub mod recent_visited;
 pub mod storage_metadata;
+pub mod telemetry_metrics;
 pub mod versions;
 pub mod webhook;
 pub mod work_item_link;
@@ -167,6 +168,7 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     storage_metadata::register(&mut registry, Arc::clone(&context));
     work_item_link::register(&mut registry, Arc::clone(&context));
     workspace_seed::register(&mut registry, Arc::clone(&context));
+    telemetry_metrics::register(&mut registry, Arc::clone(&context));
     registry
 }
 
@@ -211,6 +213,7 @@ pub const REGISTERED_TASKS: &[&str] = &[
     storage_metadata::TASK,
     work_item_link::TASK,
     workspace_seed::TASK,
+    telemetry_metrics::TASK,
 ];
 
 /// Publish a task the way the Python call site's `.delay()` does.

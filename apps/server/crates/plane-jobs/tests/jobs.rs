@@ -394,6 +394,7 @@ async fn two_beat_replicas_fire_each_tick_once_and_survive_a_kill() {
             poll: Duration::from_millis(50),
             handover_gap: Duration::from_secs(30),
             handover_margin: Duration::from_secs(15),
+            metrics_push_interval_minutes: 360,
         },
         Some(1),
     )
@@ -405,6 +406,7 @@ async fn two_beat_replicas_fire_each_tick_once_and_survive_a_kill() {
             poll: Duration::from_millis(50),
             handover_gap: Duration::from_secs(30),
             handover_margin: Duration::from_secs(15),
+            metrics_push_interval_minutes: 360,
         },
         Some(1),
     )

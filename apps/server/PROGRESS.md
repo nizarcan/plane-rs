@@ -2477,6 +2477,19 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
   migrator shapes under ArgoCD, the bucket hook on the silo image, PVCs on `nfs-data`, ESO key
   names, GHCR package visibility on first push.
 
-Running: `rs/rs-telemetry` (`push_instance_metrics`; 18010/18110, Redis 3/4/11). Next: upstream pin + oracle fetch + `apps/api` removal, README,
+- **`push_instance_metrics` merged (`04380fc2c5`), D34 amended.** Both producers Rust (boot,
+  beat). Agent: 299/299 task cases (set `t` 7/7), `compare_boot` 50/50 (both sides publish once),
+  `plane-jobs` DB test 9/9, both beat scripts, instance/boot scenarios clean, contract 984/2,
+  1432 tests, testkit 223. **Not accepted as-is:** only OTLP/HTTP; Django's default
+  `OTLP_METRICS_PROTOCOL=grpc` would fail every run on a default deployment. gRPC assigned.
+  Upstream kept: `force_flush()` always reports success; every run exports twice;
+  `Instance.objects.first()` takes the newest row; public bot-owned pages counted; workspace
+  metrics capped at 1000.
+
+Running: `rs/rs-telemetry` part 2 (OTLP/gRPC, exporter headers/compression);
+`rs/rs-upstream` (`UPSTREAM.toml`, oracle fetched to `~/.cache/plane-rs/oracle/<commit>`,
+`apps/api` and the Django dev stacks removed, `tools/upstream/diff.py`, `UPGRADING.md` with
+the migrator's post-baseline steps, `.gitleaks.toml` + CI scan; 18020/18120, Redis 5/6/15;
+waits for telemetry before its full verification). Next: upstream pin + oracle fetch + `apps/api` removal, README,
 secret scan, publish, homelab.
 

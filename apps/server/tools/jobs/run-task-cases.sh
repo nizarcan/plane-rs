@@ -12,7 +12,7 @@
 #   --difftest PATH      difftest binary            (DIFFTEST)
 #   --fixtures DIR       fixture directory          (FIXTURES, default: next to this script)
 #   --list FILE          case list                  (TASK_CASES, default: tools/jobs/task-cases.txt)
-#   --set c|d|a3|a1|a2|b|all  which set column to run (TASK_CASE_SET, default: all)
+#   --set c|d|a3|a1|a2|b|t|all  which set column to run (TASK_CASE_SET, default: all)
 #   --a-db NAME          Django database            (DIFFTEST_A_DB, default: t_p8c_task_a)
 #   --b-db NAME          Rust database              (DIFFTEST_B_DB, default: t_p8c_task_b)
 #   --a-redis-db N       Django Redis index         (DIFFTEST_A_REDIS_DB, default: 5)
@@ -25,6 +25,9 @@
 #                        file hard-codes an agent's prefix.
 #   --live-url URL       LIVE_BASE_URL; {{http}}    (DIFFTEST_LIVE_URL)
 #                        expands to the case's fake HTTP server
+#   --telemetry-url URL  OTLP_ENDPOINT for both sides (DIFFTEST_TELEMETRY_URL);
+#                        {{http}} expands the same way. The telemetry task
+#                        posts to <OTLP_ENDPOINT>/v1/metrics.
 #   --worker PATH        plane-worker binary        (DIFFTEST_WORKER)
 #   --list-only          print the selected cases and exit
 #
@@ -65,6 +68,7 @@ DIFFTEST_VHOST="${DIFFTEST_VHOST:-p8c_task}"
 DIFFTEST_S3_BUCKET_A="${DIFFTEST_S3_BUCKET_A:-}"
 DIFFTEST_S3_BUCKET_B="${DIFFTEST_S3_BUCKET_B:-}"
 DIFFTEST_LIVE_URL="${DIFFTEST_LIVE_URL:-}"
+DIFFTEST_TELEMETRY_URL="${DIFFTEST_TELEMETRY_URL:-}"
 DIFFTEST_WORKER="${DIFFTEST_WORKER:-}"
 LIST_ONLY=0
 
@@ -82,6 +86,7 @@ while [[ $# -gt 0 ]]; do
     --s3-bucket-a) DIFFTEST_S3_BUCKET_A="$2"; shift 2 ;;
     --s3-bucket-b) DIFFTEST_S3_BUCKET_B="$2"; shift 2 ;;
     --live-url) DIFFTEST_LIVE_URL="$2"; shift 2 ;;
+    --telemetry-url) DIFFTEST_TELEMETRY_URL="$2"; shift 2 ;;
     --worker) DIFFTEST_WORKER="$2"; shift 2 ;;
     --list-only) LIST_ONLY=1; shift ;;
     -h|--help) sed -n '5,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -93,8 +98,8 @@ done
 [[ -f "$TASK_CASES" ]] || { echo "error: case list not found: $TASK_CASES" >&2; exit 2; }
 [[ -d "$FIXTURES" ]] || { echo "error: fixture directory not found: $FIXTURES" >&2; exit 2; }
 case "$TASK_CASE_SET" in
-  c|d|a3|a1|a2|b|all) ;;
-  *) echo "error: --set must be c, d, a3, a1, a2, b or all" >&2; exit 2 ;;
+  c|d|a3|a1|a2|b|t|all) ;;
+  *) echo "error: --set must be c, d, a3, a1, a2, b, t or all" >&2; exit 2 ;;
 esac
 
 pass=0
@@ -134,6 +139,9 @@ run_case() {
   fi
   if [[ -n "$DIFFTEST_LIVE_URL" ]]; then
     args+=(--live-url "$DIFFTEST_LIVE_URL")
+  fi
+  if [[ -n "$DIFFTEST_TELEMETRY_URL" ]]; then
+    args+=(--telemetry-url "$DIFFTEST_TELEMETRY_URL")
   fi
   if [[ -n "$DIFFTEST_WORKER" ]]; then
     args+=(--worker "$DIFFTEST_WORKER")

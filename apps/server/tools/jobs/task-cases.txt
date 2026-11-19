@@ -380,3 +380,26 @@ b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-html
 # compared byte for byte (SMTP / the recorder).
 b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-order.json p8b-email-notification-base.sql p8b-en-send-order.case.json
 b plane.bgtasks.webhook_task.webhook_send_task p8b-send-order.json p8b-webhook-base.sql p8b-send-order.case.json
+
+# ---- set T (this branch) ---------------------------------------------------
+#
+# `plane.license.bgtasks.telemetry_metrics.push_instance_metrics` (task 46 in
+# `TASKS.md` §4): the OTLP/HTTP metrics export. `--telemetry-url {{http}}`
+# points `OTLP_ENDPOINT` at the case's recorder, so `<endpoint>/v1/metrics` is
+# `/v1/metrics`. Both sides' bodies are the OTLP protobuf; the harness freezes
+# the collection timestamp and `service.instance.id` (see `TaskOptions`), so
+# the bytes compare exactly (binary bodies are not normalised as text).
+#
+# A plane_tpl clone has one instance row and no workspaces: the "empty
+# instance" branch. `t-populated-200` uses the dev fixture template instead
+# (users, workspaces, projects, issues, modules, cycles, links and pages). The
+# exporter sends the body twice (force_flush + shutdown's final collection),
+# which is what the recorder sees on both sides.
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-telemetry-200.case.json --telemetry-url {{http}}
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-telemetry-200.case.json --telemetry-url {{http}} --template-db plane_fix_tpl
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-telemetry-500.case.json --telemetry-url {{http}}
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-telemetry-timeout.case.json --telemetry-url {{http}}
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-telemetry-drop.case.json --telemetry-url {{http}}
+# The two skip branches: telemetry disabled on the instance, and no instance.
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json t-telemetry-disabled.sql t-telemetry-200.case.json --telemetry-url {{http}}
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json t-telemetry-no-instance.sql t-telemetry-200.case.json --telemetry-url {{http}}

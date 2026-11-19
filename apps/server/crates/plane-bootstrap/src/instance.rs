@@ -12,12 +12,11 @@
 //! preset, every error swallowed into the fallback), and the machine signature
 //! is only checked for emptiness (`:64-65`); Django never stores it.
 //!
-//! **`push_instance_metrics` is not ported** (owner decision 5,
-//! `RUST_REWRITE.md:237`, `plans/CUTOVER.md` §1 line 78). `register_instance.py:90`
-//! enqueues it; [`push_instance_metrics`] is the one marked point where that
-//! would happen, and nothing publishes it after cutover. The default is off;
-//! switching it on later means implementing the task and flipping
-//! [`PUSH_INSTANCE_METRICS_ENABLED`], not finding the call sites again.
+//! `register_instance.py:90` also publishes `push_instance_metrics.delay()` on
+//! **every** run, create or extend. The task is Rust-owned (D34 amendment), so
+//! the step inserts a `plane_jobs.jobs` row through
+//! `plane_jobs::route::dispatch` on the boot connection; a process without a
+//! publisher is fine because the task is never Celery-owned.
 //!
 //! `configure_instance` (`configure_instance.py:19-40`) seeds the 36
 //! `InstanceConfiguration` rows, encrypting the ones Django marks
@@ -44,25 +43,6 @@ pub const GITHUB_RELEASES_URL: &str =
 /// because the distroless image ships no files (`plans/CUTOVER.md` §3). The
 /// unit test below pins it to the real file at build time.
 pub const PACKAGE_VERSION: &str = "1.5.0";
-
-/// **Not ported** — owner decision 5 (`RUST_REWRITE.md:237`): the fork reports
-/// nothing to Plane. `register_instance.py:90` calls
-/// `push_instance_metrics.delay()`; this constant is the single switch that
-/// decision lives behind. When it is turned on, the call in
-/// [`register_instance`] must enqueue the task and `plane-beat` must own its
-/// schedule; nothing else changes.
-pub const PUSH_INSTANCE_METRICS_ENABLED: bool = false;
-
-/// `push_instance_metrics.delay()` (`register_instance.py:90`), deliberately
-/// absent. Kept as one function so the decision has one home.
-pub fn push_instance_metrics() {
-    if PUSH_INSTANCE_METRICS_ENABLED {
-        tracing::warn!(
-            target: "plane.boot",
-            "PUSH_INSTANCE_METRICS_ENABLED is true but no push_instance_metrics handler exists"
-        );
-    }
-}
 
 /// The GitHub JSON `tag_name`, or the fallback. `None` is Python's `None` (a
 /// JSON `null` tag), which Django stores as SQL `NULL`.
@@ -226,8 +206,18 @@ pub async fn register_instance(
             registered = true;
         }
     }
-    // Owner decision 5: not ported. The switch is `PUSH_INSTANCE_METRICS_ENABLED`.
-    push_instance_metrics();
+    // `push_instance_metrics.delay()` (`register_instance.py:90`): the typed
+    // Celery message is built for the coexistence wire format and
+    // `Job::from_message` is the queue representation the Rust task receives
+    // (D25). Nothing on the Celery side owns it, so no publisher is supplied.
+    let task = plane_jobs::celery::task_name::PUSH_INSTANCE_METRICS;
+    let message = plane_jobs::celery::tasks::push_instance_metrics();
+    let job = plane_jobs::queue::Job::from_message(&message);
+    plane_jobs::route::dispatch(task, &job, &message, None, Some(client))
+        .await
+        .map_err(|error| {
+            crate::BootError::Message(format!("enqueueing push_instance_metrics: {error}"))
+        })?;
     Ok(registered)
 }
 
@@ -322,12 +312,5 @@ mod tests {
         let signature = machine_signature();
         assert_eq!(signature.len(), 64);
         assert!(signature.chars().all(|ch| ch.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn metrics_are_off() {
-        // `black_box` keeps clippy's `assertions_on_constants` out of a test
-        // whose whole point is to pin the owner's decision.
-        assert!(!std::hint::black_box(PUSH_INSTANCE_METRICS_ENABLED));
     }
 }

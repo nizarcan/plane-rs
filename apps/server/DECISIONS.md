@@ -756,8 +756,15 @@ workspace `Cargo.toml` and upgrade deliberately.
   wait (only the migrator migrates). `plane-admin` gains `reset-password`,
   `activate-user`, `test-email` and the four boot steps. Proven by
   `tools/boot/compare_boot.py` and `scenarios/boot/static.yaml`.
-- `push_instance_metrics` is not ported (open owner question) and sits behind one
-  `PUSH_INSTANCE_METRICS_ENABLED = false` switch; Django enqueues it once per boot.
+- `push_instance_metrics` is **ported** (amended 2026-11-20: the owner decided to port it,
+  reversing the earlier default; the `PUSH_INSTANCE_METRICS_ENABLED` switch is gone). Both
+  producers are Rust: `register_instance` publishes it on every boot (`register_instance.py:90`)
+  and `plane-beat` owns `push-instance-metrics` (interval `METRICS_PUSH_INTERVAL_MINUTES` × 60).
+  `plane-tasks/src/telemetry_metrics.rs` reproduces the 9 instance and up to 6 workspace gauges,
+  the OTel resource, and the two exports per run (`force_flush` + `shutdown`), posting the OTLP
+  protobuf through the SSRF-pinned `plane_net::preset::TELEMETRY`. `difftest task` set `t`
+  compares the body byte for byte. OTLP/HTTP is done; OTLP/gRPC (Django's default protocol)
+  is being added.
 - The differential harness boots neither side through the entrypoint's setup (amended
   after the `d9eedf323e` verification): `dev/django-serve.sh` starts after it, and
   `scenarios/targets.yaml` sets `PLANE_RS_BOOT_STEPS=skip` on the Rust target only, so

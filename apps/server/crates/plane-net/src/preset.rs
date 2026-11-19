@@ -23,6 +23,7 @@
 //! | `UNSPLASH` | `app/views/external/base.py:242` | GET | none | 30 | off | env |
 //! | `GITHUB_RELEASES` | `license/management/commands/register_instance.py:42` | GET | 10 s | 30 | off | env |
 //! | `LIVE_CONVERT` | `bgtasks/copy_s3_object.py:82` | POST | none | 30 | off | env |
+//! | `TELEMETRY` | `license/bgtasks/telemetry_metrics.py:347` | POST | 10 s | never | on, pinning | off |
 //! | `LLM` | `app/views/external/base.py:131` (OpenAI SDK) | POST | 600 s | SDK | off | env |
 //!
 //! Notes on individual rows:
@@ -329,6 +330,28 @@ pub const LIVE_CONVERT: Preset = preset(
     None,
 );
 
+/// `OTLPMetricExporter`'s default `_OTLP_HTTP_HEADERS` `User-Agent`
+/// (`opentelemetry-exporter-otlp-proto-http` 1.45.2). The exporter sends a
+/// `POST` to `<OTLP_ENDPOINT>/v1/metrics` with an unpinned `requests` session
+/// in Python; the port pins it because the endpoint is deployment input.
+pub const OTLP_USER_AGENT: &str = "OTel-OTLP-Exporter-Python/1.45.2";
+
+/// `requests.post(..., allow_redirects=False)` with `requests`' default
+/// 10 s timeout (`OTel-OTLP-Exporter-Python/1.45.2`,
+/// `_OTLPHTTPClient.__init__`). The exporter treats a 3xx as success and does
+/// not follow it.
+pub const TELEMETRY: Preset = preset(
+    "telemetry",
+    "apps/api/plane/license/bgtasks/telemetry_metrics.py:347 (OTLPMetricExporter)",
+    true,
+    Some(10),
+    None,
+    ProxyMode::Disabled,
+    OTLP_USER_AGENT,
+    &[("Content-Type", "application/x-protobuf")],
+    None,
+);
+
 /// The `openai` SDK's default timeout budget (`Timeout(connect=5.0,
 /// read=600, write=600, pool=600)` in `openai._constants.DEFAULT_TIMEOUT`,
 /// pinned at 1.63.2). Retries (2) belong to the future handler.
@@ -350,7 +373,14 @@ mod tests {
 
     #[test]
     fn pinned_presets_never_use_an_environment_proxy() {
-        for preset in [WEBHOOK, LINK_TITLE, FAVICON_HEAD, FAVICON_GET, OAUTH_AVATAR] {
+        for preset in [
+            WEBHOOK,
+            LINK_TITLE,
+            FAVICON_HEAD,
+            FAVICON_GET,
+            OAUTH_AVATAR,
+            TELEMETRY,
+        ] {
             assert!(preset.ssrf, "{}", preset.name);
             assert_eq!(preset.proxy, ProxyMode::Disabled, "{}", preset.name);
         }

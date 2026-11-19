@@ -446,6 +446,16 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
             "plane-tasks/src/issue_activity.rs (notification=True re-publish)",
         )],
     ),
+    // Both producers of `push_instance_metrics` are Rust from set T on:
+    // `register_instance.py:90` runs in `plane-bootstrap`, and the
+    // `push-instance-metrics` beat entry in `plane-beat` (D34 amendment).
+    (
+        "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+        &[
+            Producer::RustHook("plane-bootstrap/src/instance.rs (register_instance.py:90)"),
+            Producer::RustBeat("plane/celery.py:56-59 (push-instance-metrics)"),
+        ],
+    ),
 ];
 
 /// The producers recorded for `task`, or `None` when the table has no row.

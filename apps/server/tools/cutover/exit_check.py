@@ -18,7 +18,7 @@ Two paths, one script:
 
 Plus the static check: no deployment file mentions `apps/api/bin`.
 
-    apps/api/.venv/bin/python apps/server/tools/cutover/exit_check.py all
+    "$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/cutover/exit_check.py all
 
 The stack is defined in `compose.yml`: project `plane-cutover`, containers
 named `plane-cutover-*`, host ports 18500-18519 only, and no frontend images.
@@ -547,9 +547,10 @@ def celery_errors() -> list[str]:
     At cutover there is no broker, so a `.delay()` of a task that is not in
     `RUST_TASKS` fails the request (Django's 500) or the handler. The walk must
     fail on either, not merely on a missing e-mail: the point is to prove that
-    nothing still needs Celery. `push_instance_metrics` is the one task not
-    ported, and D34 leaves it unpublished (`PUSH_INSTANCE_METRICS_ENABLED =
-    false`), so it never appears here.
+    nothing still needs Celery. Every task is Rust-owned from set T on
+    (including `push_instance_metrics`; D34 amendment), so the boot step and
+    the beat schedule both go through `plane_jobs` and a broker line is always
+    a failure.
     """
     patterns = ["celery publish failed", "plane.exception", "amqp: IO error"]
     found: list[str] = []

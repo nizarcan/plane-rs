@@ -70,6 +70,25 @@ def allow_loopback_for_difftest() -> None:
     work_item_link_task.is_blocked_ip = is_blocked_ip
 
 
+def freeze_metrics_clock() -> None:
+    """Pin the OTel SDK's metric collection timestamp (test only).
+
+    `push_instance_metrics` exports the protobuf body `difftest task` compares
+    byte for byte, and every `NumberDataPoint.time_unix_nano` is the SDK's
+    `time_ns()` at collection. The Rust handler reads the same value from
+    `PLANE_RS_DIFFTEST_METRICS_NS`; the harness sets both variables and never a
+    deployment.
+    """
+    raw = os.environ.get("PLANE_DIFFTEST_METRICS_NS")
+    if not raw:
+        return
+
+    import opentelemetry.sdk.metrics._internal.metric_reader_storage as storage
+
+    value = int(raw)
+    storage.time_ns = lambda: value
+
+
 def apply_single_attempt(task, args, kwargs, retries):
     """Run one Celery attempt with `request.retries = retries`, no eager loop.
 
@@ -136,6 +155,7 @@ def main() -> int:
     django.setup()
 
     allow_loopback_for_difftest()
+    freeze_metrics_clock()
 
     from django.utils.module_loading import import_string
 

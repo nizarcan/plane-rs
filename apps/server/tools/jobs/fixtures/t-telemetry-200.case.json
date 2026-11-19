@@ -1,0 +1,10 @@
+{
+  "task": "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+  "http": {
+    "responses": {
+      "/v1/metrics": {
+        "status": 200
+      }
+    }
+  }
+}

@@ -65,6 +65,7 @@ pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.bgtasks.email_notification_task.stack_email_notification",
     "plane.bgtasks.email_notification_task.send_email_notification",
     "plane.bgtasks.notification_task.notifications",
+    "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
 ];
 
 /// Whether `task` is published to `plane_jobs` rather than to RabbitMQ.
@@ -314,9 +315,13 @@ mod tests {
                     "user_id": {"__type__": "uuid", "__value__": {"hex": id.replace('-', "")}},
                 }),
             ),
-            // Never ported (owner decision 5), so it stays Celery-owned.
-            empty_message("plane.license.bgtasks.telemetry_metrics.push_instance_metrics"),
+            // A task that is not registered stays Celery-owned.
+            empty_message("plane.bgtasks.test_ownership.never_a_registered_task"),
         ];
+        assert!(
+            !crate::ownership::rust_owned("plane.bgtasks.test_ownership.never_a_registered_task"),
+            "the Celery-owned example must not be a Rust-owned task"
+        );
         let owned = take_owned_messages(&mut messages);
         assert_eq!(owned.len(), 1);
         assert_eq!(

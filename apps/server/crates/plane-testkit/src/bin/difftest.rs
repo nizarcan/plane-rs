@@ -312,6 +312,10 @@ struct TaskArgs {
     /// `LIVE_BASE_URL` for both sides (`{{http}}` = the case's fake server).
     #[arg(long)]
     live_url: Option<String>,
+    /// `OTLP_ENDPOINT` for both sides (`{{http}}` = the case's fake server).
+    /// The telemetry task posts to `<OTLP_ENDPOINT>/v1/metrics`.
+    #[arg(long)]
+    telemetry_url: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -491,6 +495,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
             options.s3_bucket_a = args.s3_bucket_a;
             options.s3_bucket_b = args.s3_bucket_b;
             options.live_url = args.live_url;
+            options.telemetry_url = args.telemetry_url;
             options.expect_django_failure = args.expect_django_failure;
             options.expect_worker_failure = args.expect_worker_failure;
             plane_testkit::task::run(&options).await?;
