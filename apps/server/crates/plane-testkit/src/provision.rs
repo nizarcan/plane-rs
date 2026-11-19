@@ -168,6 +168,106 @@ pub struct TargetInstance {
     stopped: bool,
 }
 
+/// The environment a target's `command` and `setup_command` see: the
+/// `env_from` script first, then the explicit `env:` template (which wins).
+pub fn target_environment(
+    name: &str,
+    spec: &TargetSpec,
+    ctx: &BTreeMap<&str, String>,
+) -> Result<BTreeMap<String, String>> {
+    let mut env: BTreeMap<String, String> = match &spec.env_from {
+        Some(template) => {
+            let script = PathBuf::from(render_template(template, ctx)?);
+            script_environment(&script, ctx).with_context(|| {
+                format!(
+                    "target {name}: reading the environment from {}",
+                    script.display()
+                )
+            })?
+        }
+        None => BTreeMap::new(),
+    };
+    for (key, value) in &spec.env {
+        env.insert(key.clone(), render_template(value, ctx)?);
+    }
+    Ok(env)
+}
+
+fn target_workdir(spec: &TargetSpec, ctx: &BTreeMap<&str, String>) -> Result<PathBuf> {
+    let workdir = match &spec.workdir {
+        Some(template) => PathBuf::from(render_template(template, ctx)?),
+        None => repo_root(),
+    };
+    if !workdir.is_dir() {
+        bail!("workdir {} does not exist", workdir.display());
+    }
+    Ok(workdir)
+}
+
+/// Create the `plane_jobs` schema on a Rust target's database, the way
+/// production runs the migrator as a `service_completed_successfully`
+/// dependency (`plans/CUTOVER.md` §3).
+///
+/// A Rust target enqueues its first Rust-owned task from the first request that
+/// publishes one; without the schema that insert fails and the route answers
+/// 500. `plane-api` deliberately does not create the schema itself (Postgres is
+/// not contacted at startup), so the harness — like compose — runs the
+/// migrator first. The binary is looked up next to the target's command and
+/// must exist: silently skipping it would make the sweep compare a broken
+/// target.
+pub fn ensure_queue_schema(
+    name: &str,
+    spec: &TargetSpec,
+    ctx: &BTreeMap<&str, String>,
+    log_dir: &Path,
+) -> Result<()> {
+    if spec.kind != "rust" {
+        return Ok(());
+    }
+    let command = spec
+        .command
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("target {name}: empty command"))?;
+    let rendered = PathBuf::from(render_template(command, ctx)?);
+    let migrator = rendered.with_file_name("plane-migrator");
+    if !migrator.is_file() {
+        bail!(
+            "target {name}: {} does not exist; run `cargo build -p plane-migrator`              (the Rust target needs the `plane_jobs` schema, as the compose migrator provides)",
+            migrator.display()
+        );
+    }
+    let env = target_environment(name, spec, ctx)?;
+    let workdir = target_workdir(spec, ctx)?;
+    let output = Command::new(&migrator)
+        .envs(&env)
+        .current_dir(&workdir)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("target {name}: running {}", migrator.display()))?;
+    std::fs::create_dir_all(log_dir).ok();
+    std::fs::write(
+        log_dir.join(format!("{name}-migrator.log")),
+        [
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ]
+        .concat(),
+    )
+    .ok();
+    if !output.status.success() {
+        bail!(
+            "target {name}: plane-migrator failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    tracing::info!(
+        "target {name}: created the plane_jobs schema with {}",
+        migrator.display()
+    );
+    Ok(())
+}
+
 impl TargetInstance {
     pub async fn start(
         name: &str,
@@ -189,21 +289,7 @@ impl TargetInstance {
         // explicit `env:` template, which wins. `django` targets get their
         // environment from `dev/django-serve.sh`; a `rust` target uses
         // `env_from: dev/django-env.sh` so it sees exactly the same values.
-        let mut env: BTreeMap<String, String> = match &spec.env_from {
-            Some(template) => {
-                let script = PathBuf::from(render_template(template, ctx)?);
-                script_environment(&script, ctx).with_context(|| {
-                    format!(
-                        "target {name}: reading the environment from {}",
-                        script.display()
-                    )
-                })?
-            }
-            None => BTreeMap::new(),
-        };
-        for (key, value) in &spec.env {
-            env.insert(key.clone(), render_template(value, ctx)?);
-        }
+        let env = target_environment(name, spec, ctx)?;
         // Presigned-URL verification (D17) needs the credentials the *target*
         // signs with. A `rust` target sources `dev/django-env.sh` through
         // `env_from`; the `django` target's command sources the same script
@@ -219,16 +305,7 @@ impl TargetInstance {
                 "target {name}: no AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; presigned_url rules cannot verify"
             );
         }
-        let workdir = match &spec.workdir {
-            Some(template) => PathBuf::from(render_template(template, ctx)?),
-            None => repo_root(),
-        };
-        if !workdir.is_dir() {
-            bail!(
-                "target {name}: workdir {} does not exist",
-                workdir.display()
-            );
-        }
+        let workdir = target_workdir(spec, ctx)?;
         std::fs::create_dir_all(log_dir)
             .with_context(|| format!("creating log directory {}", log_dir.display()))?;
         let log_path = log_dir.join(format!("{name}.log"));

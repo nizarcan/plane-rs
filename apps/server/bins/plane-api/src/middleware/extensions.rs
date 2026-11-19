@@ -58,26 +58,60 @@ pub async fn api_token_log_response(
     ctx: &RequestContext,
     resp: &Resp,
     publisher: Option<&CeleryPublisher>,
+    db: Option<&plane_db::DbPools>,
 ) {
     let Some(log) =
         plane_drf::token_log::ApiTokenLog::build(settings, ctx, resp.status.as_u16(), &resp.body)
     else {
         return;
     };
-    let Some(publisher) = publisher else {
-        // A process built without a broker (tests). Django always has one, so
-        // this is a misconfiguration worth an error rather than silence.
-        tracing::error!(
-            target: "plane.exception",
-            path = %log.path,
-            method = %log.method,
-            "APITokenLogMiddleware: no Celery publisher; process_logs was not enqueued"
-        );
-        return;
+    let message = log.message();
+    let job = plane_jobs::queue::Job::from_message(&message);
+    let task = job.task.clone();
+    // Phase 8: `process_logs` is Rust-owned, so this is an insert into
+    // `plane_jobs` on the request's write pool; before the switch the same
+    // call published the byte-identical Celery message. Both paths keep
+    // Django's `except Exception` (`logger.py:160-161`): the response is
+    // untouched and a broker/database failure loses the log row.
+    let delivery = if plane_jobs::ownership::owner(&task).is_rust() {
+        let Some(db) = db else {
+            tracing::error!(
+                target: "plane.exception",
+                path = %log.path,
+                method = %log.method,
+                "APITokenLogMiddleware: no database pool; process_logs was not enqueued"
+            );
+            return;
+        };
+        match db.write_pool().get().await {
+            Ok(client) => {
+                plane_jobs::route::dispatch::<tokio_postgres::Client>(
+                    &task,
+                    &job,
+                    &message,
+                    publisher,
+                    Some(&**client),
+                )
+                .await
+            }
+            Err(error) => {
+                tracing::error!(
+                    target: "plane.exception",
+                    %error,
+                    path = %log.path,
+                    method = %log.method,
+                    "APITokenLogMiddleware: enqueueing process_logs failed"
+                );
+                return;
+            }
+        }
+    } else {
+        plane_jobs::route::dispatch::<tokio_postgres::Client>(
+            &task, &job, &message, publisher, None,
+        )
+        .await
     };
-    // `log_exception(e)`: logger "plane.exception", `logger.exception(e)`, and
-    // the response untouched.
-    if let Err(error) = publisher.publish(&log.message()).await {
+    if let Err(error) = delivery {
         tracing::error!(
             target: "plane.exception",
             %error,

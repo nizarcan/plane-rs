@@ -121,6 +121,30 @@ pub const REAL_SCHEDULES: &[ScheduleSeed] = &[
 pub const TEST_SCHEDULE: &str = "plane.jobs.test-tick";
 pub const TEST_TASK: &str = "plane.jobs.echo";
 
+/// The `plane/celery.py` entries whose task is Rust-owned.
+///
+/// `plans/CUTOVER.md` §2 orders the handover per entry: the task moves first
+/// (`ownership::RUST_TASKS`), then its schedule. `seed_schedules` performs that
+/// second step on every start — a row whose name is listed here and still has
+/// `owner = 'celery'` is flipped to `'rust'`. The quiet-window gate in
+/// [`Beat::run`] still decides *when* the entry may fire, and the Django
+/// `django_celery_beat_periodictask` row is disabled inside the same
+/// transaction (`Beat::handover`).
+///
+/// A rollback means removing the name here and setting the row back to
+/// `'celery'`; the Django row is re-enabled by an operator, as the handover
+/// notes in `JOBS.md` describe.
+pub const RUST_SCHEDULES: &[&str] = &[
+    "check-every-five-minutes-to-unsnooze-intake-issues",
+    "check-every-day-to-delete-hard-delete",
+    "check-every-day-to-archive-and-close",
+    "check-every-day-to-delete-api-logs",
+    "check-every-day-to-delete-email-notification-logs",
+    "check-every-day-to-delete-page-versions",
+    "check-every-day-to-delete-issue-description-versions",
+    "check-every-day-to-delete-webhook-logs",
+];
+
 /// A parsed cron with minute/hour fields. The real entries do not constrain
 /// day/month/weekday, so those are accepted only as `*`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -588,6 +612,27 @@ pub async fn seed_schedules<C: GenericClient + Sync>(
             )
             .await?;
     }
+    // `plans/CUTOVER.md` §2's per-entry handover: flip the entries whose task
+    // is already Rust-owned. The quiet-window logic in `Beat::run` is what
+    // actually performs the handover; this only makes the row eligible.
+    let names: Vec<String> = RUST_SCHEDULES
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect();
+    let flipped = client
+        .execute(
+            "UPDATE plane_jobs.schedules SET owner = 'rust', updated_at = now() \
+             WHERE owner = 'celery' AND name = ANY($1)",
+            &[&names],
+        )
+        .await?;
+    if flipped > 0 {
+        tracing::info!(
+            target: "plane.beat",
+            schedules = flipped,
+            "marked Rust-owned schedules for handover"
+        );
+    }
     Ok(())
 }
 
@@ -734,6 +779,22 @@ mod tests {
             ChronoDuration::seconds(30),
             ChronoDuration::seconds(15)
         ));
+    }
+
+    #[test]
+    fn every_rust_schedule_names_a_real_entry_and_a_rust_task() {
+        use crate::ownership::RUST_TASKS;
+        for name in RUST_SCHEDULES {
+            let seed = REAL_SCHEDULES
+                .iter()
+                .find(|seed| seed.name == *name)
+                .unwrap_or_else(|| panic!("{name} is not one of the seeded entries"));
+            assert!(
+                RUST_TASKS.contains(&seed.task),
+                "{name} owns task {} but the task is not Rust-owned",
+                seed.task
+            );
+        }
     }
 
     #[test]

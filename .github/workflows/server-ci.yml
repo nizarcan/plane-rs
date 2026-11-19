@@ -517,6 +517,12 @@ jobs:
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/mail/email_message_corpus.py --check
 
+      # `crates/plane-mail` renders the embedded minijinja templates; the
+      # corpus is Django's `render_to_string` output for the same contexts.
+      - name: Check the e-mail template corpus is current
+        working-directory: apps/api
+        run: uv run --no-sync python ../server/tools/mail/email_template_corpus.py --check
+
       - name: Check the OpenAPI goldens are current
         working-directory: apps/api
         run: uv run --no-sync python ../server/tools/openapi/check.py --check
