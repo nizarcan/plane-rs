@@ -1039,7 +1039,9 @@ matrix is repeated unchanged on the same containers, with a write mix and the
 background services measured under a live queue. Phase 5's specific caveat —
 the worker/beat idle figures were taken with only a `"starting"` log line —
 is answered below: the worker's LISTEN half **does not establish its
-subscription at this head** (finding 1); the poll fallback is what drains.
+subscription at this head** (finding 1); the poll fallback is what drains. A
+follow-up fix and its re-measurement are appended to the background-services
+section as "Correction".
 
 #### Environment
 
@@ -1195,7 +1197,7 @@ that window.
 | service | idle | CPU / 5 s | live-queue proof |
 | --- | --- | --- | --- |
 | `plane-api` | **58.7 MiB** (fresh) | — | idle HTTP target from the matrix |
-| `plane-worker`, listener up | **1.58 MiB** | 0.044 s | 2 DB connections: one claim loop, one listener connection open with an empty `query`; **0 `LISTEN` statements** (finding 1) |
+| `plane-worker`, listener **not subscribed** (finding 1) | **1.58 MiB** | 0.044 s | 2 DB connections: one claim loop, one listener connection open with an empty `query`; **0 `LISTEN` statements** (finding 1; corrected below) |
 | `plane-worker`, 4 claimed jobs | **1.66 MiB** | 0.00 s (handlers asleep) | `plane_jobs.jobs`: **4 `running`**, all `locked_by` the worker id; worker log has 4 `"echo"` completions |
 | `plane-beat`, after a tick | **0.91 MiB** | 0.005 s | **9 rows in `plane_jobs.ticks`**, one per Rust-owned schedule, and 9 `fired schedule` log lines |
 | Celery worker `-c 4` | 359.57 MiB | 0.009 s | prefork container, queue empty |
@@ -1219,9 +1221,56 @@ connection sits `idle/ClientRead` with an empty query (the proof file
 `worker-connections.txt`). The worker still drains through the 1 s poll
 fallback, which is why the queue measurements above work; the failure mode is
 up to one poll interval of wake-up latency, not lost jobs. The fix is one line
-(`tokio::spawn(connection)` before the `LISTEN`, or poll both concurrently).
+(`tokio::spawn(connection)` before the `LISTEN`, or poll both concurrently;
+the spawn variant alone would drop notifications — see "Correction").
 Phase 5's "1.02 MiB idle" figure had the same missing subscription; this run
 confirms it rather than assuming it.
+
+#### Correction — worker with the LISTEN subscription established (follow-up)
+
+Finding 1 was fixed after this run: `listen_once` now polls the
+`Connection` (`poll_message` drives the socket and yields notifications) while
+the `LISTEN` request is in flight, instead of awaiting `batch_execute` before
+anything polls it. The unit of the reconnect loop is unchanged. Spawning the
+`Connection` `Future` alone does not work: that impl consumes and drops
+`AsyncMessage::Notification`s (it only logs notices), so the `poll_message`
+loop itself must drive the connection. The regression
+test (`crates/plane-jobs/tests/jobs.rs`, DB-backed, 60 s poll) fails on the old
+code at "no `LISTEN plane_jobs_jobs` session appeared" and passes on the fix.
+
+Only the worker row was re-measured, with
+`tools/bench/run-phase8.sh --worker-only --tag p8-listen-fix` on the same
+namespace as this section (containers `plane-rs-bench-p8-*`, databases
+`bench_p8_*`, Redis DBs 10/11, ports 18310-18319/18360-18369), then cleaned up.
+The images were rebuilt from the fixed source; every other row above is
+unchanged and remains the poll-only measurement.
+
+| service | idle | CPU / 5 s | live-queue proof |
+| --- | --- | --- | --- |
+| `plane-worker`, LISTEN subscribed | **1.62 MiB** (peak 1.87 MiB) | 0.038 s | one session with `query = 'LISTEN plane_jobs_jobs'` in `pg_stat_activity` (`worker-connections.txt`, `worker-listen.txt`: 1 before and 1 after the live jobs); `worker-claims.txt`: 4 `running` echo jobs; `worker.log`: the 5 latency-probe `"echo"` lines, then 4 live-job `"echo"` lines |
+
+The subscription costs **+0.04 MiB** idle (1.62 vs 1.58 MiB) and the idle CPU
+is within the run-to-run noise of the earlier 0.044 s/5 s (the worker still
+polls at `PLANE_RS_JOB_POLL_MS=100`). The whole-stack total above is therefore
+still **~61.2 MiB** (the corrected worker adds 0.04 MiB).
+
+**Enqueue-to-claim latency.** Five echo jobs, each inserted with its own
+`pg_notify` 100 ms apart, measured as `finished_at - created_at` on the
+database clock (the echo handler is instantaneous), min/median/max:
+
+| `PLANE_RS_JOB_POLL_MS` | before (finding 1) | after (fix) |
+| --- | --- | --- |
+| 1000 (default) | 117.2 / 410.6 / 973.4 ms | 8.9 / 13.2 / 23.6 ms |
+| 100 (this section's worker) | 12.0 / 41.9 / 103.5 ms | 2.5 / 4.5 / 7.4 ms |
+
+The default-interval rows were measured outside a container with the same
+worktree `plane-worker` binary before and after the fix (the wake-up path is
+identical); the 100 ms "after" row is the bench container's own measurement
+(`worker-claim-latency.txt`, taken with the listener up before the idle
+window). Before the fix the latency is bounded by the poll interval and
+uniformly spread over it; after it is a few milliseconds and independent of
+the poll interval. This is the wake-up latency, not throughput: the 10,000-job
+drain below was never poll-bound.
 
 #### Task throughput
 
@@ -1338,7 +1387,9 @@ It is a wake-up optimisation, not correctness (the poll fallback drains), and
 the measurement above shows jobs claimed, executed and freed. It should still
 be fixed before the cutover is declared complete: `listener.rs:72-81` awaits
 `batch_execute` before polling the connection, so the subscription never
-happens. This is the answer to Phase 5's open caveat.
+happens. This is the answer to Phase 5's open caveat. **Fixed in the follow-up
+above**; its regression test fails on this head and the re-measured row has
+the subscription established.
 
 **The write mix perturbs the history read if it runs first.** The first run's
 concurrency-8 row was measured after 1,000 comment activities were added to
@@ -1365,15 +1416,21 @@ apps/server/tools/bench/run-phase8.sh --no-build --load-only --tag phase8-202611
 # Verification only, the background services only, or remove what a run left.
 apps/server/tools/bench/run-phase8.sh --no-build --verify-only
 apps/server/tools/bench/run-phase8.sh --no-build --jobs-only
+
+# Only the worker row: LISTEN subscription, idle RSS/CPU, claim latency.
+apps/server/tools/bench/run-phase8.sh --worker-only --tag p8-listen-fix
+
 apps/server/tools/bench/run-phase8.sh --down
 ```
 
 The run writes `summarize.md`, `table.md`, `ratios.md`, `stack.md` and
 `throughput.md`, plus `environment.txt`, `load.log`, `pg-load.log`, the cgroup
 samples, the verification reports and the proof files (`worker-connections.txt`,
-`worker-listen.txt`, `worker-claims.txt`, `beat-ticks.txt`). The raw reports
-are in `apps/server/target/bench/phase8-20261119/` (gitignored), with the load
-re-run in `phase8-20261119-load/`.
+`worker-listen.txt`, `worker-claim-latency.txt`, `worker-claims.txt`,
+`beat-ticks.txt`). The raw reports are in
+`apps/server/target/bench/phase8-20261119/` (gitignored), with the load
+re-run in `phase8-20261119-load/` and the worker correction in
+`p8-listen-fix/`.
 
 #### Threats to validity (Phase 8)
 
@@ -1414,9 +1471,11 @@ re-run in `phase8-20261119-load/`.
 * **Boot steps skipped.** `plane-api` ran with `PLANE_RS_BOOT_STEPS=skip`
   (no outbound GitHub call); this affects only boot, and boot parity is
   covered by `tools/boot/compare_boot.py`, not this benchmark.
-* **The worker's LISTEN subscription is absent** (finding 1), so the worker
-  figures are "poll-only with a live queue", not "LISTEN-driven". The queue
-  behaviour itself is proven; the wake-up path is the open bug.
+* **The worker's LISTEN subscription is absent in this run's rows** (finding 1),
+  so those worker figures are "poll-only with a live queue", not
+  "LISTEN-driven". The queue behaviour itself is proven; the wake-up path was
+  the open bug. The follow-up "Correction" row has the subscription and is
+  marked as such.
 
 ## How to reproduce
 

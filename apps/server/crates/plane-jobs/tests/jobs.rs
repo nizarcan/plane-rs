@@ -22,6 +22,7 @@ use plane_db::DbPools;
 use plane_jobs::beat::{Beat, BeatConfig};
 use plane_jobs::celery::args::TaskArg;
 use plane_jobs::celery::tasks::{self, RecentVisitedTask};
+use plane_jobs::listener::Listener;
 use plane_jobs::ownership::{Owner, owner};
 use plane_jobs::queue::{self, Failure, Job};
 use plane_jobs::route::{self, Delivery};
@@ -538,5 +539,101 @@ async fn dispatch_routes_to_celery_or_the_queue_by_ownership() {
             .expect("row")
             .get::<_, String>(0),
         "done"
+    );
+}
+
+/// Regression test for the dead `LISTEN` half (BENCH.md Phase 8, finding 1).
+///
+/// `tokio-postgres` only writes requests while its `Connection` future is
+/// polled, so awaiting `batch_execute("LISTEN ...")` before anything drives the
+/// connection left the server-side session with an empty `query` and no
+/// subscription. With the poll interval at 60 s, a job claimed within 2 s can
+/// only have been woken by `pg_notify`.
+#[tokio::test]
+async fn the_listener_subscribes_and_wakes_the_worker_before_the_poll_interval() {
+    let Some(client) = connect().await else {
+        return;
+    };
+    let _guard = SERIAL.lock().await;
+    reset(&client).await;
+    let url = database_url().expect("url");
+    let settings = settings(&url);
+    let pool = DbPools::from_settings(&settings).expect("pools");
+    let worker = Worker::new(
+        pool,
+        registry(0),
+        WorkerConfig {
+            concurrency: 1,
+            lease: Duration::from_secs(30),
+            poll: Duration::from_secs(60),
+            drain: Duration::from_secs(1),
+        },
+        "worker-listener".to_string(),
+    );
+    let listener = Listener::connect(&settings).expect("listener");
+    let (stop, wait) = tokio::sync::oneshot::channel::<()>();
+    let handle = tokio::spawn(worker.run(
+        async move {
+            let _ = wait.await;
+        },
+        Some(listener),
+    ));
+
+    // The subscription must exist on the server, not only as a pending
+    // request: `pg_stat_activity.query` is the last statement the backend
+    // received.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut subscribed = false;
+    while tokio::time::Instant::now() < deadline {
+        let sessions: i64 = client
+            .query_one(
+                "SELECT count(*) FROM pg_stat_activity \
+                 WHERE datname = current_database() \
+                   AND query = 'LISTEN plane_jobs_jobs'",
+                &[],
+            )
+            .await
+            .expect("pg_stat_activity")
+            .get(0);
+        if sessions > 0 {
+            subscribed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        subscribed,
+        "no `LISTEN plane_jobs_jobs` session appeared: the listener never \
+         drove its connection far enough to send the request"
+    );
+
+    let enqueued = tokio::time::Instant::now();
+    queue::enqueue(&client, &Job::new("plane.jobs.echo"))
+        .await
+        .expect("enqueue")
+        .expect("inserted");
+    let mut claimed = false;
+    let deadline = enqueued + Duration::from_secs(2);
+    while tokio::time::Instant::now() < deadline {
+        let state: String = client
+            .query_one("SELECT state FROM plane_jobs.jobs", &[])
+            .await
+            .expect("state")
+            .get(0);
+        if state == "done" {
+            claimed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let elapsed = enqueued.elapsed();
+
+    stop.send(()).expect("stop");
+    handle.await.expect("join").expect("worker run");
+
+    assert!(
+        claimed,
+        "the job was not claimed within 2 s at a 60 s poll interval \
+         ({elapsed:?}): the NOTIFY did not wake the worker"
     );
 }

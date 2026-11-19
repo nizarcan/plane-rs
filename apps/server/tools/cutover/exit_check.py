@@ -24,8 +24,13 @@ The stack is defined in `compose.yml`: project `plane-cutover`, containers
 named `plane-cutover-*`, host ports 18500-18519 only, and no frontend images.
 The SMTP sink, webhook listener and fake GitHub are one Rust container
 (`sink/`), so the "no Python process in any container" assertion is exact.
-Everything the script creates is removed at the end by exact name; `--keep`
-leaves the stack for inspection and prints the run directory.
+The compose project is torn down at the end on failure too, unless `--keep`
+leaves the stack for inspection and prints the run directory (the images and
+the run directory stay after a failure, so a retry does not rebuild and the
+logs are still there). The script refuses up front when the Docker daemon
+cannot see the checkout (Colima shares only `$HOME` by default), because the
+proxy's `Caddyfile.ce` bind mount would otherwise fail with an unattributed
+"stack run completed".
 
 `invite` and `webhook` depend on set B's tasks (workspace_invitation and the
 model_activity -> webhook_activity -> webhook_send_task chain). The script
@@ -249,6 +254,47 @@ def vm_available_gib() -> float:
     # ... Filesystem 1024-blocks Used Available Capacity Mounted
     line = result.stdout.decode().strip().splitlines()[-1].split()
     return int(line[3]) / 1024 / 1024
+
+
+def check_repository_visible() -> None:
+    """Refuse when the Docker VM cannot bind-mount the checkout.
+
+    The stack mounts `apps/proxy/Caddyfile.ce` (and the sink's build context)
+    from the working tree. Colima shares only `$HOME` by default, so a run from
+    `/tmp` made `docker compose up` fail on the proxy's Caddyfile mount and the
+    check only reported `FAIL: stack run completed`. Ask the daemon with the
+    same bind mount when a local image can answer; otherwise fall back to
+    Colima's default share.
+    """
+    repo = REPO.resolve()
+    visible: bool | None = None
+    probe_image = "postgres:15.7-alpine"
+    if docker("image", "inspect", probe_image, check=False).returncode == 0:
+        probe = docker(
+            "run",
+            "--rm",
+            "-v",
+            f"{repo}:/cutover-check:ro",
+            probe_image,
+            "test",
+            "-f",
+            "/cutover-check/apps/server/tools/cutover/compose.yml",
+            check=False,
+        )
+        if probe.returncode == 0:
+            visible = True
+        elif probe.returncode == 1:
+            visible = False
+    if visible is None:
+        visible = repo.is_relative_to(Path.home().resolve())
+    if not visible:
+        raise SystemExit(
+            f"refusing to run: the Docker daemon cannot see {repo}.\n"
+            "The plane-cutover stack bind-mounts apps/proxy/Caddyfile.ce from the\n"
+            "checkout. Colima shares only $HOME by default, so move the checkout\n"
+            "under your home directory or share this path with the VM\n"
+            "(colima start --mount <path>:w) and retry."
+        )
 
 
 def disk_floor() -> None:
@@ -919,13 +965,15 @@ def check_celery_errors(allow_celery_dispatch: bool) -> None:
     )
 
 
-def cleanup() -> None:
+def cleanup(*, remove_images: bool = True, remove_run: bool = True) -> None:
     down(volumes=True)
-    for image in IMAGES:
-        docker("image", "rm", "-f", image, check=False)
+    if remove_images:
+        for image in IMAGES:
+            docker("image", "rm", "-f", image, check=False)
     # `run/` holds the generated SECRET_KEY, the upgrade dump and the sink
-    # logs. Keep it on a failure or with `--keep`; a green run removes it.
-    shutil.rmtree(RUN, ignore_errors=True)
+    # logs. A green run removes it; a failure keeps it for the report.
+    if remove_run:
+        shutil.rmtree(RUN, ignore_errors=True)
 
 
 def main() -> int:
@@ -956,6 +1004,8 @@ def main() -> int:
     if args.mode == "static":
         static_checks(REPORT)
         return REPORT.summary()
+
+    check_repository_visible()
 
     if args.mode in ("all", "fresh", "upgrade", "build"):
         build_images()
@@ -1005,8 +1055,12 @@ def main() -> int:
         REPORT.check("stack run completed", False, str(error))
         report_container_logs()
     finally:
-        if not args.keep and not REPORT.failed:
-            cleanup()
+        if not args.keep:
+            # The compose project is torn down even after a failure: a failed
+            # run used to leave `plane-cutover` running while the report said
+            # only "stack run completed". The images and `run/` stay on a
+            # failure so a retry is cheap and the logs survive.
+            cleanup(remove_images=not REPORT.failed, remove_run=not REPORT.failed)
 
     return REPORT.summary()
 
