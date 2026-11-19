@@ -2223,7 +2223,27 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `state_id` + `state` in one update append two rows; a bad `epoch` fails after
        partial bumps.
 
+   - **Phase 8 set B part 1 on its branch (`f8256f72a0`, not merged).** Switched: 40–43
+     (webhook chain: `get_model_data` per entity, `requests` JSON + HMAC, `WebhookLog`
+     Python reprs, retry 0–600 s × 5, deactivation) and 17, 28, 32, 36–39, 45 (account
+     e-mails; six templates added). `Job::from_message` maps `countdown`/`eta` to
+     `run_at`; 27 more producers moved off `Job::new`; quoted-printable fixed (spaces stay
+     literal, as CPython). Task harness: `<BUCKET>` per side, a worker without the
+     `difftest` feature is refused for `http` cases. Agent: 129/129 task cases, 10 write
+     files, 1388 tests, testkit 212.
+     - **Owed:** full sweeps, OAuth, SMTP, beat, contract (not run); webhook retry and
+       deactivation have no `difftest task` evidence; `WebhookLog.response_headers` is
+       title-cased where Python keeps the wire casing (to investigate: hyper can preserve
+       header case); 12/13 not ported.
+     - The orchestrator merged `rust-rewrite` (A1) into `rs/p8-b` (`f08f191d8a`): list
+       unions, set B's case files (bucket rule removed), 33 Rust-owned tasks, 192 cases.
+     - Upstream kept: issue webhooks never carry `cycle`/`module` (reverse manager
+       `AttributeError`); `intake_issue`/`user` events reach every active webhook;
+       `WebhookLog.request_method` stores the verb (`create`); `model_activity` compares
+       uncoerced data (`"3"` vs `3` fires); deactivation mail never sends for
+       API-created webhooks and ignores `reason`.
+
    Running: the orchestrator's verification of `8406d7a925`, set A2 (`rs/p8-a2`:
-   `notifications`; 18010/18110, Redis 3/4, contract Redis 11), set B (`rs/p8-b`: tasks
-   12, 13, 17, 28, 32, 36–43, 45; 18020/18120, Redis 5/6, contract Redis 15, SMTP
-   18410–18417).
+   `notifications`; 18010/18110, Redis 3/4, contract Redis 11), set B part 2 (`rs/p8-b`:
+   build check, webhook retry/deactivation cases, header casing, 12, 13, all sweeps;
+   18020/18120, Redis 5/6, contract Redis 15, SMTP 18410–18417).
