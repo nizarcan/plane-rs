@@ -2393,6 +2393,21 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      boundary flake on step 01); `read/v1.yaml` 241/241 and back in the sweep (read 53/53,
      2854 steps). D34 and D26 amended.
 
-   Running: the orchestrator's final verification of the merged head (incl. `read/v1.yaml`,
-   `stickies-harness.yaml`, beat scripts, the strict exit check). Then the benchmark and
-   the revert.
+   - **Final verification at `b3dd4de00b` — Phase 8 complete.** fmt, clippy, 1424 tests,
+     testkit 222, selftest 141, schema_check (5 crates), `plane-jobs` DB test 8/8, nine
+     generator checks, baseline `--check` PASS, `verify_migrator` PASS, **292/292 task cases**,
+     **131 files / 6345 steps clean in one pass** (every read/write/boot file incl.
+     `read/v1.yaml` and `stickies-harness.yaml`), OAuth 57/57 + 52/52, SMTP clean,
+     `beat_exactly_once` and `beat_handover` PASS, contract 984/2. **Strict
+     `exit_check.py all`: 102 passed, 0 failed, 0 skipped** (fresh + upgrade, no Python
+     container, invite e-mail and webhook delivered, no Celery dispatch). Phase 8's exit
+     criterion (RUST_REWRITE.md:212) holds.
+     - `compare_boot.py` printed a failure list naming the test-email SMTP transcript once in
+       the full run and passed 3/3 alone; it binds fixed SMTP ports 18411/18412, and 18411
+       is also the SMTP scenario wrapper's. Follow-up: ephemeral ports (`fake_smtp.py
+       --port-file`).
+     - The exit check failed when run from `/tmp` (Colima shares only the home directory,
+       so the `Caddyfile.ce` bind mount fails) and left the stack up. Follow-up: refuse a
+       non-shared path up front, and clean up on failure.
+
+   Running: the final benchmark. Then the revert.
