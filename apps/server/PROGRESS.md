@@ -2223,6 +2223,22 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `state_id` + `state` in one update append two rows; a bad `epoch` fails after
        partial bumps.
 
+   - **Phase 8 set A2 merged (`f4e33cc6e2`, verification running).** `notifications`
+     switched (only producer: the Rust `issue_activity` handler); 82 cases (every
+     activity type, mentions, subscribers, preferences, e-mail log rows, malformed
+     payloads); `difftest task` runs exactly one job (`PLANE_RS_JOB_ONCE_JOBS=1`, D32);
+     the dispatch ownership test now uses a name that can never be Rust-owned. Agent:
+     **242/242 task cases**, read 52/52, write 75/75, OAuth, contract 984/2, `plane-jobs`
+     DB test 8/8, 1394 tests. **The activity chain (A1–A3) is complete.**
+     - Follow-up: the typed-UUID branch (automation → `notifications`) is proven by a
+       unit test and a manual comparison only; add a chained `difftest task` case.
+     - Set B part 1 added the same one-job mechanism under other names; told to adopt
+       A2's before its merge.
+     - Upstream kept: e-mail log receiver is the last subscriber (or the bool
+       `subscriber`, then an FK failure); `actor` always `"None"`; `UnboundLocalError` on
+       an empty activity list; preference `get()` aborts and gates only e-mail;
+       `print(e)` to stdout; a non-UUID comment mention kills the task.
+
    - **Verified at `8406d7a925`** (A1): fmt, clippy, 1387 tests, testkit 210, selftest
      141, schema_check (5 crates), nine generator checks, **160/160 task cases** (worker
      built `--features difftest`), 128 files / 6085 steps (`write/auth-session-email.yaml`
@@ -2253,7 +2269,6 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        uncoerced data (`"3"` vs `3` fires); deactivation mail never sends for
        API-created webhooks and ignores `reason`.
 
-   Running: the orchestrator's verification of `8406d7a925`, set A2 (`rs/p8-a2`:
-   `notifications`; 18010/18110, Redis 3/4, contract Redis 11), set B part 2 (`rs/p8-b`:
+   Running: the orchestrator's verification of `8406d7a925`, set B part 2 (`rs/p8-b`:
    build check, webhook retry/deactivation cases, header casing, 12, 13, all sweeps;
    18020/18120, Redis 5/6, contract Redis 15, SMTP 18410–18417).
