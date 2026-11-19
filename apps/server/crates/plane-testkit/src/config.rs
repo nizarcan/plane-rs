@@ -304,6 +304,16 @@ pub struct Scenario {
     /// [`RESERVED_TARGET_ENV`].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub target_env: BTreeMap<String, String>,
+    /// Per-target `command` overrides, keyed by the target name in the targets
+    /// file (usually `django`). Only the command is replaced: ports, `env`,
+    /// `env_from`, `secret_key_file` and `health` still come from the targets
+    /// file, so a scenario that needs a different server wrapper (the collected
+    /// static root of `scenarios/boot/static.yaml`) works with the caller's
+    /// usual targets file and port ranges. A key that names a target the
+    /// targets file does not define is not applied, and the scenario fails like
+    /// any other mismatch; it can never make a failing target pass.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub target_commands: BTreeMap<String, Vec<String>>,
     /// Compare drained Celery messages on a `policy-probe` pass-through step.
     ///
     /// A pass-through step normally ignores every side effect, because target A
@@ -490,6 +500,16 @@ impl Scenario {
         Ok(scenario)
     }
 
+    /// Replace `spec.command` when this scenario declares one for `target`.
+    ///
+    /// Nothing else on the spec changes; the caller's targets file still
+    /// decides the port range, environment, secret key and health path.
+    pub fn apply_target_command(&self, target: &str, spec: &mut TargetSpec) {
+        if let Some(command) = self.target_commands.get(target) {
+            spec.command.clone_from(command);
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.name.trim().is_empty() {
             bail!("scenario: `name` must not be empty");
@@ -511,6 +531,20 @@ impl Scenario {
                 bail!(
                     "scenario {}: `target_env` may not set {key}: the harness gives each \
                      target its own database, Redis index, broker vhost and bind address",
+                    self.name
+                );
+            }
+        }
+        for (target, command) in &self.target_commands {
+            if target.trim().is_empty() {
+                bail!(
+                    "scenario {}: `target_commands` has an empty target name",
+                    self.name
+                );
+            }
+            if command.is_empty() || command[0].trim().is_empty() {
+                bail!(
+                    "scenario {}: `target_commands.{target}` must not be empty",
                     self.name
                 );
             }
@@ -1877,6 +1911,75 @@ steps:
         );
         let error = scenario.validate().expect_err("must reject");
         assert!(error.to_string().contains("empty variable name"));
+    }
+
+    #[test]
+    fn target_commands_replace_only_the_command() {
+        let scenario = parse_scenario(
+            r#"
+name: t
+target_commands:
+  django:
+    - "{repo}/apps/server/tools/boot/django-static-serve.sh"
+    - "{port}"
+steps:
+  - name: s
+    path: /x
+"#,
+        );
+        scenario.validate().expect("valid");
+        let file: TargetsFile = serde_yaml_ng::from_str(
+            r#"
+targets:
+  django:
+    kind: django
+    port_range: [18000, 18009]
+    command: ["/bin/true"]
+    env:
+      GUNICORN_WORKERS: "1"
+    health: /robots.txt
+"#,
+        )
+        .expect("parse");
+        let mut spec = file.get("django").expect("target").clone();
+        scenario.apply_target_command("django", &mut spec);
+        assert_eq!(
+            spec.command,
+            vec![
+                "{repo}/apps/server/tools/boot/django-static-serve.sh".to_string(),
+                "{port}".to_string()
+            ]
+        );
+        assert_eq!(spec.port_range, vec![18000, 18009]);
+        assert_eq!(
+            spec.env.get("GUNICORN_WORKERS").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(spec.health, "/robots.txt");
+
+        // A target the scenario does not name keeps the targets file's command.
+        let mut rust = file.get("django").expect("target").clone();
+        scenario.apply_target_command("rust", &mut rust);
+        assert_eq!(rust.command, vec!["/bin/true".to_string()]);
+    }
+
+    #[test]
+    fn target_commands_must_be_non_empty() {
+        for body in [
+            "target_commands:\n  django: []\n",
+            "target_commands:\n  \"\": [\"/bin/true\"]\n",
+        ] {
+            let scenario = parse_scenario(&format!(
+                r#"
+name: t
+{body}steps:
+  - name: s
+    path: /x
+"#
+            ));
+            let error = scenario.validate().expect_err(body);
+            assert!(error.to_string().contains("target_commands"), "{error}");
+        }
     }
 
     #[test]

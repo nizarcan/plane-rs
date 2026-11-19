@@ -56,6 +56,33 @@ undetected. It runs in `cargo test` too.
 5. Stops the targets by killing their process group (gunicorn workers
    included) and drops the databases and vhosts unless `--keep`.
 
+## Whole-suite sweep
+
+Every `scenarios/read/*.yaml` and `scenarios/write/*.yaml` file is part of the
+canonical sweep, including `scenarios/read/v1.yaml` (all of its routes are
+Rust-owned now). Run each file separately and flush the two Redis databases
+between files, because a scenario is compared from a known cache state:
+
+```bash
+targets="${TARGETS:-scenarios/targets.yaml}"
+for f in scenarios/read/*.yaml scenarios/write/*.yaml; do
+  case "$f" in
+    scenarios/write/auth-oauth.yaml|scenarios/write/auth-oauth-google-github.yaml|scenarios/write/instances-email.yaml) continue ;;
+  esac
+  docker exec plane-rs-dev-valkey-1 sh -c 'valkey-cli -n 7 FLUSHDB >/dev/null; valkey-cli -n 8 FLUSHDB >/dev/null'
+  ./target/debug/difftest run --targets "$targets" \
+    --scenario "$f" --a django --b rust --a-redis-db 7 --b-redis-db 8
+done
+```
+
+Three write files need a helper rather than a plain `difftest` invocation:
+`write/auth-oauth.yaml` and `write/auth-oauth-google-github.yaml` go through
+`tools/auth/run-oauth-scenario.sh run`, and `write/instances-email.yaml` through
+`tools/mail/run-smtp-scenario.sh success`. They are wrapped, not skipped.
+`scenarios/boot/static.yaml` declares its own Django command
+(`tools/boot/README.md`), so it runs with the same `--a django --b rust` in a
+normal sweep too.
+
 ## Scenario format
 
 ```yaml
@@ -105,6 +132,29 @@ share a database, Redis index or broker:
 is `RESERVED_TARGET_ENV` in `crates/plane-testkit/src/config.rs`. Attach mode
 does not start targets, so `target_env` is ignored there; pass the variable on
 each target's own command line instead.
+
+`target_commands` changes the `command` of the named target in whichever
+targets file the run uses, and nothing else: ports, `env`, `env_from`,
+`secret_key_file` and `health` still come from that file. Use it when one
+scenario needs a different server wrapper, not a different environment — today
+only `boot/static.yaml`, which needs Django's collected static root:
+
+```yaml
+target_commands:
+  django:
+    - "{repo}/apps/server/tools/boot/django-static-serve.sh"
+    - "{port}"
+```
+
+The key must equal the target name passed to `--a`/`--b` (`django` by default).
+A key that names no target is not applied, so it cannot make a mismatched
+backend pass; run the scenario with its documented commands. See
+`tools/boot/README.md`.
+
+The mutating boot steps are not part of a request sweep: the harness's Django
+target starts after them, and `scenarios/targets.yaml` sets
+`PLANE_RS_BOOT_STEPS=skip` on the Rust target for the same reason. Boot-step
+parity is `tools/boot/compare_boot.py` (`ENV.md` §6, D34).
 
 `json:` sends a JSON body, `body:` a raw string body (default
 `text/plain;charset=UTF-8`), `form:` an urlencoded body, and `multipart:` a

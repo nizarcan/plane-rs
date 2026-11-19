@@ -6,14 +6,22 @@
 # (`Caddyfile.ce:18`). `plane-api` answers it from the eight embedded files
 # (`plane-bootstrap/src/static_files.rs`); Django answers it from WhiteNoise.
 #
-# This scenario needs a Django target with a collected static root, which the
-# dev stack does not have: run it with a targets file whose `django` command is
-# `tools/boot/django-static-serve.sh {port}` (see tools/boot/README.md).
-# `redis_db` keeps it inside the boot set's own databases; no step touches the
-# database or Redis.
+# The dev stack's `dev/django-serve.sh` deliberately runs no `collectstatic`, so
+# its WhiteNoise root is empty and every `/static/*` request 404s. This scenario
+# therefore declares the one Django command it needs: `target_commands.django`
+# swaps the command of the target named `django` in whichever targets file the
+# caller passes, while its port range, environment, secret key and health path
+# still come from that file. `difftest run --scenario scenarios/boot/static.yaml
+# --a django --b rust` works with `scenarios/targets.yaml` and with any copy of
+# it; see tools/boot/README.md. `redis_db` keeps it inside the boot set's own
+# databases; no step touches the database or Redis.
 name: boot-static
 template_db: plane_tpl
 redis_db: [7, 8]
+target_commands:
+  django:
+    - "{repo}/apps/server/tools/boot/django-static-serve.sh"
+    - "{port}"
 vars:
 steps:
   - name: static-github-logo
@@ -22,51 +30,60 @@ steps:
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-twitter-logo
     method: GET
     path: "/static/logos/twitter_32px.png"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-linkedin-logo
     method: GET
     path: "/static/logos/linkedin_32px.png"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-website-logo
     method: GET
     path: "/static/logos/website_32px.png"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-plane-logo
     method: GET
     path: "/static/logos/Logo.png"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-style-css
     method: GET
     path: "/static/css/style.css"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-script-js
     method: GET
     path: "/static/js/script.js"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-humans-txt
     method: GET
     path: "/static/humans.txt"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200
   - name: static-head-logo
     method: HEAD
     path: "/static/logos/github_32px.png"
     jar: anon1
     headers:
       Host: plane-fixture.test
+    expect_status: 200

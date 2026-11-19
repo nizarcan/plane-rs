@@ -57,6 +57,16 @@ targets:
     env_from: "{repo}/apps/server/dev/django-env.sh"
     env:
       PLANE_RS_BIND: "127.0.0.1:{port}"
+      # Both targets must start from the state the harness cloned. The Django
+      # target is `dev/django-serve.sh`, which deliberately starts after the
+      # entrypoint's setup steps; `plane-api` would otherwise run
+      # register_instance/configure_instance/create_bucket/clear_cache and
+      # compare a boot-stamped instance row (and a boot-time `latest_version`)
+      # against the fixture's untouched one. The default is `all`; only this
+      # harness target sets `skip`, and `plane-api` logs a warning when it does.
+      # Boot-step parity is proven separately by `tools/boot/compare_boot.py`
+      # against the real Django commands (D34, ENV.md §6).
+      PLANE_RS_BOOT_STEPS: "skip"
     secret_key_file: "{repo}/apps/server/dev/.env.local"
     secret_key_var: SECRET_KEY
     health: /

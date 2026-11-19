@@ -35,6 +35,8 @@ from pathlib import Path
 
 import psycopg
 
+from pg_dump_hint import hint as pg_dump_hint
+
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = SERVER_DIR.parent.parent
 API_DIR = REPO_ROOT / "apps" / "api"
@@ -113,7 +115,11 @@ def dump(url: str, name: str, pg_dump: str, template: str) -> str:
     ]
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:
-        raise SystemExit(f"pg_dump failed ({result.returncode}):\n{result.stderr}")
+        detail = pg_dump_hint(result.stderr, dump_url_flag="--dump-url-template")
+        raise SystemExit(
+            f"pg_dump failed ({result.returncode}):\n{result.stderr}"
+            + (f"{detail}\n" if detail else "")
+        )
     return result.stdout
 
 

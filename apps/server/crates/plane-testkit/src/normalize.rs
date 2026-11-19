@@ -58,6 +58,10 @@ use crate::timeparse::{parse_http_date, parse_timestamp, timestamp_regex, uuid_r
 /// Why the `kwargsrepr` epoch is normalised.
 const CELERY_EPOCH_WHY: &str = "epoch = int(timezone.now().timestamp()) at enqueue time; the two targets can land in different seconds, and the repr is compared as text (plane/app/views/issue/*.py call sites)";
 
+/// `APITokenLogMiddleware`'s task: the one delivery whose kwargs embed an HTTP
+/// response body (`log_data.response_body`).
+pub const PROCESS_LOGS_TASK: &str = "plane.bgtasks.logger_task.process_logs";
+
 pub const UUID_WHY: &str =
     "UUID generated during the run and not present in the baseline database snapshot";
 pub const TIMESTAMP_WHY: &str = "ISO-8601 timestamp that falls inside the target's own step window";
@@ -1824,6 +1828,78 @@ impl TargetNormalizer {
     pub fn normalize_job(&mut self, args: &mut Value, kwargs: &mut Value) {
         self.normalize_json(args, "celery:plane_jobs:args");
         self.normalize_json(kwargs, "celery:plane_jobs:kwargs");
+    }
+
+    /// Apply the current step's **response-body** rules to a `process_logs`
+    /// delivery's `log_data.response_body`.
+    ///
+    /// `APITokenLogMiddleware` stores the response body as text. The HTTP
+    /// comparison parses a JSON body and applies the step's `$.`-scoped,
+    /// name-keyed and `unordered_json_paths` rules to it
+    /// ([`Self::normalize_body`]); this method does the same to the copy inside
+    /// the message, so a legitimately unordered object (`$.counts` built from a
+    /// Python set, D16) or a presigned URL signed at a different instant
+    /// (`$.asset_url`, D17) is not reported as a different delivery. Every
+    /// other field of the message is left to [`Self::normalize_job`]; a
+    /// non-JSON body is left byte for byte, as before.
+    pub fn normalize_logged_response_body(&mut self, task: &str, kwargs: &mut Value) {
+        self.normalize_logged_response_body_with(task, kwargs, None);
+    }
+
+    /// [`Self::normalize_logged_response_body`] with the step's already
+    /// normalised response.
+    ///
+    /// `log_data.response_body` is the response body as text, so the common
+    /// case is byte-identical to the raw body the caller just normalised.
+    /// Reusing that `NormalizedBody` avoids walking a large JSON document a
+    /// second time (a 166-issue v1 page is expensive enough to distort step
+    /// timings). A body that is not identical falls back to applying the rules
+    /// here.
+    pub fn normalize_logged_response_body_with(
+        &mut self,
+        task: &str,
+        kwargs: &mut Value,
+        response: Option<(&[u8], &NormalizedBody)>,
+    ) {
+        if task != PROCESS_LOGS_TASK {
+            return;
+        }
+        let Value::Object(kwargs) = kwargs else {
+            return;
+        };
+        let Some(Value::Object(log_data)) = kwargs.get_mut("log_data") else {
+            return;
+        };
+        let Some(Value::String(text)) = log_data.get_mut("response_body") else {
+            return;
+        };
+        if let Some((raw, normalized)) = response
+            && let BodyValue::Json(value) = &normalized.value
+            && text.as_bytes() == raw
+        {
+            if let Ok(serialised) = serde_json::to_string(value) {
+                // The body comparison has already verified each signed URL and
+                // required the two dates to be within two seconds
+                // (`presign::equivalent`), so the message copy keeps only the
+                // canonical shape. The fallback below keeps the epoch: there
+                // the logged body differs from the response, so a date
+                // difference could be real.
+                *text = crate::presign::generic_dates(&serialised);
+            }
+            return;
+        }
+        let Ok(mut body) = serde_json::from_str::<Value>(text) else {
+            return;
+        };
+        self.normalize_json(&mut body, "$");
+        // Re-serialise even when no rule fired: the two backends' JSON
+        // encoders differ in whitespace, which the HTTP body comparison does
+        // not see after parsing either. Key order is preserved (the rules that
+        // need it unordered have sorted it); a real key-order difference
+        // elsewhere is still visible to the body comparison.
+        if let Ok(serialised) = serde_json::to_string(&body) {
+            *text = serialised;
+        }
     }
 
     // -- redis ------------------------------------------------------------
