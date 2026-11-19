@@ -56,6 +56,9 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
     // Phase 8 set C: WorkspaceViewSet.create (route 186) is a Rust route.
     "plane.bgtasks.workspace_seed_task.workspace_seed",
+    // Phase 8 set A1: every producer is a Rust HTTP route, the Rust
+    // `archive_and_close_old_issues`, or `transfer_cycle_issues`.
+    "plane.bgtasks.issue_activities_task.issue_activity",
 ];
 
 /// A task's owner.
@@ -109,7 +112,7 @@ mod tests {
     #[test]
     fn default_is_celery() {
         assert_eq!(
-            owner_with("plane.bgtasks.issue_activities_task.issue_activity", &[]),
+            owner_with("plane.bgtasks.notification_task.notifications", &[]),
             Owner::Celery
         );
         assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);

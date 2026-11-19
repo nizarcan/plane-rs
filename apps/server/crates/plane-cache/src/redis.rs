@@ -179,6 +179,25 @@ impl Redis {
         Ok(())
     }
 
+    /// `SET key value EX <seconds>`, the command redis-py issues for
+    /// `ri.set(key, value, ex=600)` (`plane/bgtasks/issue_activities_task.py:1577`).
+    pub async fn set_bytes_ex(
+        &self,
+        full_key: &str,
+        value: &[u8],
+        seconds: i64,
+    ) -> Result<(), Error> {
+        let mut connection = self.connection().await?;
+        let _: () = redis::cmd("SET")
+            .arg(full_key)
+            .arg(value)
+            .arg("EX")
+            .arg(seconds)
+            .query_async(&mut connection)
+            .await?;
+        Ok(())
+    }
+
     /// `SET key value PX <milliseconds>`, the command `DefaultClient.set`
     /// issues with a timeout (`django_redis/client/default.py:257-283`).
     pub async fn set_bytes_px(
@@ -193,25 +212,6 @@ impl Redis {
             .arg(value)
             .arg("PX")
             .arg(milliseconds)
-            .query_async(&mut connection)
-            .await?;
-        Ok(())
-    }
-
-    /// `SET key value EX <seconds>` — the plain `redis-py` form
-    /// (`cache.set(..., ex=600)`), not django-redis's `PX`.
-    pub async fn set_bytes_ex(
-        &self,
-        full_key: &str,
-        value: &[u8],
-        seconds: i64,
-    ) -> Result<(), Error> {
-        let mut connection = self.connection().await?;
-        let _: () = redis::cmd("SET")
-            .arg(full_key)
-            .arg(value)
-            .arg("EX")
-            .arg(seconds)
             .query_async(&mut connection)
             .await?;
         Ok(())

@@ -962,7 +962,7 @@ pub fn destroy<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
                 ctx,
                 activity.task(),
                 &activity,
-                plane_jobs::queue::Job::new(activity.task()),
+                plane_jobs::queue::Job::from_message(&activity),
             )
             .await?;
         }

@@ -166,7 +166,7 @@ pub fn issue_create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespon
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -329,7 +329,7 @@ pub fn comment_create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -556,7 +556,7 @@ async fn publish_activity(
         ctx,
         activity.task(),
         &activity,
-        plane_jobs::queue::Job::new(activity.task()),
+        plane_jobs::queue::Job::from_message(&activity),
     )
     .await
     .map(|_| ())

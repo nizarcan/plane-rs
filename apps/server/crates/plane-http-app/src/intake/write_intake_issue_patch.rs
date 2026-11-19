@@ -1088,7 +1088,13 @@ async fn publish_issue_activity(
 ) -> Result<(), ViewError> {
     let task = plane_jobs::celery::task_name::ISSUE_ACTIVITY;
     let message = tasks::issue_activity(call);
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+    jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await?;
     Ok(())
 }
 

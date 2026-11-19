@@ -11,10 +11,12 @@
 //! [`JobContext`] (its own database connection and the decoded payload).
 //!
 //! **Payload shape.** [`plane_jobs::Job::from_message`] stores
-//! `{"args": [...], "kwargs": {...}}` with Python runtime values. A handler
-//! reads its keyword arguments from `payload["kwargs"]`, exactly as the
-//! Celery task received them, so a handler test can run against either
-//! representation.
+//! `{"args": [...], "kwargs": {...}}` with Python runtime values, plus
+//! `"uuid_args"`/`"uuid_kwargs"` naming the arguments that were `uuid.UUID`
+//! objects (a handler that re-publishes to Celery needs the type to recreate
+//! kombu's envelope; see `issue_activity`). A handler reads its keyword
+//! arguments from `payload["kwargs"]`, exactly as the Celery task received
+//! them, so a handler test can run against either representation.
 //!
 //! **Failure policy.** Django's tasks swallow every exception
 //! (`log_exception` + `return`, `TASKS.md:517-521`), so a handler returns
@@ -32,6 +34,7 @@ pub mod export_task;
 pub mod exporter_expired;
 pub mod file_asset;
 pub mod html;
+pub mod issue_activity;
 pub mod logs;
 pub mod model_graph;
 pub mod recent_visited;
@@ -152,6 +155,7 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     file_asset::register(&mut registry, Arc::clone(&context));
     logs::register(&mut registry, Arc::clone(&context));
     versions::register(&mut registry, Arc::clone(&context));
+    issue_activity::register(&mut registry, Arc::clone(&context));
     storage_metadata::register(&mut registry, Arc::clone(&context));
     work_item_link::register(&mut registry, Arc::clone(&context));
     workspace_seed::register(&mut registry, Arc::clone(&context));
@@ -180,6 +184,7 @@ pub const REGISTERED_TASKS: &[&str] = &[
     versions::ISSUE_DESCRIPTION_VERSION,
     versions::PAGE_TRANSACTION,
     versions::TRACK_PAGE_VERSION,
+    issue_activity::ISSUE_ACTIVITY,
     storage_metadata::TASK,
     work_item_link::TASK,
     workspace_seed::TASK,

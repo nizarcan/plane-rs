@@ -70,17 +70,17 @@ database survives between runs (fast iterations, stale rows possible); pass
 ## Side effects
 
 Tests that patch a Celery task's `.delay` assert on the Python call. A Rust
-handler publishes a real AMQP message instead, so after every Rust-bound
-request the plugin drains the run's own RabbitMQ vhost and, for each message
-whose task's `.delay` is currently a `Mock` (`unittest.mock.patch("…delay")`
-replaces the attribute on the shared task object), calls that mock with the
-message's args and kwargs, with kombu's UUID envelopes restored to
-`uuid.UUID`. A task Rust owns (`plane_jobs::ownership::RUST_TASKS`) is queued
-into `plane_jobs.jobs` instead of RabbitMQ; the plugin reads the rows this
-request inserted and replays them through the same mock, with the payload's
-Python values (`Job::from_message` already decoded the envelope). Messages for
-tasks that are not mocked are dropped: Django's own request would only have
-published them too, and nothing in the test consumes them. Cache *state*
+handler publishes a real AMQP message instead (or, for a Rust-owned task,
+enqueues a `plane_jobs.jobs` row), so after every Rust-bound request the
+plugin drains the run's own RabbitMQ vhost and reads the queue rows the
+request inserted (bounded by a `created_at` watermark taken before the
+request). For each message or row whose task's `.delay` is currently a `Mock`
+(`unittest.mock.patch("…delay")` replaces the attribute on the shared task
+object), it calls that mock with the delivery's args and kwargs, with kombu's
+UUID envelopes restored to `uuid.UUID`; a `plane_jobs` row already stores the
+Python values (`Job::from_message`). Deliveries for tasks that are not mocked
+are dropped: Django's own request would only have published them too, and
+nothing in the test consumes them. Cache *state*
 assertions need no special handling — Django and Rust share the same Redis
 database, and Rust performs the same cache writes a Django request would. A
 test that patches a cache method itself
@@ -964,9 +964,7 @@ def _drain_and_replay(admin: RabbitAdmin, record: TestRecord) -> None:
         _replay_call(record, task_name, _decode_kombu(args), _decode_kombu(kwargs))
 
 
-def _replay_call(
-    record: TestRecord, task_name: str, args: Any, kwargs: Any
-) -> None:
+def _replay_call(record: TestRecord, task_name: str, args: Any, kwargs: Any) -> None:
     """Hand one published delivery to a patched `.delay`, if the test has one.
 
     `args`/`kwargs` are Python runtime values: a RabbitMQ message is decoded
@@ -1029,14 +1027,16 @@ def _job_watermark() -> Any:
     A Rust-owned task's delivery is a queue row, not a RabbitMQ message, so a
     test that patches its `.delay` needs the same replay the message drain
     does (`DECISIONS.md` D28). The watermark bounds the replay to the request
-    that just ran; the contract database is not flushed of `plane_jobs` rows.
+    that just ran; rows are not deleted, and an earlier request's delivery is
+    never replayed again.
     """
     from django.db import connection
 
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT max(created_at) FROM plane_jobs.jobs")
-            return cursor.fetchone()[0]
+            row = cursor.fetchone()
+            return row[0] if row else None
     except Exception:  # noqa: BLE001 - the schema is optional for a Django-only run
         return None
 
@@ -1294,8 +1294,9 @@ def _dispatch_to_rust(client: Any, environ: dict[str, Any], route: RustRoute) ->
             f"log {STATE.server.log_path}:\n{_tail(STATE.server.log_path)}"
         ) from error
     entry.status = wire.status_code
-    if STATE.rabbit is not None and record is not None:
-        _drain_and_replay(STATE.rabbit, record)
+    if record is not None:
+        if STATE.rabbit is not None:
+            _drain_and_replay(STATE.rabbit, record)
         _replay_jobs(record, job_watermark)
     response = _build_response(client, environ, wire, route)
     # `Client.request`'s "Update persistent cookie data"

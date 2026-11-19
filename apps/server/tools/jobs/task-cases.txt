@@ -138,3 +138,69 @@ a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-script.
 
 # Task 9's fourth cascade case (the unknown model name logs and returns).
 d plane.bgtasks.deletion_task.soft_delete_related_objects soft-cascade-unknown-model.json soft-cascade-base.sql - --expect-django-failure LookupError --expect-worker-failure nosuchmodel
+
+# ---- set A1 (issue_activity, 27 builders) ----------------------------------
+
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-attachment-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-attachment-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-comment-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-comment-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-comment-reaction-created-missing.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-comment-reaction-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-comment-reaction-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-comment-updated-no-html.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-comment-updated.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-created-null-requested.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-created-missing-key.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-created-only-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-deleted-no-cycle.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-deleted-project.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-draft-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-draft-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-draft-updated-published.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-draft-updated.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-intake-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-invalid-project.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-link-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-link-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-link-updated.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-malformed-current.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-malformed-requested.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-missing-issue.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-missing-project.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-module-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-module-deleted-missing-issue.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-module-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-reaction-created-missing.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-reaction-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-reaction-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-relation-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-relation-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-state-null-issue.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-unknown-type.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-archive-automation.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-archive.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-assignees.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-closed-to-missing.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-closed-to.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-description-new.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-description-same-actor.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-estimate-add.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-estimate-remove.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-labels.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-multi.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-name-origin.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-name.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-parent-invalid.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-parent.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-restore.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-state-triage.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-updated-state.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-vote-created.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-vote-deleted.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-bad-epoch.json issue-activity-base.sql -
+a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-unknown-type-bad-epoch.json issue-activity-base.sql -
