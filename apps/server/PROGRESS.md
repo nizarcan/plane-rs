@@ -2477,6 +2477,10 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
   migrator shapes under ArgoCD, the bucket hook on the silo image, PVCs on `nfs-data`, ESO key
   names, GHCR package visibility on first push.
 
-Running: `rs/rs-telemetry` (`push_instance_metrics`; 18010/18110, Redis 3/4/11). Next: upstream pin + oracle fetch + `apps/api` removal, README,
+Running: `rs/rs-telemetry` (`push_instance_metrics`; 18010/18110, Redis 3/4/11);
+`rs/rs-upstream` (`UPSTREAM.toml`, oracle fetched to `~/.cache/plane-rs/oracle/<commit>`,
+`apps/api` and the Django dev stacks removed, `tools/upstream/diff.py`, `UPGRADING.md` with
+the migrator's post-baseline steps, `.gitleaks.toml` + CI scan; 18020/18120, Redis 5/6/15;
+waits for telemetry before its full verification). Next: upstream pin + oracle fetch + `apps/api` removal, README,
 secret scan, publish, homelab.
 
