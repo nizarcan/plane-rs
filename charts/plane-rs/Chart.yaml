@@ -1,0 +1,21 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+apiVersion: v2
+name: plane-rs
+description: >-
+  Plane Community Edition with the Rust backend (plane-api, plane-worker,
+  plane-beat, plane-migrator) and the web, space, admin and live frontends.
+type: application
+# Chart version. Bump on every chart change; the image tag is separate.
+version: 0.1.0
+# The pinned upstream version this repository is a byte-identical rewrite of
+# (`makeplane/plane` 290383d7f9, v1.5.0-rc2). The release workflow overrides the
+# image tag per release; the chart's default tag is this value.
+appVersion: "v1.5.0-rc2"
+home: https://github.com/nizarcan/plane-rs
+icon: https://plane.so/favicon/favicon-32x32.png
+sources:
+  - https://github.com/nizarcan/plane-rs
+annotations:
+  artifacthub.io/license: AGPL-3.0

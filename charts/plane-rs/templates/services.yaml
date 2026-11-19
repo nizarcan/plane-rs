@@ -1,0 +1,41 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* ClusterIP Services for every HTTP component. They are always created, so
+the whole stack works through `kubectl port-forward` with no ingress:
+
+  kubectl port-forward svc/<fullname>-web 3000:3000
+  kubectl port-forward svc/<fullname>-api 8000:8000
+
+The ingress uses the same Service names and ports. */}}
+{{- $services := list
+  (dict "component" "api" "port" 8000 "values" .Values.api)
+  (dict "component" "web" "port" 3000 "values" .Values.web)
+  (dict "component" "space" "port" 3000 "values" .Values.space)
+  (dict "component" "admin" "port" 3000 "values" .Values.admin)
+  (dict "component" "live" "port" 3000 "values" .Values.live)
+-}}
+{{- range $service := $services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "plane-rs.componentName" (dict "ctx" $ "component" $service.component) }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" $service.component) | nindent 4 }}
+  {{- with $service.values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ default "ClusterIP" $service.values.service.type }}
+  selector:
+    {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" $service.component) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

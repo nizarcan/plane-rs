@@ -1,0 +1,72 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* The shared, non-secret environment. Secret values live in the three
+Secret groups; a Secret key overrides a ConfigMap key of the same name because
+the Secrets are listed after this ConfigMap in every pod's envFrom. */}}
+{{- $data := dict -}}
+{{- $_ := set $data "DEBUG" .Values.config.debug -}}
+{{- $_ := set $data "ALLOWED_HOSTS" .Values.config.allowedHosts -}}
+{{- $_ := set $data "WEB_URL" (include "plane-rs.webUrl" .) -}}
+{{- $_ := set $data "CORS_ALLOWED_ORIGINS" .Values.config.corsAllowedOrigins -}}
+{{- $_ := set $data "FILE_SIZE_LIMIT" .Values.config.fileSizeLimit -}}
+{{- $_ := set $data "API_KEY_RATE_LIMIT" .Values.config.apiKeyRateLimit -}}
+{{- $_ := set $data "AUTHENTICATION_RATE_LIMIT" .Values.config.authenticationRateLimit -}}
+{{- $_ := set $data "NUM_PROXIES" .Values.config.numProxies -}}
+{{- $_ := set $data "WEBHOOK_ALLOWED_IPS" .Values.config.webhookAllowedIps -}}
+{{- $_ := set $data "WEBHOOK_ALLOWED_HOSTS" .Values.config.webhookAllowedHosts -}}
+{{- $_ := set $data "SIGNED_URL_EXPIRATION" .Values.config.signedUrlExpiration -}}
+{{- $_ := set $data "USE_MINIO" (include "plane-rs.useMinio" .) -}}
+{{- $_ := set $data "AWS_S3_ENDPOINT_URL" (include "plane-rs.objectStorageEndpoint" .) -}}
+{{- $_ := set $data "AWS_S3_BUCKET_NAME" .Values.objectStorage.bucket -}}
+{{- $_ := set $data "AWS_REGION" .Values.objectStorage.region -}}
+{{- $_ := set $data "MINIO_ENDPOINT_SSL" (ternary "1" "0" .Values.objectStorage.minioEndpointSsl) -}}
+{{- $_ := set $data "REDIS_URL" (include "plane-rs.redisUrl" .) -}}
+{{/* `register_instance` reports this as `Instance.current_version`
+(`apps/server/crates/plane-bootstrap/src/instance.rs::current_version`); the
+Django image carried it in `package.json`, the distroless image has no
+package.json, so the chart pins it to the release tag. */}}
+{{- $_ := set $data "APP_VERSION" (default .Chart.AppVersion .Values.api.image.tag) -}}
+{{- $_ := set $data "PLANE_RS_LOG_FORMAT" .Values.config.logFormat -}}
+{{- $_ := set $data "PLANE_RS_DB_POOL_SIZE" .Values.config.dbPoolSize -}}
+{{- $_ := set $data "PLANE_RS_JOB_CONCURRENCY" .Values.config.jobConcurrency -}}
+{{- $_ := set $data "PLANE_RS_JOB_LEASE_SECONDS" .Values.config.jobLeaseSeconds -}}
+{{- $_ := set $data "PLANE_RS_JOB_DRAIN_SECONDS" .Values.config.jobDrainSeconds -}}
+{{- $_ := set $data "PLANE_RS_JOB_POLL_MS" .Values.config.jobPollMs -}}
+{{- $_ := set $data "PLANE_RS_BEAT_POLL_MS" .Values.config.beatPollMs -}}
+{{- with .Values.config.workerThreads -}}
+{{- $_ := set $data "PLANE_RS_WORKER_THREADS" . -}}
+{{- end -}}
+{{- with .Values.config.cookieDomain -}}
+{{- $_ := set $data "COOKIE_DOMAIN" . -}}
+{{- end -}}
+{{- with .Values.config.appBaseUrl -}}
+{{- $_ := set $data "APP_BASE_URL" . -}}
+{{- end -}}
+{{- with .Values.config.adminBaseUrl -}}
+{{- $_ := set $data "ADMIN_BASE_URL" . -}}
+{{- end -}}
+{{- with .Values.config.spaceBaseUrl -}}
+{{- $_ := set $data "SPACE_BASE_URL" . -}}
+{{- end -}}
+{{- with .Values.config.liveBaseUrl -}}
+{{- $_ := set $data "LIVE_BASE_URL" . -}}
+{{- end -}}
+{{/* `config.extra` wins over every computed key, including with `0`, `""` or
+`false`: assign with `set` rather than `merge`, whose mergo backend skips
+zero-valued source fields. */}}
+{{- range $key, $value := (default (dict) .Values.config.extra) -}}
+{{- $_ := set $data $key $value -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "plane-rs.configMapName" . }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $) | nindent 4 }}
+data:
+  {{- range $key, $value := $data }}
+  {{ $key }}: {{ $value | toString | quote }}
+  {{- end }}

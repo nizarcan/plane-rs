@@ -4,18 +4,18 @@ FROM --platform=$BUILDPLATFORM tonistiigi/binfmt AS binfmt
 # **************************************************
 #  STAGE 0: Image Loading
 # **************************************************
-FROM makeplane/plane-frontend:${PLANE_VERSION} AS web-img
+FROM ghcr.io/nizarcan/plane-rs-web:${PLANE_VERSION} AS web-img
 # Phase 8 cutover: the backend roles are the Rust images. They are glibc
 # binaries, so the runner below is Debian-based rather than the old
 # `python:3.12-alpine`; the Python backend image is no longer pulled.
-FROM makeplane/plane-api:${PLANE_VERSION} AS api-img
-FROM makeplane/plane-worker:${PLANE_VERSION} AS worker-img
-FROM makeplane/plane-beat:${PLANE_VERSION} AS beat-img
-FROM makeplane/plane-migrator:${PLANE_VERSION} AS migrator-img
-FROM makeplane/plane-space:${PLANE_VERSION} AS space-img
-FROM makeplane/plane-admin:${PLANE_VERSION} AS admin-img
-FROM makeplane/plane-live:${PLANE_VERSION} AS live-img
-FROM makeplane/plane-proxy:${PLANE_VERSION} AS proxy-img
+FROM ghcr.io/nizarcan/plane-rs-api:${PLANE_VERSION} AS api-img
+FROM ghcr.io/nizarcan/plane-rs-worker:${PLANE_VERSION} AS worker-img
+FROM ghcr.io/nizarcan/plane-rs-beat:${PLANE_VERSION} AS beat-img
+FROM ghcr.io/nizarcan/plane-rs-migrator:${PLANE_VERSION} AS migrator-img
+FROM ghcr.io/nizarcan/plane-rs-space:${PLANE_VERSION} AS space-img
+FROM ghcr.io/nizarcan/plane-rs-admin:${PLANE_VERSION} AS admin-img
+FROM ghcr.io/nizarcan/plane-rs-live:${PLANE_VERSION} AS live-img
+FROM ghcr.io/nizarcan/plane-rs-proxy:${PLANE_VERSION} AS proxy-img
 
 # **************************************************
 #  STAGE 1: Runner

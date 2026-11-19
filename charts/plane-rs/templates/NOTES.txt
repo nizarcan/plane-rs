@@ -1,0 +1,46 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+Plane (Rust backend) is installed as {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+{{- if .Values.ingress.enabled }}
+
+Open {{ include "plane-rs.webUrl" . }}
+{{- else }}
+
+No ingress is enabled. Reach the stack with port-forwards:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "plane-rs.componentName" (dict "ctx" $ "component" "web") }} 3000:3000
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "plane-rs.componentName" (dict "ctx" $ "component" "api") }} 8000:8000
+
+and open http://localhost:3000 (the web app calls /api on the same origin, so
+use the ingress or a local reverse proxy for a working UI; port 8000 alone
+serves the API health JSON at /).
+{{- end }}
+
+Migrator:
+  Job {{ include "plane-rs.migratorJobName" . }}
+  {{- if or (eq .Values.migrator.hookMode "always") (and (eq .Values.migrator.hookMode "auto") (and (not .Values.database.bundled) .Values.secrets.database.existingSecret)) }}
+  runs as a pre-install/pre-upgrade hook (ArgoCD: PreSync) and must exit 0
+  before the release continues.
+  {{- else }}
+  runs as a regular Job; the api, worker and beat wait for its marker before
+  they serve (hookMode={{ .Values.migrator.hookMode }}).
+  {{- end }}
+
+The first api pod also runs the boot steps (register_instance,
+configure_instance, create_bucket, clear_cache) before it listens; its startup
+probe allows five minutes for them.
+
+{{- if and .Values.secrets.app.requireExplicitSecrets (eq .Values.secrets.app.secretKey "change-this-key-on-deployment") }}
+
+WARNING: secrets.app.secretKey is still the placeholder.
+{{- end }}
+{{- if eq .Values.secrets.app.secretKey "change-this-key-on-deployment" }}
+
+Set secrets.app.secretKey (openssl rand -hex 32) before serving real data:
+SECRET_KEY derives the key that encrypts the instance-configuration rows, and
+changing it later makes them unreadable without an error.
+{{- end }}

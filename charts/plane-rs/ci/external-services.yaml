@@ -1,0 +1,22 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Chart CI fixture: every datastore external, no bundled StatefulSet, and the
+# chart still creates the database/object-storage Secrets from the values.
+database:
+  bundled: false
+  url: postgresql://plane:plane@postgres.example.com:5432/plane?sslmode=require
+redis:
+  bundled: false
+  url: rediss://:password@redis.example.com:6379/0
+minio:
+  bundled: false
+objectStorage:
+  endpoint: https://s3.eu-central-1.amazonaws.com
+  region: eu-central-1
+  bucket: plane-uploads
+config:
+  webUrl: https://plane.example.com
+  corsAllowedOrigins: https://plane.example.com
+  numProxies: "1"

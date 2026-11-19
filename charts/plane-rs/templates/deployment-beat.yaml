@@ -1,0 +1,73 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* Exactly one replica, enforced two ways: `replicas: 1` here and a template
+guard in _helpers (see below). `plane-beat` owns the schedule rows in
+`plane_jobs`; two schedulers would both fire every due job, so an install with
+`--set beat.replicas=2` fails instead of silently double-executing. The
+Deployment uses the Recreate strategy: one scheduler at a time, always. */}}
+{{- $replicas := int .Values.beat.replicas -}}
+{{- if ne $replicas 1 -}}
+{{- fail (printf "beat.replicas must be 1: plane-beat is the single scheduler for the plane_jobs queue (got %d)" $replicas) -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "plane-rs.componentName" (dict "ctx" $ "component" "beat") }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "beat") | nindent 4 }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "beat") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "beat") | nindent 8 }}
+        {{- with .Values.beat.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.app.existingSecret }}
+        checksum/secret-app: {{ include (print $.Template.BasePath "/secret-app.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if not .Values.secrets.database.existingSecret }}
+        checksum/secret-database: {{ include (print $.Template.BasePath "/secret-database.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.beat.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "plane-rs.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.beat.podSecurityContext | nindent 8 }}
+      {{- include "plane-rs.podScheduling" .Values.beat | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.beat.terminationGracePeriodSeconds }}
+      containers:
+        - name: beat
+          image: {{ include "plane-rs.image" (dict "ctx" $ "image" .Values.beat.image) }}
+          imagePullPolicy: {{ .Values.beat.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.beat.containerSecurityContext | nindent 12 }}
+          envFrom:
+            {{- include "plane-rs.backendEnvFrom" . | nindent 12 }}
+            {{- with .Values.beat.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.beat.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.beat.resources | nindent 12 }}

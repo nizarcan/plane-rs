@@ -1,24 +1,24 @@
 services:
   web:
-    image: ${DOCKERHUB_USER:-local}/plane-frontend:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-web:${APP_RELEASE:-latest}
     build:
       context: ../../
       dockerfile: apps/web/Dockerfile.web
 
   space:
-    image: ${DOCKERHUB_USER:-local}/plane-space:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-space:${APP_RELEASE:-latest}
     build:
       context: ../../
       dockerfile: apps/space/Dockerfile.space
 
   admin:
-    image: ${DOCKERHUB_USER:-local}/plane-admin:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-admin:${APP_RELEASE:-latest}
     build:
       context: ../../
       dockerfile: apps/admin/Dockerfile.admin
 
   live:
-    image: ${DOCKERHUB_USER:-local}/plane-live:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-live:${APP_RELEASE:-latest}
     build:
       context: ../../
       dockerfile: apps/live/Dockerfile.live
@@ -27,34 +27,34 @@ services:
   # repository root (the binaries embed one Django template), and the three
   # `plane-jobs` roles are separate targets of one Dockerfile.
   plane-api:
-    image: ${DOCKERHUB_USER:-local}/plane-api:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-api:${APP_RELEASE:-latest}
     build:
       context: .
       dockerfile: apps/server/deploy/docker/Dockerfile.plane-api
 
   plane-worker:
-    image: ${DOCKERHUB_USER:-local}/plane-worker:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-worker:${APP_RELEASE:-latest}
     build:
       context: .
       dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
       target: worker
 
   plane-beat:
-    image: ${DOCKERHUB_USER:-local}/plane-beat:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-beat:${APP_RELEASE:-latest}
     build:
       context: .
       dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
       target: beat
 
   migrator:
-    image: ${DOCKERHUB_USER:-local}/plane-migrator:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-migrator:${APP_RELEASE:-latest}
     build:
       context: .
       dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
       target: migrator
 
   proxy:
-    image: ${DOCKERHUB_USER:-local}/plane-proxy:${APP_RELEASE:-latest}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-proxy:${APP_RELEASE:-latest}
     build:
       context: ../../apps/proxy
       dockerfile: Dockerfile.ce

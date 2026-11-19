@@ -1,0 +1,142 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Renders the Helm chart with every fixture under charts/plane-rs/ci, validates
+# the YAML with `helm lint` and the Kubernetes schemas with `kubeconform
+# -strict`. The versions are pinned so a schema/tool change is a deliberate
+# commit, not a moving target.
+name: Helm chart
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - preview
+    paths:
+      - "charts/**"
+      - "deployments/kubernetes/**"
+      - ".github/workflows/chart-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "charts/**"
+      - ".github/workflows/chart-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HELM_VERSION: v3.19.1
+  KUBECONFORM_VERSION: v0.7.0
+  KUBERNETES_VERSION: "1.31.0"
+
+jobs:
+  chart:
+    name: Lint, render and validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
+
+      - name: helm lint (values fixtures included)
+        run: |
+          set -euo pipefail
+          helm lint charts/plane-rs
+          for values in charts/plane-rs/ci/*.yaml; do
+            echo "lint: ${values}"
+            helm lint charts/plane-rs -f "${values}"
+          done
+
+      - name: helm template every fixture
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/rendered
+          # A bare render first: the shipped defaults must stand on their own.
+          helm template plane-rs charts/plane-rs > /tmp/rendered/defaults-no-values.yaml
+          for values in charts/plane-rs/ci/*.yaml; do
+            name="$(basename "${values}" .yaml)"
+            echo "render: ${name}"
+            helm template plane-rs charts/plane-rs -f "${values}" > "/tmp/rendered/${name}.yaml"
+          done
+          ls -l /tmp/rendered
+
+      - name: kubeconform -strict
+        run: |
+          set -euo pipefail
+          kubeconform \
+            -strict \
+            -summary \
+            -kubernetes-version "${KUBERNETES_VERSION}" \
+            /tmp/rendered/*.yaml
+
+      # ArgoCD renders with `helm template`, where `.Release.Revision` is
+      # always 1. The Job names must therefore be content-addressed: an
+      # identical render keeps the name (apply is a no-op, a completed Job stays
+      # completed) and a changed input produces a new Job (a Job's pod template
+      # is immutable). The bucket Job gets the same treatment.
+      - name: Jobs are content-addressed (Helm and ArgoCD)
+        run: |
+          set -euo pipefail
+
+          migrator_job() {
+            helm template plane-rs charts/plane-rs "$@" \
+              | grep -E '^  name: plane-rs-migrator-[0-9a-f]{8}$' \
+              | sed 's/.*: //'
+          }
+          bucket_job() {
+            helm template plane-rs charts/plane-rs "$@" \
+              | grep -E '^  name: plane-rs-minio-bucket-[0-9a-f]{8}$' \
+              | sed 's/.*: //'
+          }
+          fail() { echo "FAIL: $*" >&2; exit 1; }
+
+          a="$(migrator_job)"
+          b="$(migrator_job)"
+          c="$(migrator_job --set migrator.image.tag=v9.9.9)"
+          d="$(migrator_job --set config.extra.CHART_CI=1)"
+          e="$(migrator_job --set api.replicas=3)"
+
+          [ -n "${a}" ] || fail "no content-addressed migrator Job name in the default render"
+          [ "${a}" = "${b}" ] || fail "identical renders changed the Job name: ${a} != ${b}"
+          [ "${a}" != "${c}" ] || fail "a new migrator image tag kept the Job name ${a}"
+          [ "${a}" != "${d}" ] || fail "a config change kept the Job name ${a}"
+          [ "${a}" = "${e}" ] || fail "an unrelated change (api.replicas) renamed the Job: ${a} != ${e}"
+
+          x="$(bucket_job)"
+          y="$(bucket_job --set objectStorage.bucket=chart-ci-other)"
+          [ -n "${x}" ] || fail "no content-addressed bucket Job name in the default render"
+          [ "${x}" != "${y}" ] || fail "a bucket change kept the Job name ${x}"
+
+          # The bundled-database default must NOT be a Helm hook (a pre-install
+          # hook cannot see the StatefulSet/Secrets it needs), and the
+          # ArgoCD/ESO fixture must be one (ArgoCD PreSync).
+          if helm template plane-rs charts/plane-rs | grep -q 'helm.sh/hook: pre-install,pre-upgrade'; then
+            fail "the default (bundled database) render must use a regular Job, not a pre-install hook"
+          fi
+          helm template plane-rs charts/plane-rs -f charts/plane-rs/ci/argocd.yaml \
+            | grep -q 'helm.sh/hook: pre-install,pre-upgrade' \
+            || fail "the ArgoCD/external-database fixture must render the PreSync hook"
+
+          echo "migrator: ${a} (stable=${b}, new-tag=${c}, new-config=${d}, unrelated=${e})"
+          echo "bucket:   ${x} (renamed=${y})"
+
