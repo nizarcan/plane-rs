@@ -2190,6 +2190,14 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      × 2, applies on the next recreate, `33dd7bcc24`). Agents told never to change
      server-wide settings on the shared stack.
 
+   - **Verified at `33dd7bcc24`** (set C + A3 + D): fmt, clippy, 1380 tests, testkit 210,
+     selftest 141, schema_check (5 crates), beat 8/8 and `beat_handover.sh` 3/3, all nine
+     generator checks; `run-task-cases.sh --set all` **97/97** (4 needed the
+     orchestrator to build the worker with `--features difftest` and name its buckets
+     `p8c-*`: the export case file hard-codes that bucket pattern, and a default worker's
+     SSRF guard silently changes the crawl result; both harness fixes assigned to set
+     B); **128 files / 6085 steps clean in one pass**; OAuth 57/57 + 52/52; SMTP clean;
+     contract **984/2** (new baseline).
    - **Phase 8 set A1 on its branch (`e6a0c0937e`, not merged).** `issue_activity`
      switched: 27 builders, 63 `difftest task` cases (DB, Redis, published messages);
      31 producers in 19 files moved to `Job::from_message`; `difftest task` diffs Redis;
