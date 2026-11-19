@@ -1167,8 +1167,8 @@ no_argument_task!(
 no_argument_task!(
     /// `plane.license.bgtasks.telemetry_metrics.push_instance_metrics`.
     ///
-    /// Included for completeness: `docker-entrypoint-api.sh` enqueues it via
-    /// `manage.py register_instance` on every API container start. Owner
-    /// decision 5 assumes the metric push itself is not ported.
+    /// `register_instance.py:90` enqueues it on every boot; the boot step is
+    /// `plane-bootstrap` and the task is ported in
+    /// `plane-tasks/src/telemetry_metrics.rs` (D34 amendment).
     push_instance_metrics => task_name::PUSH_INSTANCE_METRICS
 );

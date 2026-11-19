@@ -8,8 +8,9 @@
 effects with `plane-admin`'s. The Django side must not reach GitHub (the
 machine has no outbound internet), so this wrapper patches
 `requests.get` in `register_instance` to a local fake and records the Celery
-`push_instance_metrics.delay()` call instead of publishing it (the Rust side
-deliberately does not publish it, owner decision 5).
+`push_instance_metrics.delay()` call instead of publishing it. The Rust side
+inserts the task into `plane_jobs` (it is Rust-owned; D34 amendment), so
+`compare_boot.py` compares A's call count with B's rows.
 
     PLANE_DB=t_p8boot_boot_a DATABASE_URL=... python run_django_boot.py \\
         register_instance p8boot-signature

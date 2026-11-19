@@ -11,20 +11,22 @@ rows, Redis keys, the bucket, the SMTP transcript and the command output.
 
     apps/api/.venv/bin/python tools/boot/compare_boot.py
 
-Uses only `t_p8boot_boot_a` / `t_p8boot_boot_b`, Redis DBs 7 and 8, the bucket
+Uses only `t_p8boot_boot_a` / `t_p8boot_boot_b`, Redis DBs 3 and 4, the bucket
 `p8boot-boot`, the fake GitHub on 18420 and one `fake_smtp.py` listener at a
 time on an ephemeral port (`--port 0 --port-file`, as `difftest task` does, so a
 concurrent run's SMTP wrapper cannot collide with it). Drops the databases and
 bucket and kills every child process it started on exit (PIDs are recorded as
 they are spawned).
 
-Two documented differences are asserted rather than hidden:
+One documented difference is asserted rather than hidden:
 
-* `register_instance` counts one `push_instance_metrics.delay()` on A and zero
-  on B (owner decision 5: not ported).
 * Python's `getpass` writes a `GetPassWarning` block to stderr when stdin is a
   pipe and Rust's prompt does not; the meaningful stderr lines are still
   compared byte for byte.
+
+`register_instance` publishes `push_instance_metrics` on both sides: A's
+`run_django_boot.py` records the `.delay()` call, and B inserts the equivalent
+`plane_jobs.jobs` row (the task is Rust-owned; D34 amendment).
 """
 
 import argparse
@@ -48,6 +50,7 @@ REPO_ROOT = SERVER_DIR.parent.parent
 API_DIR = REPO_ROOT / "apps" / "api"
 API_PYTHON = API_DIR / ".venv" / "bin" / "python"
 ADMIN = SERVER_DIR / "target" / "debug" / "plane-admin"
+MIGRATOR = SERVER_DIR / "target" / "debug" / "plane-migrator"
 TOOLS = SERVER_DIR / "tools"
 GITHUB = TOOLS / "boot" / "fake_github.py"
 FAKE_SMTP = TOOLS / "mail" / "fake_smtp.py"
@@ -55,8 +58,8 @@ COMPARE_SMTP = TOOLS / "mail" / "compare_smtp_logs.py"
 
 A_DB = "t_p8boot_boot_a"
 B_DB = "t_p8boot_boot_b"
-A_REDIS = 7
-B_REDIS = 8
+A_REDIS = 3
+B_REDIS = 4
 BUCKET = "p8boot-boot"
 GITHUB_PORT = 18420
 SMTP_LOG_A = Path("/tmp/p8boot-smtp-a.jsonl")
@@ -363,14 +366,39 @@ def compare_output(label: str, a: subprocess.CompletedProcess, b: subprocess.Com
     )
 
 
+def check_metrics_enqueued(django, env_b: dict, expected_total: int) -> None:
+    """One `.delay()` per run on A, and one `plane_jobs.jobs` row per run on B.
+
+    Django's task name has no arguments, so every row's payload must be the
+    empty `(args, kwargs)` pair `Job::from_message` writes.
+    """
+    task = "plane.license.bgtasks.telemetry_metrics.push_instance_metrics"
+    a_calls = "PUSH_INSTANCE_METRICS_CALLS=1" in django.stderr
+    rows_b = rows(
+        env_b,
+        "SELECT task, payload::text FROM plane_jobs.jobs ORDER BY created_at, id",
+    )
+    payloads = [json.loads(row[1]) for row in rows_b]
+    check(
+        f"register_instance enqueues push_instance_metrics on both sides (B total {expected_total})",
+        a_calls
+        and len(rows_b) == expected_total
+        and all(row[0] == task for row in rows_b)
+        and all(payload == {"args": [], "kwargs": {}} for payload in payloads),
+        f"A stderr={django.stderr!r} B jobs={rows_b!r}",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--keep", action="store_true")
     args = parser.parse_args()
 
-    for binary in (ADMIN,):
+    for binary in (ADMIN, MIGRATOR):
         if not binary.exists():
-            raise SystemExit(f"{binary} does not exist; run `cargo build -p plane-admin`")
+            raise SystemExit(
+                f"{binary} does not exist; run `cargo build -p plane-admin -p plane-migrator`"
+            )
 
     env_a = dev_env(A_DB, A_REDIS, {"AWS_S3_BUCKET_NAME": BUCKET})
     env_b = dev_env(
@@ -397,6 +425,15 @@ def main() -> int:
         redis_client(env_a).flushdb()
         redis_client(env_b).flushdb()
 
+        # `plane-api` waits for the migrator before its boot steps, and
+        # `register_instance` now enqueues a Rust-owned task, so B needs the
+        # `plane_jobs` schema before the first boot step (`DECISIONS.md` D28).
+        migrate_b = run([str(MIGRATOR)], env=env_b)
+        if migrate_b.returncode != 0:
+            raise SystemExit(
+                f"plane-migrator failed on {B_DB}:\n{migrate_b.stdout}\n{migrate_b.stderr}"
+            )
+
         spawn(
             [sys.executable, str(GITHUB), "--port", str(GITHUB_PORT)],
             stdout=subprocess.DEVNULL,
@@ -415,12 +452,7 @@ def main() -> int:
         )
         rust_register = run([str(ADMIN), "register-instance", "p8boot-signature"], env=env_b)
         compare_output("register_instance create", django_register, rust_register)
-        check(
-            "register_instance A enqueued push_instance_metrics, B did not (decision 5)",
-            "PUSH_INSTANCE_METRICS_CALLS=1" in django_register.stderr
-            and "PUSH_INSTANCE_METRICS_CALLS" not in rust_register.stderr,
-            f"A stderr={django_register.stderr!r}",
-        )
+        check_metrics_enqueued(django_register, env_b, 1)
 
         instance_query = (
             "SELECT instance_name, whitelist_emails, current_version, latest_version, "
@@ -449,6 +481,7 @@ def main() -> int:
             "register_instance extend rows",
             rows(env_a, instance_query) == rows(env_b, instance_query),
         )
+        check_metrics_enqueued(django_extend, env_b, 2)
 
         # --- configure_instance --------------------------------------------
         print("== configure_instance")

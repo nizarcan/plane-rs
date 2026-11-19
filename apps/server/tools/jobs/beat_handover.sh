@@ -63,7 +63,7 @@ psql "$PG_URL/postgres" -q -c "CREATE DATABASE \"$TEST_DB\" TEMPLATE plane_fix_t
   -H 'content-type: application/json' -d '{}' -o /dev/null -w ''
 
 export PLANE_DB="$TEST_DB"
-export PLANE_REDIS_DB=5
+export PLANE_REDIS_DB=3
 export PLANE_MQ_VHOST="$VHOST"
 export PLANE_RS_JOBS_HANDOVER_GAP_SECONDS="$GAP"
 export PLANE_RS_JOBS_HANDOVER_MARGIN_SECONDS="$MARGIN"

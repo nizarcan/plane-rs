@@ -317,10 +317,12 @@ the seed/fallback. See §3.
 
 | Variable | Default | Parsing and semantics | Feeds | Roles | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `OTLP_ENDPOINT` | `"https://telemetry.plane.so"` | Raw string. Two derived forms (`plane/utils/otlp_endpoints.py`): gRPC `host:port` and HTTP `<url>/v1/metrics` (§2.7) | OTLP metric exporter target | worker | Only the `push_instance_metrics` task uses it. There is no OTLP tracing anywhere in this repository. |
-| `OTLP_METRICS_PROTOCOL` | `"grpc"` | `(os.environ.get("OTLP_METRICS_PROTOCOL") or "grpc").strip().lower()`; `"grpc"` → gRPC exporter, **anything else** → HTTP exporter | Exporter class | worker | Empty string behaves as `grpc` (`or`). |
+| `OTLP_ENDPOINT` | `"https://telemetry.plane.so"` | Raw string. Two derived forms (`plane/utils/otlp_endpoints.py`): gRPC `host:port` and HTTP `<url>/v1/metrics` (§2.7) | OTLP metric exporter target | worker | Only the `push_instance_metrics` task uses it. There is no OTLP tracing anywhere in this repository. The Rust handler (`plane-tasks/src/telemetry_metrics.rs`) reads the same variable and only implements the HTTP form; **it also points the Rust side at the same collector**. |
+| `OTLP_METRICS_PROTOCOL` | `"grpc"` | `(os.environ.get("OTLP_METRICS_PROTOCOL") or "grpc").strip().lower()`; `"grpc"` → gRPC exporter, **anything else** → HTTP exporter | Exporter class | worker | Empty string behaves as `grpc` (`or`). The Rust handler implements the HTTP branch only: `"grpc"` ends the job with `OTLP gRPC export is not implemented; set OTLP_METRICS_PROTOCOL=http` (an explicit handler error, never a silent skip). |
 | `OTEL_EXPORTER_OTLP_METRICS_INSECURE` | `""` | `os.environ.get(...,"").lower() == "true"` — no strip, so `" true"` is false | gRPC `insecure=` flag | worker | Only read in the gRPC branch. |
 | `SERVICE_NAME` | `"plane-ce-api"` | Raw string | OTLP resource `service.name` | worker | The default is a leftover from the api image; the worker (which runs the metric push) uses it unchanged. |
+| `OTEL_RESOURCE_ATTRIBUTES` | unset | Comma-separated `key=value`; a value is `urllib.parse.unquote`d and surrounding whitespace stripped; a pair without `=` is logged and skipped | OTLP resource attributes, merged after the SDK defaults and before `SERVICE_NAME`/`instance_id`/`plane.instance.type` | worker | Python's `OTELResourceDetector` runs last, so it can override the random `service.instance.id`. The Rust handler reproduces the merge and the order. |
+| `OTEL_SERVICE_NAME` | unset | Non-empty → `service.name` in the detector's resource | OTLP resource `service.name` | worker | Overridden by `SERVICE_NAME` for this task (the task's own dict is merged last). |
 | `SCOUT_MONITOR` | `False` (bool) | `os.environ.get("SCOUT_MONITOR", False)` — any non-empty string is truthy, including `"0"` and `"false"` | Scout APM (`scout_apm.django` is in `INSTALLED_APPS` in production) | api, worker, beat | Only present in `production.py:21`. Scout is part of the production image (`scout-apm==3.5.3`); if the flag is off it should be inert. Recommendation for the port: drop it (report it as an open question) unless the owner wants Scout kept. |
 | `SCOUT_KEY` | `""` | Raw string | Scout APM key | api, worker, beat | |
 
@@ -993,7 +995,7 @@ The shipped deployments (`docker-compose.yml`, `deployments/cli/community/`,
 | `AMQP_URL`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_VHOST` | The broker is gone (`plans/CUTOVER.md` §2). | The Postgres-backed `plane_jobs` queue. `plane-core` still parses the six names (Django is the specification) but nothing publishes to Celery after cutover. |
 | `CELERY_BROKER_URL`, `CELERY_TIMEZONE`, `CELERY_TASK_SERIALIZER`, `CELERY_RESULT_SERIALIZER`, `CELERY_ACCEPT_CONTENT` | Derived Celery settings (`settings/common.py:354-387`), never environment inputs. | No Rust equivalent; §2.4 documents the historical derivation only. |
 | `GUNICORN_WORKERS` | There is no gunicorn. | `PLANE_RS_WORKER_THREADS` (§6) sizes the tokio runtime; unset keeps one thread per core. |
-| `METRICS_PUSH_INTERVAL_MINUTES` | `push_instance_metrics` is not ported (owner decision 5). | Nothing; the beat entry is gone. |
+| `METRICS_PUSH_INTERVAL_MINUTES` | Shipped deployments no longer set it, but the task and schedule are now Rust-owned (`push_instance_metrics`, D34 amendment) and the loader still reads it. | `plane_jobs.schedules`' `push-instance-metrics` `interval_seconds` (60 × the value; default 360). |
 
 Everything else keeps its name and default. `INSTANCE_CHANGELOG_URL` is baked
 into `Dockerfile.plane-api` as `https://sites.plane.so/pages/691ef037bcfe416a902e48cb55f59891/`,
@@ -1060,7 +1062,16 @@ unchanged.
 | `PLANE_RS_JOB_ONCE_JOBS` | `0` | Non-negative integer; `0` means all runnable jobs, otherwise the maximum `plane-worker --once` processes. | `plane-worker` (test) | `difftest task` must not execute a handler's published job as a second job of the same run; the published row is the compared effect. A deployment never passes `--once`. |
 | `PLANE_RS_JOBS_RUST_TASKS` | unset (all Celery) | Comma-separated task names; whitespace trimmed; empty entries ignored. | `plane-api`, `plane-worker`, `plane-beat` (test/dev) | Phase 4 exit-check override. The production ownership table is `crates/plane-jobs/src/ownership.rs` and `TASKS.md` §10; this variable must not be used in a deployment. |
 | `PLANE_RS_GITHUB_RELEASES_URL` | `https://api.github.com/repos/makeplane/plane/releases/latest` | Absolute URL; no validation beyond reqwest's (a malformed value falls back like any lookup failure). | `plane-api` boot, `plane-admin register-instance` | `register_instance` (`plane/license/management/commands/register_instance.py:42`) hard-codes GitHub; the differential harness and the boot comparison must not reach the internet. Tests point it at a local fake server. A deployment leaves it unset. |
+| `PLANE_RS_DIFFTEST_METRICS_NS` | unset | Unix nanoseconds; unset (or a non-numeric value) uses the system clock. Honoured only in a `difftest`-feature build. | `plane-worker` (test) | Freezes `NumberDataPoint.time_unix_nano` so `difftest task` can compare the OTLP protobuf body byte for byte; the Django runner patches the OTel SDK's `time_ns` with the same value. A deployment never sets it. |
 | `PLANE_RS_BOOT_STEPS` | `all` | Exactly `all` or `skip` (case-sensitive). Anything else, including an empty value, is a startup error naming the variable. | `plane-api` | `all` runs `register_instance`, `configure_instance`, `create_bucket` and `clear_cache` before the listener opens, like `apps/api/bin/docker-entrypoint-api.sh:24-33`. `skip` is for the differential harness only: its Django target is `dev/django-serve.sh`, which starts after the entrypoint's setup steps, so the Rust target must skip the same steps to begin from the cloned fixture (D34). The default runs every step, so a deployment cannot lose them by omission; `plane-api` logs a warning whenever it skips. Boot-step parity is proven separately by `tools/boot/compare_boot.py`. |
+
+`difftest task` points both sides' OTLP exporter at its loopback recorder with
+`--telemetry-url '{{http}}'` (it sets `OTLP_ENDPOINT`), forces
+`OTLP_METRICS_PROTOCOL=http`, and freezes the two values the exporter normally
+generates so the protobuf bodies compare byte for byte:
+`OTEL_RESOURCE_ATTRIBUTES=service.instance.id=…` and
+`PLANE_RS_DIFFTEST_METRICS_NS=…` (the Django runner patches the OTel SDK's
+`time_ns` with the same value). No deployment sets any of them.
 
 `PLANE_RS_BIND`'s `PORT` fallback keeps the container contract: compose sets
 `PORT=8000` and the Django entrypoint uses it; `plane-api` now does too.

@@ -79,6 +79,13 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio::process::Command;
 
+/// The frozen `time_ns()` both sides put in `NumberDataPoint.time_unix_nano`.
+const DIFFTEST_METRICS_NS: u64 = 1_700_000_000_123_456_789;
+
+/// The frozen OTel resource `service.instance.id` (the SDK mints a random
+/// uuid4 per process; the `OTEL_RESOURCE_ATTRIBUTES` detector overrides it).
+const DIFFTEST_SERVICE_INSTANCE_ID: &str = "00000000-0000-4000-8000-000000000000";
+
 /// Everything one `difftest task` run needs.
 #[derive(Debug, Clone)]
 pub struct TaskOptions {
@@ -125,6 +132,9 @@ pub struct TaskOptions {
     /// `LIVE_BASE_URL` for both sides; `{{http}}` expands to the recorder's
     /// base URL, so a case can answer `LIVE_URL/convert-document/`.
     pub live_url: Option<String>,
+    /// `OTLP_ENDPOINT` for both sides; `{{http}}` expands to the recorder's
+    /// base URL. The telemetry task posts to `<OTLP_ENDPOINT>/v1/metrics`.
+    pub telemetry_url: Option<String>,
     /// A substring of Django's failure, when the task is expected to fail.
     pub expect_django_failure: Option<String>,
     /// A substring of the worker's `last_error`, when it is expected to fail.
@@ -158,6 +168,7 @@ impl TaskOptions {
             s3_bucket_a: None,
             s3_bucket_b: None,
             live_url: None,
+            telemetry_url: None,
             expect_django_failure: None,
             expect_worker_failure: None,
         }
@@ -360,6 +371,17 @@ fn wait_for_port_file(path: &std::path::Path) -> Result<u16> {
 ///
 /// Any setup, process or comparison failure; the message names the side.
 pub async fn run(options: &TaskOptions) -> Result<()> {
+    // The telemetry task posts to `OTLP_ENDPOINT`, whose default is the real
+    // collector. A test must always name the recorder, and `{{http}}` needs an
+    // `http` case; refuse before touching a database.
+    if options.task == "plane.license.bgtasks.telemetry_metrics.push_instance_metrics"
+        && options.telemetry_url.is_none()
+    {
+        bail!(
+            "the telemetry task posts to OTLP_ENDPOINT: pass --telemetry-url '{{{{http}}}}' \
+             with an `http` case so the request goes to the recorder"
+        );
+    }
     validate_identifier(&options.a_db)?;
     validate_identifier(&options.b_db)?;
     validate_identifier(&options.template_db)?;
@@ -404,6 +426,15 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         Some(recorder) => value.replace("{{http}}", recorder.url()),
         None => value.clone(),
     });
+    let telemetry_url = options.telemetry_url.as_ref().map(|value| match &recorder {
+        Some(recorder) => value.replace("{{http}}", recorder.url()),
+        None => value.clone(),
+    });
+    // The telemetry endpoint must be the case's loopback recorder: a test must
+    // never send OTLP traffic to the real collector.
+    if options.telemetry_url.is_some() && recorder.is_none() {
+        bail!("--telemetry-url needs a case with an `http` block, so the endpoint is the recorder");
+    }
     // A task whose call sites are positional (`forgot_password`, `magic_link`,
     // the e-mail tasks) writes `{"args": [...], "kwargs": {...}}`; the plain
     // object form stays the keyword-argument shorthand. Split after the
@@ -446,7 +477,10 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
     // server, which a worker built without the `difftest` feature blocks. That
     // failure looks like a plausible database diff (`titl: None`), so refuse
     // the case up front instead of reporting it as a mismatch.
-    if case.as_ref().is_some_and(|case| case.http.is_some()) || options.live_url.is_some() {
+    if case.as_ref().is_some_and(|case| case.http.is_some())
+        || options.live_url.is_some()
+        || options.telemetry_url.is_some()
+    {
         let worker = worker_path(options);
         if !worker_supports_difftest(&worker)? {
             bail!(
@@ -517,6 +551,7 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
             recorder: recorder.as_ref(),
             s3: s3.as_ref(),
             live_url: live_url.as_deref(),
+            telemetry_url: telemetry_url.as_deref(),
         },
     )
     .await;
@@ -565,6 +600,7 @@ struct Captures<'a> {
     recorder: Option<&'a Recorder>,
     s3: Option<&'a S3Capture>,
     live_url: Option<&'a str>,
+    telemetry_url: Option<&'a str>,
 }
 
 async fn execute(
@@ -586,6 +622,7 @@ async fn execute(
     let bucket_a = captures.s3.map(|s3| s3.bucket_a.as_str());
     let bucket_b = captures.s3.map(|s3| s3.bucket_b.as_str());
     let live_url = captures.live_url;
+    let telemetry_url = captures.telemetry_url;
     let catalog = admin
         .load_catalog(&options.a_db, &["public".to_string()], &[])
         .await?;
@@ -636,6 +673,7 @@ async fn execute(
         call_kwargs,
         bucket_a,
         live_url,
+        telemetry_url,
         attempts,
     )
     .await?;
@@ -652,6 +690,7 @@ async fn execute(
         admin,
         bucket_b,
         live_url,
+        telemetry_url,
         attempts,
     )
     .await?;
@@ -804,7 +843,7 @@ async fn redis_side(
     index: i64,
     vhost: &str,
 ) -> Result<(RedisAdmin, RedisSnapshotter)> {
-    let env = dev_env(database, index, vhost, None, None, false)?;
+    let env = dev_env(database, index, vhost, None, None, None, false)?;
     let url = env
         .get("REDIS_URL")
         .ok_or_else(|| anyhow::anyhow!("django-env.sh did not set REDIS_URL"))?;
@@ -1046,6 +1085,7 @@ async fn run_django(
     call_kwargs: &serde_json::Map<String, serde_json::Value>,
     bucket: Option<&str>,
     live_url: Option<&str>,
+    telemetry_url: Option<&str>,
     attempts: Option<&AttemptsCase>,
 ) -> Result<DjangoOutcome> {
     let root = repo_root();
@@ -1055,6 +1095,7 @@ async fn run_django(
         &options.vhost,
         bucket,
         live_url,
+        telemetry_url,
         true,
     )?;
     let mut command = Command::new(root.join("apps/api/.venv/bin/python"));
@@ -1192,6 +1233,7 @@ fn worker_supports_difftest(worker: &std::path::Path) -> Result<bool> {
 }
 
 /// B = insert a job row, then `plane-worker --once` in a fresh process.
+#[allow(clippy::too_many_arguments)] // one parameter per captured side effect
 async fn run_worker(
     options: &TaskOptions,
     call_args: &[serde_json::Value],
@@ -1199,6 +1241,7 @@ async fn run_worker(
     admin: &DbAdmin,
     bucket: Option<&str>,
     live_url: Option<&str>,
+    telemetry_url: Option<&str>,
     attempts: Option<&AttemptsCase>,
 ) -> Result<WorkerOutcome> {
     let root = repo_root();
@@ -1209,6 +1252,7 @@ async fn run_worker(
         &options.vhost,
         bucket,
         live_url,
+        telemetry_url,
         true,
     )?;
 
@@ -1566,6 +1610,7 @@ fn dev_env(
     vhost: &str,
     bucket: Option<&str>,
     live_url: Option<&str>,
+    telemetry_url: Option<&str>,
     allow_loopback: bool,
 ) -> Result<BTreeMap<String, String>> {
     let script = repo_root().join("apps/server/dev/django-env.sh");
@@ -1612,6 +1657,30 @@ fn dev_env(
         // `settings.LIVE_URL = urljoin(LIVE_BASE_URL, LIVE_BASE_PATH)` with the
         // default path `/live/`.
         env.insert("LIVE_BASE_URL".to_string(), live_url.to_string());
+    }
+    // The OTLP/HTTP metrics exporter (`push_instance_metrics`): both sides use
+    // `OTLP_ENDPOINT` (the Python task's only endpoint knob) and must take the
+    // HTTP branch. The backend pins the two values the exporter normally
+    // generates per process/collection so the protobuf bytes are comparable:
+    // `service.instance.id` (the SDK's random uuid4, overridden by the `otel`
+    // resource detector) and `time_unix_nano` (the harness's Django runner
+    // patches the OTel SDK's `time_ns`; the Rust handler reads only with the
+    // `difftest` feature).
+    env.insert("OTLP_METRICS_PROTOCOL".to_string(), "http".to_string());
+    env.insert(
+        "OTEL_RESOURCE_ATTRIBUTES".to_string(),
+        format!("service.instance.id={DIFFTEST_SERVICE_INSTANCE_ID}"),
+    );
+    env.insert(
+        "PLANE_DIFFTEST_METRICS_NS".to_string(),
+        DIFFTEST_METRICS_NS.to_string(),
+    );
+    env.insert(
+        "PLANE_RS_DIFFTEST_METRICS_NS".to_string(),
+        DIFFTEST_METRICS_NS.to_string(),
+    );
+    if let Some(telemetry_url) = telemetry_url {
+        env.insert("OTLP_ENDPOINT".to_string(), telemetry_url.to_string());
     }
     if allow_loopback {
         // `difftest task`'s local fake HTTP server is on 127.0.0.1. Django's
@@ -1772,8 +1841,13 @@ mod tests {
 
     #[test]
     fn a_celery_owned_wire_difference_is_still_a_difference() {
-        // Never ported (owner decision 5), so its wire form is compared.
-        let task = "plane.license.bgtasks.telemetry_metrics.push_instance_metrics";
+        // A task that is not registered stays Celery-owned, so its wire form
+        // is compared.
+        let task = "plane.bgtasks.test_ownership.never_a_registered_task";
+        assert!(
+            !crate::ownership::rust_owned(task),
+            "the Celery-owned example must not be a Rust-owned task"
+        );
         let id = "00000000-0000-0000-0000-000000000020";
         let envelope = serde_json::json!({
             "__type__": "uuid",

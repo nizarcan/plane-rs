@@ -168,8 +168,9 @@ test-only task `plane.jobs.echo` Rust-owned and runs it through the worker.
 `plane_jobs.schedules` is seeded with the 13 `celery.py:46-101` entries
 (crontab minute/hour, UTC, plus the `push-instance-metrics` interval). The
 test-only `plane.jobs.test-tick` entry is added when
-`PLANE_RS_JOBS_TEST_SCHEDULE_SECONDS` is set. `push-instance-metrics` remains
-Celery-owned (owner decision 5: not ported).
+`PLANE_RS_JOBS_TEST_SCHEDULE_SECONDS` is set. `push-instance-metrics` is
+Rust-owned since set T (D34 amendment) and its interval is
+`METRICS_PUSH_INTERVAL_MINUTES` × 60 s.
 
 Before firing, a Rust-owned entry with `handover_at IS NULL` waits for the
 quiet window above and is handed over there (disable + tracker bump + set
