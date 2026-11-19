@@ -1,0 +1,16 @@
+{
+  "task": "plane.bgtasks.exporter_expired_task.delete_old_s3_link",
+  "sql": [
+    {
+      "label": "exporters",
+      "query": "SELECT id::text, COALESCE(url, 'NULL'), key, created_at::text, updated_at::text, CASE WHEN deleted_at IS NULL THEN 'live' ELSE deleted_at::text END FROM exporters ORDER BY id::text"
+    }
+  ],
+  "s3": {
+    "seeds": [
+      {"key": "p8c/old.zip", "text": "expired export bytes", "content_type": "application/zip"},
+      {"key": "p8c/keep.zip", "text": "fresh export bytes", "content_type": "application/zip"},
+      {"key": "p8c/gone.zip", "text": "soft-deleted export bytes", "content_type": "application/zip"}
+    ]
+  }
+}

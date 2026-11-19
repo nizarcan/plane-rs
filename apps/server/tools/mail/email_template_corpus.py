@@ -60,6 +60,11 @@ TEMPLATE_CASES = [
         "template": "emails/auth/magic_signin.html",
         "context": {"code": "<&\"'>", "email": "a<b&c@example.com"},
     },
+    {
+        "name": "analytic_export",
+        "template": "emails/exports/analytics.html",
+        "context": {},
+    },
 ]
 
 PLAIN_TEXT_CASES = [
@@ -195,6 +200,61 @@ def record_multipart():
     return "\r\n".join(lines)
 
 
+def record_multipart():
+    from django.core.mail import EmailMultiAlternatives
+
+    message = EmailMultiAlternatives(
+        subject="Your unique Plane login code is A1B2C3",
+        body="\n\nHello from Plane\n\n",
+        from_email="Team Plane <team@mailer.plane.so>",
+        to=["ada@example.com"],
+    )
+    message.attach_alternative("<html><body><p>Hello from Plane</p></body></html>", "text/html")
+    return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
+
+
+def record_attachment():
+    """`analytic_plot_export.send_export_email`'s exact message shape."""
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    from plane_utils_email import generate_plain_text_from_html
+
+    html = render_to_string("emails/exports/analytics.html", {})
+    message = EmailMultiAlternatives(
+        subject="Your Export is ready",
+        body=generate_plain_text_from_html(html),
+        from_email="Team Plane <team@mailer.plane.so>",
+        to=["ada@example.com"],
+    )
+    message.attach("p8c-export-analytics.csv", "Project Name,Identifier\r\nAlpha,ALP-1\r\n")
+    return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
+
+
+def mask_generated(encoded: str) -> str:
+    # The boundary is random; replace every occurrence including the header.
+    start = encoded.index('boundary="') + len('boundary="')
+    end = encoded.index('"', start)
+    boundary = encoded[start:end]
+    encoded = encoded.replace(boundary, "<BOUNDARY-0000000000000000000000000>")
+    # Date and the Message-ID local part are generated per send. The
+    # Message-ID can be folded across two lines by Python's header writer.
+    lines = []
+    skip_continuation = False
+    for line in encoded.split("\r\n"):
+        if skip_continuation and line.startswith(" "):
+            continue
+        skip_continuation = False
+        if line.startswith("Date: "):
+            lines.append("Date: <DATE>")
+        elif line.startswith("Message-ID:"):
+            lines.append("Message-ID: <MESSAGE-ID>")
+            skip_continuation = True
+        else:
+            lines.append(line)
+    return "\r\n".join(lines)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -208,6 +268,7 @@ def main(argv: list[str]) -> int:
         "templates": record_templates(),
         "plain_text": record_plain_text(),
         "multipart": record_multipart(),
+        "attachment": record_attachment(),
     }
     rendered = json.dumps(corpus, indent=2, ensure_ascii=False) + "\n"
     if args.check:

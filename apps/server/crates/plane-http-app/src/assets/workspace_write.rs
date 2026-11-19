@@ -780,9 +780,14 @@ pub fn is_integrity(error: &tokio_postgres::Error) -> bool {
 pub async fn publish_metadata_task(ctx: &ViewCtx<'_>, asset_id: Uuid) -> Result<(), ViewError> {
     let task = plane_jobs::celery::task_name::GET_ASSET_OBJECT_METADATA;
     let message = plane_jobs::celery::tasks::get_asset_object_metadata(asset_id.to_string());
-    crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await
-        .map(|_| ())
+    crate::common::jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await
+    .map(|_| ())
 }
 
 /// `S3Storage(request=request)`'s host/scheme inputs

@@ -42,6 +42,10 @@ const TEMPLATES: &[(&str, &str)] = &[
         "emails/auth/magic_signin.html",
         include_str!("../templates/magic_signin.html.j2"),
     ),
+    (
+        "emails/exports/analytics.html",
+        include_str!("../templates/analytics.html.j2"),
+    ),
 ];
 
 /// The rendering error a task reports as a handler failure.

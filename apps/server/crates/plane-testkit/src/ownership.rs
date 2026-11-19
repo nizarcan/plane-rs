@@ -29,13 +29,15 @@ use crate::db::DbDiff;
 /// Registered task names whose producer is Rust-owned.
 pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.jobs.echo",
-    "plane.bgtasks.recent_visited_task.recent_visited_task",
+    "plane.bgtasks.analytic_plot_export.analytic_export_task",
     "plane.bgtasks.cleanup_task.delete_api_logs",
     "plane.bgtasks.cleanup_task.delete_email_notification_logs",
-    "plane.bgtasks.cleanup_task.delete_page_versions",
     "plane.bgtasks.cleanup_task.delete_issue_description_versions",
+    "plane.bgtasks.cleanup_task.delete_page_versions",
     "plane.bgtasks.cleanup_task.delete_webhook_logs",
+    "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
     "plane.bgtasks.deletion_task.hard_delete",
+    "plane.bgtasks.export_task.issue_export_task",
     "plane.bgtasks.issue_automation_task.archive_and_close_old_issues",
     "plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues",
     "plane.bgtasks.logger_task.process_logs",
@@ -43,6 +45,10 @@ pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.bgtasks.page_transaction_task.page_transaction",
     "plane.bgtasks.page_version_task.track_page_version",
     "plane.bgtasks.deletion_task.soft_delete_related_objects",
+    "plane.bgtasks.recent_visited_task.recent_visited_task",
+    "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+    "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+    "plane.bgtasks.workspace_seed_task.workspace_seed",
 ];
 
 /// Whether `task` is published to `plane_jobs` rather than to RabbitMQ.

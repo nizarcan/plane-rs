@@ -1,0 +1,11 @@
+{
+  "task": "plane.bgtasks.analytic_plot_export.analytic_export_task",
+  "sql": [
+    {
+      "label": "issues",
+      "query": "SELECT id::text, name, description_html FROM issues WHERE workspace_id = 'e0000000-0000-4000-8000-000000000010'::uuid ORDER BY id"
+    }
+  ],
+  "smtp": {},
+  "normalize": []
+}

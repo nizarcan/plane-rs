@@ -1,0 +1,6 @@
+{
+  "email": "ada-analytic@example.com",
+  "data": {"x_axis": "state_id", "y_axis": "issue_count"},
+  "slug": "p8c-analytic",
+  "user_id": "f0000000-0000-4000-8000-000000000001"
+}

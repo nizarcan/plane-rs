@@ -1,0 +1,9 @@
+{
+  "task": "plane.bgtasks.file_asset_task.delete_unuploaded_file_asset",
+  "sql": [
+    {
+      "label": "file_assets",
+      "query": "SELECT id::text, created_at::text, updated_at::text, is_uploaded::text, is_deleted::text, CASE WHEN deleted_at IS NULL THEN 'live' ELSE 'soft-deleted' END, asset FROM file_assets ORDER BY id::text"
+    }
+  ]
+}

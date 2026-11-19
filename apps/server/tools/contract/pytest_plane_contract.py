@@ -75,11 +75,15 @@ request the plugin drains the run's own RabbitMQ vhost and, for each message
 whose task's `.delay` is currently a `Mock` (`unittest.mock.patch("…delay")`
 replaces the attribute on the shared task object), calls that mock with the
 message's args and kwargs, with kombu's UUID envelopes restored to
-`uuid.UUID`. Messages for tasks that are not mocked are dropped: Django's own
-request would only have published them too, and nothing in the test consumes
-them. Cache *state* assertions need no special handling — Django and Rust share
-the same Redis database, and Rust performs the same cache writes a Django
-request would. A test that patches a cache method itself
+`uuid.UUID`. A task Rust owns (`plane_jobs::ownership::RUST_TASKS`) is queued
+into `plane_jobs.jobs` instead of RabbitMQ; the plugin reads the rows this
+request inserted and replays them through the same mock, with the payload's
+Python values (`Job::from_message` already decoded the envelope). Messages for
+tasks that are not mocked are dropped: Django's own request would only have
+published them too, and nothing in the test consumes them. Cache *state*
+assertions need no special handling — Django and Rust share the same Redis
+database, and Rust performs the same cache writes a Django request would. A
+test that patches a cache method itself
 (`patch.object(cache, "incr", side_effect=…)`) wants an in-process Python call
 Rust cannot make; `_local_mock_reason` detects that, like the patched storage
 wrappers, OAuth provider classes and throttle rates, and serves the request
@@ -957,54 +961,115 @@ def _drain_and_replay(admin: RabbitAdmin, record: TestRecord) -> None:
             kwargs = body[1] or {}
         else:
             continue
-        module_name, _, attribute = task_name.rpartition(".")
-        try:
-            task = getattr(importlib.import_module(module_name), attribute)
-        except (ImportError, AttributeError):
-            record.limitations.append(f"cannot resolve task {task_name!r} for replay")
-            continue
-        delay = getattr(task, "delay", None)
-        if _debug():
-            print(
-                f"[plane-contract] task {task_name!r} delay is "
-                f"{type(delay).__name__} ({'mock' if isinstance(delay, unittest.mock.Mock) else 'real'})",
-                file=sys.stderr,
+        _replay_call(record, task_name, _decode_kombu(args), _decode_kombu(kwargs))
+
+
+def _replay_call(
+    record: TestRecord, task_name: str, args: Any, kwargs: Any
+) -> None:
+    """Hand one published delivery to a patched `.delay`, if the test has one.
+
+    `args`/`kwargs` are Python runtime values: a RabbitMQ message is decoded
+    from kombu's JSON envelope first, a `plane_jobs` row already stores them
+    (`Job::from_message`).
+    """
+    module_name, _, attribute = task_name.rpartition(".")
+    try:
+        task = getattr(importlib.import_module(module_name), attribute)
+    except (ImportError, AttributeError):
+        record.limitations.append(f"cannot resolve task {task_name!r} for replay")
+        return
+    delay = getattr(task, "delay", None)
+    if _debug():
+        print(
+            f"[plane-contract] task {task_name!r} delay is "
+            f"{type(delay).__name__} ({'mock' if isinstance(delay, unittest.mock.Mock) else 'real'})",
+            file=sys.stderr,
+        )
+    if not isinstance(delay, unittest.mock.Mock):
+        # A test may patch the task at the call site
+        # (`with mock.patch("module.view.issue_activity") as activity:`)
+        # instead of patching `.delay` on the shared task object. The view
+        # module's attribute is then a `Mock` named after the task; replay
+        # into its `.delay` so the test sees the Rust message. Without
+        # this, a mixed-backend run leaves `call_args` as `None`.
+        call_sites = _call_site_mocks(attribute)
+        if call_sites:
+            for call_site in call_sites:
+                call_site.delay(*args, **kwargs)
+            STATE.replay_count += 1
+            record.replayed.append(task_name)
+            return
+        if _task_is_eager(task):
+            # `task_always_eager=True`: the test expects the task's *ORM
+            # writes*, not a published message, and Django's own request
+            # runs it in-process (`Task.apply` inside `apply_async`). Run
+            # the same call here so a Rust-bound request produces the same
+            # rows; without it such a test can never observe them.
+            if _debug():
+                print(
+                    f"[plane-contract] replaying {task_name!r} eagerly",
+                    file=sys.stderr,
+                )
+            delay(*args, **kwargs)
+            STATE.replay_count += 1
+            record.replayed.append(task_name)
+            return
+        # Not patched and not eager: Django would only have published the
+        # message too, and nothing in the test consumes it.
+        return
+    delay(*args, **kwargs)
+    STATE.replay_count += 1
+    record.replayed.append(task_name)
+
+
+def _job_watermark() -> Any:
+    """The newest `plane_jobs.jobs.created_at`, or `None` without the schema.
+
+    A Rust-owned task's delivery is a queue row, not a RabbitMQ message, so a
+    test that patches its `.delay` needs the same replay the message drain
+    does (`DECISIONS.md` D28). The watermark bounds the replay to the request
+    that just ran; the contract database is not flushed of `plane_jobs` rows.
+    """
+    from django.db import connection
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT max(created_at) FROM plane_jobs.jobs")
+            return cursor.fetchone()[0]
+    except Exception:  # noqa: BLE001 - the schema is optional for a Django-only run
+        return None
+
+
+def _replay_jobs(record: TestRecord, since: Any) -> None:
+    """Replay the jobs a Rust request queued into a patched `.delay` mock."""
+    from django.db import connection
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT task, payload::text FROM plane_jobs.jobs "
+                "WHERE created_at > %s ORDER BY created_at, id",
+                [since or "1970-01-01T00:00:00+00:00"],
             )
-        if not isinstance(delay, unittest.mock.Mock):
-            # A test may patch the task at the call site
-            # (`with mock.patch("module.view.issue_activity") as activity:`)
-            # instead of patching `.delay` on the shared task object. The view
-            # module's attribute is then a `Mock` named after the task; replay
-            # into its `.delay` so the test sees the Rust message. Without
-            # this, a mixed-backend run leaves `call_args` as `None`.
-            call_sites = _call_site_mocks(attribute)
-            if call_sites:
-                for call_site in call_sites:
-                    call_site.delay(*_decode_kombu(args), **_decode_kombu(kwargs))
-                STATE.replay_count += 1
-                record.replayed.append(task_name)
-                continue
-            if _task_is_eager(task):
-                # `task_always_eager=True`: the test expects the task's *ORM
-                # writes*, not a published message, and Django's own request
-                # runs it in-process (`Task.apply` inside `apply_async`). Run
-                # the same call here so a Rust-bound request produces the same
-                # rows; without it such a test can never observe them.
-                if _debug():
-                    print(
-                        f"[plane-contract] replaying {task_name!r} eagerly",
-                        file=sys.stderr,
-                    )
-                delay(*_decode_kombu(args), **_decode_kombu(kwargs))
-                STATE.replay_count += 1
-                record.replayed.append(task_name)
-                continue
-            # Not patched and not eager: Django would only have published the
-            # message too, and nothing in the test consumes it.
+            rows = cursor.fetchall()
+    except Exception:  # noqa: BLE001 - the schema is optional for a Django-only run
+        return
+    for task_name, payload in rows:
+        if not isinstance(task_name, str):
             continue
-        delay(*_decode_kombu(args), **_decode_kombu(kwargs))
-        STATE.replay_count += 1
-        record.replayed.append(task_name)
+        try:
+            body = json.loads(payload) if isinstance(payload, str) else payload
+        except ValueError:
+            continue
+        if not isinstance(body, dict):
+            continue
+        _replay_call(
+            record,
+            task_name,
+            body.get("args") or [],
+            body.get("kwargs") or {},
+        )
 
 
 def _call_site_mocks(attribute: str) -> list[unittest.mock.Mock]:
@@ -1212,6 +1277,7 @@ def _dispatch_to_rust(client: Any, environ: dict[str, Any], route: RustRoute) ->
     if record is not None:
         record.rust.append(entry)
         record.limitations.extend(limitations)
+    job_watermark = _job_watermark()
     try:
         wire = STATE.session.request(
             method,
@@ -1230,6 +1296,7 @@ def _dispatch_to_rust(client: Any, environ: dict[str, Any], route: RustRoute) ->
     entry.status = wire.status_code
     if STATE.rabbit is not None and record is not None:
         _drain_and_replay(STATE.rabbit, record)
+        _replay_jobs(record, job_watermark)
     response = _build_response(client, environ, wire, route)
     # `Client.request`'s "Update persistent cookie data"
     # (`django/test/client.py:1104-1106`): `self.cookies.update(response.cookies)`.

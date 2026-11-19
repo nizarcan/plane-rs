@@ -450,7 +450,7 @@ sets `queue=`, `acks_late=`, `time_limit=`, `soft_time_limit=`, `priority=`, `ex
 | 5 | `cleanup_task.delete_page_versions` | `plane/bgtasks/cleanup_task.py:182` | `()` | none | False | none | `celery` |
 | 6 | `cleanup_task.delete_issue_description_versions` | `plane/bgtasks/cleanup_task.py:192` | `()` | none | False | none | `celery` |
 | 7 | `cleanup_task.delete_webhook_logs` | `plane/bgtasks/cleanup_task.py:202` | `()` | none | False | none | `celery` |
-| 8 | `copy_s3_object.copy_s3_objects_of_description_and_assets` | `plane/bgtasks/copy_s3_object.py:127` | `(entity_name, entity_identifier, project_id, slug, user_id)` | none | False | none | `celery` |
+| 8 | `copy_s3_object.copy_s3_objects_of_description_and_assets` | `plane/bgtasks/copy_s3_object.py:127` | `(entity_name, entity_identifier, project_id, slug, user_id)` | none | False | none | `rust` (`plane-tasks/src/copy_s3_object.rs`) |
 | 9 | `deletion_task.soft_delete_related_objects` | `plane/bgtasks/deletion_task.py:18` | `(app_label, model_name, instance_pk, using=None)` | none | False | none | `celery` |
 | 10 | `deletion_task.hard_delete` | `plane/bgtasks/deletion_task.py:114` | `()` | none | False | none | `celery` |
 | 11 | `dummy_data_task.create_dummy_data` | `plane/bgtasks/dummy_data_task.py:488` | `(slug, email, members, issue_count, cycle_count, module_count, pages_count, intake_issue_count)` | none | False | none | `celery` |
@@ -1242,14 +1242,23 @@ consulted by `route::dispatch` and by the worker's handler registry.
 | --- | --- | --- |
 | every task in §4 except the rows below | Celery | unchanged; the typed publisher in `plane-jobs::celery` is byte-identical |
 | `plane.jobs.echo` (test-only) | Rust | no retries; handler in `bins/plane-worker` sleeps `payload.sleep_ms` |
+| `plane.jobs.echo` (test-only) | Rust | no retries; handler in `bins/plane-worker` sleeps `payload.sleep_ms` |
 | `recent_visited_task` (P0, task 34) | Rust | no retries (`policy::DEAD_ON_FAILURE`); `plane-tasks::recent_visited`, including the `soft_delete_related_objects` publish the trim's `delete()` makes |
+| `export_task.issue_export_task` (1) | Rust | `plane-tasks/src/export_task.rs` + `plane-xlsx`; no retries |
 | `delete_api_logs`, `delete_email_notification_logs`, `delete_page_versions`, `delete_issue_description_versions`, `delete_webhook_logs` (3-7) | Rust | no retries; `plane-tasks::cleanup` |
+| `soft_delete_related_objects` (9) | Celery | handler ported (`plane-tasks::deletion`) but **not** switched: `page_version_task` (set A) still publishes it from Django (`plane/bgtasks/page_version_task.py:74`), so D25 keeps it on Celery |
 | `hard_delete` (10) | Rust | no retries; `plane-tasks::deletion`, reproduces the upstream `DO_NOTHING` `IntegrityError` (see §6 of the cutover plan) |
+| `analytic_plot_export.analytic_export_task` (14) | Rust | `plane-tasks/src/analytic_export.rs`; no retries |
+| `exporter_expired_task.delete_old_s3_link` (15) | Celery (beat) | handler in `plane-tasks/src/exporter_expired.rs`; stays Celery until both `plane_jobs.schedules` rows flip to `rust` |
+| `file_asset_task.delete_unuploaded_file_asset` (16) | Celery (beat) | handler in `plane-tasks/src/file_asset.rs`; stays Celery until its `plane_jobs.schedules` row flips to `rust` |
 | `archive_and_close_old_issues`, `unsnooze_expired_intake_issues` (19, 20) | Rust | no retries; `plane-tasks::automation`; archive/close publishes `issue_activity` through `dispatch` |
 | `process_logs` (27) | Rust | no retries; `plane-tasks::logs`; `APITokenLogMiddleware` enqueues with `dispatch` |
 | `soft_delete_related_objects` (9) | Rust | no retries; handler in `plane-tasks::deletion`. Moved with set A3: its only non-Rust producer was `track_page_version`'s trim (`plane/bgtasks/page_version_task.py:74`), which is unreachable because the task raises `AttributeError` on `page.description` at `:55`/`:63` before reaching it |
 | `issue_description_version_task`, `page_transaction`, `track_page_version` (23, 30, 31) | Rust | no retries; `plane-tasks::versions`. `track_page_version` reproduces the upstream no-op: `Page` has no `description` attribute, so both write branches raise and log (`page_version_task.py:55,63`) and no version row or cascade is produced |
 | the two version backfills (`sync_issue_version`, `sync_issue_description_version`, 21/25) | no queue owner | `plane-admin` subcommands `sync-issue-version` / `sync-issue-description-version`; command-only, never enqueued (`plans/CUTOVER.md` §1 line 72) |
+| `storage_metadata_task.get_asset_object_metadata` (35) | Rust | `plane-tasks/src/storage_metadata.rs`; no retries |
+| `work_item_link_task.crawl_work_item_link_title` (44) | Rust | `plane-tasks/src/work_item_link.rs`; no retries |
+| `workspace_seed_task.workspace_seed` (46) | Rust | `plane-tasks/src/workspace_seed.rs`, the seed JSON embedded; no retries, and the one task that re-raises on failure |
 
 A **schedule** has the same split in `plane_jobs.schedules.owner`.
 `plane-jobs/src/beat.rs::RUST_SCHEDULES` lists the entries whose task is

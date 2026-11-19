@@ -1,0 +1,17 @@
+{
+  "task": "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+  "sql": [
+    {
+      "label": "file_assets",
+      "query": "SELECT id::text, COALESCE(storage_metadata::text, 'NULL'), created_at::text, updated_at::text, CASE WHEN deleted_at IS NULL THEN 'live' ELSE deleted_at::text END FROM file_assets ORDER BY id::text"
+    }
+  ],
+  "s3": {
+    "seeds": [
+      {"key": "p8c/meta.txt", "text": "hello", "content_type": "text/plain"}
+    ]
+  },
+  "normalize": [
+    {"pattern": "\"LastModified\":\"[^\"]*\"", "replacement": "\"LastModified\":\"<TS>\""}
+  ]
+}

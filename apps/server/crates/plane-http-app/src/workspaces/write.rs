@@ -513,8 +513,13 @@ fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, ViewEr
         // returns `value.pk`), which kombu encodes as a `uuid` extension.
         let task = plane_jobs::celery::task_name::WORKSPACE_SEED;
         let message = plane_jobs::celery::tasks::workspace_seed(row.model.id);
-        crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-            .await?;
+        crate::common::jobs::dispatch_task(
+            ctx,
+            task,
+            &message,
+            plane_jobs::queue::Job::from_message(&message),
+        )
+        .await?;
 
         // `data = serializer.data; data["total_members"] = …; data["role"] = 20`
         // appends the two keys **after** the 15 serializer keys (`base.py:134-136`).

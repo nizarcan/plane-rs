@@ -583,7 +583,7 @@ async fn publish_crawl(ctx: &ViewCtx<'_>, id: TaskArg, url: String) -> Result<()
         ctx,
         task,
         &message,
-        plane_jobs::queue::Job::new(task),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await?;
     Ok(())
@@ -1648,7 +1648,7 @@ async fn publish_asset_metadata(ctx: &ViewCtx<'_>, id: Uuid) -> Result<(), ViewE
         ctx,
         task,
         &message,
-        plane_jobs::queue::Job::new(task),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await?;
     Ok(())

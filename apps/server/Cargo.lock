@@ -2857,8 +2857,10 @@ dependencies = [
 name = "plane-tasks"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "deadpool-postgres",
+ "plane-auth",
  "plane-cache",
  "plane-core",
  "plane-db",
@@ -2867,6 +2869,7 @@ dependencies = [
  "plane-net",
  "plane-serde",
  "plane-storage",
+ "plane-xlsx",
  "serde",
  "serde_json",
  "thiserror",
@@ -2906,6 +2909,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "plane-xlsx"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "flate2",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
