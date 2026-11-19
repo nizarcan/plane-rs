@@ -2486,7 +2486,11 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
   `Instance.objects.first()` takes the newest row; public bot-owned pages counted; workspace
   metrics capped at 1000.
 
-Running: `rs/rs-telemetry` part 2 (OTLP/gRPC, exporter headers/compression);
+- **OTLP/gRPC merged (`d51a264a34`).** Set `t` 16/16 (8 gRPC: OK, UNAVAILABLE ×8 calls, non-retryable,
+  deadline, drop, metadata, gzip, a 281 KB body; HTTP gzip), `--set all` 308/308, `compare_boot`
+  50/50, `plane-jobs` DB test 9/9, 1439 tests, testkit 223.
+
+Running:
 `rs/rs-upstream` (`UPSTREAM.toml`, oracle fetched to `~/.cache/plane-rs/oracle/<commit>`,
 `apps/api` and the Django dev stacks removed, `tools/upstream/diff.py`, `UPGRADING.md` with
 the migrator's post-baseline steps, `.gitleaks.toml` + CI scan; 18020/18120, Redis 5/6/15;
