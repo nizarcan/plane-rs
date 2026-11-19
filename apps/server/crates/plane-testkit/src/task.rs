@@ -1013,6 +1013,9 @@ async fn run_worker(
         .envs(&env)
         .env("PLANE_RS_JOB_CONCURRENCY", "1")
         .env("PLANE_RS_JOB_POLL_MS", "10")
+        // Execute only the harness-inserted job. A Rust-owned task the handler
+        // publishes stays queued so `rust_jobs` compares its payload.
+        .env("PLANE_RS_JOB_ONCE_JOBS", "1")
         .stdin(Stdio::null())
         .output()
         .await
@@ -1432,7 +1435,7 @@ mod tests {
 
     #[test]
     fn a_celery_owned_wire_difference_is_still_a_difference() {
-        let task = "plane.bgtasks.notification_task.notifications";
+        let task = "plane.bgtasks.webhook_task.webhook_send_task";
         let id = "00000000-0000-0000-0000-000000000020";
         let envelope = serde_json::json!({
             "__type__": "uuid",

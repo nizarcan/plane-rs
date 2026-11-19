@@ -63,7 +63,13 @@ fn main() -> anyhow::Result<()> {
                 .context("creating the plane_jobs schema")?;
         }
         if once {
-            let processed = worker.drain().await.context("draining the queue")?;
+            // `difftest task` sets this to 1: the job under test only. Anything
+            // it publishes stays in `plane_jobs` for the harness to compare.
+            let limit = env_usize("PLANE_RS_JOB_ONCE_JOBS", 0);
+            let processed = worker
+                .drain_n(if limit == 0 { usize::MAX } else { limit })
+                .await
+                .context("draining the queue")?;
             tracing::info!(target: "plane.worker", processed, "drained");
             return Ok(());
         }

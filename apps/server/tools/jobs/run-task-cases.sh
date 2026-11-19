@@ -12,7 +12,7 @@
 #   --difftest PATH      difftest binary            (DIFFTEST)
 #   --fixtures DIR       fixture directory          (FIXTURES, default: next to this script)
 #   --list FILE          case list                  (TASK_CASES, default: tools/jobs/task-cases.txt)
-#   --set c|d|a3|all     which set column to run    (TASK_CASE_SET, default: all)
+#   --set c|d|a3|a1|a2|all  which set column to run (TASK_CASE_SET, default: all)
 #   --a-db NAME          Django database            (DIFFTEST_A_DB, default: t_p8c_task_a)
 #   --b-db NAME          Rust database              (DIFFTEST_B_DB, default: t_p8c_task_b)
 #   --a-redis-db N       Django Redis index         (DIFFTEST_A_REDIS_DB, default: 5)
@@ -83,8 +83,8 @@ done
 [[ -f "$TASK_CASES" ]] || { echo "error: case list not found: $TASK_CASES" >&2; exit 2; }
 [[ -d "$FIXTURES" ]] || { echo "error: fixture directory not found: $FIXTURES" >&2; exit 2; }
 case "$TASK_CASE_SET" in
-  c|d|a3|all) ;;
-  *) echo "error: --set must be c, d, a3 or all" >&2; exit 2 ;;
+  c|d|a3|a1|a2|all) ;;
+  *) echo "error: --set must be c, d, a3, a1, a2 or all" >&2; exit 2 ;;
 esac
 
 pass=0

@@ -1259,6 +1259,7 @@ consulted by `route::dispatch` and by the worker's handler registry.
 | `storage_metadata_task.get_asset_object_metadata` (35) | Rust | `plane-tasks/src/storage_metadata.rs`; no retries |
 | `work_item_link_task.crawl_work_item_link_title` (44) | Rust | `plane-tasks/src/work_item_link.rs`; no retries |
 | `workspace_seed_task.workspace_seed` (46) | Rust | `plane-tasks/src/workspace_seed.rs`, the seed JSON embedded; no retries, and the one task that re-raises on failure |
+| `notification_task.notifications` (29) | Rust | `plane-tasks/src/notifications.rs`; no retries; its only producer is the Rust `issue_activity` handler's `notification=True` re-publish through `dispatch` (set A2) |
 
 A **schedule** has the same split in `plane_jobs.schedules.owner`.
 `plane-jobs/src/beat.rs::RUST_SCHEDULES` lists the entries whose task is
