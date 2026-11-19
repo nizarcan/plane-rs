@@ -731,6 +731,35 @@ workspace `Cargo.toml` and upgrade deliberately.
   error is reqwest's `Display` text, not `requests`' message (D9's accepted error-text
   difference).
 
+## D34. `plane-migrator` owns the Django baseline; the boot steps move into `plane-bootstrap` (decided 2026-11-19)
+
+- `deploy/schema/baseline.sql` is a `pg_dump --schema-only --no-owner --no-privileges
+  --schema=public` of a database Django migrated at the pin (`db:0125_…`,
+  `license:0006_…`), with `django_migrations.txt` (167 rows).
+  `tools/schema/baseline.py --check` re-migrates and compares; CI runs it.
+- Fresh install: apply the dump and the rows in one transaction (only after proving
+  `public` empty), then `plane_jobs::migrate` and `meta('django_baseline', …)`. Upgrade:
+  `django_migrations` must equal the baseline exactly; missing rows → refuse and name
+  `apps/api/bin/docker-entrypoint-migrator.sh`; extra rows → refuse as a downgrade; a
+  non-empty `public` without the table → refuse. One advisory lock; reruns are
+  idempotent. Proven by `tools/schema/verify_migrator.py` (dump, columns, indexes,
+  constraints, sequences identical; upgrade; every refusal).
+- `crates/plane-bootstrap` holds `wait_for_db`, `wait_for_migrations` (reads
+  `django_baseline` and `plane_jobs::queue::SCHEMA_VERSION`), `register_instance`,
+  `configure_instance`, `create_bucket`, `clear_cache` (FLUSHDB) and the eight embedded
+  `/static/` files. `plane-api` runs them in entrypoint order; worker and beat only
+  wait (only the migrator migrates). `plane-admin` gains `reset-password`,
+  `activate-user`, `test-email` and the four boot steps. Proven by
+  `tools/boot/compare_boot.py` and `scenarios/boot/static.yaml`.
+- `push_instance_metrics` is not ported (open owner question) and sits behind one
+  `PUSH_INSTANCE_METRICS_ENABLED = false` switch; Django enqueues it once per boot.
+- Deliberate boot differences (not HTTP contract): `wait_for_db` really retries
+  (Django's loop never opens a connection, `wait_for_db.py:17-22`); `create_bucket`
+  branches on the HTTP status, so a non-numeric S3 error code (`AccessDenied`) is logged
+  where Django's `int(code)` raises out of the command (`create_bucket.py:37`);
+  `test-email`'s 30 s timeout bounds the connect only, where Python bounds every
+  socket operation.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

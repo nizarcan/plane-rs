@@ -2269,6 +2269,23 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        uncoerced data (`"3"` vs `3` fires); deactivation mail never sends for
        API-created webhooks and ignores `reason`.
 
+   - **Start-up and `plane-migrator` merged (`d9eedf323e`, verification running), D34.**
+     Baseline dump + 167 `django_migrations` rows (`tools/schema/baseline.py --check`, in
+     CI); fresh install, upgrade and the three refusals under one advisory lock
+     (`verify_migrator.py`: dump 11,722 lines, 1,476 columns, 737 indexes, 671
+     constraints, 13 sequences identical); `plane-bootstrap` boot steps and `/static/`
+     (`compare_boot.py` PASS, `scenarios/boot/static.yaml` 9/9); `plane-admin`
+     `reset-password`/`activate-user`/`test-email`; worker/beat only wait for
+     migrations. Agent: contract 984/2, `plane-jobs` DB test 8/8, OAuth, 37 sweep files
+     (full sweeps and beat tests left to the orchestrator). Contract plugin stamps the
+     baseline rows on its `--nomigrations` DB; two scoped `GET /api/instances/` timestamp
+     rules (Rust boots through `register_instance`, the harness's Django doesn't).
+     - Deliberate boot differences recorded in D34 (`wait_for_db` retries,
+       `create_bucket` on `AccessDenied`, `test-email` timeout).
+     - Left: `plane-admin` password prompts echo on a terminal (piped behaviour equal).
+     - Upstream kept: a failed GitHub lookup replaces a known `latest_version` with the
+       current one.
+
    - **Verified at `f4e33cc6e2`** (A2): fmt, clippy, 1394 tests, testkit 210, selftest
      141, schema_check (5 crates), `plane-jobs` DB test 8/8, nine generator checks;
      **242/242 task cases** (5 analytics cases failed in the full run with "django sent 2
@@ -2297,9 +2314,8 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        lock; `avatar_url` `None` interpolated; HTML left in `Subject:`; receiver order
        from `set()`; the retry raises a bare `RequestException()`.
 
-   Running: the orchestrator's verification of `f4e33cc6e2` (A2); set B part 3
-   (`rs/p8-b`: the A2 merge, order-preserving queue payloads; 18020/18120, Redis 5/6,
-   contract Redis 15);
-   start-up + `plane-migrator` (`rs/p8-boot`: §3 and §4 of `plans/CUTOVER.md`, with
-   `push_instance_metrics` not ported by default as one marked point; 18030/18130,
-   Redis 7/8, contract Redis 9). Deployment and the exit check (§5) follow.
+   Running: the orchestrator's verification of `d9eedf323e` (incl. baseline,
+   `verify_migrator`, `compare_boot`, both beat scripts); set B part 3 (`rs/p8-b`: the
+   A2 merge, order-preserving queue payloads, ephemeral SMTP ports; 18020/18120, Redis
+   5/6, contract Redis 15); deployment + exit check (`rs/p8-deploy`, §5; Redis 7/8,
+   contract Redis 9).
