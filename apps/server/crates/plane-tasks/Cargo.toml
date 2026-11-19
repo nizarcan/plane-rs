@@ -23,6 +23,7 @@ difftest = []
 base64.workspace = true
 chrono.workspace = true
 deadpool-postgres.workspace = true
+flate2.workspace = true
 hmac = "0.12.1"
 plane-auth = { path = "../plane-auth" }
 plane-cache = { path = "../plane-cache" }

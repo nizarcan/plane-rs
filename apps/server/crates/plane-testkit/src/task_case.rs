@@ -63,6 +63,10 @@ pub struct TaskCase {
     pub s3: Option<S3Case>,
     #[serde(default)]
     pub http: Option<HttpCase>,
+    /// An OTLP/gRPC recorder (`grpc_recorder.rs`): mode, metadata headers and
+    /// compression for the two per-side h2c servers.
+    #[serde(default)]
+    pub grpc: Option<crate::grpc_recorder::GrpcCase>,
     /// Capture the task's outbound SMTP through `tools/mail/fake_smtp.py`.
     #[serde(default)]
     pub smtp: Option<SmtpCase>,
@@ -190,6 +194,13 @@ pub struct SmtpCase {
 pub struct HttpCase {
     #[serde(default)]
     pub responses: BTreeMap<String, FakeResponse>,
+    /// `OTEL_EXPORTER_OTLP_METRICS_HEADERS` for both sides.
+    #[serde(default)]
+    pub headers: Option<String>,
+    /// `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION` for both sides (`gzip`,
+    /// `deflate`).
+    #[serde(default)]
+    pub compression: Option<String>,
     /// Normalisers for the recorded request bodies only. They exist for a
     /// task that embeds a generated value in its payload (a copied asset's
     /// fresh UUID); the SQL comparison still checks the stored value.
@@ -681,13 +692,16 @@ pub struct RecordedRequest {
     pub path: String,
     pub query: String,
     pub user_agent: Option<String>,
+    /// `Content-Encoding` as received; the body is stored decompressed so a
+    /// gzip stream's writer-specific header/mtime is not compared.
+    pub content_encoding: Option<String>,
     pub body: Vec<u8>,
 }
 
 impl RecordedRequest {
     pub fn describe(&self) -> String {
         format!(
-            "{} {}{} ua={:?} body={}B",
+            "{} {}{} ua={:?} content-encoding={:?} body={}B",
             self.method,
             self.path,
             if self.query.is_empty() {
@@ -696,6 +710,7 @@ impl RecordedRequest {
                 format!("?{}", self.query)
             },
             self.user_agent,
+            self.content_encoding,
             self.body.len()
         )
     }
@@ -719,6 +734,7 @@ struct ComparableRequest {
     path: String,
     query: String,
     user_agent: Option<String>,
+    content_encoding: Option<String>,
     body: ComparableBody,
 }
 
@@ -734,7 +750,7 @@ impl ComparableRequest {
             }
         };
         format!(
-            "{} {}{} ua={:?} body={body}",
+            "{} {}{} ua={:?} content-encoding={:?} body={body}",
             self.method,
             self.path,
             if self.query.is_empty() {
@@ -743,6 +759,7 @@ impl ComparableRequest {
                 format!("?{}", self.query)
             },
             self.user_agent,
+            self.content_encoding,
         )
     }
 }
@@ -777,6 +794,7 @@ pub fn compare_requests(
         path: request.path.clone(),
         query: request.query.clone(),
         user_agent: request.user_agent.clone(),
+        content_encoding: request.content_encoding.clone(),
         body: comparable_body(&request.body, http, side),
     };
     let a: Vec<ComparableRequest> = a
@@ -891,6 +909,7 @@ async fn serve(
     let method = parts.next().unwrap_or_default().to_string();
     let target = parts.next().unwrap_or_default().to_string();
     let mut user_agent = None;
+    let mut content_encoding = None;
     let mut content_length = 0usize;
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
@@ -898,6 +917,8 @@ async fn serve(
             let value = value.trim();
             if name == "user-agent" {
                 user_agent = Some(value.to_string());
+            } else if name == "content-encoding" {
+                content_encoding = Some(value.to_string());
             } else if name == "content-length" {
                 content_length = value.parse().unwrap_or(0);
             }
@@ -915,6 +936,7 @@ async fn serve(
         .get(body_start..body_start + content_length)
         .unwrap_or_default()
         .to_vec();
+    let body = decompress_body(&body, content_encoding.as_deref());
     let (path, query) = target
         .split_once('?')
         .map_or((target.clone(), String::new()), |(path, query)| {
@@ -925,6 +947,7 @@ async fn serve(
         path: path.clone(),
         query,
         user_agent,
+        content_encoding,
         body,
     });
 
@@ -970,6 +993,38 @@ async fn serve(
     Ok(())
 }
 
+/// A gzip/deflate body is decompressed before comparison: Python's
+/// `gzip.GzipFile` stamps the current mtime into the header, so the compressed
+/// bytes are not comparable. The `Content-Encoding` itself is compared.
+fn decompress_body(body: &[u8], encoding: Option<&str>) -> Vec<u8> {
+    use std::io::Read as _;
+    match encoding.map(|value| value.trim().to_ascii_lowercase()) {
+        Some(value) if value == "gzip" => {
+            let mut out = Vec::new();
+            if flate2::read::GzDecoder::new(body)
+                .read_to_end(&mut out)
+                .is_ok()
+            {
+                out
+            } else {
+                body.to_vec()
+            }
+        }
+        Some(value) if value == "deflate" => {
+            let mut out = Vec::new();
+            if flate2::read::ZlibDecoder::new(body)
+                .read_to_end(&mut out)
+                .is_ok()
+            {
+                out
+            } else {
+                body.to_vec()
+            }
+        }
+        _ => body.to_vec(),
+    }
+}
+
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
@@ -994,6 +1049,7 @@ mod tests {
             sql: Vec::new(),
             s3: None,
             http: None,
+            grpc: None,
             smtp: None,
             redis: Vec::new(),
             attempts: None,
@@ -1018,6 +1074,7 @@ mod tests {
             sql: Vec::new(),
             s3: None,
             http: None,
+            grpc: None,
             smtp: None,
             redis: Vec::new(),
             attempts: None,
@@ -1056,11 +1113,14 @@ mod tests {
             s3: None,
             http: Some(HttpCase {
                 responses: BTreeMap::new(),
+                headers: None,
+                compression: None,
                 normalize: vec![Normalize {
                     pattern: ".".to_string(),
                     replacement: String::new(),
                 }],
             }),
+            grpc: None,
             smtp: None,
             redis: Vec::new(),
             attempts: None,
@@ -1071,6 +1131,7 @@ mod tests {
             path: "/v1/metrics".to_string(),
             query: String::new(),
             user_agent: None,
+            content_encoding: None,
             body: body.to_vec(),
         };
         let buckets = SideBuckets::default();

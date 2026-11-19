@@ -67,6 +67,7 @@ use std::time::Duration;
 
 use crate::celery::{CeleryDrain, CeleryMessage, RabbitAdmin, amqp_url_with_vhost};
 use crate::db::{DbAdmin, DbDiff, diff_snapshots};
+use crate::grpc_recorder::{GrpcCapture, compare_grpc};
 use crate::redis::{RedisAdmin, RedisDiff, RedisSnapshotter, diff_snapshots as redis_diff};
 use crate::s3::S3Admin;
 use crate::task_case::{
@@ -365,23 +366,99 @@ fn wait_for_port_file(path: &std::path::Path) -> Result<u16> {
     )
 }
 
+/// Where one side's OTLP exporter points.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TelemetryTarget {
+    /// The HTTP recorder: `OTLP_METRICS_PROTOCOL=http`.
+    Http(String),
+    /// A per-side h2c gRPC recorder: `OTLP_METRICS_PROTOCOL=grpc`, insecure.
+    Grpc(String),
+}
+
+/// One side's telemetry environment: the target plus the case's header and
+/// compression knobs.
+#[derive(Debug, Clone)]
+struct TelemetryEnv {
+    target: TelemetryTarget,
+    extra: Vec<(String, String)>,
+}
+
+impl TelemetryEnv {
+    fn http(url: String, extra: Vec<(String, String)>) -> Self {
+        Self {
+            target: TelemetryTarget::Http(url),
+            extra,
+        }
+    }
+
+    fn grpc(endpoint: String, extra: Vec<(String, String)>) -> Self {
+        Self {
+            target: TelemetryTarget::Grpc(endpoint),
+            extra,
+        }
+    }
+
+    fn apply(&self, env: &mut BTreeMap<String, String>) {
+        match &self.target {
+            TelemetryTarget::Http(url) => {
+                env.insert("OTLP_METRICS_PROTOCOL".to_string(), "http".to_string());
+                env.insert("OTLP_ENDPOINT".to_string(), url.clone());
+            }
+            TelemetryTarget::Grpc(endpoint) => {
+                env.insert("OTLP_METRICS_PROTOCOL".to_string(), "grpc".to_string());
+                env.insert(
+                    "OTEL_EXPORTER_OTLP_METRICS_INSECURE".to_string(),
+                    "true".to_string(),
+                );
+                env.insert("OTLP_ENDPOINT".to_string(), endpoint.clone());
+            }
+        }
+        for (name, value) in &self.extra {
+            env.insert(name.clone(), value.clone());
+        }
+    }
+}
+
+/// The case's OTLP header/compression knobs, applied to both sides.
+fn telemetry_extra_env(case: Option<&TaskCase>) -> Vec<(String, String)> {
+    let mut env = Vec::new();
+    if let Some(grpc) = case.and_then(|case| case.grpc.as_ref()) {
+        if let Some(headers) = &grpc.headers {
+            env.push((
+                "OTEL_EXPORTER_OTLP_METRICS_HEADERS".to_string(),
+                headers.clone(),
+            ));
+        }
+        if let Some(compression) = &grpc.compression {
+            env.push((
+                "OTEL_EXPORTER_OTLP_METRICS_COMPRESSION".to_string(),
+                compression.clone(),
+            ));
+        }
+    }
+    if let Some(http) = case.and_then(|case| case.http.as_ref()) {
+        if let Some(headers) = &http.headers {
+            env.push((
+                "OTEL_EXPORTER_OTLP_METRICS_HEADERS".to_string(),
+                headers.clone(),
+            ));
+        }
+        if let Some(compression) = &http.compression {
+            env.push((
+                "OTEL_EXPORTER_OTLP_METRICS_COMPRESSION".to_string(),
+                compression.clone(),
+            ));
+        }
+    }
+    env
+}
+
 /// Run one differential task case.
 ///
 /// # Errors
 ///
 /// Any setup, process or comparison failure; the message names the side.
 pub async fn run(options: &TaskOptions) -> Result<()> {
-    // The telemetry task posts to `OTLP_ENDPOINT`, whose default is the real
-    // collector. A test must always name the recorder, and `{{http}}` needs an
-    // `http` case; refuse before touching a database.
-    if options.task == "plane.license.bgtasks.telemetry_metrics.push_instance_metrics"
-        && options.telemetry_url.is_none()
-    {
-        bail!(
-            "the telemetry task posts to OTLP_ENDPOINT: pass --telemetry-url '{{{{http}}}}' \
-             with an `http` case so the request goes to the recorder"
-        );
-    }
     validate_identifier(&options.a_db)?;
     validate_identifier(&options.b_db)?;
     validate_identifier(&options.template_db)?;
@@ -414,6 +491,21 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
             options.task
         );
     }
+    // The telemetry task posts to `OTLP_ENDPOINT`, whose default is the real
+    // collector. A test must always name a recorder.
+    let telemetry_case = case.as_ref().and_then(|case| case.grpc.as_ref());
+    if options.task == "plane.license.bgtasks.telemetry_metrics.push_instance_metrics"
+        && options.telemetry_url.is_none()
+        && telemetry_case.is_none()
+    {
+        bail!(
+            "the telemetry task posts to OTLP_ENDPOINT: pass --telemetry-url '{{{{http}}}}' \
+             with an `http` case, or give the case a `grpc` block"
+        );
+    }
+    if options.telemetry_url.is_some() && telemetry_case.is_some() {
+        bail!("a case cannot have both --telemetry-url and a `grpc` block");
+    }
     let recorder = match case.as_ref().and_then(|case| case.http.clone()) {
         Some(http) => {
             let recorder = Recorder::start(http).await?;
@@ -422,11 +514,32 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         }
         None => None,
     };
-    let live_url = options.live_url.as_ref().map(|value| match &recorder {
+    let grpc = match telemetry_case {
+        Some(grpc_case) => Some(GrpcCapture::start(grpc_case).await?),
+        None => None,
+    };
+    let extra_env = telemetry_extra_env(case.as_ref());
+    let telemetry_url = options.telemetry_url.as_ref().map(|value| match &recorder {
         Some(recorder) => value.replace("{{http}}", recorder.url()),
         None => value.clone(),
     });
-    let telemetry_url = options.telemetry_url.as_ref().map(|value| match &recorder {
+    let (telemetry_a, telemetry_b) = if let Some(grpc) = &grpc {
+        (
+            Some(TelemetryEnv::grpc(
+                grpc.a.endpoint().to_string(),
+                extra_env.clone(),
+            )),
+            Some(TelemetryEnv::grpc(grpc.b.endpoint().to_string(), extra_env)),
+        )
+    } else if let Some(url) = telemetry_url {
+        (
+            Some(TelemetryEnv::http(url.clone(), extra_env.clone())),
+            Some(TelemetryEnv::http(url, extra_env)),
+        )
+    } else {
+        (None, None)
+    };
+    let live_url = options.live_url.as_ref().map(|value| match &recorder {
         Some(recorder) => value.replace("{{http}}", recorder.url()),
         None => value.clone(),
     });
@@ -477,7 +590,9 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
     // server, which a worker built without the `difftest` feature blocks. That
     // failure looks like a plausible database diff (`titl: None`), so refuse
     // the case up front instead of reporting it as a mismatch.
-    if case.as_ref().is_some_and(|case| case.http.is_some())
+    if case
+        .as_ref()
+        .is_some_and(|case| case.http.is_some() || case.grpc.is_some())
         || options.live_url.is_some()
         || options.telemetry_url.is_some()
     {
@@ -551,7 +666,9 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
             recorder: recorder.as_ref(),
             s3: s3.as_ref(),
             live_url: live_url.as_deref(),
-            telemetry_url: telemetry_url.as_deref(),
+            telemetry_a: telemetry_a.as_ref(),
+            telemetry_b: telemetry_b.as_ref(),
+            grpc: grpc.as_ref(),
         },
     )
     .await;
@@ -600,7 +717,9 @@ struct Captures<'a> {
     recorder: Option<&'a Recorder>,
     s3: Option<&'a S3Capture>,
     live_url: Option<&'a str>,
-    telemetry_url: Option<&'a str>,
+    telemetry_a: Option<&'a TelemetryEnv>,
+    telemetry_b: Option<&'a TelemetryEnv>,
+    grpc: Option<&'a GrpcCapture>,
 }
 
 async fn execute(
@@ -622,7 +741,9 @@ async fn execute(
     let bucket_a = captures.s3.map(|s3| s3.bucket_a.as_str());
     let bucket_b = captures.s3.map(|s3| s3.bucket_b.as_str());
     let live_url = captures.live_url;
-    let telemetry_url = captures.telemetry_url;
+    let telemetry_a = captures.telemetry_a;
+    let telemetry_b = captures.telemetry_b;
+    let grpc = captures.grpc;
     let catalog = admin
         .load_catalog(&options.a_db, &["public".to_string()], &[])
         .await?;
@@ -667,22 +788,25 @@ async fn execute(
     let before_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
     let attempts = case.and_then(|case| case.attempts.as_ref());
     let http_start = recorder.map_or(0, Recorder::request_count);
+    let grpc_start_a = grpc.map_or(0, |grpc| grpc.a.request_count());
     let django = run_django(
         options,
         call_args,
         call_kwargs,
         bucket_a,
         live_url,
-        telemetry_url,
+        telemetry_a,
         attempts,
     )
     .await?;
     // Capture immediately: later requests append to the same log.
     let django_http = recorder.map(|recorder| recorder.slice(http_start));
+    let django_grpc = grpc.map(|grpc| grpc.a.slice(grpc_start_a));
     let messages_a = drain_messages(rabbit, &drain, &options.vhost).await?;
     let after_redis_a = redis_a.1.snapshot().await?.snapshot;
     let before_b = admin.snapshot(&options.b_db, &catalog).await?.snapshot;
     let rust_start = recorder.map_or(0, Recorder::request_count);
+    let grpc_start_b = grpc.map_or(0, |grpc| grpc.b.request_count());
     let worker = run_worker(
         options,
         call_args,
@@ -690,11 +814,12 @@ async fn execute(
         admin,
         bucket_b,
         live_url,
-        telemetry_url,
+        telemetry_b,
         attempts,
     )
     .await?;
     let rust_http = recorder.map(|recorder| recorder.slice(rust_start));
+    let rust_grpc = grpc.map(|grpc| grpc.b.slice(grpc_start_b));
     let messages_b = drain_messages(rabbit, &drain, &options.vhost).await?;
     let jobs_b = rust_jobs(admin, &options.b_db, &worker.job_id).await?;
     let after_redis_b = redis_b.1.snapshot().await?.snapshot;
@@ -833,6 +958,9 @@ async fn execute(
     }
     if let (Some(a), Some(b)) = (django_http, rust_http) {
         compare_requests(case.expect("http capture requires a case"), buckets, &a, &b)?;
+    }
+    if let (Some(a), Some(b)) = (django_grpc, rust_grpc) {
+        compare_grpc(&a, &b)?;
     }
     Ok(())
 }
@@ -1085,7 +1213,7 @@ async fn run_django(
     call_kwargs: &serde_json::Map<String, serde_json::Value>,
     bucket: Option<&str>,
     live_url: Option<&str>,
-    telemetry_url: Option<&str>,
+    telemetry: Option<&TelemetryEnv>,
     attempts: Option<&AttemptsCase>,
 ) -> Result<DjangoOutcome> {
     let root = repo_root();
@@ -1095,7 +1223,7 @@ async fn run_django(
         &options.vhost,
         bucket,
         live_url,
-        telemetry_url,
+        telemetry,
         true,
     )?;
     let mut command = Command::new(plane_oracle::python());
@@ -1241,7 +1369,7 @@ async fn run_worker(
     admin: &DbAdmin,
     bucket: Option<&str>,
     live_url: Option<&str>,
-    telemetry_url: Option<&str>,
+    telemetry: Option<&TelemetryEnv>,
     attempts: Option<&AttemptsCase>,
 ) -> Result<WorkerOutcome> {
     let root = repo_root();
@@ -1252,7 +1380,7 @@ async fn run_worker(
         &options.vhost,
         bucket,
         live_url,
-        telemetry_url,
+        telemetry,
         true,
     )?;
 
@@ -1610,7 +1738,7 @@ fn dev_env(
     vhost: &str,
     bucket: Option<&str>,
     live_url: Option<&str>,
-    telemetry_url: Option<&str>,
+    telemetry: Option<&TelemetryEnv>,
     allow_loopback: bool,
 ) -> Result<BTreeMap<String, String>> {
     let script = repo_root().join("apps/server/dev/django-env.sh");
@@ -1658,15 +1786,14 @@ fn dev_env(
         // default path `/live/`.
         env.insert("LIVE_BASE_URL".to_string(), live_url.to_string());
     }
-    // The OTLP/HTTP metrics exporter (`push_instance_metrics`): both sides use
-    // `OTLP_ENDPOINT` (the Python task's only endpoint knob) and must take the
-    // HTTP branch. The backend pins the two values the exporter normally
-    // generates per process/collection so the protobuf bytes are comparable:
-    // `service.instance.id` (the SDK's random uuid4, overridden by the `otel`
-    // resource detector) and `time_unix_nano` (the harness's Django runner
-    // patches the OTel SDK's `time_ns`; the Rust handler reads only with the
-    // `difftest` feature).
-    env.insert("OTLP_METRICS_PROTOCOL".to_string(), "http".to_string());
+    // The OTLP exporter (`push_instance_metrics`): both sides use
+    // `OTLP_ENDPOINT` (the Python task's only endpoint knob) and the target
+    // decides HTTP vs gRPC. The backend pins the two values the exporter
+    // normally generates per process/collection so the protobuf bytes are
+    // comparable: `service.instance.id` (the SDK's random uuid4, overridden by
+    // the `otel` resource detector) and `time_unix_nano` (the harness's Django
+    // runner patches the OTel SDK's `time_ns`; the Rust handler reads only
+    // with the `difftest` feature).
     env.insert(
         "OTEL_RESOURCE_ATTRIBUTES".to_string(),
         format!("service.instance.id={DIFFTEST_SERVICE_INSTANCE_ID}"),
@@ -1679,8 +1806,8 @@ fn dev_env(
         "PLANE_RS_DIFFTEST_METRICS_NS".to_string(),
         DIFFTEST_METRICS_NS.to_string(),
     );
-    if let Some(telemetry_url) = telemetry_url {
-        env.insert("OTLP_ENDPOINT".to_string(), telemetry_url.to_string());
+    if let Some(telemetry) = telemetry {
+        telemetry.apply(&mut env);
     }
     if allow_loopback {
         // `difftest task`'s local fake HTTP server is on 127.0.0.1. Django's

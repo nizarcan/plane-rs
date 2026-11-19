@@ -1,0 +1,7 @@
+{
+  "task": "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+  "grpc": {
+    "mode": "ok",
+    "headers": "x-test=hello%20world,x-other=two"
+  }
+}

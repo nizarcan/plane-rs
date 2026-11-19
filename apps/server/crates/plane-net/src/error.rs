@@ -55,6 +55,10 @@ pub enum FetchError {
     /// only caller-visible consequence is that the webhook task's generic
     /// `except Exception` path runs.
     Header(String),
+    /// An OTLP/gRPC transport or protocol failure (connect, TLS, HTTP/2, a
+    /// reset stream). `grpc` raises `RpcError` here; the exporter maps it to
+    /// `UNAVAILABLE`.
+    Grpc(String),
 }
 
 impl FetchError {
@@ -72,7 +76,10 @@ impl FetchError {
     pub fn is_request_exception(&self) -> bool {
         matches!(
             self,
-            Self::Transport(_) | Self::TooManyRedirects { .. } | Self::Preparation(_)
+            Self::Transport(_)
+                | Self::TooManyRedirects { .. }
+                | Self::Preparation(_)
+                | Self::Grpc(_)
         )
     }
 
@@ -93,9 +100,10 @@ impl fmt::Display for FetchError {
             Self::BodyTooLarge { limit } => {
                 write!(f, "response body exceeds {limit} bytes")
             }
-            Self::Preparation(message) | Self::Tls(message) | Self::Header(message) => {
-                f.write_str(message)
-            }
+            Self::Preparation(message)
+            | Self::Tls(message)
+            | Self::Header(message)
+            | Self::Grpc(message) => f.write_str(message),
         }
     }
 }

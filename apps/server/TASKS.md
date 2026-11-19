@@ -488,7 +488,7 @@ sets `queue=`, `acks_late=`, `time_limit=`, `soft_time_limit=`, `priority=`, `ex
 | 43 | `work_item_link_task.crawl_work_item_link_title` | `plane/bgtasks/work_item_link_task.py:249` | `(id: str, url: str) -> None` | none | False | none | `celery` |
 | 44 | `workspace_invitation_task.workspace_invitation` | `plane/bgtasks/workspace_invitation_task.py:23` | `(email, workspace_id, token, current_site, inviter)` | none | False | none | `celery` |
 | 45 | `workspace_seed_task.workspace_seed` | `plane/bgtasks/workspace_seed_task.py:505` | `(workspace_id: uuid.UUID) -> None` | none | False | none | `celery` |
-| 46 | `license.bgtasks.telemetry_metrics.push_instance_metrics` | `plane/license/bgtasks/telemetry_metrics.py:369` | `()` | none | False | none | `celery` |
+| 46 | `license.bgtasks.telemetry_metrics.push_instance_metrics` | `plane/license/bgtasks/telemetry_metrics.py:369` | `()` | none | False | none | `rust` (`plane-tasks/src/telemetry_metrics.rs`; OTLP/HTTP + OTLP/gRPC) |
 
 All names above carry the `plane.bgtasks.` prefix except #46, which is
 `plane.license.bgtasks.telemetry_metrics.push_instance_metrics`.
@@ -572,7 +572,7 @@ dropped. `workspace_seed` is the exception: it logs and `raise`s, so the job lan
 | 44 | `crawl_work_item_link_title` | yes | Fetches the URL (SSRF-pinned, ≤ 5 redirects, 1 s timeout) and the favicon; writes `IssueLink.metadata` = `{title, favicon (data URI), url, favicon_url}`. |
 | 45 | `workspace_invitation` | mostly | Sets `WorkspaceMemberInvite.message` and **emails** `emails/invitations/workspace_invitation.html`. |
 | 46 | `workspace_seed` | **no** | Creates a `User` bot (`bot_user_<workspace id>`, `is_bot=True`, `bot_type=WORKSPACE_SEED`), a `WorkspaceMember`, a project, states, labels, cycles, modules, issues, views and pages from `seed/` JSON files. Each run adds another bot user and project. Raises on failure (the only task that does). |
-| 47 | `push_instance_metrics` | yes | Builds OTLP gauges and pushes them to a telemetry endpoint (`plane/license/bgtasks/telemetry_metrics.py`); network only, no DB writes. `RUST_REWRITE.md` open decision 5 assumes this is **not** ported. |
+| 47 | `push_instance_metrics` | yes | Builds OTLP gauges and pushes them to the configured collector (`plane/license/bgtasks/telemetry_metrics.py`); network only, no DB writes. Rust-owned: `plane-tasks/src/telemetry_metrics.rs` implements both the HTTP and gRPC OTLP transports; the boot step and the beat entry publish it through `plane_jobs`. |
 
 ---
 
@@ -1039,8 +1039,8 @@ Notes:
   when porting so the schedule matches, then raise it as an upstream bug.
 * `METRICS_PUSH_INTERVAL_MINUTES` (`celery.py:27-38`) is read once at import from the
   environment, defaults to 360, and is clamped to `(0, 10_000_000]`; anything else falls
-  back to 360. `push_instance_metrics` is assumed not to be ported (owner decision 5), so
-  `plane-beat` should simply not run entry 3, and the cutover must delete the row.
+  back to 360. `push_instance_metrics` is Rust-owned: `plane-beat` seeds entry 3 with
+  `60 ×` that value and hands it over.
 * Because entry 3 is an `IntervalSchedule`, `plane-beat` cannot reproduce it with a cron
   expression; it needs a "last run + interval" state, which is what the
   `django_celery_beat_periodictask.last_run_at` column holds today.
@@ -1260,6 +1260,7 @@ consulted by `route::dispatch` and by the worker's handler registry.
 | `work_item_link_task.crawl_work_item_link_title` (44) | Rust | `plane-tasks/src/work_item_link.rs`; no retries |
 | `workspace_seed_task.workspace_seed` (46) | Rust | `plane-tasks/src/workspace_seed.rs`, the seed JSON embedded; no retries, and the one task that re-raises on failure |
 | `notification_task.notifications` (29) | Rust | `plane-tasks/src/notifications.rs`; no retries; its only producer is the Rust `issue_activity` handler's `notification=True` re-publish through `dispatch` (set A2) |
+| `push_instance_metrics` (46) | Rust | `plane-tasks/src/telemetry_metrics.rs`; no task retries (the exporters retry inside the deadline); producers are `plane-bootstrap`'s `register_instance` and the `push-instance-metrics` beat entry; OTLP/HTTP and OTLP/gRPC |
 
 A **schedule** has the same split in `plane_jobs.schedules.owner`.
 `plane-jobs/src/beat.rs::RUST_SCHEDULES` lists the entries whose task is

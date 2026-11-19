@@ -403,3 +403,22 @@ t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - 
 # The two skip branches: telemetry disabled on the instance, and no instance.
 t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json t-telemetry-disabled.sql t-telemetry-200.case.json --telemetry-url {{http}}
 t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json t-telemetry-no-instance.sql t-telemetry-200.case.json --telemetry-url {{http}}
+#
+# gRPC (`OTLP_METRICS_PROTOCOL=grpc`, the Django default): the case's `grpc`
+# block starts one h2c recorder per side and sets each side's `OTLP_ENDPOINT`.
+# The request body is decompressed before comparison, so gzip is checked by the
+# `grpc-encoding` metadata and the message bytes, not the raw gzip bytes.
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-grpc-ok.case.json
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-grpc-unavailable.case.json
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-grpc-invalid.case.json
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-grpc-deadline.case.json
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-grpc-drop.case.json
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-grpc-headers.case.json
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-grpc-gzip.case.json
+# The HTTP exporter's gzip path: the recorder decompresses the body and
+# compares the `Content-Encoding`, because Python's gzip header embeds the
+# write time.
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json - t-http-gzip.case.json --telemetry-url {{http}}
+# A body over the 65 KiB HTTP/2 stream window (plane_fix_tpl + 300 workspaces):
+# the gRPC transport must split the message into multiple DATA frames.
+t plane.license.bgtasks.telemetry_metrics.push_instance_metrics t-kwargs.json t-grpc-large.sql t-grpc-large.case.json --template-db plane_fix_tpl

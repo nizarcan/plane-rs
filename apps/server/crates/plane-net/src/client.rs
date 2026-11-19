@@ -277,7 +277,15 @@ impl HttpEngine {
         self
     }
 
-    fn trust_for(&self, ssrf: bool) -> TlsTrust {
+    pub(crate) fn resolver(&self) -> &SharedResolver {
+        &self.resolver
+    }
+
+    pub(crate) fn tls(&self) -> &TlsSettings {
+        &self.tls
+    }
+
+    pub(crate) fn trust_for(&self, ssrf: bool) -> TlsTrust {
         if ssrf {
             self.pinned_trust.clone().unwrap_or(TlsTrust::Certifi)
         } else {

@@ -48,6 +48,9 @@ pub enum TlsTrust {
 pub struct TlsSettings {
     certifi: OnceLock<Arc<ClientConfig>>,
     environment: OnceLock<Arc<ClientConfig>>,
+    /// The same roots with ALPN `h2`, for the OTLP/gRPC client.
+    grpc_certifi: OnceLock<Arc<ClientConfig>>,
+    grpc_environment: OnceLock<Arc<ClientConfig>>,
 }
 
 impl Default for TlsSettings {
@@ -55,6 +58,8 @@ impl Default for TlsSettings {
         Self {
             certifi: OnceLock::new(),
             environment: OnceLock::new(),
+            grpc_certifi: OnceLock::new(),
+            grpc_environment: OnceLock::new(),
         }
     }
 }
@@ -72,14 +77,14 @@ impl TlsSettings {
                 .get_or_init(|| {
                     // A build failure here is a packaging bug, not a runtime
                     // condition: cache the successful config only.
-                    Arc::new(build(&webpki_store()).expect("webpki root store builds"))
+                    Arc::new(build(&webpki_store(), HTTP1_ALPN).expect("webpki root store builds"))
                 })
                 .clone()),
             TlsTrust::Environment => {
                 if let Some(config) = self.environment.get() {
                     return Ok(config.clone());
                 }
-                let config = Arc::new(build(&environment_store()?)?);
+                let config = Arc::new(build(&environment_store()?, HTTP1_ALPN)?);
                 let _ = self.environment.set(config.clone());
                 Ok(config)
             }
@@ -90,13 +95,47 @@ impl TlsSettings {
                         .add(cert.clone())
                         .map_err(|error| format!("invalid root certificate: {error}"))?;
                 }
-                Ok(Arc::new(build(&store)?))
+                Ok(Arc::new(build(&store, HTTP1_ALPN)?))
+            }
+        }
+    }
+
+    /// A `ClientConfig` for `trust` with ALPN `h2`, for the OTLP/gRPC client.
+    /// The roots are the same as [`Self::config`]: the pinned call sites use
+    /// certifi (D9), and the gRPC exporter is SSRF-pinned.
+    pub fn grpc_config(&self, trust: &TlsTrust) -> Result<Arc<ClientConfig>, String> {
+        match trust {
+            TlsTrust::Certifi => Ok(self
+                .grpc_certifi
+                .get_or_init(|| {
+                    Arc::new(build(&webpki_store(), GRPC_ALPN).expect("webpki root store builds"))
+                })
+                .clone()),
+            TlsTrust::Environment => {
+                if let Some(config) = self.grpc_environment.get() {
+                    return Ok(config.clone());
+                }
+                let config = Arc::new(build(&environment_store()?, GRPC_ALPN)?);
+                let _ = self.grpc_environment.set(config.clone());
+                Ok(config)
+            }
+            TlsTrust::Custom(roots) => {
+                let mut store = RootCertStore::empty();
+                for cert in roots {
+                    store
+                        .add(cert.clone())
+                        .map_err(|error| format!("invalid root certificate: {error}"))?;
+                }
+                Ok(Arc::new(build(&store, GRPC_ALPN)?))
             }
         }
     }
 }
 
-fn build(roots: &RootCertStore) -> Result<ClientConfig, String> {
+const HTTP1_ALPN: &[&[u8]] = &[b"http/1.1"];
+const GRPC_ALPN: &[&[u8]] = &[b"h2"];
+
+fn build(roots: &RootCertStore, alpn: &[&[u8]]) -> Result<ClientConfig, String> {
     let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
     let builder = ClientConfig::builder_with_provider(provider)
         .with_protocol_versions(&[&rustls::version::TLS12, &rustls::version::TLS13])
@@ -104,8 +143,8 @@ fn build(roots: &RootCertStore) -> Result<ClientConfig, String> {
     let mut config = builder
         .with_root_certificates(roots.clone())
         .with_no_client_auth();
-    // urllib3 2.x sets ALPN to http/1.1 only; no h2, no h3.
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    // urllib3 2.x sets ALPN to http/1.1 only; gRPC needs h2.
+    config.alpn_protocols = alpn.iter().map(|value| value.to_vec()).collect();
     Ok(config)
 }
 
@@ -162,3 +201,18 @@ pub fn trust_anchor_count() -> usize {
 
 #[allow(dead_code)]
 fn _assert_trust_anchor_type(_: &TrustAnchor<'static>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grpc_config_negotiates_h2() {
+        let settings = TlsSettings::new();
+        let config = settings.grpc_config(&TlsTrust::Certifi).expect("config");
+        assert_eq!(config.alpn_protocols, vec![b"h2".to_vec()]);
+        let http = settings.config(&TlsTrust::Certifi).expect("config");
+        assert_eq!(http.alpn_protocols, vec![b"http/1.1".to_vec()]);
+        assert!(trust_anchor_count() > 0);
+    }
+}

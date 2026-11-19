@@ -16,6 +16,9 @@ repository.workspace = true
 # orchestrator can hoist them into `[workspace.dependencies]` unchanged.
 [dependencies]
 base64.workspace = true
+bytes = "1.11.1"
+h2 = "0.4.20"
+http.workspace = true
 idna = "1.1.0"
 ipnet.workspace = true
 plane-core = { path = "../plane-core" }
@@ -31,7 +34,11 @@ rustls = { workspace = true, default-features = false, features = [
 ] }
 rustls-pemfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["net", "time"] }
+tokio = { workspace = true, features = ["net", "rt", "time"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = [
+  "aws_lc_rs",
+  "tls12",
+] }
 tracing.workspace = true
 webpki-roots.workspace = true
 
@@ -44,10 +51,6 @@ tokio = { workspace = true, features = [
   "io-util",
   "net",
   "time",
-] }
-tokio-rustls = { version = "0.26.6", default-features = false, features = [
-  "aws_lc_rs",
-  "tls12",
 ] }
 
 [lints]

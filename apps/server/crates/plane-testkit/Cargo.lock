@@ -1976,6 +1976,7 @@ dependencies = [
  "futures-util",
  "hdrhistogram",
  "hmac 0.12.1",
+ "http-body",
  "http-body-util",
  "hyper",
  "hyper-util",

@@ -763,8 +763,13 @@ workspace `Cargo.toml` and upgrade deliberately.
   `plane-tasks/src/telemetry_metrics.rs` reproduces the 9 instance and up to 6 workspace gauges,
   the OTel resource, and the two exports per run (`force_flush` + `shutdown`), posting the OTLP
   protobuf through the SSRF-pinned `plane_net::preset::TELEMETRY`. `difftest task` set `t`
-  compares the body byte for byte. OTLP/HTTP is done; OTLP/gRPC (Django's default protocol)
-  is being added.
+  compares the body byte for byte. Both OTLP transports are ported: gRPC (Django's default)
+  is a unary `MetricsService/Export` over `h2` through `plane-net`'s pinning (TLS with ALPN
+  `h2`, or h2c when `OTEL_EXPORTER_OTLP_METRICS_INSECURE=true`), with Python's metadata, user
+  agent, retry codes and 6-attempt backoff; `OTEL_EXPORTER_OTLP_*_{HEADERS,COMPRESSION,TIMEOUT}`
+  work for both. No `tonic`/`prost`: the protobuf is hand-encoded and tonic would add a second
+  TLS/channel layer. Gaps (in `ENV.md`): certificate/client-key envs, `retryinfo-bin`, the gRPC
+  retryable-code override, the HTTP 64 MiB cap, backoff jitter.
 - The differential harness boots neither side through the entrypoint's setup (amended
   after the `d9eedf323e` verification): `dev/django-serve.sh` starts after it, and
   `scenarios/targets.yaml` sets `PLANE_RS_BOOT_STEPS=skip` on the Rust target only, so
