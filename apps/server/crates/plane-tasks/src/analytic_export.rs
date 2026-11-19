@@ -18,6 +18,12 @@
 //! lookup the function can emit; a key it cannot express (`logged_by`, which
 //! `Issue` does not have) fails the task exactly as Django's `FieldError` does.
 //!
+//! **The POST branch has no `"None"` → `IS NULL` rule.** That rule is in the
+//! GET branches (`issue_filters.py:135-158`), and this task is POST-only: a
+//! literal `"None"` in a UUID list reaches Django's `UUIDField.to_python` and
+//! is a `ValidationError` (a JSON `null` *item* is discarded by `In`, and an
+//! all-null list is `EmptyResultSet`). The port reproduces both.
+//!
 //! # Distribution
 //!
 //! The x-axis becomes a `dimension`: a date axis is `EXTRACT(year) || '-' ||
@@ -203,7 +209,7 @@ async fn run(context: &TaskContext, client: &Client, args: &Args) -> Result<(), 
     let rows = if segment.is_empty() {
         non_segmented_rows(&distribution, &x_axis, &y_axis, key, &details)
     } else {
-        segmented_rows(&distribution, &x_axis, &y_axis, &segment, key, &details)
+        segmented_rows(&distribution, &x_axis, &y_axis, &segment, key, &details)?
     };
 
     let csv = csv_from_rows(&rows);
@@ -258,6 +264,12 @@ const VALID_YAXIS: [&str; 2] = ["issue_count", "estimate"];
 struct Filter {
     parts: Vec<String>,
     params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>>,
+    /// Django's `EmptyResultSet`: an `__in` whose items are all `None`
+    /// compiles to no rows at all (`django/db/models/lookups.py:546-556`).
+    /// Every later `__in` coercion is skipped, because the compiler stops at
+    /// the first `EmptyResultSet`; build-time errors (the `len()` guards and
+    /// `FieldError`) still happen first.
+    empty: bool,
 }
 
 impl Filter {
@@ -270,10 +282,15 @@ impl Filter {
     }
 
     fn where_sql(&self) -> String {
-        if self.parts.is_empty() {
+        let parts = if self.parts.is_empty() {
             "TRUE".to_string()
         } else {
             self.parts.join(" AND ")
+        };
+        if self.empty {
+            format!("FALSE AND {parts}")
+        } else {
+            parts
         }
     }
 
@@ -299,14 +316,16 @@ fn build_filters(
     // created_at, updated_at, start_date, target_date, completed_at, type,
     // project, cycle, module, intake_status, inbox_status, sub_issue,
     // subscriber, start_target_date.
-    if present("state")
-        && let Some(list) = uuid_list(values("state"), "state")?
-        && !list.is_empty()
-    {
-        let index = filter.bind(list);
-        filter
-            .parts
-            .push(format!("i.state_id = ANY(${index}::uuid[])"));
+    if present("state") {
+        match post_uuid_list(filter, values("state"))? {
+            UuidList::Skip | UuidList::Empty => {}
+            UuidList::Ids(ids) => {
+                let index = filter.bind(ids);
+                filter
+                    .parts
+                    .push(format!("i.state_id = ANY(${index}::uuid[])"));
+            }
+        }
     }
     if present("state_group")
         && let Some(list) = text_list(values("state_group"), "state_group")?
@@ -317,14 +336,16 @@ fn build_filters(
             .parts
             .push(format!("s.\"group\" = ANY(${index}::text[])"));
     }
-    if present("estimate_point")
-        && let Some(list) = uuid_list(values("estimate_point"), "estimate_point")?
-        && !list.is_empty()
-    {
-        let index = filter.bind(list);
-        filter
-            .parts
-            .push(format!("i.estimate_point_id = ANY(${index}::uuid[])"));
+    if present("estimate_point") {
+        match post_uuid_list(filter, values("estimate_point"))? {
+            UuidList::Skip | UuidList::Empty => {}
+            UuidList::Ids(ids) => {
+                let index = filter.bind(ids);
+                filter
+                    .parts
+                    .push(format!("i.estimate_point_id = ANY(${index}::uuid[])"));
+            }
+        }
     }
     if present("priority")
         && let Some(list) = text_list(values("priority"), "priority")?
@@ -335,70 +356,73 @@ fn build_filters(
             .parts
             .push(format!("i.priority = ANY(${index}::text[])"));
     }
-    if present("parent")
-        && let Some(list) = uuid_list(values("parent"), "parent")?
-        && !list.is_empty()
-    {
-        let index = filter.bind(list);
-        filter
-            .parts
-            .push(format!("i.parent_id = ANY(${index}::uuid[])"));
-    }
-    if present("labels")
-        && let Some(list) = uuid_list(values("labels"), "labels")?
-    {
-        filter.parts.push(
-            "EXISTS (SELECT 1 FROM issue_labels fl WHERE fl.issue_id = i.id \
-                 AND fl.deleted_at IS NULL)"
-                .to_string(),
-        );
-        if !list.is_empty() {
-            let index = filter.bind(list);
-            filter.parts.push(format!(
-                "EXISTS (SELECT 1 FROM issue_labels fl2 WHERE fl2.issue_id = i.id \
-                     AND fl2.deleted_at IS NULL AND fl2.label_id = ANY(${index}::uuid[]))"
-            ));
+    if present("parent") {
+        match post_uuid_list(filter, values("parent"))? {
+            UuidList::Skip | UuidList::Empty => {}
+            UuidList::Ids(ids) => {
+                let index = filter.bind(ids);
+                filter
+                    .parts
+                    .push(format!("i.parent_id = ANY(${index}::uuid[])"));
+            }
         }
     }
-    if present("assignees")
-        && let Some(list) = uuid_list(values("assignees"), "assignees")?
-    {
-        filter.parts.push(
-            "EXISTS (SELECT 1 FROM issue_assignees fa WHERE fa.issue_id = i.id \
-                 AND fa.deleted_at IS NULL)"
-                .to_string(),
-        );
-        if !list.is_empty() {
-            let index = filter.bind(list);
-            filter.parts.push(format!(
-                "EXISTS (SELECT 1 FROM issue_assignees fa2 WHERE fa2.issue_id = i.id \
-                     AND fa2.deleted_at IS NULL AND fa2.assignee_id = ANY(${index}::uuid[]))"
-            ));
-        }
+    if present("labels") {
+        post_related_uuids(
+            filter,
+            values("labels"),
+            "issue_labels",
+            "issue_id",
+            "label_id",
+        )?;
     }
-    if present("mentions")
-        && let Some(list) = uuid_list(values("mentions"), "mentions")?
-        && !list.is_empty()
-    {
-        let index = filter.bind(list);
-        filter.parts.push(format!(
-            "EXISTS (SELECT 1 FROM issue_mentions fm WHERE fm.issue_id = i.id \
+    if present("assignees") {
+        post_related_uuids(
+            filter,
+            values("assignees"),
+            "issue_assignees",
+            "issue_id",
+            "assignee_id",
+        )?;
+    }
+    if present("mentions") {
+        match post_uuid_list(filter, values("mentions"))? {
+            UuidList::Skip | UuidList::Empty => {}
+            UuidList::Ids(ids) => {
+                let index = filter.bind(ids);
+                filter.parts.push(format!(
+                    "EXISTS (SELECT 1 FROM issue_mentions fm WHERE fm.issue_id = i.id \
                      AND fm.deleted_at IS NULL AND fm.mention_id = ANY(${index}::uuid[]))"
-        ));
+                ));
+            }
+        }
     }
-    if present("created_by")
-        && let Some(list) = uuid_list(values("created_by"), "created_by")?
-        && !list.is_empty()
-    {
-        let index = filter.bind(list);
-        filter
-            .parts
-            .push(format!("i.created_by_id = ANY(${index}::uuid[])"));
+    if present("created_by") {
+        match post_uuid_list(filter, values("created_by"))? {
+            UuidList::Skip | UuidList::Empty => {}
+            UuidList::Ids(ids) => {
+                let index = filter.bind(ids);
+                filter
+                    .parts
+                    .push(format!("i.created_by_id = ANY(${index}::uuid[])"));
+            }
+        }
     }
     if present("logged_by") {
-        // `filter_logged_by` emits `logged_by__in` and `Issue` has no such
-        // field: Django raises FieldError and the task logs and returns.
-        return Err("Cannot resolve keyword 'logged_by' into field.".to_string());
+        // `filter_logged_by` (`issue_filters.py:412-425`) emits
+        // `logged_by__in` only when its guard passes. `Issue` has no
+        // `logged_by` field, so Django resolves the kwargs *before* running
+        // any SQL and raises `FieldError` (a build-time failure: an earlier
+        // empty `__in` cannot hide it). The task logs and returns.
+        match post_value(values("logged_by")) {
+            PostValue::Skip => {}
+            PostValue::NotSized(kind) => {
+                return Err(format!("object of type '{kind}' has no len()"));
+            }
+            PostValue::Items(_) => {
+                return Err("Cannot resolve keyword 'logged_by' into field.".to_string());
+            }
+        }
     }
     if present("name")
         && let Some(name) = string_value(values("name"))
@@ -448,46 +472,34 @@ fn build_filters(
             .parts
             .push(format!("s.\"group\" = ANY(${index}::text[])"));
     }
-    if present("project")
-        && let Some(list) = uuid_list(values("project"), "project")?
-        && !list.is_empty()
-    {
-        let index = filter.bind(list);
-        filter
-            .parts
-            .push(format!("i.project_id = ANY(${index}::uuid[])"));
-    }
-    if present("cycle")
-        && let Some(list) = uuid_list(values("cycle"), "cycle")?
-    {
-        filter.parts.push(
-            "EXISTS (SELECT 1 FROM cycle_issues fc WHERE fc.issue_id = i.id \
-                 AND fc.deleted_at IS NULL)"
-                .to_string(),
-        );
-        if !list.is_empty() {
-            let index = filter.bind(list);
-            filter.parts.push(format!(
-                "EXISTS (SELECT 1 FROM cycle_issues fc2 WHERE fc2.issue_id = i.id \
-                     AND fc2.deleted_at IS NULL AND fc2.cycle_id = ANY(${index}::uuid[]))"
-            ));
+    if present("project") {
+        match post_uuid_list(filter, values("project"))? {
+            UuidList::Skip | UuidList::Empty => {}
+            UuidList::Ids(ids) => {
+                let index = filter.bind(ids);
+                filter
+                    .parts
+                    .push(format!("i.project_id = ANY(${index}::uuid[])"));
+            }
         }
     }
-    if present("module")
-        && let Some(list) = uuid_list(values("module"), "module")?
-    {
-        filter.parts.push(
-            "EXISTS (SELECT 1 FROM module_issues fm2 WHERE fm2.issue_id = i.id \
-                 AND fm2.deleted_at IS NULL)"
-                .to_string(),
-        );
-        if !list.is_empty() {
-            let index = filter.bind(list);
-            filter.parts.push(format!(
-                "EXISTS (SELECT 1 FROM module_issues fm3 WHERE fm3.issue_id = i.id \
-                     AND fm3.deleted_at IS NULL AND fm3.module_id = ANY(${index}::uuid[]))"
-            ));
-        }
+    if present("cycle") {
+        post_related_uuids(
+            filter,
+            values("cycle"),
+            "cycle_issues",
+            "issue_id",
+            "cycle_id",
+        )?;
+    }
+    if present("module") {
+        post_related_uuids(
+            filter,
+            values("module"),
+            "module_issues",
+            "issue_id",
+            "module_id",
+        )?;
     }
     // `filter_intake_status` and `filter_inbox_status` both read
     // `inbox_status` in the POST branch (`issue_filters.py:253-279`).
@@ -509,15 +521,14 @@ fn build_filters(
             filter.parts.push("i.parent_id IS NULL".to_string());
         }
     }
-    if present("subscriber")
-        && let Some(list) = uuid_list(values("subscriber"), "subscriber")?
-        && !list.is_empty()
-    {
-        let index = filter.bind(list);
-        filter.parts.push(format!(
-            "EXISTS (SELECT 1 FROM issue_subscribers fs WHERE fs.issue_id = i.id \
-                     AND fs.deleted_at IS NULL AND fs.subscriber_id = ANY(${index}::uuid[]))"
-        ));
+    if present("subscriber") {
+        post_related_uuids(
+            filter,
+            values("subscriber"),
+            "issue_subscribers",
+            "issue_id",
+            "subscriber_id",
+        )?;
     }
     if present("start_target_date") {
         let toggle = values("start_target_date")
@@ -531,33 +542,181 @@ fn build_filters(
     Ok(())
 }
 
-/// `filter_valid_uuids`: a list of UUID strings, invalid ones dropped unless
-/// the whole lookup cannot be parsed (Django validates and raises).
-fn uuid_list(value: Option<&Value>, key: &str) -> Result<Option<Vec<Uuid>>, Failure> {
+/// What `issue_filters.py`'s POST guard leaves behind.
+#[derive(Debug, PartialEq, Eq)]
+enum PostValue {
+    /// The guard rejected the value: no lookup is emitted at all.
+    Skip,
+    /// `len(value)` raised `TypeError`. That happens while `issue_filters`
+    /// builds the dictionary, so it aborts the task even when an earlier
+    /// lookup was already an `EmptyResultSet`.
+    NotSized(&'static str),
+    /// The raw `__in` items, with `None` kept for Django's discard step.
+    Items(Vec<Option<String>>),
+}
+
+/// Python `bool(value) and len(value) and value != "null"`.
+///
+/// `params.get(key)` on a missing key is `None`. Numbers other than zero are
+/// truthy but have no `len()`, which is a `TypeError` inside the task's `try`.
+/// A string is iterated **character by character** by Django's `In` lookup
+/// (`django/db/models/lookups.py:546-559`), a dict by its keys.
+fn post_value(value: Option<&Value>) -> PostValue {
     let Some(value) = value else {
-        return Ok(None);
+        return PostValue::Skip;
     };
-    let items: Vec<String> = match value {
-        Value::Array(items) => items
-            .iter()
-            .filter_map(|item| string_value(Some(item)))
-            .filter(|text| text != "null")
-            .collect(),
-        Value::String(text) if !text.is_empty() && text != "null" => vec![text.clone()],
-        _ => Vec::new(),
-    };
-    let mut out = Vec::new();
-    for item in items {
-        match Uuid::parse_str(&item) {
-            Ok(id) => out.push(id),
-            Err(_) => {
-                return Err(format!(
-                    "\u{201c}{item}\u{201d} is not a valid UUID ({key})."
-                ));
+    match value {
+        Value::Null => PostValue::Skip,
+        Value::Bool(false) => PostValue::Skip,
+        Value::Bool(true) => PostValue::NotSized("bool"),
+        Value::Number(number) => {
+            if number.as_f64().is_some_and(|value| value == 0.0) {
+                PostValue::Skip
+            } else if number.is_i64() || number.is_u64() {
+                PostValue::NotSized("int")
+            } else {
+                PostValue::NotSized("float")
+            }
+        }
+        Value::String(text) => {
+            if text.is_empty() || text == "null" {
+                PostValue::Skip
+            } else {
+                PostValue::Items(text.chars().map(|ch| Some(ch.to_string())).collect())
+            }
+        }
+        Value::Array(items) => {
+            if items.is_empty() {
+                PostValue::Skip
+            } else {
+                PostValue::Items(
+                    items
+                        .iter()
+                        .map(|item| match item {
+                            Value::Null => None,
+                            Value::String(text) => Some(text.clone()),
+                            other => Some(item_text(other)),
+                        })
+                        .collect(),
+                )
+            }
+        }
+        Value::Object(map) => {
+            if map.is_empty() {
+                PostValue::Skip
+            } else {
+                PostValue::Items(map.keys().map(|key| Some(key.clone())).collect())
             }
         }
     }
-    Ok(Some(out))
+}
+
+/// `str()` of a JSON value as Python renders it in a `ValidationError` or an
+/// `int()` failure.
+fn item_text(value: &Value) -> String {
+    match value {
+        Value::Null => "None".to_string(),
+        Value::Bool(true) => "True".to_string(),
+        Value::Bool(false) => "False".to_string(),
+        Value::Number(number) => number.to_string(),
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// The result of Django's `__in` coercion for a POST UUID list.
+#[derive(Debug)]
+enum UuidList {
+    /// The guard skipped the lookup.
+    Skip,
+    /// Every item was `None`: Django's `In` raises `EmptyResultSet`, so the
+    /// whole query returns no rows.
+    Empty,
+    Ids(Vec<Uuid>),
+}
+
+/// Coerce a POST lookup value the way `In.process_rhs` does at SQL compile
+/// time: discard `None`, run every remaining item through
+/// `UUIDField.to_python` (a literal `"None"` is therefore *not* `IS NULL`;
+/// the `IS NULL` rule lives only in the GET branch, `issue_filters.py:135-158`),
+/// and turn an all-`None` list into `EmptyResultSet`.
+fn post_uuid_list(filter: &mut Filter, value: Option<&Value>) -> Result<UuidList, Failure> {
+    match post_value(value) {
+        PostValue::Skip => Ok(UuidList::Skip),
+        PostValue::NotSized(kind) => Err(format!("object of type '{kind}' has no len()")),
+        PostValue::Items(items) => {
+            let mut ids = Vec::new();
+            for item in items {
+                let Some(text) = item else {
+                    continue;
+                };
+                if filter.empty {
+                    // An earlier lookup compiled to `EmptyResultSet`, so the
+                    // compiler never reaches this one's coercion.
+                    continue;
+                }
+                match Uuid::parse_str(&text) {
+                    Ok(id) => ids.push(id),
+                    Err(_) => {
+                        return Err(format!("\u{201c}{text}\u{201d} is not a valid UUID."));
+                    }
+                }
+            }
+            if ids.is_empty() {
+                filter.empty = true;
+                Ok(UuidList::Empty)
+            } else {
+                Ok(UuidList::Ids(ids))
+            }
+        }
+    }
+}
+
+/// The guard plus [`push_related_uuids`], in one call.
+fn post_related_uuids(
+    filter: &mut Filter,
+    value: Option<&Value>,
+    table: &str,
+    issue_column: &str,
+    match_column: &str,
+) -> Result<(), Failure> {
+    let list = post_uuid_list(filter, value)?;
+    push_related_uuids(filter, list, table, issue_column, match_column);
+    Ok(())
+}
+
+/// `filter_labels`/`filter_assignees`/`filter_cycle`/`filter_module`/
+/// `filter_subscribed_issues`: the `*_deleted_at__isnull=True` child Django adds
+/// outside the guard, plus the `__in` child inside it.
+///
+/// With no value list, Django's LEFT JOIN keeps an issue that has no related
+/// row *or* at least one live one; an issue whose rows are all soft-deleted is
+/// dropped. (Django's count and estimate are also inflated once an issue has
+/// more than one matching row; this EXISTS form is not. `analytic_export.rs`
+/// documents that upstream join bug.)
+fn push_related_uuids(
+    filter: &mut Filter,
+    list: UuidList,
+    table: &str,
+    issue_column: &str,
+    match_column: &str,
+) {
+    match list {
+        UuidList::Skip => filter.parts.push(format!(
+            "(EXISTS (SELECT 1 FROM {table} r0 WHERE r0.{issue_column} = i.id \
+             AND r0.deleted_at IS NULL) \
+             OR NOT EXISTS (SELECT 1 FROM {table} r1 WHERE r1.{issue_column} = i.id))"
+        )),
+        // `FALSE` is already a part.
+        UuidList::Empty => {}
+        UuidList::Ids(ids) => {
+            let index = filter.bind(ids);
+            filter.parts.push(format!(
+                "EXISTS (SELECT 1 FROM {table} r2 WHERE r2.{issue_column} = i.id \
+                 AND r2.deleted_at IS NULL AND r2.{match_column} = ANY(${index}::uuid[]))"
+            ));
+        }
+    }
 }
 
 fn text_list(value: Option<&Value>, _key: &str) -> Result<Option<Vec<String>>, Failure> {
@@ -792,8 +951,8 @@ async fn build_graph_plot(
     });
 
     let mut select = format!("SELECT {dimension}::text AS dimension");
-    if segmented.is_some() {
-        select.push_str(", ax_segment::text AS segment");
+    if let Some(segmented) = &segmented {
+        select.push_str(&format!(", {segmented}::text AS segment"));
     }
     if y_axis == "issue_count" {
         select.push_str(", COUNT(*)::bigint AS count");
@@ -1045,7 +1204,7 @@ fn segmented_rows(
     segment: &str,
     key: &str,
     details: &Details,
-) -> Vec<Vec<CsvValue>> {
+) -> Result<Vec<Vec<CsvValue>>, Failure> {
     // `list(set(...))`: first-seen here (see the module docs).
     let mut segment_zero: Vec<String> = Vec::new();
     for (_, rows) in distribution {
@@ -1056,6 +1215,19 @@ fn segmented_rows(
                 segment_zero.push(value.clone());
             }
         }
+    }
+    // Upstream bug kept (`analytic_plot_export.py:278-282`): the module
+    // segment branch iterates `label_details`, not `module_details`, and reads
+    // `mod[MODULE_ID]`. When labels were requested too (`x_axis` is
+    // `labels__id`, the only way `label_details` is non-empty here) and a
+    // label row exists, the first iteration raises `KeyError`, the task logs
+    // it and no e-mail is sent. An empty distribution never enters the loop.
+    if segment == MODULE_ID
+        && x_axis == LABEL_ID
+        && !details.labels.is_empty()
+        && !segment_zero.is_empty()
+    {
+        return Err("KeyError: 'issue_module__module_id'".to_string());
     }
     let mut row_zero = vec![
         CsvValue::Text(x_header(x_axis).to_string()),
@@ -1087,7 +1259,7 @@ fn segmented_rows(
         }
         rows.push(row);
     }
-    rows
+    Ok(rows)
 }
 
 /// `csv.writer(buffer, delimiter=",", quoting=csv.QUOTE_ALL)` over
@@ -1130,6 +1302,97 @@ fn sanitize(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_post_uuid_list_with_a_literal_none_is_a_validation_error() {
+        // `issue_filters.py`'s GET branch turns "None" into `__in IS NULL`;
+        // the POST branch this task uses does not. Django's `In` lookup hands
+        // the string to `UUIDField.to_python`, which raises.
+        let mut filter = Filter::default();
+        let value = serde_json::json!(["None"]);
+        let error = post_uuid_list(&mut filter, Some(&value)).expect_err("ValidationError");
+        assert!(error.contains("is not a valid UUID"), "{error}");
+        assert!(!filter.empty);
+    }
+
+    #[test]
+    fn a_post_uuid_list_discards_json_nulls_and_empties_the_query() {
+        let mut filter = Filter::default();
+        let value = serde_json::json!([null]);
+        assert!(matches!(
+            post_uuid_list(&mut filter, Some(&value)).expect("coerced"),
+            UuidList::Empty
+        ));
+        assert!(filter.empty);
+        assert!(filter.where_sql().starts_with("FALSE AND"));
+    }
+
+    #[test]
+    fn a_post_string_is_iterated_character_by_character() {
+        let mut filter = Filter::default();
+        let value = serde_json::json!("e0000000-0000-4000-8000-000000000031");
+        let error = post_uuid_list(&mut filter, Some(&value)).expect_err("ValidationError");
+        assert!(error.contains("\u{201c}e\u{201d}"), "{error}");
+    }
+
+    #[test]
+    fn a_post_guard_skips_empty_null_and_missing_values() {
+        let mut filter = Filter::default();
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!(""),
+            serde_json::json!("null"),
+            serde_json::json!([]),
+            serde_json::json!({}),
+            serde_json::json!(0),
+        ] {
+            assert!(
+                matches!(
+                    post_uuid_list(&mut filter, Some(&value)).expect("skipped"),
+                    UuidList::Skip
+                ),
+                "{value}"
+            );
+        }
+        assert!(matches!(
+            post_uuid_list(&mut filter, None).expect("missing"),
+            UuidList::Skip
+        ));
+    }
+
+    #[test]
+    fn a_post_number_has_no_len() {
+        let mut filter = Filter::default();
+        let error =
+            post_uuid_list(&mut filter, Some(&serde_json::json!(5))).expect_err("TypeError");
+        assert_eq!(error, "object of type 'int' has no len()");
+    }
+
+    #[test]
+    fn a_module_segment_with_labels_raises_the_upstream_key_error() {
+        let details = Details {
+            labels: vec![("id".to_string(), "bug".to_string())],
+            ..Details::default()
+        };
+        let distribution = vec![(
+            "label".to_string(),
+            vec![PlotRow {
+                segment: Some("module".to_string()),
+                count: Some(1),
+                estimate: None,
+            }],
+        )];
+        let error = segmented_rows(
+            &distribution,
+            LABEL_ID,
+            "issue_count",
+            MODULE_ID,
+            "count",
+            &details,
+        )
+        .expect_err("KeyError");
+        assert!(error.contains("KeyError"));
+    }
 
     #[test]
     fn the_csv_quotes_every_field() {

@@ -33,6 +33,8 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.export_task.issue_export_task",
     // Phase 8 set C: ExportAnalyticsEndpoint.post is a Rust route.
     "plane.bgtasks.analytic_plot_export.analytic_export_task",
+    // Phase 8 set C: PageDuplicateEndpoint.post (route 133) is a Rust route.
+    "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
 ];
 
 /// A task's owner.

@@ -132,6 +132,25 @@ pub struct SmtpCase {
 pub struct HttpCase {
     #[serde(default)]
     pub responses: BTreeMap<String, FakeResponse>,
+    /// Normalisers for the recorded request bodies only. They exist for a
+    /// task that embeds a generated value in its payload (a copied asset's
+    /// fresh UUID); the SQL comparison still checks the stored value.
+    #[serde(default)]
+    pub normalize: Vec<Normalize>,
+}
+
+impl HttpCase {
+    fn normalize_text(&self, value: &str) -> String {
+        let mut out = value.to_string();
+        for rule in &self.normalize {
+            if let Ok(regex) = regex::Regex::new(&rule.pattern) {
+                out = regex
+                    .replace_all(&out, rule.replacement.as_str())
+                    .into_owned();
+            }
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -247,8 +266,13 @@ pub fn compare_objects(case: &TaskCase, a: &[ObservedObject], b: &[ObservedObjec
             })
             .collect()
     };
-    let a = normalize(a);
-    let b = normalize(b);
+    let mut a = normalize(a);
+    let mut b = normalize(b);
+    // A one-shot key (a task that copies an object to a fresh uuid) is
+    // normalised to a placeholder whose sort position depends on the raw uuid;
+    // compare the normalised listings in a stable order.
+    a.sort_by(|left, right| left.key.cmp(&right.key));
+    b.sort_by(|left, right| left.key.cmp(&right.key));
     if a == b {
         println!(
             "PASS: s3: {} object(s) identical (keys, bytes, content type, acl)",
@@ -564,7 +588,30 @@ impl RecordedRequest {
 }
 
 /// Compare the requests each side made, in order.
-pub fn compare_requests(a: &[RecordedRequest], b: &[RecordedRequest]) -> Result<()> {
+pub fn compare_requests(
+    case: &TaskCase,
+    a: &[RecordedRequest],
+    b: &[RecordedRequest],
+) -> Result<()> {
+    // The case's normalisers also apply to a request body: a task that copies
+    // an object embeds the fresh asset id in its `convert-document` payload,
+    // and that id is legitimately different on each side.
+    let http = case.http.as_ref();
+    let normalize = |request: &RecordedRequest| RecordedRequest {
+        method: request.method.clone(),
+        path: request.path.clone(),
+        query: request.query.clone(),
+        user_agent: request.user_agent.clone(),
+        body: http.map_or_else(
+            || request.body.clone(),
+            |http| {
+                http.normalize_text(&String::from_utf8_lossy(&request.body))
+                    .into_bytes()
+            },
+        ),
+    };
+    let a: Vec<RecordedRequest> = a.iter().map(normalize).collect();
+    let b: Vec<RecordedRequest> = b.iter().map(normalize).collect();
     if a == b {
         println!("PASS: http: {} request(s) identical", a.len());
         return Ok(());

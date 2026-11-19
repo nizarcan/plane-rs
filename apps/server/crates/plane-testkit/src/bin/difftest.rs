@@ -213,6 +213,9 @@ struct BenchArgs {
     /// Bucket for the Rust side; created, seeded and deleted by the tool.
     #[arg(long)]
     s3_bucket_b: Option<String>,
+    /// `LIVE_BASE_URL` for both sides (`{{http}}` = the case's fake server).
+    #[arg(long)]
+    live_url: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -296,6 +299,9 @@ struct TaskArgs {
     /// Bucket for the Rust side; created, seeded and deleted by the tool.
     #[arg(long)]
     s3_bucket_b: Option<String>,
+    /// `LIVE_BASE_URL` for both sides (`{{http}}` = the case's fake server).
+    #[arg(long)]
+    live_url: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -472,6 +478,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode> {
             options.s3_secret_key = args.s3_secret_key;
             options.s3_bucket_a = args.s3_bucket_a;
             options.s3_bucket_b = args.s3_bucket_b;
+            options.live_url = args.live_url;
             plane_testkit::task::run(&options).await?;
             Ok(ExitCode::SUCCESS)
         }

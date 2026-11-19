@@ -450,7 +450,7 @@ sets `queue=`, `acks_late=`, `time_limit=`, `soft_time_limit=`, `priority=`, `ex
 | 5 | `cleanup_task.delete_page_versions` | `plane/bgtasks/cleanup_task.py:182` | `()` | none | False | none | `celery` |
 | 6 | `cleanup_task.delete_issue_description_versions` | `plane/bgtasks/cleanup_task.py:192` | `()` | none | False | none | `celery` |
 | 7 | `cleanup_task.delete_webhook_logs` | `plane/bgtasks/cleanup_task.py:202` | `()` | none | False | none | `celery` |
-| 8 | `copy_s3_object.copy_s3_objects_of_description_and_assets` | `plane/bgtasks/copy_s3_object.py:127` | `(entity_name, entity_identifier, project_id, slug, user_id)` | none | False | none | `celery` |
+| 8 | `copy_s3_object.copy_s3_objects_of_description_and_assets` | `plane/bgtasks/copy_s3_object.py:127` | `(entity_name, entity_identifier, project_id, slug, user_id)` | none | False | none | `rust` (`plane-tasks/src/copy_s3_object.rs`) |
 | 9 | `deletion_task.soft_delete_related_objects` | `plane/bgtasks/deletion_task.py:18` | `(app_label, model_name, instance_pk, using=None)` | none | False | none | `celery` |
 | 10 | `deletion_task.hard_delete` | `plane/bgtasks/deletion_task.py:114` | `()` | none | False | none | `celery` |
 | 11 | `dummy_data_task.create_dummy_data` | `plane/bgtasks/dummy_data_task.py:488` | `(slug, email, members, issue_count, cycle_count, module_count, pages_count, intake_issue_count)` | none | False | none | `celery` |

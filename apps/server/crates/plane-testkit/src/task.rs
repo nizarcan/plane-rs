@@ -97,6 +97,9 @@ pub struct TaskOptions {
     /// this tool; they must not be the shared `uploads` bucket.
     pub s3_bucket_a: Option<String>,
     pub s3_bucket_b: Option<String>,
+    /// `LIVE_BASE_URL` for both sides; `{{http}}` expands to the recorder's
+    /// base URL, so a case can answer `LIVE_URL/convert-document/`.
+    pub live_url: Option<String>,
 }
 
 impl TaskOptions {
@@ -124,6 +127,7 @@ impl TaskOptions {
             s3_secret_key: "secret-key".to_string(),
             s3_bucket_a: None,
             s3_bucket_b: None,
+            live_url: None,
         }
     }
 }
@@ -306,6 +310,10 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         }
         None => None,
     };
+    let live_url = options.live_url.as_ref().map(|value| match &recorder {
+        Some(recorder) => value.replace("{{http}}", recorder.url()),
+        None => value.clone(),
+    });
     let s3 = match case.as_ref().and_then(|case| case.s3.as_ref()) {
         Some(s3_case) => {
             let (Some(bucket_a), Some(bucket_b)) =
@@ -389,6 +397,7 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         case.as_ref(),
         recorder.as_ref(),
         s3.as_ref(),
+        live_url.as_deref(),
     )
     .await;
 
@@ -422,15 +431,16 @@ async fn execute(
     case: Option<&TaskCase>,
     recorder: Option<&Recorder>,
     s3: Option<&S3Capture>,
+    live_url: Option<&str>,
 ) -> Result<()> {
     let bucket_a = s3.map(|s3| s3.bucket_a.as_str());
     let bucket_b = s3.map(|s3| s3.bucket_b.as_str());
     let http_start = recorder.map_or(0, Recorder::request_count);
-    run_django(options, kwargs, bucket_a).await?;
+    run_django(options, kwargs, bucket_a, live_url).await?;
     // Capture immediately: later requests append to the same log.
     let django_http = recorder.map(|recorder| recorder.slice(http_start));
     let rust_start = recorder.map_or(0, Recorder::request_count);
-    run_worker(options, kwargs, admin, bucket_b).await?;
+    run_worker(options, kwargs, admin, bucket_b, live_url).await?;
     let rust_http = recorder.map(|recorder| recorder.slice(rust_start));
 
     if let Some(case) = case {
@@ -479,7 +489,7 @@ async fn execute(
         compare_objects(case.expect("S3 capture requires a case"), &a, &b)?;
     }
     if let (Some(a), Some(b)) = (django_http, rust_http) {
-        compare_requests(&a, &b)?;
+        compare_requests(case.expect("http capture requires a case"), &a, &b)?;
     }
     Ok(())
 }
@@ -509,6 +519,7 @@ async fn run_django(
     options: &TaskOptions,
     kwargs: &serde_json::Value,
     bucket: Option<&str>,
+    live_url: Option<&str>,
 ) -> Result<()> {
     let root = repo_root();
     let env = dev_env(
@@ -516,6 +527,7 @@ async fn run_django(
         options.a_redis_db,
         &options.vhost,
         bucket,
+        live_url,
         true,
     )?;
     let output = Command::new(root.join("apps/api/.venv/bin/python"))
@@ -553,6 +565,7 @@ async fn run_worker(
     kwargs: &serde_json::Value,
     admin: &DbAdmin,
     bucket: Option<&str>,
+    live_url: Option<&str>,
 ) -> Result<()> {
     let root = repo_root();
     let worker = options
@@ -564,6 +577,7 @@ async fn run_worker(
         options.b_redis_db,
         &options.vhost,
         bucket,
+        live_url,
         true,
     )?;
 
@@ -706,6 +720,7 @@ fn dev_env(
     redis_db: i64,
     vhost: &str,
     bucket: Option<&str>,
+    live_url: Option<&str>,
     allow_loopback: bool,
 ) -> Result<BTreeMap<String, String>> {
     let script = repo_root().join("apps/server/dev/django-env.sh");
@@ -747,6 +762,11 @@ fn dev_env(
         // `AWS_S3_BUCKET_NAME` are read separately.
         env.insert("AWS_STORAGE_BUCKET_NAME".to_string(), bucket.to_string());
         env.insert("AWS_S3_BUCKET_NAME".to_string(), bucket.to_string());
+    }
+    if let Some(live_url) = live_url {
+        // `settings.LIVE_URL = urljoin(LIVE_BASE_URL, LIVE_BASE_PATH)` with the
+        // default path `/live/`.
+        env.insert("LIVE_BASE_URL".to_string(), live_url.to_string());
     }
     if allow_loopback {
         // `difftest task`'s local fake HTTP server is on 127.0.0.1. Django's

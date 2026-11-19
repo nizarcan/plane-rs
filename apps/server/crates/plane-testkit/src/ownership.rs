@@ -32,6 +32,7 @@ pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
     "plane.bgtasks.export_task.issue_export_task",
     "plane.bgtasks.analytic_plot_export.analytic_export_task",
+    "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
 ];
 
 /// Whether `task` is published to `plane_jobs` rather than to RabbitMQ.

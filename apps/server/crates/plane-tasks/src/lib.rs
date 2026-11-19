@@ -22,6 +22,9 @@
 //! (`plane_jobs::policy`).
 
 pub mod analytic_export;
+pub mod bs4;
+mod bs4_entities;
+pub mod copy_s3_object;
 pub mod export_task;
 pub mod exporter_expired;
 pub mod file_asset;
@@ -123,6 +126,7 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     file_asset::register(&mut registry, Arc::clone(&context));
     storage_metadata::register(&mut registry, Arc::clone(&context));
     work_item_link::register(&mut registry, Arc::clone(&context));
+    copy_s3_object::register(&mut registry, Arc::clone(&context));
     registry
 }
 
@@ -136,6 +140,7 @@ pub const REGISTERED_TASKS: &[&str] = &[
     file_asset::TASK,
     storage_metadata::TASK,
     work_item_link::TASK,
+    copy_s3_object::TASK,
 ];
 
 /// Decode `payload["kwargs"]`, the shape `Job::from_message` writes.

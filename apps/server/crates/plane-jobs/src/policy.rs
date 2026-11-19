@@ -161,6 +161,11 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
         "plane.bgtasks.analytic_plot_export.analytic_export_task",
         &[Producer::RustHttp("plane/app/views/analytic/base.py:256")],
     ),
+    // Phase 8 set C: `PageDuplicateEndpoint.post` (route 133) is Rust.
+    (
+        "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
+        &[Producer::RustHttp("plane/app/views/page/base.py:617")],
+    ),
     // Phase 8 set C, handler ported but not switched. The only producer is the
     // Django beat entry (twice); a task moves only after its
     // `plane_jobs.schedules` row is flipped to `owner='rust'`

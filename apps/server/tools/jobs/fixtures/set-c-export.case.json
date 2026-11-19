@@ -20,7 +20,7 @@
       "replacement": "X-Amz-Signature=<SIG>"
     },
     {
-      "pattern": "p8c-export-[ab]",
+      "pattern": "p8c-[a-z0-9-]+-[ab]",
       "replacement": "<BUCKET>"
     }
   ],
