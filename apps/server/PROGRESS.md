@@ -2156,5 +2156,16 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        next-batch publish sits inside the batch transaction; `properties`/`meta` always
        `{}`.
 
-   Running: the orchestrator's verification of `fa7e26e867`, set C part 4 (`rs/p8-c`:
+   - **Verified at `fa7e26e867`** (set A3): fmt, clippy, 1324 tests, testkit 202, selftest
+     141, schema_check (5 crates), beat 8/8, generator checks; **128 files / 6085 steps
+     clean in one pass**; OAuth 57/57 + 52/52; SMTP clean; contract 983/3 (baseline).
+     `difftest task` 65/66: `recent-visited-20` fails only because the task harness
+     renders Django's outgoing `uuid.UUID` argument as an object while Rust queues the
+     string (the sweep harness decodes kombu's UUID envelope; `difftest task` doesn't).
+     Task 9 became Rust-owned in A3, which exposed it; the handler is right. Fix and
+     a self-contained `gen_component_corpus.py --check` (needed `dev/django-env.sh`
+     sourced) + its CI step assigned to set C part 4. A3's tasks stay Rust-owned.
+
+   Running: set A1 (`rs/p8-a1`: `issue_activity`; 18010/18110, Redis 3/4, contract Redis
+   11), set C part 4 (`rs/p8-c`:
    the merge, task 1 duplication, 46; 18020/18120, Redis 5/6, contract Redis 15).
