@@ -1,0 +1,6 @@
+{
+  "task": "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+  "grpc": {
+    "mode": "unavailable"
+  }
+}

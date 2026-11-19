@@ -56,6 +56,7 @@
 pub mod client;
 pub mod dns;
 pub mod error;
+pub mod grpc;
 pub mod headers;
 pub mod ipaddr;
 pub mod preset;
