@@ -21,6 +21,7 @@ struct Corpus {
     templates: Vec<TemplateCase>,
     plain_text: Vec<PlainTextCase>,
     multipart: String,
+    attachment: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -93,6 +94,28 @@ fn multipart_bytes_match_django() {
         )
         .expect("bytes");
     assert_eq!(String::from_utf8(bytes).expect("utf-8"), corpus.multipart);
+}
+
+#[test]
+fn attachment_bytes_match_django() {
+    let corpus = corpus();
+    let html = render("emails/exports/analytics.html", &serde_json::json!({})).expect("render");
+    let message = Message::with_text_attachment(
+        "Your Export is ready",
+        generate_plain_text_from_html(&html),
+        "Team Plane <team@mailer.plane.so>",
+        vec!["ada@example.com".to_string()],
+        "p8c-export-analytics.csv",
+        "Project Name,Identifier\r\nAlpha,ALP-1\r\n",
+    );
+    let bytes = message
+        .as_bytes_with_boundary(
+            "<DATE>",
+            "<MESSAGE-ID>",
+            Some("<BOUNDARY-0000000000000000000000000>"),
+        )
+        .expect("bytes");
+    assert_eq!(String::from_utf8(bytes).expect("utf-8"), corpus.attachment);
 }
 
 #[test]

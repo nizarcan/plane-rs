@@ -23,7 +23,11 @@
 //!   has no type-dependent formatting. Row order is the query's `ORDER BY`.
 //! * `s3.seeds` are written to **both** side buckets before the task. After
 //!   the run, every object in each bucket is read back with its bytes,
-//!   `Content-Type` and ACL, and the two listings are compared. The buckets
+//!   `Content-Type` and ACL, and the two listings are compared. A ZIP body is
+//!   decompressed and compared entry by entry (recursively: the export archive
+//!   contains an XLSX), which drops the DOS entry times and the compressor's
+//!   own bytes; `docProps/core.xml`'s created/modified are the only timestamps
+//!   normalised inside a tree. The buckets
 //!   are the tool's (created and deleted by it), never the shared `uploads`
 //!   bucket.
 //! * `http` starts a local recorder (`127.0.0.1:0`), substitutes `{{http}}` in
@@ -35,6 +39,7 @@
 //!   key segment, an S3 `LastModified`).
 
 use std::collections::BTreeMap;
+use std::io::Read as _;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
@@ -58,6 +63,9 @@ pub struct TaskCase {
     pub s3: Option<S3Case>,
     #[serde(default)]
     pub http: Option<HttpCase>,
+    /// Capture the task's outbound SMTP through `tools/mail/fake_smtp.py`.
+    #[serde(default)]
+    pub smtp: Option<SmtpCase>,
     #[serde(default)]
     pub normalize: Vec<Normalize>,
 }
@@ -109,6 +117,14 @@ impl SeedSpec {
             acl: self.acl.clone(),
         })
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SmtpCase {
+    /// `EMAIL_HOST_PASSWORD`; empty means no AUTH, like the dev settings.
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -262,6 +278,17 @@ pub fn compare_objects(case: &TaskCase, a: &[ObservedObject], b: &[ObservedObjec
                 right.acl
             );
         }
+        // A ZIP's compressed bytes carry the writer's zlib version and the DOS
+        // entry times, neither of which is an effect. Compare its entries
+        // instead, recursively: the export archive contains an XLSX, itself a
+        // ZIP. Only `docProps/core.xml`'s created/modified timestamps are
+        // normalised inside the entry tree.
+        if let (Some(left_zip), Some(right_zip)) =
+            (expand_zip(&left.body, 0), expand_zip(&right.body, 0))
+        {
+            compare_zip_entries(case, &left.key, &left_zip, &right_zip)?;
+            continue;
+        }
         if left.body != right.body {
             bail!(
                 "s3 {}: bytes differ (django {} bytes {:02x?}..., rust {} bytes {:02x?}...)",
@@ -273,7 +300,240 @@ pub fn compare_objects(case: &TaskCase, a: &[ObservedObject], b: &[ObservedObjec
             );
         }
     }
-    bail!("s3: objects differ")
+    println!(
+        "PASS: s3: {} object(s) identical (zip archives compared entry by entry)",
+        a.len()
+    );
+    Ok(())
+}
+
+/// One member of a ZIP, with its nested archive expanded when it is one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ZipEntry {
+    pub name: String,
+    pub body: Vec<u8>,
+    pub nested: Option<Vec<ZipEntry>>,
+}
+
+/// Decompress a ZIP body, or return `None` when it is not one.
+///
+/// openpyxl and Python's `zipfile` write standard local headers; the harness's
+/// readers use them in order, so a central-directory parser is unnecessary.
+#[must_use]
+pub fn expand_zip(body: &[u8], depth: usize) -> Option<Vec<ZipEntry>> {
+    if depth > 4 || !body.starts_with(b"PK\x03\x04") {
+        return None;
+    }
+    let mut entries = Vec::new();
+    let mut index = 0usize;
+    while index + 30 <= body.len() {
+        let signature = u32::from_le_bytes(body[index..index + 4].try_into().ok()?);
+        if signature != 0x0403_4b50 {
+            break;
+        }
+        let method = u16::from_le_bytes(body[index + 8..index + 10].try_into().ok()?);
+        let compressed = u32::from_le_bytes(body[index + 18..index + 22].try_into().ok()?) as usize;
+        let name_length =
+            u16::from_le_bytes(body[index + 26..index + 28].try_into().ok()?) as usize;
+        let extra_length =
+            u16::from_le_bytes(body[index + 28..index + 30].try_into().ok()?) as usize;
+        let name_start = index + 30;
+        let name =
+            String::from_utf8_lossy(body.get(name_start..name_start + name_length)?).to_string();
+        let data_start = name_start + name_length + extra_length;
+        let data = body.get(data_start..data_start + compressed)?;
+        let content = if method == 8 {
+            let mut out = Vec::new();
+            flate2::read::DeflateDecoder::new(data)
+                .read_to_end(&mut out)
+                .ok()?;
+            out
+        } else {
+            data.to_vec()
+        };
+        let nested = expand_zip(&content, depth + 1);
+        entries.push(ZipEntry {
+            name,
+            body: content,
+            nested,
+        });
+        index = data_start + compressed;
+    }
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
+}
+
+/// The `docProps/core.xml` timestamps are `datetime.now(timezone.utc)`.
+fn normalize_core_xml(text: &[u8]) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(text) else {
+        return text.to_vec();
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("xsi:type=\"dcterms:W3CDTF\">") {
+        let (before, after) = rest.split_at(start);
+        out.push_str(before);
+        out.push_str("xsi:type=\"dcterms:W3CDTF\"><TS>");
+        match after.find('<') {
+            Some(end) => rest = &after[end..],
+            None => {
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out.into_bytes()
+}
+
+fn compare_zip_entries(
+    case: &TaskCase,
+    object_key: &str,
+    a: &[ZipEntry],
+    b: &[ZipEntry],
+) -> Result<()> {
+    let names_a: Vec<&str> = a.iter().map(|entry| entry.name.as_str()).collect();
+    let names_b: Vec<&str> = b.iter().map(|entry| entry.name.as_str()).collect();
+    if names_a != names_b {
+        bail!("s3 {object_key}: zip entries differ:\n  django: {names_a:?}\n  rust:   {names_b:?}");
+    }
+    for (left, right) in a.iter().zip(b) {
+        let path = format!("{object_key}:{}", case.normalize_text(&left.name));
+        match (&left.nested, &right.nested) {
+            (Some(left_zip), Some(right_zip)) => {
+                compare_zip_entries(case, &path, left_zip, right_zip)?;
+            }
+            (None, None) => {
+                let left_body = if left.name == "docProps/core.xml" {
+                    normalize_core_xml(&left.body)
+                } else {
+                    left.body.clone()
+                };
+                let right_body = if right.name == "docProps/core.xml" {
+                    normalize_core_xml(&right.body)
+                } else {
+                    right.body.clone()
+                };
+                if left_body != right_body {
+                    if let Ok(dir) = std::env::var("PLANE_TESTKIT_DUMP_DIR") {
+                        let safe: String = path
+                            .chars()
+                            .map(|c| {
+                                if c.is_ascii_alphanumeric() || c == '.' {
+                                    c
+                                } else {
+                                    '_'
+                                }
+                            })
+                            .collect();
+                        let _ = std::fs::write(format!("{dir}/{safe}.django"), &left_body);
+                        let _ = std::fs::write(format!("{dir}/{safe}.rust"), &right_body);
+                    }
+                    bail!(
+                        "s3 {path}: entry differs (django {} bytes {:02x?}..., rust {} bytes {:02x?}...)",
+                        left_body.len(),
+                        &left_body[..left_body.len().min(24)],
+                        right_body.len(),
+                        &right_body[..right_body.len().min(24)],
+                    );
+                }
+            }
+            _ => bail!("s3 {path}: one side's entry is a nested archive, the other is not"),
+        }
+    }
+    println!("PASS: s3 {object_key}: {} zip entr(ies) identical", a.len());
+    Ok(())
+}
+
+/// Compare the two `fake_smtp.py` transcripts: envelope and message bytes,
+/// with `Date:`, `Message-ID:` and the random MIME boundary masked. The
+/// transcript itself is not compared here because the harness proves the SMTP
+/// dialogue separately (`tools/mail/compare_smtp_logs.py`).
+pub fn compare_smtp_logs(a: &std::path::Path, b: &std::path::Path) -> Result<()> {
+    let read = |path: &std::path::Path| -> Result<Vec<serde_json::Value>> {
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        text.lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).with_context(|| "parsing a fake_smtp record"))
+            .collect()
+    };
+    let a = read(a)?;
+    let b = read(b)?;
+    if a.len() != b.len() {
+        bail!(
+            "smtp: django sent {} message(s), rust sent {}",
+            a.len(),
+            b.len()
+        );
+    }
+    for (index, (left, right)) in a.iter().zip(&b).enumerate() {
+        let envelope = |record: &serde_json::Value| -> serde_json::Value {
+            serde_json::json!({
+                "mail_from": record.get("mail_from"),
+                "rcpt_to": record.get("rcpt_to"),
+            })
+        };
+        if envelope(left) != envelope(right) {
+            bail!(
+                "smtp message {index}: envelope differs:\n  django: {}\n  rust:   {}",
+                envelope(left),
+                envelope(right)
+            );
+        }
+        let data = |record: &serde_json::Value| -> String {
+            normalize_smtp_data(
+                record
+                    .get("data")
+                    .and_then(|data| data.as_str())
+                    .unwrap_or_default(),
+            )
+        };
+        let left_data = data(left);
+        let right_data = data(right);
+        if left_data != right_data {
+            let line = left_data
+                .lines()
+                .zip(right_data.lines())
+                .enumerate()
+                .find(|(_, (left, right))| left != right);
+            match line {
+                Some((number, (left, right))) => bail!(
+                    "smtp message {index}: bytes differ at line {}:\n  django: {left:?}\n  rust:   {right:?}",
+                    number + 1
+                ),
+                None => bail!(
+                    "smtp message {index}: bytes differ (django {} bytes, rust {} bytes)",
+                    left_data.len(),
+                    right_data.len()
+                ),
+            }
+        }
+    }
+    println!("PASS: smtp: {} message(s) identical", a.len());
+    Ok(())
+}
+
+fn normalize_smtp_data(data: &str) -> String {
+    let mut out = data.to_string();
+    if let Some(captures) = regex::Regex::new(r#"boundary="([^"]+)""#)
+        .expect("boundary regex")
+        .captures(&out)
+        && let Some(boundary) = captures.get(1)
+    {
+        out = out.replace(boundary.as_str(), "<BOUNDARY>");
+    }
+    let unfolder = r"(?:\r?\n[ \t][^\r\n]*)*";
+    for (header, placeholder) in [("Date", "<DATE>"), ("Message-ID", "<MESSAGE-ID>")] {
+        let pattern = format!(r"(?m)^{header}:[^\r\n]*{unfolder}");
+        out = regex::Regex::new(&pattern)
+            .expect("header regex")
+            .replace_all(&out, format!("{header}: {placeholder}"))
+            .into_owned();
+    }
+    out
 }
 
 /// One request the recorder saw.
@@ -502,6 +762,7 @@ mod tests {
             sql: Vec::new(),
             s3: None,
             http: None,
+            smtp: None,
             normalize: vec![
                 Normalize {
                     pattern: "[0-9a-f]{8}".to_string(),

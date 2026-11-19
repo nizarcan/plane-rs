@@ -21,6 +21,8 @@
 //! `Ok(())` after logging a data error. Only `webhook_send_task` retries
 //! (`plane_jobs::policy`).
 
+pub mod analytic_export;
+pub mod export_task;
 pub mod exporter_expired;
 pub mod file_asset;
 pub mod html;
@@ -115,6 +117,8 @@ impl TaskContext {
 pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     let mut registry = TaskRegistry::new();
     recent_visited::register(&mut registry, Arc::clone(&context));
+    analytic_export::register(&mut registry, Arc::clone(&context));
+    export_task::register(&mut registry, Arc::clone(&context));
     exporter_expired::register(&mut registry, Arc::clone(&context));
     file_asset::register(&mut registry, Arc::clone(&context));
     storage_metadata::register(&mut registry, Arc::clone(&context));
@@ -126,6 +130,8 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
 /// test. Keep in step with the `register` calls above.
 pub const REGISTERED_TASKS: &[&str] = &[
     recent_visited::TASK,
+    analytic_export::TASK,
+    export_task::TASK,
     exporter_expired::TASK,
     file_asset::TASK,
     storage_metadata::TASK,

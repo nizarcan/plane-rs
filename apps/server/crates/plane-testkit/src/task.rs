@@ -26,6 +26,13 @@
 //!
 //! # Case files
 //!
+//! The worker binary must be built with the `difftest` feature
+//! (`cargo build -p plane-worker --features difftest`) when a case drives the
+//! link crawler: its fake HTTP server lives on loopback, and the crawl
+//! handler's SSRF escape is compiled in only with that feature. A default
+//! worker ignores `PLANE_RS_DIFFTEST_ALLOW_LOOPBACK` by design
+//! (`crates/plane-tasks/Cargo.toml`).
+//!
 //! With `--case` the run compares what the task's case file names
 //! (`crate::task_case`): arbitrary SQL queries, two agent-owned S3 buckets the
 //! tool creates/seeds/reads/deletes, and a `127.0.0.1` recorder whose responses
@@ -40,7 +47,10 @@ use std::time::Duration;
 use crate::celery::RabbitAdmin;
 use crate::db::DbAdmin;
 use crate::s3::S3Admin;
-use crate::task_case::{Recorder, TaskCase, compare_objects, compare_requests, compare_rows};
+use crate::task_case::{
+    Recorder, SmtpCase, TaskCase, compare_objects, compare_requests, compare_rows,
+    compare_smtp_logs,
+};
 use crate::util::{repo_root, validate_identifier};
 use anyhow::{Context, Result, bail};
 use tokio::process::Command;
@@ -167,6 +177,89 @@ impl S3Capture {
     }
 }
 
+/// The two `fake_smtp.py` listeners and their per-side instance-configuration
+/// rewriting.
+struct SmtpCapture {
+    a: SmtpListener,
+    b: SmtpListener,
+}
+
+struct SmtpListener {
+    child: std::process::Child,
+    path: PathBuf,
+    port: u16,
+}
+
+impl SmtpCapture {
+    fn start(case: &SmtpCase) -> Result<Self> {
+        let root = repo_root();
+        let script = root.join("apps/server/tools/mail/fake_smtp.py");
+        let python = root.join("apps/api/.venv/bin/python");
+        let dir = std::env::temp_dir().join(format!("plane-difftest-smtp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let start_one = |port: u16, name: &str| -> Result<SmtpListener> {
+            let path = dir.join(format!("{name}.jsonl"));
+            let _ = std::fs::remove_file(&path);
+            let child = std::process::Command::new(&python)
+                .arg(&script)
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--output")
+                .arg(&path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .with_context(|| format!("starting fake_smtp.py on {port}"))?;
+            Ok(SmtpListener { child, path, port })
+        };
+        let _ = case;
+        let a = start_one(18418, "a")?;
+        let b = start_one(18419, "b")?;
+        Ok(Self { a, b })
+    }
+
+    /// Point one clone's instance configuration at its listener.
+    async fn configure(&self, admin: &DbAdmin, database: &str, port: u16) -> Result<()> {
+        let client = admin.connect(database).await?;
+        let statements = [
+            ("EMAIL_HOST", "127.0.0.1".to_string()),
+            ("EMAIL_PORT", port.to_string()),
+            ("EMAIL_USE_TLS", "0".to_string()),
+            ("EMAIL_USE_SSL", "0".to_string()),
+            ("EMAIL_HOST_USER", String::new()),
+            ("EMAIL_HOST_PASSWORD", String::new()),
+            (
+                "EMAIL_FROM",
+                "Team Plane <team@mailer.plane.so>".to_string(),
+            ),
+        ];
+        for (key, value) in statements {
+            let sql = format!(
+                "UPDATE instance_configurations SET value = '{}' WHERE key = '{}'",
+                value.replace('\'', "''"),
+                key
+            );
+            client.execute(&sql, &[]).await?;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        for listener in [&mut self.a, &mut self.b] {
+            let _ = listener.child.kill();
+            let _ = listener.child.wait();
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SmtpCapture {
+    fn drop(&mut self) {
+        let _ = self.finish();
+    }
+}
+
 /// Run one differential task case.
 ///
 /// # Errors
@@ -246,6 +339,10 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         }
         None => None,
     };
+    let mut smtp = match case.as_ref().and_then(|case| case.smtp.as_ref()) {
+        Some(smtp_case) => Some(SmtpCapture::start(smtp_case)?),
+        None => None,
+    };
     let setup = match &options.setup_path {
         Some(path) => Some(
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
@@ -276,6 +373,10 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         setup.as_deref(),
     )
     .await?;
+    if let Some(smtp) = &smtp {
+        smtp.configure(&admin, &options.a_db, smtp.a.port).await?;
+        smtp.configure(&admin, &options.b_db, smtp.b.port).await?;
+    }
     rabbit.create_vhost(&options.vhost).await?;
     rabbit
         .grant_full_permissions(&options.vhost, &options.rabbit_user)
@@ -290,6 +391,16 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         s3.as_ref(),
     )
     .await;
+
+    if let Some(smtp) = &mut smtp {
+        smtp.finish()?;
+    }
+    if let Some(case) = &case
+        && case.smtp.is_some()
+        && let Some(smtp) = &smtp
+    {
+        compare_smtp_logs(&smtp.a.path, &smtp.b.path)?;
+    }
 
     if !options.keep {
         let _ = admin.drop_database(&options.a_db).await;

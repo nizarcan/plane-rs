@@ -36,9 +36,11 @@
 //!
 //! Python validates with `plane/utils/url_security.py` and resolves+pins every
 //! hop; there is no allow-list at this call site. The port uses
-//! `SsrfPolicy::strict()` and `plane_net`'s presets. `PLANE_RS_DIFFTEST_ALLOW_LOOPBACK=1`
-//! is a **test-only** knob that adds the loopback ranges, mirroring the
-//! harness's patch of Django's `is_blocked_ip`; no deployment sets it.
+//! `SsrfPolicy::strict()` and `plane_net`'s presets. The loopback escape for
+//! the harness is compiled in only with the non-default `difftest` feature
+//! (`Cargo.toml`), which the harness enables when it builds `plane-worker`:
+//! `PLANE_RS_DIFFTEST_ALLOW_LOOPBACK=1` is otherwise ignored, so an environment
+//! variable cannot widen a release worker's SSRF guard.
 //!
 //! # Ownership
 //!
@@ -277,9 +279,19 @@ async fn find_favicon_url(
     }
 }
 
-/// The task's SSRF policy: strict, plus the difftest-only loopback override.
+/// The task's SSRF policy: strict. The only exemption is the `difftest`
+/// feature's loopback escape, whose environment variable a default build never
+/// reads.
 fn policy() -> SsrfPolicy {
-    if std::env::var("PLANE_RS_DIFFTEST_ALLOW_LOOPBACK").as_deref() == Ok("1") {
+    policy_with(|name| std::env::var(name).ok())
+}
+
+/// [`policy`] with the environment lookup injected, so the test can prove which
+/// builds honour the escape without mutating the process environment (edition
+/// 2024 makes `std::env::set_var` unsafe, and `unsafe` is forbidden).
+#[cfg(feature = "difftest")]
+fn policy_with(read: impl Fn(&str) -> Option<String>) -> SsrfPolicy {
+    if read("PLANE_RS_DIFFTEST_ALLOW_LOOPBACK").as_deref() == Some("1") {
         SsrfPolicy::new(
             vec![
                 "127.0.0.0/8".parse().expect("loopback v4 network"),
@@ -292,12 +304,35 @@ fn policy() -> SsrfPolicy {
     }
 }
 
+/// A default build ignores `PLANE_RS_DIFFTEST_ALLOW_LOOPBACK` entirely: the
+/// SSRF guard has no environment-controlled widening.
+#[cfg(not(feature = "difftest"))]
+fn policy_with(_read: impl Fn(&str) -> Option<String>) -> SsrfPolicy {
+    SsrfPolicy::strict()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn payload(value: serde_json::Value) -> serde_json::Value {
         serde_json::json!({"args": [], "kwargs": value})
+    }
+
+    #[test]
+    fn the_difftest_override_requires_the_difftest_feature() {
+        let widened = policy_with(|_| Some("1".to_string()));
+        let loopback: std::net::IpAddr = "127.0.0.1".parse().expect("loopback");
+        #[cfg(feature = "difftest")]
+        assert!(
+            widened.allows_ip(loopback),
+            "a difftest build honours the harness's loopback escape"
+        );
+        #[cfg(not(feature = "difftest"))]
+        assert!(
+            !widened.allows_ip(loopback),
+            "a default build must ignore PLANE_RS_DIFFTEST_ALLOW_LOOPBACK"
+        );
     }
 
     #[test]

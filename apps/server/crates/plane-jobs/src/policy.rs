@@ -150,6 +150,17 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
             Producer::RustHttp("plane/api/views/issue.py:1407"),
         ],
     ),
+    // Phase 8 set C. `issue_export_task` moves: its only producer is the
+    // export POST, a Rust `/api/` route (`crates/plane-http-app/src/issues/
+    // write_export.rs`).
+    (
+        "plane.bgtasks.export_task.issue_export_task",
+        &[Producer::RustHttp("plane/app/views/exporter/base.py:50")],
+    ),
+    (
+        "plane.bgtasks.analytic_plot_export.analytic_export_task",
+        &[Producer::RustHttp("plane/app/views/analytic/base.py:256")],
+    ),
     // Phase 8 set C, handler ported but not switched. The only producer is the
     // Django beat entry (twice); a task moves only after its
     // `plane_jobs.schedules` row is flipped to `owner='rust'`

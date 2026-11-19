@@ -78,6 +78,7 @@ fn message_bytes_match_django() {
             cc: case.cc.clone(),
             reply_to: case.reply_to.clone(),
             alternatives: Vec::new(),
+            attachments: Vec::new(),
         };
         match &case.bytes {
             Some(expected) => {

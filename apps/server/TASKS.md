@@ -1245,6 +1245,8 @@ consulted by `route::dispatch` and by the worker's handler registry.
 | `recent_visited_task` (P0) | Rust | `plane-tasks/src/recent_visited.rs`; no retries |
 | `storage_metadata_task.get_asset_object_metadata` (set C) | Rust | `plane-tasks/src/storage_metadata.rs`; no retries |
 | `work_item_link_task.crawl_work_item_link_title` (set C) | Rust | `plane-tasks/src/work_item_link.rs`; no retries |
+| `export_task.issue_export_task` (set C) | Rust | `plane-tasks/src/export_task.rs` + `plane-xlsx`; no retries |
+| `analytic_plot_export.analytic_export_task` (set C) | Rust | `plane-tasks/src/analytic_export.rs`; no retries |
 | `exporter_expired_task.delete_old_s3_link` (set C) | Celery (beat) | handler in `plane-tasks/src/exporter_expired.rs`; stays Celery until both `plane_jobs.schedules` rows flip to `rust` |
 | `file_asset_task.delete_unuploaded_file_asset` (set C) | Celery (beat) | handler in `plane-tasks/src/file_asset.rs`; stays Celery until its `plane_jobs.schedules` row flips to `rust` |
 

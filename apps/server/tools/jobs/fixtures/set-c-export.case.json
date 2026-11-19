@@ -1,0 +1,30 @@
+{
+  "task": "plane.bgtasks.export_task.issue_export_task",
+  "sql": [
+    {
+      "label": "exporters",
+      "query": "SELECT id::text, status, reason, key, COALESCE(url, 'NULL'), created_at::text, updated_at::text FROM exporters WHERE token LIKE 'export-%' ORDER BY token"
+    }
+  ],
+  "normalize": [
+    {
+      "pattern": "X-Amz-Credential=[^&\"]*",
+      "replacement": "X-Amz-Credential=<CRED>"
+    },
+    {
+      "pattern": "X-Amz-Date=[^&\"]*",
+      "replacement": "X-Amz-Date=<TS>"
+    },
+    {
+      "pattern": "X-Amz-Signature=[^\"']*",
+      "replacement": "X-Amz-Signature=<SIG>"
+    },
+    {
+      "pattern": "p8c-export-[ab]",
+      "replacement": "<BUCKET>"
+    }
+  ],
+  "s3": {
+    "seeds": []
+  }
+}

@@ -29,6 +29,10 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
     // Phase 8 set C: four producers, all Rust HTTP routes.
     "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+    // Phase 8 set C: the only producer is ExportIssuesEndpoint.post, a Rust route.
+    "plane.bgtasks.export_task.issue_export_task",
+    // Phase 8 set C: ExportAnalyticsEndpoint.post is a Rust route.
+    "plane.bgtasks.analytic_plot_export.analytic_export_task",
 ];
 
 /// A task's owner.

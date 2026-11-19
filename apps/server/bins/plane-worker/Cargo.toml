@@ -15,6 +15,13 @@ repository.workspace = true
 name = "plane-worker"
 path = "src/main.rs"
 
+[features]
+default = []
+# The harness's `difftest task` turns this on: the fake HTTP server is on
+# loopback and the crawl handler needs the test-only escape. Production builds
+# leave it off.
+difftest = ["plane-tasks/difftest"]
+
 [dependencies]
 anyhow.workspace = true
 plane-core = { path = "../../crates/plane-core" }

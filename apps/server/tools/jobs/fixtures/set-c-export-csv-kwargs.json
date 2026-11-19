@@ -1,0 +1,11 @@
+{
+  "provider": "csv",
+  "workspace_id": "e0000000-0000-4000-8000-000000000010",
+  "project_ids": [
+    "e0000000-0000-4000-8000-000000000011",
+    "e0000000-0000-4000-8000-000000000012"
+  ],
+  "token_id": "export-csv-multiple",
+  "multiple": true,
+  "slug": "p8c-export"
+}

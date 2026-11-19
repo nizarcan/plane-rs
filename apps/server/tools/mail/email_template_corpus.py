@@ -55,6 +55,11 @@ TEMPLATE_CASES = [
         "template": "emails/auth/magic_signin.html",
         "context": {"code": "<&\"'>", "email": "a<b&c@example.com"},
     },
+    {
+        "name": "analytic_export",
+        "template": "emails/exports/analytics.html",
+        "context": {},
+    },
 ]
 
 PLAIN_TEXT_CASES = [
@@ -190,12 +195,52 @@ def record_multipart():
     return "\r\n".join(lines)
 
 
+def record_attachment():
+    """`analytic_plot_export.send_export_email`'s exact message shape."""
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    from plane_utils_email import generate_plain_text_from_html
+
+    html = render_to_string("emails/exports/analytics.html", {})
+    message = EmailMultiAlternatives(
+        subject="Your Export is ready",
+        body=generate_plain_text_from_html(html),
+        from_email="Team Plane <team@mailer.plane.so>",
+        to=["ada@example.com"],
+    )
+    message.attach("p8c-export-analytics.csv", "Project Name,Identifier\r\nAlpha,ALP-1\r\n")
+    return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
+
+
+def mask_generated(encoded: str) -> str:
+    start = encoded.index('boundary="') + len('boundary="')
+    end = encoded.index('"', start)
+    boundary = encoded[start:end]
+    encoded = encoded.replace(boundary, "<BOUNDARY-0000000000000000000000000>")
+    lines = []
+    skip_continuation = False
+    for line in encoded.split("\r\n"):
+        if skip_continuation and line.startswith(" "):
+            continue
+        skip_continuation = False
+        if line.startswith("Date: "):
+            lines.append("Date: <DATE>")
+        elif line.startswith("Message-ID:"):
+            lines.append("Message-ID: <MESSAGE-ID>")
+            skip_continuation = True
+        else:
+            lines.append(line)
+    return "\r\n".join(lines)
+
+
 def main():
     configure()
     corpus = {
         "templates": record_templates(),
         "plain_text": record_plain_text(),
         "multipart": record_multipart(),
+        "attachment": record_attachment(),
     }
     with open(OUT_PATH, "w", encoding="utf-8") as handle:
         json.dump(corpus, handle, indent=2, ensure_ascii=False)

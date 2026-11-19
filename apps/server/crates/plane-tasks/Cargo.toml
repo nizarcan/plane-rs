@@ -11,6 +11,14 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Test-only. `difftest task` runs its fake HTTP server on 127.0.0.1 and needs
+# the crawl handler to reach it; the harness builds `plane-worker` with this
+# feature. A release build has the feature off, so the environment variable the
+# harness sets cannot widen the SSRF guard in production.
+default = []
+difftest = []
+
 [dependencies]
 base64.workspace = true
 chrono.workspace = true
@@ -21,9 +29,12 @@ plane-db = { path = "../plane-db" }
 plane-jobs = { path = "../plane-jobs" }
 plane-mail = { path = "../plane-mail" }
 plane-net = { path = "../plane-net" }
+plane-serde = { path = "../plane-serde" }
 plane-storage = { path = "../plane-storage" }
+plane-xlsx = { path = "../plane-xlsx" }
 serde_json.workspace = true
 thiserror.workspace = true
+tokio-postgres.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
