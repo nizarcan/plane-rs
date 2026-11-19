@@ -17,6 +17,7 @@ pub mod cookies;
 pub mod csrf;
 pub mod db;
 pub mod fixture_redis;
+pub mod grpc_recorder;
 pub mod http;
 pub mod normalize;
 pub mod ownership;

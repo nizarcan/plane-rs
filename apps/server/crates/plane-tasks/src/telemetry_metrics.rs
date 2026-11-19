@@ -19,8 +19,8 @@
 //!   `created_at` and the six grouped counts at `:224-264`.
 //! * `force_flush()` collects and exports once (`:347`); `provider.shutdown()`
 //!   in the `finally` wakes the periodic reader, which performs one final
-//!   collection and export. **Two identical HTTP requests** therefore leave
-//!   the process (with different `time_unix_nano` in production), which the
+//!   collection and export. **Two identical exports** therefore leave the
+//!   process (with different `time_unix_nano` in production), which the
 //!   differential harness compares request by request.
 //! * `OTLP_METRICS_PROTOCOL` selects gRPC (the default) or HTTP; the HTTP
 //!   exporter `POST`s the serialised
@@ -39,22 +39,38 @@
 //!   logged as *"Successfully pushed metrics"* because `force_flush()` returns
 //!   `True` regardless of the export result — the upstream bug is ported.
 //!
-//! # The transport
+//! # The transports
 //!
-//! The gRPC branch (`OTLP_METRICS_PROTOCOL=grpc`, which includes the default)
-//! is **not implemented**: OTLP/gRPC needs HTTP/2 request framing, HPACK and
-//! the `grpc-python` wire shape, none of which `plane-net` speaks, and the
-//! differential recorder is HTTP/1.1. The handler returns an explicit fatal
-//! handler error for it, so an operator sees the missing transport instead of
-//! a silent no-op. Every non-`grpc` value is OTLP/HTTP, exactly as Python's
-//! `if protocol == "grpc" ... else` branch.
+//! `OTLP_METRICS_PROTOCOL` selects gRPC (the default) or HTTP
+//! (`telemetry_metrics.py:85-86`): only the exact value `grpc` takes the gRPC
+//! branch. Both go through `plane_net::preset::TELEMETRY`, an SSRF-pinned 10 s
+//! preset (`DECISIONS.md` D34's amendment), and both are retried by the
+//! exporter itself.
 //!
-//! The HTTP request goes through `plane_net::preset::TELEMETRY`, an
-//! SSRF-pinned 10 s preset (`DECISIONS.md` D34's amendment). Python's exporter
-//! uses a plain `requests` session (environment proxies); the pinned preset
-//! disables them like the other guarded call sites (`D9`). `OTLP_ENDPOINT` is
-//! the documented override; `difftest task` points it at its loopback recorder
-//! with `--telemetry-url '{{http}}'`.
+//! * **HTTP** (`_OTLPHTTPClient`): `POST <OTLP_ENDPOINT>/v1/metrics` with
+//!   `Content-Type: application/x-protobuf` and
+//!   `User-Agent: OTel-OTLP-Exporter-Python/1.45.2`. A fast connection error is
+//!   retried immediately once per attempt, then with `2**retry` seconds of
+//!   backoff inside the deadline; a 500 is not retryable
+//!   (`429/502/503/504` are).
+//! * **gRPC** (`OTLPExporterMixin`, `opentelemetry/exporter/otlp/proto/grpc/
+//!   exporter.py`): one unary `MetricsService/Export` over HTTP/2 with the
+//!   gRPC frame, `content-type: application/grpc`, `te: trailers`, the C-core
+//!   user agent and metadata, and `grpc-status` trailers. Retryable codes are
+//!   CANCELLED, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED, OUT_OF_RANGE,
+//!   UNAVAILABLE and DATA_LOSS, six attempts at most, `2**retry` backoff inside
+//!   the deadline. A transport failure is UNAVAILABLE; a local deadline is
+//!   DEADLINE_EXCEEDED. TLS uses the pinned certifi roots with ALPN `h2`;
+//!   `OTEL_EXPORTER_OTLP_METRICS_INSECURE=true` selects plaintext h2c.
+//!
+//! `OTEL_EXPORTER_OTLP_METRICS_{HEADERS,COMPRESSION}` (and their global
+//! `OTEL_EXPORTER_OTLP_*` fallbacks) apply to both transports; gzip bodies are
+//! compressed with `flate2` (the gzip header bytes are not byte-identical to
+//! Python's `gzip.GzipFile`, which embeds the mtime). The exporter timeout
+//! (`OTEL_EXPORTER_OTLP_METRICS_TIMEOUT`, else the global, else 10 s) is the
+//! retry deadline. `OTLP_ENDPOINT` is the documented override; `difftest task`
+//! points it at its loopback recorder with `--telemetry-url '{{http}}'` (HTTP)
+//! or a case `grpc` block (gRPC).
 //!
 //! # Byte-identical body
 //!
@@ -66,13 +82,16 @@
 //! `PLANE_RS_DIFFTEST_METRICS_NS=<ns>` (only honoured in a `difftest` build,
 //! like `PLANE_RS_DIFFTEST_ALLOW_LOOPBACK`).
 
+use std::io::Write as _;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use deadpool_postgres::Client;
+use plane_core::config::Settings;
 use plane_jobs::worker::{HandlerError, JobContext, TaskRegistry};
-use plane_net::{Method, OutboundRequest, SsrfPolicy, preset};
+use plane_net::grpc::{STATUS_DEADLINE_EXCEEDED, STATUS_UNAVAILABLE};
+use plane_net::{FetchError, Method, OutboundRequest, SsrfPolicy, preset};
 use uuid::Uuid;
 
 use crate::{TaskContext, swallow};
@@ -90,8 +109,18 @@ const WORKSPACE_METRICS_LIMIT: i64 = 1000;
 /// (`opentelemetry/exporter/otlp/common/http.py`, `_DEFAULT_TIMEOUT = 10.0`).
 const DEFAULT_EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// `_OTLPHTTPClient`'s `_MAX_RETRIES`.
+/// `_OTLPHTTPClient`'s `_MAX_RETRIES`; the gRPC mixin's `_MAX_RETRYS` is the
+/// same number with a different spelling.
 const MAX_RETRIES: u32 = 6;
+
+/// `MetricsServiceStub.Export`'s full method path.
+const GRPC_PATH: &str = "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export";
+
+/// `_RETRYABLE_ERROR_CODES` from
+/// `opentelemetry/exporter/otlp/proto/grpc/exporter.py`: CANCELLED,
+/// DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED, OUT_OF_RANGE, UNAVAILABLE,
+/// DATA_LOSS.
+const GRPC_RETRYABLE: [u32; 7] = [1, 4, 8, 10, 11, 14, 15];
 
 /// The nine instance gauges, in registration order (`telemetry_metrics.py:175-218`).
 const INSTANCE_METRICS: [(&str, &str); 9] = [
@@ -234,44 +263,146 @@ struct Snapshot {
     workspaces: Vec<(Uuid, String, WorkspaceCounts)>,
 }
 
-/// What running the task decided.
-enum Outcome {
-    Done,
-    /// `OTLP_METRICS_PROTOCOL=grpc`, which the port does not implement.
-    UnimplementedGrpc,
+/// The selected exporter transport and its configuration, built before the
+/// database reads exactly where `_create_otlp_metric_exporter()` runs in
+/// Python (`telemetry_metrics.py:99-108`, outside the task body's `try`).
+#[derive(Debug, Clone)]
+enum Transport {
+    Http {
+        url: String,
+        headers: Vec<(String, String)>,
+        compression: Option<HttpCompression>,
+    },
+    Grpc {
+        endpoint: String,
+        insecure: bool,
+        metadata: Vec<(String, String)>,
+        compression: Option<&'static str>,
+    },
 }
 
-async fn handle(context: Arc<TaskContext>, job: JobContext) -> Result<(), HandlerError> {
-    match run(&context, &job.client).await {
-        Ok(Outcome::Done) => Ok(()),
-        Ok(Outcome::UnimplementedGrpc) => Err(HandlerError::fatal(
-            "OTLP gRPC export is not implemented; set OTLP_METRICS_PROTOCOL=http",
-        )),
-        // `telemetry_metrics.py:360-362` and `:377-381`: log and succeed.
-        Err(error) => {
-            swallow(error, TASK);
-            Ok(())
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HttpCompression {
+    Gzip,
+    Deflate,
+}
+
+impl Transport {
+    fn from_settings(settings: &Settings) -> Result<Self, HandlerError> {
+        let headers = exporter_headers();
+        if settings.telemetry.otlp_metrics_protocol == "grpc" {
+            Ok(Self::Grpc {
+                endpoint: grpc_endpoint(&settings.telemetry.otlp_endpoint)?,
+                insecure: grpc_insecure(),
+                metadata: grpc_metadata(headers),
+                compression: grpc_compression()?,
+            })
+        } else {
+            Ok(Self::Http {
+                url: metrics_url(&settings.telemetry.otlp_endpoint),
+                compression: http_compression(),
+                headers,
+            })
+        }
+    }
+
+    fn describe(&self) -> (&str, &str) {
+        match self {
+            Self::Http { url, .. } => ("http", url),
+            Self::Grpc { endpoint, .. } => ("grpc", endpoint),
+        }
+    }
+
+    /// One exporter attempt (`MetricExporter.export`), including the
+    /// transport's own retries.
+    async fn send(&self, context: &TaskContext, body: &[u8]) -> bool {
+        match self {
+            Self::Http {
+                url,
+                headers,
+                compression,
+            } => {
+                let mut headers = headers.clone();
+                let encoded = match compression {
+                    Some(compression) => match compress_http(*compression, body) {
+                        Ok(encoded) => {
+                            if !headers
+                                .iter()
+                                .any(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+                            {
+                                headers.push((
+                                    "Content-Encoding".to_string(),
+                                    match compression {
+                                        HttpCompression::Gzip => "gzip",
+                                        HttpCompression::Deflate => "deflate",
+                                    }
+                                    .to_string(),
+                                ));
+                            }
+                            encoded
+                        }
+                        Err(error) => {
+                            tracing::warn!(target: "plane.tasks", %error, "compressing the metrics body failed");
+                            return false;
+                        }
+                    },
+                    None => body.to_vec(),
+                };
+                export_http(context, url, &headers, &encoded).await
+            }
+            Self::Grpc {
+                endpoint,
+                insecure,
+                metadata,
+                compression,
+            } => {
+                let encoded = match compression {
+                    Some("gzip") => match compress_gzip(body) {
+                        Ok(encoded) => encoded,
+                        Err(error) => {
+                            tracing::warn!(target: "plane.tasks", %error, "compressing the metrics body failed");
+                            return false;
+                        }
+                    },
+                    _ => body.to_vec(),
+                };
+                export_grpc(
+                    context,
+                    endpoint,
+                    *insecure,
+                    metadata,
+                    &encoded,
+                    *compression,
+                )
+                .await
+            }
         }
     }
 }
 
+async fn handle(context: Arc<TaskContext>, job: JobContext) -> Result<(), HandlerError> {
+    // `telemetry_metrics.py:360-362` and `:377-381`: log and succeed.
+    if let Err(error) = run(&context, &job.client).await {
+        swallow(error, TASK);
+    }
+    Ok(())
+}
+
 /// The task body. Every failure is the Python `except Exception` branch.
-async fn run(context: &TaskContext, client: &Client) -> Result<Outcome, HandlerError> {
+async fn run(context: &TaskContext, client: &Client) -> Result<(), HandlerError> {
     let Some(instance) = load_instance(client).await? else {
         tracing::debug!(target: "plane.tasks", "No instance registered, skipping metrics push");
-        return Ok(Outcome::Done);
+        return Ok(());
     };
     if !instance.is_telemetry_enabled {
         tracing::debug!(target: "plane.tasks", "Telemetry disabled, skipping metrics push");
-        return Ok(Outcome::Done);
+        return Ok(());
     }
-    // `:85-86`: only `"grpc"` selects gRPC; anything else is the HTTP exporter.
-    if context.settings.telemetry.otlp_metrics_protocol == "grpc" {
-        return Ok(Outcome::UnimplementedGrpc);
-    }
+    // `:85-108`: the exporter (and its channel/endpoint validation) is built
+    // before the counts and outside the body's `try`.
+    let transport = Transport::from_settings(&context.settings)?;
     let domain = domain(context.settings.urls.web_url.as_deref())?;
     let counts = instance_counts(client).await?;
-    let url = metrics_url(&context.settings.telemetry.otlp_endpoint);
     let resource = resource_attributes(
         &context.settings.telemetry.service_name,
         &instance.instance_id,
@@ -294,7 +425,7 @@ async fn run(context: &TaskContext, client: &Client) -> Result<Outcome, HandlerE
                     workspaces: Vec::new(),
                 };
                 let body = encode(&partial, &resource, now_ns());
-                let _ = export_with_retries(context, &url, &body).await;
+                let _ = transport.send(context, &body).await;
             }
             return Err(error);
         }
@@ -309,7 +440,7 @@ async fn run(context: &TaskContext, client: &Client) -> Result<Outcome, HandlerE
     // still read but the reader collects nothing and no request is made.
     if disabled {
         tracing::debug!(target: "plane.tasks", "OTEL_SDK_DISABLED is true, skipping metrics push");
-        return Ok(Outcome::Done);
+        return Ok(());
     }
 
     // `force_flush()` (`:347`) and then `provider.shutdown()`'s final
@@ -317,18 +448,20 @@ async fn run(context: &TaskContext, client: &Client) -> Result<Outcome, HandlerE
     // collection timestamps.
     for _ in 0..2 {
         let body = encode(&snapshot, &resource, now_ns());
-        let _ = export_with_retries(context, &url, &body).await;
+        let _ = transport.send(context, &body).await;
     }
 
     // `flush_success` is always true, so the info line is logged even when the
     // export failed (`:349-353`).
+    let (kind, endpoint) = transport.describe();
     tracing::info!(
         target: "plane.tasks",
-        endpoint = %url,
+        transport = kind,
+        endpoint = %endpoint,
         instance = %snapshot.instance.instance_id,
         "Successfully pushed metrics to OTEL collector"
     );
-    Ok(Outcome::Done)
+    Ok(())
 }
 
 /// `Instance.objects.first()` (`:74`).
@@ -611,12 +744,17 @@ fn export_timeout() -> Duration {
 /// immediate retry on a connection error), then `2**retry` seconds of backoff
 /// while the 10 s deadline lasts. Jitter is omitted: it only moves the sleeps,
 /// never the number of attempts inside the deadline.
-async fn export_with_retries(context: &TaskContext, url: &str, body: &[u8]) -> bool {
+async fn export_http(
+    context: &TaskContext,
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> bool {
     let deadline = Instant::now() + export_timeout();
     let mut retry = 0;
     loop {
         let mut backoff = Duration::from_secs(1u64 << retry.min(20));
-        match submit(context, url, body, deadline).await {
+        match submit_http(context, url, headers, body, deadline).await {
             Ok(response) => {
                 if (200..400).contains(&response.status) {
                     return true;
@@ -640,7 +778,7 @@ async fn export_with_retries(context: &TaskContext, url: &str, body: &[u8]) -> b
                 // connection/TLS/timeout classes, which `plane-net` returns as
                 // `Transport`. A `ValueError` (URL validation) or
                 // `InvalidURL` (preparation) is not retried by the exporter.
-                if !matches!(error, plane_net::FetchError::Transport(_)) {
+                if !matches!(error, FetchError::Transport(_)) {
                     return false;
                 }
             }
@@ -654,13 +792,17 @@ async fn export_with_retries(context: &TaskContext, url: &str, body: &[u8]) -> b
     }
 }
 
-async fn submit(
+async fn submit_http(
     context: &TaskContext,
     url: &str,
+    headers: &[(String, String)],
     body: &[u8],
     deadline: Instant,
-) -> Result<plane_net::PinnedResponse, plane_net::FetchError> {
-    let request = OutboundRequest::new().body(body.to_vec());
+) -> Result<plane_net::PinnedResponse, FetchError> {
+    let mut request = OutboundRequest::new().body(body.to_vec());
+    for (name, value) in headers {
+        request = request.header(name.clone(), value.clone());
+    }
     let remaining = deadline
         .saturating_duration_since(Instant::now())
         .max(Duration::from_millis(1));
@@ -674,7 +816,7 @@ async fn submit(
         Ok(response) => Ok(response),
         Err(first) => {
             // `_submit` retries a connection error once, immediately.
-            if !matches!(first, plane_net::FetchError::Transport(_)) {
+            if !matches!(first, FetchError::Transport(_)) {
                 return Err(first);
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -689,6 +831,234 @@ async fn submit(
                 .await
         }
     }
+}
+
+/// `OTLPExporterMixin._export` for the gRPC exporter: `UNKNOWN` from a
+/// transport failure, then the retry table and `2**retry` backoff inside the
+/// `_timeout` deadline.
+async fn export_grpc(
+    context: &TaskContext,
+    endpoint: &str,
+    insecure: bool,
+    metadata: &[(String, String)],
+    body: &[u8],
+    compression: Option<&'static str>,
+) -> bool {
+    let deadline = Instant::now() + export_timeout();
+    let mut retry = 0;
+    loop {
+        let backoff = Duration::from_secs(1u64 << retry.min(20));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        let request = plane_net::grpc::GrpcRequest {
+            endpoint,
+            path: GRPC_PATH,
+            insecure,
+            metadata: metadata.to_vec(),
+            body: body.to_vec(),
+            compression,
+            timeout: remaining,
+        };
+        let code = match context
+            .http
+            .grpc_unary(&preset::TELEMETRY, &telemetry_policy(), &request)
+            .await
+        {
+            Ok(response) => {
+                if response.status.code == 0 {
+                    return true;
+                }
+                if response.status.code == STATUS_DEADLINE_EXCEEDED {
+                    tracing::warn!(
+                        target: "plane.tasks",
+                        "gRPC export exceeded its deadline"
+                    );
+                } else {
+                    tracing::warn!(
+                        target: "plane.tasks",
+                        status = response.status.code,
+                        message = response.status.message.as_deref().unwrap_or(""),
+                        "Failed to export metrics batch"
+                    );
+                }
+                response.status.code
+            }
+            Err(error) => {
+                tracing::warn!(target: "plane.tasks", %error, "Failed to export metrics batch");
+                if !matches!(error, FetchError::Grpc(_)) {
+                    return false;
+                }
+                STATUS_UNAVAILABLE
+            }
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if !GRPC_RETRYABLE.contains(&code) || retry + 1 == MAX_RETRIES || backoff > remaining {
+            return false;
+        }
+        tokio::time::sleep(backoff).await;
+        retry += 1;
+    }
+}
+
+/// `OTEL_EXPORTER_OTLP_METRICS_HEADERS` (else `OTEL_EXPORTER_OTLP_HEADERS`).
+fn exporter_headers() -> Vec<(String, String)> {
+    let raw = non_empty_env("OTEL_EXPORTER_OTLP_METRICS_HEADERS")
+        .or_else(|| non_empty_env("OTEL_EXPORTER_OTLP_HEADERS"));
+    raw.map(|raw| parse_headers(&raw)).unwrap_or_default()
+}
+
+/// `parse_env_headers(..., liberal=True)`: comma-separated `name=value`,
+/// URL-decoded, names lower-cased, values stripped.
+fn parse_headers(raw: &str) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    for item in raw.split(',') {
+        if item.is_empty() {
+            continue;
+        }
+        let Some((name, value)) = item.split_once('=') else {
+            tracing::warn!(
+                target: "plane.tasks",
+                header = item,
+                "invalid OTLP header; expected name=value"
+            );
+            continue;
+        };
+        let name = unquote(name).trim().to_lowercase();
+        if name.is_empty() {
+            continue;
+        }
+        upsert(&mut headers, &name, unquote(value).trim().to_string());
+    }
+    headers
+}
+
+/// `grpc` metadata adds the exporter's primary user agent to the channel's own
+/// `grpc-python/<version> grpc-c/<version> (<platform>; chttp2)`.
+fn grpc_metadata(mut headers: Vec<(String, String)>) -> Vec<(String, String)> {
+    upsert(&mut headers, "user-agent", grpc_user_agent());
+    headers
+}
+
+/// `grpcio==1.84.0` (gRPC C-core 56.0.0) in the oracle virtualenv; the
+/// channel option `grpc.primary_user_agent` prefixes
+/// `OTel-OTLP-Exporter-Python/1.45.2`. Bump both pinned versions with
+/// `apps/api/pyproject.toml`.
+fn grpc_user_agent() -> String {
+    let platform = match std::env::consts::OS {
+        "macos" => "osx",
+        other => other,
+    };
+    format!(
+        "OTel-OTLP-Exporter-Python/1.45.2 grpc-python/1.84.0 grpc-c/56.0.0 ({platform}; chttp2)"
+    )
+}
+
+fn non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
+}
+
+/// `environ_to_compression(OTEL_EXPORTER_OTLP_METRICS_COMPRESSION)` for the
+/// gRPC exporter. A metrics value of `none` is `None`, which the mixin treats
+/// as "not provided" and re-reads the global variable.
+fn grpc_compression() -> Result<Option<&'static str>, HandlerError> {
+    if let Some(value) = non_empty_env("OTEL_EXPORTER_OTLP_METRICS_COMPRESSION") {
+        match value.trim().to_lowercase().as_str() {
+            "gzip" => return Ok(Some("gzip")),
+            "none" => {}
+            other => {
+                return Err(HandlerError::retryable(format!(
+                    "invalid value {other:?} for OTEL_EXPORTER_OTLP_METRICS_COMPRESSION"
+                )));
+            }
+        }
+    }
+    match non_empty_env("OTEL_EXPORTER_OTLP_COMPRESSION") {
+        Some(value) => match value.trim().to_lowercase().as_str() {
+            "gzip" => Ok(Some("gzip")),
+            "none" => Ok(None),
+            other => Err(HandlerError::retryable(format!(
+                "invalid value {other:?} for OTEL_EXPORTER_OTLP_COMPRESSION"
+            ))),
+        },
+        None => Ok(None),
+    }
+}
+
+/// `_resolve_compression` for the HTTP exporter: an invalid value warns and
+/// falls back to no compression.
+fn http_compression() -> Option<HttpCompression> {
+    let raw = non_empty_env("OTEL_EXPORTER_OTLP_METRICS_COMPRESSION")
+        .or_else(|| non_empty_env("OTEL_EXPORTER_OTLP_COMPRESSION"));
+    match raw.as_deref().map(|value| value.trim().to_lowercase()) {
+        Some(value) if value == "gzip" => Some(HttpCompression::Gzip),
+        Some(value) if value == "deflate" => Some(HttpCompression::Deflate),
+        Some(value) if value == "none" => None,
+        Some(other) => {
+            tracing::warn!(
+                target: "plane.tasks",
+                value = other,
+                "unsupported OTLP compression; sending uncompressed"
+            );
+            None
+        }
+        None => None,
+    }
+}
+
+fn compress_http(compression: HttpCompression, body: &[u8]) -> Result<Vec<u8>, HandlerError> {
+    match compression {
+        HttpCompression::Gzip => compress_gzip(body),
+        HttpCompression::Deflate => {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder
+                .write_all(body)
+                .and_then(|()| encoder.finish())
+                .map_err(|error| HandlerError::retryable(error.to_string()))
+        }
+    }
+}
+
+fn compress_gzip(body: &[u8]) -> Result<Vec<u8>, HandlerError> {
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder
+        .write_all(body)
+        .and_then(|()| encoder.finish())
+        .map_err(|error| HandlerError::retryable(error.to_string()))
+}
+
+/// `OTEL_EXPORTER_OTLP_METRICS_INSECURE`: the task passes
+/// `insecure=os.environ.get(..., "").lower() == "true"`, so the endpoint's
+/// scheme is not consulted (the gRPC endpoint is always `host:port`).
+fn grpc_insecure() -> bool {
+    std::env::var("OTEL_EXPORTER_OTLP_METRICS_INSECURE")
+        .is_ok_and(|value| value.to_lowercase() == "true")
+}
+
+/// `get_otlp_grpc_endpoint()` (`plane/utils/otlp_endpoints.py:46-53`): a
+/// scheme-less `host:port` with 443 for `https` and OTLP's 4317 otherwise.
+fn grpc_endpoint(raw: &str) -> Result<String, HandlerError> {
+    let url = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("//{raw}")
+    };
+    let parsed = plane_core::py::urlsplit(&url)
+        .map_err(|error| HandlerError::retryable(error.to_string()))?;
+    let host = parsed
+        .hostname()
+        .unwrap_or_else(|| "telemetry.plane.so".to_string());
+    let port = match parsed
+        .port()
+        .map_err(|error| HandlerError::retryable(error.to_string()))?
+    {
+        Some(port) => port.to_string(),
+        None if parsed.scheme == "https" => "443".to_string(),
+        None => "4317".to_string(),
+    };
+    Ok(format!("{host}:{port}"))
 }
 
 /// `Retry-After`'s delay-seconds form. Python also accepts an HTTP date;
@@ -1239,6 +1609,90 @@ mod tests {
         assert_eq!(attributes[3].1, "11111111-1111-4111-8111-111111111111");
         // The task's explicit service.name wins over OTEL_SERVICE_NAME.
         assert_eq!(attributes[5].1, "plane-ce-api");
+    }
+
+    #[test]
+    fn grpc_endpoint_matches_get_otlp_grpc_endpoint() {
+        assert_eq!(
+            grpc_endpoint("https://telemetry.plane.so").expect("endpoint"),
+            "telemetry.plane.so:443"
+        );
+        assert_eq!(
+            grpc_endpoint("telemetry.plane.so:4317").expect("endpoint"),
+            "telemetry.plane.so:4317"
+        );
+        assert_eq!(
+            grpc_endpoint("telemetry.plane.so").expect("endpoint"),
+            "telemetry.plane.so:4317"
+        );
+        assert_eq!(
+            grpc_endpoint("http://collector").expect("endpoint"),
+            "collector:4317"
+        );
+        assert_eq!(
+            grpc_endpoint("https://collector:8443").expect("endpoint"),
+            "collector:8443"
+        );
+        // `urlsplit` keeps the IPv6 hostname unbracketed, so Python's
+        // `f"{host}:{port}"` produces this malformed value; port it.
+        assert_eq!(
+            grpc_endpoint("https://[::1]:4317").expect("endpoint"),
+            "::1:4317"
+        );
+        assert_eq!(
+            grpc_endpoint("").expect("endpoint"),
+            "telemetry.plane.so:4317"
+        );
+    }
+
+    #[test]
+    fn headers_are_parsed_like_parse_env_headers() {
+        assert_eq!(
+            parse_headers("x-test=hello%20world, X-Other = two ,empty=,dup=1,dup=2"),
+            [
+                ("x-test".to_string(), "hello world".to_string()),
+                ("x-other".to_string(), "two".to_string()),
+                ("empty".to_string(), String::new()),
+                ("dup".to_string(), "2".to_string()),
+            ]
+        );
+        assert!(parse_headers("").is_empty());
+    }
+
+    #[test]
+    fn compression_round_trips() {
+        use std::io::Read as _;
+
+        let body = b"metrics".repeat(100);
+        let gzip = compress_gzip(&body).expect("gzip");
+        let mut decoded = Vec::new();
+        flate2::read::GzDecoder::new(gzip.as_slice())
+            .read_to_end(&mut decoded)
+            .expect("gunzip");
+        assert_eq!(decoded, body);
+
+        let deflate = compress_http(HttpCompression::Deflate, &body).expect("deflate");
+        let mut decoded = Vec::new();
+        flate2::read::ZlibDecoder::new(deflate.as_slice())
+            .read_to_end(&mut decoded)
+            .expect("inflate");
+        assert_eq!(decoded, body);
+    }
+
+    #[test]
+    fn grpc_user_agent_is_the_python_core_string() {
+        let agent = grpc_user_agent();
+        assert!(
+            agent
+                .starts_with("OTel-OTLP-Exporter-Python/1.45.2 grpc-python/1.84.0 grpc-c/56.0.0 (")
+        );
+        assert!(agent.ends_with("; chttp2)"));
+        let platform = if cfg!(target_os = "macos") {
+            "osx"
+        } else {
+            std::env::consts::OS
+        };
+        assert!(agent.contains(&format!("({platform};")), "{agent}");
     }
 
     #[test]
