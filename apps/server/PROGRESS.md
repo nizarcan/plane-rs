@@ -2072,6 +2072,22 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        zip bytes depend on the wall-clock second; `delete_old_s3_link` runs twice
        nightly.
 
+   - **Set C part 2 on its branch (`4653efe7cb`, not merged).** The crawl's loopback
+     switch now compiles only with `plane-tasks/difftest` (test proves a default build
+     ignores it). Switched: 14 `issue_export_task` (`crates/plane-xlsx`,
+     `tools/inventory/xlsx_corpus.py --check`; csv/json/xlsx/invalid-provider cases) and
+     1 `analytic_export_task` (analytics template + text attachment in `plane-mail`;
+     state/priority cases with SMTP bytes compared). 1332 tests, testkit 204.
+     - **Owed before set C merges:** task 1 drops a literal `"None"` in UUID filters
+       (Django adds `IS NULL`), doesn't reproduce `logged_by`'s `FieldError`, nor the
+       module-segment `KeyError` with labels.
+     - The agent used Redis 7 and flushed 5–9 (assigned 5/6); part 3 told 5/6 only. It
+       ran the OAuth files without their wrapper, so its OAuth results don't count.
+     - Upstream kept: module segment names looked up in `label_details`; segment column
+       order from `list(set())`; `intake_status` reads `inbox_status`; export's `except`
+       can raise; `sub_issues_count`/`link_count`/`attachment_count` never annotated (25
+       columns); the analytics HTML body is rendered but never attached.
+
    Running: Phase 8 set D (`rs/p8-d`, incl. the `plane_jobs` harness fix; 18010/18110,
-   Redis 3/4), set C part 2 (`rs/p8-c`: the loopback gate, then 14, 1, 8, 46;
-   18020/18120, Redis 5/6).
+   Redis 3/4), set C part 3 (`rs/p8-c`: task 1 gaps, then 8, 46; 18020/18120, Redis
+   5/6).

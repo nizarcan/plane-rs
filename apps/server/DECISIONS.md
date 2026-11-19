@@ -586,6 +586,11 @@ workspace `Cargo.toml` and upgrade deliberately.
   in `tools/jobs/run_django_task.py`, and the Rust side's switch is compiled only
   with a non-default `difftest` cargo feature, so a release worker can't read it.
 - Outgoing messages and jobs a task publishes are compared too (D25).
+- SMTP: a case with `"smtp": {}` starts one `tools/mail/fake_smtp.py` per side and points
+  that clone's `EMAIL_*` instance configuration at it; envelopes and message bytes are
+  compared, masking only `Date:`, the `Message-ID` and the random MIME boundary.
+- ZIP objects (and the XLSX inside the export ZIP) are decompressed recursively and
+  compared entry by entry (D27).
 
 ## D27. The issue-export xlsx is written in-house (`plane-xlsx`) (decided 2026-11-19)
 
