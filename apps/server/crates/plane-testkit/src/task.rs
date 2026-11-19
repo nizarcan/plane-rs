@@ -70,8 +70,8 @@ use crate::db::{DbAdmin, DbDiff, diff_snapshots};
 use crate::redis::{RedisAdmin, RedisDiff, RedisSnapshotter, diff_snapshots as redis_diff};
 use crate::s3::S3Admin;
 use crate::task_case::{
-    Recorder, SideBuckets, SmtpCase, TaskCase, compare_objects, compare_requests, compare_rows,
-    compare_smtp_logs,
+    AttemptsCase, Recorder, SideBuckets, SmtpCase, TaskCase, compare_objects, compare_requests,
+    compare_rows, compare_smtp_logs,
 };
 use crate::util::{repo_root, validate_identifier};
 use anyhow::{Context, Result, bail};
@@ -572,13 +572,44 @@ async fn execute(
     let mut redis_b = redis_side(&options.b_db, options.b_redis_db, &options.vhost).await?;
     redis_a.0.flush_db(options.a_redis_db).await?;
     redis_b.0.flush_db(options.b_redis_db).await?;
+    if let Some(case) = case {
+        for seed in &case.redis {
+            redis_a
+                .0
+                .set_raw(
+                    options.a_redis_db,
+                    &seed.key,
+                    seed.value.as_bytes(),
+                    seed.ttl,
+                )
+                .await?;
+            redis_b
+                .0
+                .set_raw(
+                    options.b_redis_db,
+                    &seed.key,
+                    seed.value.as_bytes(),
+                    seed.ttl,
+                )
+                .await?;
+        }
+    }
     let before_redis_a = redis_a.1.snapshot().await?.snapshot;
     let before_redis_b = redis_b.1.snapshot().await?.snapshot;
 
     let started: DateTime<Utc> = Utc::now();
     let before_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
+    let attempts = case.and_then(|case| case.attempts.as_ref());
     let http_start = recorder.map_or(0, Recorder::request_count);
-    let django = run_django(options, call_args, call_kwargs, bucket_a, live_url).await?;
+    let django = run_django(
+        options,
+        call_args,
+        call_kwargs,
+        bucket_a,
+        live_url,
+        attempts,
+    )
+    .await?;
     // Capture immediately: later requests append to the same log.
     let django_http = recorder.map(|recorder| recorder.slice(http_start));
     let messages_a = drain_messages(rabbit, &drain, &options.vhost).await?;
@@ -592,7 +623,7 @@ async fn execute(
         admin,
         bucket_b,
         live_url,
-        case.is_some_and(|case| case.single_job),
+        attempts,
     )
     .await?;
     let rust_http = recorder.map(|recorder| recorder.slice(rust_start));
@@ -611,8 +642,8 @@ async fn execute(
         .map(message_to_outgoing)
         .collect::<Vec<_>>();
     outgoing_b.extend(jobs_b.iter().map(job_to_outgoing));
-    normalise_outgoing(&mut outgoing_a);
-    normalise_outgoing(&mut outgoing_b);
+    normalise_outgoing(&mut outgoing_a, case);
+    normalise_outgoing(&mut outgoing_b, case);
     // `python_value` decodes a `uuid.UUID` envelope, which is the transport's
     // representation of the same Python value; a task still delivered through
     // Celery on both sides is additionally compared as raw JSON, so an
@@ -902,8 +933,17 @@ fn job_to_outgoing(row: &tokio_postgres::Row) -> Outgoing {
 
 /// `epoch=int(timezone.now().timestamp())` is the only argument a task
 /// publishes that carries the clock (`issue_automation_task.py:82,145`).
-fn normalise_outgoing(outgoing: &mut [Outgoing]) {
+///
+/// The case's `normalize` rules apply to every outgoing argument string too.
+/// A webhook delivery failure publishes its transport error as the
+/// deactivation e-mail's `reason`, and the two HTTP stacks' messages differ by
+/// design (D9); the case masks that one string rather than the whole argument.
+fn normalise_outgoing(outgoing: &mut [Outgoing], case: Option<&TaskCase>) {
     for entry in outgoing {
+        if let Some(case) = case {
+            normalise_published_strings(&mut entry.args, case);
+            normalise_published_strings(&mut entry.kwargs, case);
+        }
         let Some(kwargs) = entry.kwargs.as_object_mut() else {
             continue;
         };
@@ -919,6 +959,25 @@ fn normalise_outgoing(outgoing: &mut [Outgoing]) {
             normalise_activity_payload(&mut value);
             kwargs.insert("issue_activities_created".to_string(), value);
         }
+    }
+}
+
+/// Apply the case's regex rules to every string inside a published argument
+/// (objects, arrays and string values).
+fn normalise_published_strings(value: &mut serde_json::Value, case: &TaskCase) {
+    match value {
+        serde_json::Value::String(text) => *text = case.normalize_text(text),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                normalise_published_strings(item, case);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                normalise_published_strings(item, case);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -946,6 +1005,9 @@ struct DjangoOutcome {
     status: String,
     exc_type: String,
     result: String,
+    /// Celery's `Retry.when` (a jittered countdown in seconds), when the
+    /// single-attempt run ended in `RETRY`.
+    countdown: Option<f64>,
 }
 
 /// A = `task.apply()` in the real Django, with the dev stack's environment.
@@ -955,6 +1017,7 @@ async fn run_django(
     call_kwargs: &serde_json::Map<String, serde_json::Value>,
     bucket: Option<&str>,
     live_url: Option<&str>,
+    attempts: Option<&AttemptsCase>,
 ) -> Result<DjangoOutcome> {
     let root = repo_root();
     let env = dev_env(
@@ -965,11 +1028,17 @@ async fn run_django(
         live_url,
         true,
     )?;
-    let output = Command::new(root.join("apps/api/.venv/bin/python"))
+    let mut command = Command::new(root.join("apps/api/.venv/bin/python"));
+    command
         .arg(root.join("apps/server/tools/jobs/run_django_task.py"))
         .arg(&options.task)
         .arg(serde_json::to_string(call_kwargs)?)
-        .arg(serde_json::to_string(call_args)?)
+        .arg(serde_json::to_string(call_args)?);
+    if let Some(attempts) = attempts {
+        // `request.retries` is 0-based; the case names attempts from 1.
+        command.arg((attempts.number - 1).to_string());
+    }
+    let output = command
         .current_dir(root.join("apps/api"))
         .env_clear()
         .env("PYTHONPATH", root.join("apps/api"))
@@ -1005,7 +1074,41 @@ async fn run_django(
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        countdown: result.get("countdown").and_then(serde_json::Value::as_f64),
     };
+    if let Some(attempts) = attempts {
+        if attempts.expect_retry {
+            if outcome.status != "RETRY" {
+                bail!(
+                    "Django task was expected to retry on attempt {} but ended with {}: {}",
+                    attempts.number,
+                    outcome.status,
+                    outcome.result
+                );
+            }
+            let countdown = outcome.countdown.ok_or_else(|| {
+                anyhow::anyhow!("Django ended in RETRY without a numeric countdown")
+            })?;
+            if countdown < 0.0 || countdown > f64::from(attempts.retry_backoff_seconds) {
+                bail!(
+                    "Django retry countdown {countdown}s is outside [0, {}]",
+                    attempts.retry_backoff_seconds
+                );
+            }
+            println!(
+                "django: RETRY countdown={countdown}s (policy 0-{}s)",
+                attempts.retry_backoff_seconds
+            );
+        } else if outcome.status != "SUCCESS" {
+            bail!(
+                "Django task ended with {} on attempt {}: {}",
+                outcome.status,
+                attempts.number,
+                outcome.result
+            );
+        }
+        return Ok(outcome);
+    }
     match &options.expect_django_failure {
         None => {
             if outcome.status != "SUCCESS" {
@@ -1067,7 +1170,7 @@ async fn run_worker(
     admin: &DbAdmin,
     bucket: Option<&str>,
     live_url: Option<&str>,
-    single_job: bool,
+    attempts: Option<&AttemptsCase>,
 ) -> Result<WorkerOutcome> {
     let root = repo_root();
     let worker = worker_path(options);
@@ -1103,9 +1206,23 @@ async fn run_worker(
     // `tokio-postgres` is built without its `uuid`/`serde_json` features in
     // this workspace (feature isolation), so the two generated values are
     // inlined with SQL quoting rather than bound.
+    // A retry case starts the row at `number - 1`: `claim` increments it, so
+    // the handler sees the case's attempt number. The retry policy is the one
+    // the production enqueue path applies (`plane-jobs::policy`), stated by
+    // the case because the harness cannot link the queue crate.
+    let (attempts_before, max_retries, backoff, jitter) = match attempts {
+        Some(attempts) => (
+            attempts.number - 1,
+            attempts.max_retries,
+            attempts.retry_backoff_seconds,
+            attempts.retry_jitter,
+        ),
+        None => (0, 0, 0, false),
+    };
     let insert = format!(
-        "INSERT INTO plane_jobs.jobs (id, task, payload, max_retries) \
-         VALUES ('{id}'::uuid, '{}', '{}'::jsonb, 0)",
+        "INSERT INTO plane_jobs.jobs \
+         (id, task, payload, max_retries, retry_backoff_seconds, retry_jitter, attempts) \
+         VALUES ('{id}'::uuid, '{}', '{}'::jsonb, {max_retries}, {backoff}, {jitter}, {attempts_before})",
         sql_literal(&options.task),
         sql_literal(&payload.to_string()),
     );
@@ -1120,14 +1237,10 @@ async fn run_worker(
         .envs(&env)
         .env("PLANE_RS_JOB_CONCURRENCY", "1")
         .env("PLANE_RS_JOB_POLL_MS", "10")
-        .env(
-            "PLANE_RS_JOB_ONCE_LIMIT",
-            if single_job {
-                "1"
-            } else {
-                "18446744073709551615"
-            },
-        )
+        // A = Django's `task.apply()` publishes a handler's child tasks but
+        // never runs them, so B must run exactly the harness-inserted job and
+        // leave the ones the handler queued in place (`D25`).
+        .env("PLANE_RS_JOB_ONCE_JOBS", "1")
         .stdin(Stdio::null())
         .output()
         .await
@@ -1141,13 +1254,46 @@ async fn run_worker(
 
     let row = client
         .query_one(
-            &format!("SELECT state, last_error FROM plane_jobs.jobs WHERE id = '{id}'::uuid"),
+            &format!(
+                "SELECT state, last_error, attempts, \
+                        EXTRACT(EPOCH FROM (run_at - updated_at))::float8 \
+                 FROM plane_jobs.jobs WHERE id = '{id}'::uuid"
+            ),
             &[],
         )
         .await
         .context("reading the job row")?;
     let state: String = row.try_get(0)?;
     let last_error: Option<String> = row.try_get(1)?;
+    let job_attempts: i32 = row.try_get(2)?;
+    let run_ahead: f64 = row.try_get(3)?;
+    if let Some(attempts) = attempts {
+        if job_attempts != attempts.number {
+            bail!(
+                "Rust job ran as attempt {job_attempts}, not the case's {}",
+                attempts.number
+            );
+        }
+        if attempts.expect_retry {
+            if state != "failed" {
+                bail!(
+                    "Rust job was expected to schedule a retry on attempt {} but ended in state \
+                     {state}: {}",
+                    attempts.number,
+                    last_error.unwrap_or_else(|| "no error recorded".to_string())
+                );
+            }
+            let bound = f64::from(attempts.retry_backoff_seconds);
+            if run_ahead < -0.001 || run_ahead > bound {
+                bail!("Rust retry is scheduled {run_ahead}s ahead, outside [0, {bound}]");
+            }
+            println!(
+                "rust: RETRY run_at=+{run_ahead}s (policy 0-{bound}s), last_error={:?}",
+                last_error.unwrap_or_default()
+            );
+            return Ok(WorkerOutcome { state, job_id: id });
+        }
+    }
     match &options.expect_worker_failure {
         None => {
             if state != "done" {

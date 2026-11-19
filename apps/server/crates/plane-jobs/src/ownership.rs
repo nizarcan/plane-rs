@@ -74,6 +74,11 @@ pub const RUST_TASKS: &[&str] = &[
     // Phase 8 set A1: every producer is a Rust HTTP route, the Rust
     // `archive_and_close_old_issues`, or `transfer_cycle_issues`.
     "plane.bgtasks.issue_activities_task.issue_activity",
+    // Phase 8 set B: 13 is published only by 12, which is published only by
+    // the beat entry `check-every-five-minutes-to-send-email-notifications`
+    // (`beat::RUST_SCHEDULES`).
+    "plane.bgtasks.email_notification_task.stack_email_notification",
+    "plane.bgtasks.email_notification_task.send_email_notification",
 ];
 
 /// A task's owner.

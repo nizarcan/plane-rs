@@ -66,15 +66,66 @@ pub struct TaskCase {
     /// Capture the task's outbound SMTP through `tools/mail/fake_smtp.py`.
     #[serde(default)]
     pub smtp: Option<SmtpCase>,
-    /// Execute only the enqueued job, leaving the tasks the handler publishes
-    /// queued. Django's `task.apply()` never runs them, so a chain whose child
-    /// is Rust-owned needs this to compare like with like (`D25`).
+    /// Raw Redis entries written to both sides' logical databases before the
+    /// baseline snapshot. `send_email_notification` reads the base API URL
+    /// from a raw redis-py key (`<issue_id>`) that only `issue_activity`
+    /// writes, so a case must seed it.
     #[serde(default)]
-    pub single_job: bool,
+    pub redis: Vec<RedisSeed>,
+    /// Run the case as the Nth attempt of a retrying task. `None` runs the
+    /// single delivery Django's `task.apply()` and the worker's first claim
+    /// make (attempt 1); the field also switches the run to one job, because a
+    /// retry scheduled at `now()` would otherwise be claimed again by the same
+    /// `--once` process.
+    #[serde(default)]
+    pub attempts: Option<AttemptsCase>,
     /// Normalisers for the case's SQL rows and S3 keys, and for the values the
     /// whole-schema database diff prints.
     #[serde(default)]
     pub normalize: Vec<Normalize>,
+}
+
+/// One raw Redis entry a case writes before the run.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedisSeed {
+    pub key: String,
+    pub value: String,
+    /// `EX` seconds; `None` leaves the key without an expiry.
+    #[serde(default)]
+    pub ttl: Option<i64>,
+}
+
+/// A retrying task's attempt number plus the queue policy the enqueue path
+/// applies.
+///
+/// The policy is `plane_jobs::policy::policy(task)`, reproduced here rather
+/// than linked: `plane-testkit` is a separate workspace and must not pull the
+/// queue crate into its feature set. A wrong value is observable — attempt
+/// `max_retries + 1` has to stop retrying and run the task's failure branch on
+/// both sides — so the case file states the policy the production path uses
+/// and the run proves the handler behaves as if it had been applied.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttemptsCase {
+    /// 1-based attempt number. Django gets `request.retries = number - 1`; the
+    /// worker's job row is inserted with `attempts = number - 1` so its claim
+    /// increments it to `number`.
+    pub number: i32,
+    /// Retries after the first attempt (`0` = dead on first failure).
+    #[serde(default)]
+    pub max_retries: i32,
+    /// The retry delay bound, in seconds.
+    #[serde(default)]
+    pub retry_backoff_seconds: i32,
+    /// Pick the delay uniformly from `[0, retry_backoff_seconds]`.
+    #[serde(default)]
+    pub retry_jitter: bool,
+    /// The attempt must consume itself by retrying: Django ends in `RETRY`
+    /// with a countdown, and B's row ends `failed` with a `run_at` that far
+    /// ahead. Both delays must fall inside `[0, retry_backoff_seconds]`.
+    #[serde(default)]
+    pub expect_retry: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,6 +223,16 @@ pub struct FakeResponse {
     /// Binary body (a favicon fixture); `body` and this are exclusive.
     #[serde(default)]
     pub body_base64: Option<String>,
+    /// Close the connection after reading the request, without a response:
+    /// the deterministic way to drive a transport failure (a webhook delivery
+    /// that must retry or deactivate) inside the harness.
+    #[serde(default)]
+    pub drop: bool,
+    /// Wait this long before answering, for a read-timeout branch. The
+    /// recorder answers each connection on its own task, so one slow response
+    /// does not hold up the other side.
+    #[serde(default)]
+    pub delay_ms: Option<u64>,
 }
 
 impl FakeResponse {
@@ -817,7 +878,17 @@ async fn serve(
         headers: BTreeMap::new(),
         body: String::new(),
         body_base64: None,
+        drop: false,
+        delay_ms: None,
     });
+    if response.drop {
+        // Drop without writing a byte: requests raises `RemoteDisconnected`,
+        // hyper an incomplete message; both are the caller's transport error.
+        return Ok(());
+    }
+    if let Some(delay) = response.delay_ms {
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+    }
     let body = response.body_bytes()?;
     let reason = match response.status {
         200 => "OK",
@@ -869,7 +940,8 @@ mod tests {
             s3: None,
             http: None,
             smtp: None,
-            single_job: false,
+            redis: Vec::new(),
+            attempts: None,
             normalize: vec![
                 Normalize {
                     pattern: "[0-9a-f]{8}".to_string(),
@@ -892,7 +964,8 @@ mod tests {
             s3: None,
             http: None,
             smtp: None,
-            single_job: false,
+            redis: Vec::new(),
+            attempts: None,
             normalize: vec![Normalize {
                 pattern: "token=[a-z]+".to_string(),
                 replacement: "token=<TOK>".to_string(),

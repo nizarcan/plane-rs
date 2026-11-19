@@ -253,3 +253,37 @@ a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-vote-create
 a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-vote-deleted.json issue-activity-base.sql -
 a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-cycle-bad-epoch.json issue-activity-base.sql -
 a1 plane.bgtasks.issue_activities_task.issue_activity issue-activity-unknown-type-bad-epoch.json issue-activity-base.sql -
+
+# Task 41's retry budget. `attempts` runs the case as the Nth delivery (A:
+# `request.retries = n-1` through Celery's tracer, one attempt only; B: the job
+# row starts at n-1). Attempts 1-4 must schedule the next run with a 0-600 s
+# jittered delay; attempt 6 (retries == max_retries) deactivates the webhook and
+# publishes the deactivation e-mail. The recorder drops the connection, so both
+# sides take the `requests.RequestException` branch; the transport text is the
+# one value D9 accepts can differ, so the cases mask it.
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-retry-1.json p8b-webhook-base.sql p8b-send-retry-1.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-retry-2.json p8b-webhook-base.sql p8b-send-retry-2.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-retry-3.json p8b-webhook-base.sql p8b-send-retry-3.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-retry-4.json p8b-webhook-base.sql p8b-send-retry-4.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-retry-exhausted.json p8b-webhook-base.sql p8b-send-retry-exhausted.case.json
+# The read-timeout branch: the recorder accepts the request and answers after
+# 31 s, past both clients' 30 s read timeout (D9).
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-timeout.json p8b-webhook-base.sql p8b-send-timeout.case.json
+
+# Tasks 12 and 13: the issue-update e-mail. `EmailNotificationLog` rows are
+# written by task 29 (set A2), so these fixtures seed them directly. 12 runs
+# with `single_job`: Django's `apply()` does not run the 13 it publishes, and
+# the worker must leave those jobs queued to compare like with like.
+b plane.bgtasks.email_notification_task.stack_email_notification no-args.json p8b-email-notification-base.sql p8b-en-stack-grouped.case.json
+b plane.bgtasks.email_notification_task.stack_email_notification no-args.json p8b-email-notification-empty.sql p8b-en-stack-grouped.case.json
+b plane.bgtasks.email_notification_task.stack_email_notification no-args.json p8b-email-notification-null-issue.sql p8b-en-stack-grouped.case.json
+
+# Task 13: the Redis lock (including the missing-base-URL branch that never
+# releases it), the template with comments/mentions, and the SMTP bytes.
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-basic.json p8b-email-notification-base.sql p8b-en-send-basic.case.json
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-comment.json p8b-email-notification-base.sql p8b-en-send-comment.case.json
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-no-base.json p8b-email-notification-base.sql p8b-en-send-no-base.case.json
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-locked.json p8b-email-notification-base.sql p8b-en-send-locked.case.json
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-missing-issue.json p8b-email-notification-base.sql p8b-en-send-missing-issue.case.json
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-missing-user.json p8b-email-notification-base.sql p8b-en-send-missing-user.case.json
+b plane.bgtasks.email_notification_task.send_email_notification p8b-en-send-html.json p8b-email-notification-html.sql p8b-en-send-html.case.json

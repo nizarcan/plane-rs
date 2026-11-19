@@ -30,6 +30,7 @@ mod bs4_entities;
 pub mod cleanup;
 pub mod copy_s3_object;
 pub mod deletion;
+pub mod email_notification;
 pub mod emails;
 pub mod export_task;
 pub mod exporter_expired;
@@ -153,6 +154,7 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     copy_s3_object::register(&mut registry, Arc::clone(&context));
     deletion::register(&mut registry, Arc::clone(&context));
     emails::register(&mut registry, Arc::clone(&context));
+    email_notification::register(&mut registry, Arc::clone(&context));
     export_task::register(&mut registry, Arc::clone(&context));
     exporter_expired::register(&mut registry, Arc::clone(&context));
     file_asset::register(&mut registry, Arc::clone(&context));
@@ -188,6 +190,8 @@ pub const REGISTERED_TASKS: &[&str] = &[
     emails::SEND_EMAIL_UPDATE_MAGIC_CODE,
     emails::SEND_EMAIL_UPDATE_CONFIRMATION,
     emails::WORKSPACE_INVITATION,
+    email_notification::STACK,
+    email_notification::SEND,
     deletion::SOFT_DELETE_RELATED_OBJECTS,
     export_task::TASK,
     exporter_expired::TASK,

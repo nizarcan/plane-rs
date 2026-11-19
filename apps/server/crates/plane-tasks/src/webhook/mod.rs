@@ -47,7 +47,7 @@
 //! 42, and 40 only by 41.
 
 pub mod entity;
-mod pyrepr;
+pub(crate) mod pyrepr;
 
 use std::sync::Arc;
 

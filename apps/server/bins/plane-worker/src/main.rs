@@ -82,11 +82,8 @@ fn main() -> anyhow::Result<()> {
                 .context("creating the plane_jobs schema")?;
         }
         if once {
-            let limit = env_usize("PLANE_RS_JOB_ONCE_LIMIT", usize::MAX);
-            let processed = worker
-                .drain_limited(limit)
-                .await
-                .context("draining the queue")?;
+            let limit = env_usize("PLANE_RS_JOB_ONCE_JOBS", usize::MAX);
+            let processed = worker.drain_n(limit).await.context("draining the queue")?;
             tracing::info!(target: "plane.worker", processed, "drained");
             return Ok(());
         }

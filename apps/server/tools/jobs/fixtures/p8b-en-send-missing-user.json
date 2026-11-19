@@ -1,0 +1,39 @@
+{
+  "issue_id": "b1000000-0000-4000-8000-000000000013",
+  "notification_data": {
+    "b1000000-0000-4000-8000-000000000001": [
+      {
+        "issue_activity": {
+          "id": "b1000000-0000-4000-8000-000000000041",
+          "verb": "updated",
+          "field": "state",
+          "actor": "b1000000-0000-4000-8000-000000000001",
+          "new_value": "Done",
+          "old_value": "Todo",
+          "issue_comment": "",
+          "old_identifier": null,
+          "new_identifier": null,
+          "activity_time": "2026-01-02T09:05:00Z"
+        }
+      },
+      {
+        "issue_activity": {
+          "id": "b1000000-0000-4000-8000-000000000041",
+          "verb": "updated",
+          "field": "labels",
+          "actor": "b1000000-0000-4000-8000-000000000001",
+          "new_value": "backend",
+          "old_value": "bug",
+          "issue_comment": "",
+          "old_identifier": null,
+          "new_identifier": null,
+          "activity_time": "2026-01-02T09:06:00Z"
+        }
+      }
+    ]
+  },
+  "receiver_id": "b1000000-0000-4000-8000-0000000000ff",
+  "email_notification_ids": [
+    "b1000000-0000-4000-8000-000000000031"
+  ]
+}

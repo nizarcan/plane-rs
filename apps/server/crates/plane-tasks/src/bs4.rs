@@ -207,6 +207,82 @@ impl Soup {
         }
     }
 
+    /// `soup.find_all("mention-component")`'s `entity_identifier` attributes,
+    /// in document order. `mention["entity_identifier"]` on a component
+    /// without one is a `KeyError`, which the caller reports.
+    ///
+    /// # Errors
+    ///
+    /// A `<mention-component>` with no `entity_identifier` attribute.
+    pub fn mention_ids(&self) -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        for node in &self.nodes {
+            if node.kind == Kind::Tag && node.name == "mention-component" {
+                let Some(attr) = node
+                    .attrs
+                    .iter()
+                    .find(|attr| attr.name == "entity_identifier")
+                else {
+                    return Err("mention-component has no entity_identifier".to_string());
+                };
+                out.push(attr.value.clone());
+            }
+        }
+        Ok(out)
+    }
+
+    /// `mention.replace_with("@<display_name>")` for every
+    /// `<mention-component>`: each element (and its children) is replaced by
+    /// one text node. bs4's minimal formatter escapes the text on
+    /// serialisation, as [`Soup::serialize`] does for any text node.
+    ///
+    /// # Errors
+    ///
+    /// The callback's error for a name it cannot resolve (a missing user).
+    pub fn replace_mentions<F>(&mut self, mut display_name: F) -> Result<(), String>
+    where
+        F: FnMut(&str) -> Result<String, String>,
+    {
+        let targets: Vec<(usize, String)> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.kind == Kind::Tag && node.name == "mention-component")
+            .map(|(id, node)| {
+                let entity = node
+                    .attrs
+                    .iter()
+                    .find(|attr| attr.name == "entity_identifier")
+                    .map(|attr| attr.value.clone())
+                    .ok_or_else(|| "mention-component has no entity_identifier".to_string())?;
+                Ok((id, entity))
+            })
+            .collect::<Result<_, String>>()?;
+        for (id, entity) in targets {
+            let name = display_name(&entity)?;
+            let replacement = self.nodes.len();
+            let mut node = Node::new(Kind::Text);
+            node.text = format!("@{name}");
+            self.nodes.push(node);
+            if let Some(position) = self.roots.iter().position(|child| *child == id) {
+                self.roots[position] = replacement;
+                continue;
+            }
+            let parent = self
+                .nodes
+                .iter()
+                .position(|node| node.children.contains(&id))
+                .ok_or_else(|| "mention-component has no parent".to_string())?;
+            let position = self.nodes[parent]
+                .children
+                .iter()
+                .position(|child| *child == id)
+                .expect("contains");
+            self.nodes[parent].children[position] = replacement;
+        }
+        Ok(())
+    }
+
     /// `replace_asset_ids`: for every `<tag>` whose `src` equals `old`, set it
     /// to `new`. bs4 keeps the attribute's position and only swaps the value.
     pub fn replace_src(&mut self, tag: &str, old: &str, new: &str) {

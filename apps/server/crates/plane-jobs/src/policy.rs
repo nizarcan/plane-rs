@@ -333,6 +333,21 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
             "plane-tasks/src/webhook/mod.rs (webhook_send_task)",
         )],
     ),
+    // Phase 8 set B's e-mail notifications. 13's only producer is 12, whose
+    // only producer is the Django beat entry `plane/celery.py:48-51`, taken
+    // over through `beat::RUST_SCHEDULES`.
+    (
+        "plane.bgtasks.email_notification_task.stack_email_notification",
+        &[Producer::RustBeat(
+            "plane/celery.py:48-51 (check-every-five-minutes-to-send-email-notifications)",
+        )],
+    ),
+    (
+        "plane.bgtasks.email_notification_task.send_email_notification",
+        &[Producer::RustTask(
+            "plane-tasks/src/email_notification.rs (stack_email_notification)",
+        )],
+    ),
     // Phase 8 set B's e-mail tasks. 17 and 28 are published by the Rust
     // `/auth/` flows; 36 by the Rust sign-up adapter; 37-39 by
     // `/api/users/me/`; 32 by the project-member invite POST; 45 by the

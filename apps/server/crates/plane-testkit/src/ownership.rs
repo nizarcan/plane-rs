@@ -62,6 +62,8 @@ pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
     "plane.bgtasks.workspace_invitation_task.workspace_invitation",
     "plane.bgtasks.issue_activities_task.issue_activity",
+    "plane.bgtasks.email_notification_task.stack_email_notification",
+    "plane.bgtasks.email_notification_task.send_email_notification",
 ];
 
 /// Whether `task` is published to `plane_jobs` rather than to RabbitMQ.

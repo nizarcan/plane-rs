@@ -1,0 +1,12 @@
+{
+  "webhook_id": "b0000000-0000-4000-8000-000000000021",
+  "slug": "p8b-ws",
+  "event": "issue",
+  "event_data": {
+    "id": "b0000000-0000-4000-8000-000000000013",
+    "name": "Webhook issue"
+  },
+  "action": "created",
+  "current_site": "https://app.example.com",
+  "activity": null
+}

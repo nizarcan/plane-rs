@@ -115,6 +115,161 @@ TEMPLATE_CASES = [
         },
     },
     {
+        "name": "issue_updates_fields",
+        "template": "emails/notifications/issue-updates.html",
+        "context": {
+            "data": [
+                {
+                    "actor_detail": {
+                        "avatar_url": "https://app.example.com/avatars/ada.png",
+                        "first_name": "Ada",
+                        "last_name": "Actor",
+                    },
+                    "changes": {
+                        "state": {"old_value": ["Backlog"], "new_value": ["In Progress", "Done"]},
+                        "priority": {"old_value": ["urgent"], "new_value": ["low"]},
+                        "target_date": {"old_value": ["2026-01-05"], "new_value": []},
+                        "labels": {
+                            "old_value": ["bug"],
+                            "new_value": ["backend", "regression", "urgent"],
+                        },
+                        "assignees": {"old_value": [], "new_value": ["Rex Receiver", "Avi Assignee"]},
+                        "link": {"old_value": ["None"], "new_value": ["https://example.com/pr/1"]},
+                        "blocking": {
+                            "old_value": ["P8B-1", "P8B-2", "P8B-3"],
+                            "new_value": ["P8B-4"],
+                        },
+                        "duplicate": {
+                            "old_value": ["P8B-5", "P8B-6", "P8B-7"],
+                            "new_value": ["P8B-8", "P8B-9", "P8B-10"],
+                        },
+                        "name": {"old_value": ["Old name"], "new_value": ["Webhook issue"]},
+                    },
+                    "issue_details": {"name": "Webhook issue", "identifier": "P8B-7"},
+                    "activity_time": "09:05 AM",
+                },
+                {
+                    "actor_detail": {
+                        "avatar_url": "",
+                        "first_name": "Rex",
+                        "last_name": "Receiver",
+                    },
+                    "changes": {"status": {"old_value": ["Todo"], "new_value": ["Done"]}},
+                    "issue_details": {"name": "Webhook issue", "identifier": "P8B-7"},
+                    "activity_time": "11:59 PM",
+                },
+            ],
+            "summary": "Updates were made to the issue by",
+            "actors_involved": 2,
+            "issue": {
+                "issue_identifier": "P8B-7",
+                "name": "Webhook issue",
+                "issue_url": "https://app.example.com/p8b-ws/projects/"
+                "b0000000-0000-4000-8000-000000000011/issues/"
+                "b0000000-0000-4000-8000-000000000013",
+            },
+            "receiver": {"email": "receiver@example.com"},
+            "issue_url": "https://app.example.com/p8b-ws/projects/"
+            "b0000000-0000-4000-8000-000000000011/issues/"
+            "b0000000-0000-4000-8000-000000000013",
+            "project_url": "https://app.example.com/p8b-ws/projects/"
+            "b0000000-0000-4000-8000-000000000011/issues/",
+            "workspace": "p8b-ws",
+            "project": "P8B project",
+            "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+            "comments": [],
+            "entity_type": "issue",
+        },
+    },
+    {
+        "name": "issue_updates_comments_and_mentions",
+        "template": "emails/notifications/issue-updates.html",
+        "context": {
+            "data": [],
+            "summary": "Updates were made to the issue by",
+            "actors_involved": 1,
+            "issue": {
+                "issue_identifier": "P8B-7",
+                "name": "Webhook issue",
+                "issue_url": "https://app.example.com/p8b-ws/issues/1",
+            },
+            "receiver": {"email": "receiver@example.com"},
+            "issue_url": "https://app.example.com/p8b-ws/issues/1",
+            "project_url": "https://app.example.com/p8b-ws/issues/",
+            "workspace": "p8b-ws",
+            "project": "P8B project",
+            "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+            "comments": [
+                {
+                    "actor_comments": {
+                        "old_value": [],
+                        "new_value": [
+                            "<p>A comment with a <b>bold</b> word &amp; an entity.</p>",
+                            "<p>Second line</p>",
+                        ],
+                    },
+                    "actor_detail": {
+                        "avatar_url": "https://app.example.com/avatars/rex.png",
+                        "first_name": "Rex",
+                        "last_name": "Receiver",
+                    },
+                },
+                {
+                    "actor_comments": {
+                        "old_value": ["<p>old mention</p>"],
+                        "new_value": ["<p>Hello @Ada Actor, see this</p>"],
+                    },
+                    "actor_detail": {
+                        "avatar_url": "",
+                        "first_name": "Avi",
+                        "last_name": "Assignee",
+                    },
+                },
+            ],
+            "entity_type": "issue",
+        },
+    },
+    {
+        "name": "issue_updates_empty_names_escaped",
+        "template": "emails/notifications/issue-updates.html",
+        "context": {
+            "data": [
+                {
+                    "actor_detail": {"avatar_url": "", "first_name": "", "last_name": ""},
+                    "changes": {
+                        "target_date": {"old_value": ["2026-01-05"], "new_value": ["2026-02-01"]},
+                        "priority": {"old_value": ["low"], "new_value": ["urgent"]},
+                    },
+                    "issue_details": {"name": "a<b&c", "identifier": "P8B-7"},
+                    "activity_time": "12:00 AM",
+                }
+            ],
+            "summary": "Updates were made to the issue by",
+            "actors_involved": 1,
+            "issue": {
+                "issue_identifier": "P8B-7",
+                "name": "<script>alert('x')</script> & \"quotes\"",
+                "issue_url": "https://app.example.com/p8b-ws/issues/1?x=\"'>",
+            },
+            "receiver": {"email": "a<b&c@example.com"},
+            "issue_url": "https://app.example.com/p8b-ws/issues/1?x=\"'>",
+            "project_url": "https://app.example.com/p8b-ws/issues/",
+            "workspace": "p8b-ws",
+            "project": "P8B <project>",
+            "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+            "comments": [
+                {
+                    "actor_comments": {
+                        "old_value": [],
+                        "new_value": ["<p>one</p><b>two</b>&lt;three&gt;<!-- comment -->four"],
+                    },
+                    "actor_detail": {"avatar_url": "", "first_name": "Ada", "last_name": "Actor"},
+                }
+            ],
+            "entity_type": "issue",
+        },
+    },
+    {
         "name": "webhook_deactivate_escaped",
         "template": "emails/notifications/webhook-deactivate.html",
         "context": {

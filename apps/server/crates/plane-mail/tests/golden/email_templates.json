@@ -104,6 +104,274 @@
       "text": "\n\nWebhook https://hooks.example.com/plane?x=1 has been deactivated due to failed requests.\n\n                                                 Webhook https://hooks.example.com/plane?x=1 has been deactivated due to failed requests. \n\n                                         View webhook   \n\n                                                         ­ \n\n                                             ­ \n                                             ­ \n                                             ­ \n\n                                             ­ \n\n                                                 Despite our popularity, we are humbly early-stage. We are shipping fast, so please reach out to us with feature requests, major and minor nits, and anything else you find missing. We read every message, tweet, and conversation and update our public roadmap. \n\n                                             ­ \n\n                                             ­ \n                                             ­ \n                                             ­ \n\n                                                                     ­ \n\n                                                                     ­ \n\n                                                                     ­ \n\n                                                 This email was sent to ada@example.com. Please delete if you aren't the intended recipient.\n\n"
     },
     {
+      "name": "issue_updates_fields",
+      "template": "emails/notifications/issue-updates.html",
+      "context": {
+        "data": [
+          {
+            "actor_detail": {
+              "avatar_url": "https://app.example.com/avatars/ada.png",
+              "first_name": "Ada",
+              "last_name": "Actor"
+            },
+            "changes": {
+              "state": {
+                "old_value": [
+                  "Backlog"
+                ],
+                "new_value": [
+                  "In Progress",
+                  "Done"
+                ]
+              },
+              "priority": {
+                "old_value": [
+                  "urgent"
+                ],
+                "new_value": [
+                  "low"
+                ]
+              },
+              "target_date": {
+                "old_value": [
+                  "2026-01-05"
+                ],
+                "new_value": []
+              },
+              "labels": {
+                "old_value": [
+                  "bug"
+                ],
+                "new_value": [
+                  "backend",
+                  "regression",
+                  "urgent"
+                ]
+              },
+              "assignees": {
+                "old_value": [],
+                "new_value": [
+                  "Rex Receiver",
+                  "Avi Assignee"
+                ]
+              },
+              "link": {
+                "old_value": [
+                  "None"
+                ],
+                "new_value": [
+                  "https://example.com/pr/1"
+                ]
+              },
+              "blocking": {
+                "old_value": [
+                  "P8B-1",
+                  "P8B-2",
+                  "P8B-3"
+                ],
+                "new_value": [
+                  "P8B-4"
+                ]
+              },
+              "duplicate": {
+                "old_value": [
+                  "P8B-5",
+                  "P8B-6",
+                  "P8B-7"
+                ],
+                "new_value": [
+                  "P8B-8",
+                  "P8B-9",
+                  "P8B-10"
+                ]
+              },
+              "name": {
+                "old_value": [
+                  "Old name"
+                ],
+                "new_value": [
+                  "Webhook issue"
+                ]
+              }
+            },
+            "issue_details": {
+              "name": "Webhook issue",
+              "identifier": "P8B-7"
+            },
+            "activity_time": "09:05 AM"
+          },
+          {
+            "actor_detail": {
+              "avatar_url": "",
+              "first_name": "Rex",
+              "last_name": "Receiver"
+            },
+            "changes": {
+              "status": {
+                "old_value": [
+                  "Todo"
+                ],
+                "new_value": [
+                  "Done"
+                ]
+              }
+            },
+            "issue_details": {
+              "name": "Webhook issue",
+              "identifier": "P8B-7"
+            },
+            "activity_time": "11:59 PM"
+          }
+        ],
+        "summary": "Updates were made to the issue by",
+        "actors_involved": 2,
+        "issue": {
+          "issue_identifier": "P8B-7",
+          "name": "Webhook issue",
+          "issue_url": "https://app.example.com/p8b-ws/projects/b0000000-0000-4000-8000-000000000011/issues/b0000000-0000-4000-8000-000000000013"
+        },
+        "receiver": {
+          "email": "receiver@example.com"
+        },
+        "issue_url": "https://app.example.com/p8b-ws/projects/b0000000-0000-4000-8000-000000000011/issues/b0000000-0000-4000-8000-000000000013",
+        "project_url": "https://app.example.com/p8b-ws/projects/b0000000-0000-4000-8000-000000000011/issues/",
+        "workspace": "p8b-ws",
+        "project": "P8B project",
+        "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+        "comments": [],
+        "entity_type": "issue"
+      },
+      "html": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\"> \n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" >\n  <head>\n    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Updates on issue</title>\n    <style type=\"text/css\" emogrify=\"no\"> html { font-family: system-ui; } p, h1, h2, h3, h4, ol, ul { margin: 0; } h-full { height: 100%; } a:hover { color: #3358d4 !important; } </style>\n    <style> *[class=\"gmail-fix\"] { display: none !important; } </style>\n    <style type=\"text/css\" emogrify=\"no\"> @media (max-width: 600px) { .gmx-killpill { content: \" \\03D1\"; } } </style>\n  </head>\n  <body bgcolor=\"#ffffff\" text=\"#3b3f44\" link=\"#006399\" yahoo=\"fix\" style=\"background-color: #f7f9ff; margin: 20px\" >\n    <div style=\" width: 600px; table-layout: fixed; height: 100%; margin-left: auto; margin-right: auto; \" >\n      <!-- Header --> \n      <div>\n        <table style=\"width: 600px\" cellspacing=\"0\">\n          <tr>\n            <td>\n              <div style=\"margin-left: 30px; margin-bottom: 20px; margin-top: 20px\" > <img src=\"https://media.docs.plane.so/logo/new-logo-white.png\" width=\"150\" border=\"0\" /> </div>\n            </td>\n          </tr>\n        </table>\n      </div>\n      <!-- Body --> \n      <div style=\" color: #1f2d5c; padding: 30px; border-radius: 4px; background-color: #fcfcfd; max-width: 100%; \" >\n        <div>\n          <table style=\"width: 100%\">\n            <tr>\n              <td>\n                <p style=\"font-size: 1rem; color: #1f2d5c; font-weight: 600\"> P8B-7 updates </p>\n                <p style=\"font-size: 1rem; font-weight: 500; color: #1f2d5c; line-height: 28px\"> p8b-ws/<a target=\"_blank\" style=\"color: #1f2d5c; text-decoration: none;\" href=\"https://app.example.com/p8b-ws/projects/b0000000-0000-4000-8000-000000000011/issues/\">P8B project</a>/<a style=\"color: #1f2d5c; text-decoration: none;\" target=\"_blank\" href=\"https://app.example.com/p8b-ws/projects/b0000000-0000-4000-8000-000000000011/issues/b0000000-0000-4000-8000-000000000013\">P8B-7</a>: Webhook issue </p>\n              </td>\n            </tr>\n          </table>\n          <hr style=\" background-color: #f0f0f3; height: 1px; border: 0; margin-top: 15px; margin-bottom: 15px; \" />\n           \n          <p style=\"font-size: 1rem;color: #1f2d5c; line-height: 28px\"> Updates were made to the issue by <span style=\"font-size: 1rem; font-weight: 700; line-height: 28px\">  Ada Actor  </span>and others. </p>\n           <!--  <p style=\"font-size: 1rem;color: #1f2d5c; line-height: 28px\"> There are  new updates and  new comments on the issue. </p>  -->   <!-- Issue title updated --> \n          <p style=\"font-size: 1rem; line-height: 28px; color: #1f2d5c\"> The issue title has been updated to Webhook issue </p>\n           <!-- Outer update Box start -->  \n          <div style=\" background-color: #f7f9ff; border-radius: 8px; border-style: solid; border-width: 1px; border-color: #c1d0ff; padding: 20px; margin-top: 15px; max-width: 100%; \" >\n            <!-- Block Heading --> \n            <div style=\"padding-bottom: 20px\">\n              <p style=\"font-size: 0.8rem; font-weight: 600; color: #121a26\"> Updates </p>\n            </div>\n            <!-- Property Updates --> \n            <div style=\" background-color: white; max-width: 100%; overflow: hidden; overflow-wrap: break-word; word-wrap: break-word; padding-left: 15px; padding-bottom: 15px; border-radius: 8px; \" >\n              <!-- action performer --> \n              <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width: 100%\" >\n                <tr style=\"border-radius: 8px; margin-top: 20px\">\n                  <td style=\"width: 30px\">\n                     <img src=\"https://app.example.com/avatars/ada.png\" width=\"25\" height=\"25\" border=\"0\" />  \n                  </td>\n                  <td style=\"padding-top: 20px; padding-bottom: 20px\">\n                    <p style=\" font-weight: 500; font-size: 0.8rem; color: #1c2024; width: fit-content; margin-left: 5px; \" > Ada Actor </p>\n                  </td>\n                  <td>\n                    <p style=\" font-weight: 500; font-size: 0.6rem; color: #80838d; margin-left: 10px; \" > 09:05 AM </p>\n                  </td>\n                </tr>\n              </table>\n               <!-- due date changed --> \n              <table role=\"presentation\" style=\"max-width: 100%; padding-bottom: 15px\" >\n                <tr>\n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/due-date.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block\" /> </td>\n                  <td style=\"padding: 0px; text-align: center\">\n                    <div>\n                      <p style=\" padding: 0px; margin: 0px; font-size: 0.8rem; font-weight: 500; color: #525252; \" > Due Date: </p>\n                    </div>\n                  </td>\n                  <td>\n                     \n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #171717; margin-left: 5px; padding: 0px; text-decoration: line-through; \" > 2026-01-05 </p>\n                     \n                  </td>\n                </tr>\n              </table>\n                <!-- duplicate changed --> \n              <table role=\"presentation\" style=\"max-width: 100%; padding-bottom: 15px\" >\n                <tr>\n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/duplicate.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: inline-block\" /> <span style=\" font-size: 0.8rem; font-weight: 500; color: #525252; \" > Duplicate: </span> </td>\n                   \n                  <td style=\"padding-left: 5px;overflow-wrap: break-word;\">  <span style=\" font-size: 0.8rem; font-weight: 500; color: #3a5bc7; margin-right: 3px; padding-top: 0px; \" > P8B-8 </span>  <span style=\" font-size: 0.8rem; font-weight: 500; color: #3a5bc7; margin-right: 3px; padding-top: 0px; \" > P8B-9 </span>  </td>\n                    \n                  <td> <span style=\" font-size: 0.8rem; font-weight: 500; color: #3a5bc7; margin-right: 3px; padding-top: 0px; \" > +1 more </span> </td>\n                    \n                  <td style=\"padding-left: 8px;\">  <span style=\" font-size: 0.8rem; font-weight: 500; color: #641723; margin-right: 3px; padding-top: 0px; text-decoration: line-through; \" > P8B-5 </span>  <span style=\" font-size: 0.8rem; font-weight: 500; color: #641723; margin-right: 3px; padding-top: 0px; text-decoration: line-through; \" > P8B-6 </span>  </td>\n                    \n                  <td> <span style=\" font-size: 0.8rem; font-weight: 500; color: #641723; margin-right: 3px; padding-top: 0px; \" > +1 more </span> </td>\n                   \n                </tr>\n              </table>\n               <!-- Assignee changed-->  \n              <table role=\"presentation\" style=\"padding-bottom: 15px; max-width: 100%; padding-right: 10px;\" >\n                <tr>\n                  <td valign=\"top\" style=\"white-space: nowrap; padding: 0px;\"> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/assignee.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: inline-block\" /> <span style=\" font-size: 0.8rem; font-weight: 500; color: #525252; padding-right: 5px; \" > Assignee: </span> </td>\n                  <td style=\"overflow-wrap: anywhere;word-break: break-all; padding: 0px;\">  <span style=\" font-size: 0.8rem; color: #0d74ce; background-color: #e6f4fe; margin-right: 5px; padding-left: 4px; padding-right: 4px; padding-bottom: 2px; padding-top: 2px; font-weight: 500; border-radius: 2px; max-lines: 1; \" > Rex Receiver </span>   <span style=\" font-size: 0.8rem; font-weight: 500; color: #0d74ce; margin-left: 2px; margin-right: 5px; white-space: nowrap; padding: 0px; \" > +1 more </span>    </td>\n                </tr>\n              </table>\n                <!-- Labels --> \n              <table role=\"presentation\" style=\"padding-bottom: 15px; max-width: 100%; padding-right: 10px;\" >\n                <tr>\n                  <td valign=\"top\" style=\"white-space: nowrap; padding: 0px;\"> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/labels.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: inline-block;\" /> <span style=\" font-size: 0.8rem; font-weight: 500; color: #525252; padding-right: 5px; \" > Labels: </span> </td>\n                  <td style=\"overflow-wrap: anywhere;word-break: break-all; padding: 0px;\">  <span style=\" font-size: 0.8rem; line-height: 1px; color: #0d74ce; background-color: #e6f4fe; margin-right: 5px; padding-left: 4px; padding-right: 4px; padding-bottom: 2px; padding-top: 2px; font-weight: 500; border-radius: 2px; max-lines: 1; \" > backend </span>   <span style=\" font-size: 0.8rem; font-weight: 500; color: #0d74ce; margin-left: 2px; margin-right: 5px; white-space: nowrap; \" > +2 more </span>   <span style=\" font-size: 0.8rem; padding-left: 4px; padding-right: 4px; padding-bottom: 2px; padding-top: 2px; font-weight: 500; text-decoration: line-through; color: #641723; background-color: #feebec; margin-right: 5px; border-radius: 2px; \" > bug </span>   </td>\n                </tr>\n              </table>\n               <!-- State changed -->  \n              <table role=\"presentation\" style=\"padding-bottom: 15px; max-width: 100%\" >\n                <tr>\n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/state.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block\" /> </td>\n                  <td>\n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #525252; \" > State: </p>\n                  </td>\n                   \n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/backlog.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block; margin-left: 5px;\" /> </td>\n                   \n                  <td>\n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #60646C; \" > Backlog </p>\n                  </td>\n                  <td style=\"padding-left: 10px; padding-right: 10px;\"> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/forward-arrow.png\" width=\"16\" height=\"16\" border=\"0\" style=\"display: block;\" /> </td>\n                   \n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/done.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block;\" /> </td>\n                   \n                  <td>\n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #60646c; \" > Done </p>\n                  </td>\n                </tr>\n              </table>\n                <!-- Link Added --> \n              <table role=\"presentation\" style=\"padding-bottom: 15px; max-width: 100%\" >\n                <tr>\n                  <td valign=\"top\"> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/link.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block; margin-top: 3px;\" /> </td>\n                  <td valign=\"top\">\n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #525252; margin-right: 5px; \" > Links: </p>\n                  </td>\n                  <td>\n                     <a href=\"https://example.com/pr/1\" style=\" font-size: 0.8rem; font-weight: 600; color: #3a5bc7; display: block; padding-bottom: 5px; \" > https://example.com/pr/1 </a>     \n                  </td>\n                </tr>\n              </table>\n                <!-- Priority changed --> \n              <table role=\"presentation\" style=\"padding-bottom: 15px; max-width: 100%\" >\n                <tr>\n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/priority.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block; margin: 0px; padding: 0px\" /> </td>\n                  <td>\n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #525252; margin-right: 5px; \" > Priority: </p>\n                  </td>\n                  <td>\n                    <p style=\" font-size: 0.8rem; padding-left: 4px; padding-right: 4px; padding-bottom: 0px; font-weight: 500; border-radius: 2px; text-transform: capitalize; background-color: #FFDBDC; color: #CE2C31;    \" > urgent </p>\n                  </td>\n                  <td style=\"padding-left: 10px; padding-right: 10px;\"> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/forward-arrow.png\" width=\"16\" height=\"16\" border=\"0\" style=\"display: block;\" /> </td>\n                  <td>\n                    <p style=\" font-size: 0.8rem; padding-left: 4px; padding-right: 4px; padding-bottom: 0px; font-weight: 500; border-radius: 2px; text-transform: capitalize;    background-color: #E9F6E9; color: #2A7E3B; \" > low </p>\n                  </td>\n                </tr>\n              </table>\n                <!-- Blocking changed --> \n              <table role=\"presentation\" style=\"padding-bottom: 15px; max-width: 100%\" >\n                <tr style=\"overflow-wrap: break-word;\">\n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/blocking.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: inline-block;\" /> <span style=\" font-size: 0.8rem; font-weight: 500; color: #525252; margin-right: 5px; \" > Blocking: </span> </td>\n                   \n                  <td style=\"padding-left: 5px;overflow-wrap: break-word;\">  <span style=\" font-size: 0.8rem; font-weight: 500; color: #3a5bc7; margin-right: 3px; padding-top: 0px; \" > P8B-4 </span>  </td>\n                     \n                  <td style=\"padding-left: 8px;\">  <span style=\" font-size: 0.8rem; font-weight: 500; color: #641723; margin-right: 3px; padding-top: 0px; text-decoration: line-through; \" > P8B-1 </span>  <span style=\" font-size: 0.8rem; font-weight: 500; color: #641723; margin-right: 3px; padding-top: 0px; text-decoration: line-through; \" > P8B-2 </span>  </td>\n                    \n                  <td> <span style=\" font-size: 0.8rem; font-weight: 500; color: #641723; margin-right: 3px; padding-top: 0px; \" > +1 more </span> </td>\n                   \n                </tr>\n              </table>\n               \n            </div>\n          </div>\n           <!-- Outer update Box end -->   <!-- Outer update Box start -->  \n          <div style=\" background-color: #f7f9ff; border-radius: 8px; border-style: solid; border-width: 1px; border-color: #c1d0ff; padding: 20px; margin-top: 15px; max-width: 100%; \" >\n            <!-- Block Heading --> \n            <div style=\"padding-bottom: 20px\">\n              <p style=\"font-size: 0.8rem; font-weight: 600; color: #121a26\"> Updates </p>\n            </div>\n            <!-- Property Updates --> \n            <div style=\" background-color: white; max-width: 100%; overflow: hidden; overflow-wrap: break-word; word-wrap: break-word; padding-left: 15px; padding-bottom: 15px; border-radius: 8px; \" >\n              <!-- action performer --> \n              <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width: 100%\" >\n                <tr style=\"border-radius: 8px; margin-top: 20px\">\n                  <td style=\"width: 30px\">\n                     \n                    <table cellspacing=\"0\" cellpadding=\"0\">\n                      <tr>\n                        <td style=\" width: 25px; height: 25px; background-color: #4f3422; border-radius: 50%; text-align: center; \" > <span style=\" color: white; font-weight: 500; font-size: 13px; line-height: 25px; display: inline-block; \" > R </span> </td>\n                      </tr>\n                    </table>\n                     \n                  </td>\n                  <td style=\"padding-top: 20px; padding-bottom: 20px\">\n                    <p style=\" font-weight: 500; font-size: 0.8rem; color: #1c2024; width: fit-content; margin-left: 5px; \" > Rex Receiver </p>\n                  </td>\n                  <td>\n                    <p style=\" font-weight: 500; font-size: 0.6rem; color: #80838d; margin-left: 10px; \" > 11:59 PM </p>\n                  </td>\n                </tr>\n              </table>\n                <!-- Assignee changed-->   <!-- State changed -->     \n            </div>\n          </div>\n           <!-- Outer update Box end -->   \n        </div>\n        <a href=\"https://app.example.com/p8b-ws/projects/b0000000-0000-4000-8000-000000000011/issues/b0000000-0000-4000-8000-000000000013\" style=\"text-decoration: none;\">\n          <div style=\" max-width: min-content; white-space: nowrap; background-color: #3e63dd; padding: 10px 15px; border: 1px solid #2f4ba8; border-radius: 4px; margin-top: 15px; cursor: pointer; font-size: 0.8rem; color: white; \" > View issue </div>\n        </a>\n      </div>\n      <!-- Footer --> \n      <table style=\"width: 100%; padding: 20px; justify-content: center\">\n        <tr>\n          <td>\n            <div style=\"font-size: 0.8rem; color: #1c2024\">\n              This email was sent to <a href=\"mailto:receiver@example.com\" style=\"color: #3a5bc7; font-weight: 500; text-decoration: none\" >receiver@example.com.</a > If you'd rather not receive this kind of email, <a href=\"https://app.example.com/p8b-ws/projects/b0000000-0000-4000-8000-000000000011/issues/b0000000-0000-4000-8000-000000000013\" style=\"color: #3a5bc7; text-decoration: none\" >you can unsubscribe to the issue</a > or <a href=\"https://app.example.com/p8b-ws/settings/account/notifications/\" style=\"color: #3a5bc7; text-decoration: none\" >manage your email preferences</a >. <!-- Github | LinkedIn | Twitter --> \n              <div style=\"margin-top: 60px; float: right\"> <a href=\"https://github.com/makeplane\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/github_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> <a href=\"https://www.linkedin.com/company/planepowers/\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/linkedin_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> <a href=\"https://x.com/planepowers\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/twitter_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> </div>\n            </div>\n          </td>\n        </tr>\n      </table>\n    </div>\n  </body>\n</html>",
+      "text": "\n\nUpdates on issue\n\n                 P8B-7 updates \n                 p8b-ws/P8B project/P8B-7: Webhook issue \n\n           Updates were made to the issue by   Ada Actor  and others. \n               \n           The issue title has been updated to Webhook issue \n\n               Updates \n\n                     Ada Actor \n\n                     09:05 AM \n\n                       Due Date: \n\n                     2026-01-05 \n\n                     Duplicate:  \n                   \n                     P8B-8    P8B-9   \n                    \n                    +1 more  \n                    \n                     P8B-5    P8B-6   \n                    \n                    +1 more  \n\n                     Assignee:  \n                     Rex Receiver     +1 more     \n\n                     Labels:  \n                     backend     +2 more     bug    \n\n                     State: \n\n                     Backlog \n\n                     Done \n\n                     Links: \n\n                      https://example.com/pr/1      \n\n                     Priority: \n\n                     urgent \n\n                     low \n\n                     Blocking:  \n                   \n                     P8B-4   \n                     \n                     P8B-1    P8B-2   \n                    \n                    +1 more  \n\n               Updates \n\n                          R  \n\n                     Rex Receiver \n\n                     11:59 PM \n\n           View issue \n\n              This email was sent to receiver@example.com. If you'd rather not receive this kind of email, you can unsubscribe to the issue or manage your email preferences.\n\n"
+    },
+    {
+      "name": "issue_updates_comments_and_mentions",
+      "template": "emails/notifications/issue-updates.html",
+      "context": {
+        "data": [],
+        "summary": "Updates were made to the issue by",
+        "actors_involved": 1,
+        "issue": {
+          "issue_identifier": "P8B-7",
+          "name": "Webhook issue",
+          "issue_url": "https://app.example.com/p8b-ws/issues/1"
+        },
+        "receiver": {
+          "email": "receiver@example.com"
+        },
+        "issue_url": "https://app.example.com/p8b-ws/issues/1",
+        "project_url": "https://app.example.com/p8b-ws/issues/",
+        "workspace": "p8b-ws",
+        "project": "P8B project",
+        "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+        "comments": [
+          {
+            "actor_comments": {
+              "old_value": [],
+              "new_value": [
+                "<p>A comment with a <b>bold</b> word &amp; an entity.</p>",
+                "<p>Second line</p>"
+              ]
+            },
+            "actor_detail": {
+              "avatar_url": "https://app.example.com/avatars/rex.png",
+              "first_name": "Rex",
+              "last_name": "Receiver"
+            }
+          },
+          {
+            "actor_comments": {
+              "old_value": [
+                "<p>old mention</p>"
+              ],
+              "new_value": [
+                "<p>Hello @Ada Actor, see this</p>"
+              ]
+            },
+            "actor_detail": {
+              "avatar_url": "",
+              "first_name": "Avi",
+              "last_name": "Assignee"
+            }
+          }
+        ],
+        "entity_type": "issue"
+      },
+      "html": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\"> \n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" >\n  <head>\n    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Updates on issue</title>\n    <style type=\"text/css\" emogrify=\"no\"> html { font-family: system-ui; } p, h1, h2, h3, h4, ol, ul { margin: 0; } h-full { height: 100%; } a:hover { color: #3358d4 !important; } </style>\n    <style> *[class=\"gmail-fix\"] { display: none !important; } </style>\n    <style type=\"text/css\" emogrify=\"no\"> @media (max-width: 600px) { .gmx-killpill { content: \" \\03D1\"; } } </style>\n  </head>\n  <body bgcolor=\"#ffffff\" text=\"#3b3f44\" link=\"#006399\" yahoo=\"fix\" style=\"background-color: #f7f9ff; margin: 20px\" >\n    <div style=\" width: 600px; table-layout: fixed; height: 100%; margin-left: auto; margin-right: auto; \" >\n      <!-- Header --> \n      <div>\n        <table style=\"width: 600px\" cellspacing=\"0\">\n          <tr>\n            <td>\n              <div style=\"margin-left: 30px; margin-bottom: 20px; margin-top: 20px\" > <img src=\"https://media.docs.plane.so/logo/new-logo-white.png\" width=\"150\" border=\"0\" /> </div>\n            </td>\n          </tr>\n        </table>\n      </div>\n      <!-- Body --> \n      <div style=\" color: #1f2d5c; padding: 30px; border-radius: 4px; background-color: #fcfcfd; max-width: 100%; \" >\n        <div>\n          <table style=\"width: 100%\">\n            <tr>\n              <td>\n                <p style=\"font-size: 1rem; color: #1f2d5c; font-weight: 600\"> P8B-7 updates </p>\n                <p style=\"font-size: 1rem; font-weight: 500; color: #1f2d5c; line-height: 28px\"> p8b-ws/<a target=\"_blank\" style=\"color: #1f2d5c; text-decoration: none;\" href=\"https://app.example.com/p8b-ws/issues/\">P8B project</a>/<a style=\"color: #1f2d5c; text-decoration: none;\" target=\"_blank\" href=\"https://app.example.com/p8b-ws/issues/1\">P8B-7</a>: Webhook issue </p>\n              </td>\n            </tr>\n          </table>\n          <hr style=\" background-color: #f0f0f3; height: 1px; border: 0; margin-top: 15px; margin-bottom: 15px; \" />\n           \n          <p style=\"font-size: 1rem;color: #1f2d5c; line-height: 28px\"> Updates were made to the issue by <span style=\"font-size: 1rem; font-weight: 700; line-height: 28px\">  Rex Receiver  </span>. </p>\n           <!--   <p style=\"font-size: 1rem;color: #1f2d5c; line-height: 28px\"> <span style=\"font-size: 1rem; font-weight: 700; line-height: 28px\"> Rex Receiver </span> added  new comment. </p>   -->   <!-- Comments outer update Box --> \n          <div style=\" max-width: 100%; background-color: #f7f9ff; border-radius: 8px; border-style: solid; border-width: 1px; border-color: #c1d0ff; padding: 20px; margin-top: 15px; \" >\n            <!-- Block Heading --> \n            <p style=\"font-size: 0.8rem; font-weight: 600; color: #121a26; padding-bottom: 20px;\"> Comments </p>\n            <!-- Comments -->  \n            <table cellspacing=\"0\">\n              <tr style=\"border-radius: 8px\">\n                <td valign=\"top\">\n                   <img src=\"https://app.example.com/avatars/rex.png\" width=\"25\" height=\"25\" border=\"0\" />  \n                </td>\n                <td style=\"padding-bottom: 15px\">\n                  <table>\n                    <tr>\n                      <td>\n                        <p style=\" font-weight: 500; font-size: 0.8rem; color: #1c2024; margin-left: 8px; \" > Rex Receiver </p>\n                      </td>\n                    </tr>\n                     \n                    <tr>\n                      <td>\n                        <div style=\" padding: 6px 10px; margin-left: 10px; background-color: white; font-size: 0.8rem; color: #525252; margin-top: 5px; border-radius: 4px; overflow-x: scroll; max-width: 430px;\" >\n                          <p> A comment with a bold word &amp;amp; an entity. </p>\n                        </div>\n                      </td>\n                    </tr>\n                     \n                    <tr>\n                      <td>\n                        <div style=\" padding: 6px 10px; margin-left: 10px; background-color: white; font-size: 0.8rem; color: #525252; margin-top: 5px; border-radius: 4px; overflow-x: scroll; max-width: 430px;\" >\n                          <p> Second line </p>\n                        </div>\n                      </td>\n                    </tr>\n                     \n                  </table>\n                </td>\n              </tr>\n            </table>\n             \n            <table cellspacing=\"0\">\n              <tr style=\"border-radius: 8px\">\n                <td valign=\"top\">\n                   \n                  <table cellspacing=\"0\" cellpadding=\"0\">\n                    <tr>\n                      <td style=\" width: 25px; height: 25px; background-color: #4f3422; border-radius: 50%; text-align: center; \" > <span style=\" color: white; font-weight: 500; font-size: 13px; line-height: 25px; display: inline-block; \" > A </span> </td>\n                    </tr>\n                  </table>\n                   \n                </td>\n                <td style=\"padding-bottom: 15px\">\n                  <table>\n                    <tr>\n                      <td>\n                        <p style=\" font-weight: 500; font-size: 0.8rem; color: #1c2024; margin-left: 8px; \" > Avi Assignee </p>\n                      </td>\n                    </tr>\n                     \n                    <tr>\n                      <td>\n                        <div style=\" padding: 6px 10px; margin-left: 10px; background-color: white; font-size: 0.8rem; color: #525252; margin-top: 5px; border-radius: 4px; overflow-x: scroll; max-width: 430px;\" >\n                          <p> Hello @Ada Actor, see this </p>\n                        </div>\n                      </td>\n                    </tr>\n                     \n                  </table>\n                </td>\n              </tr>\n            </table>\n             \n          </div>\n           \n        </div>\n        <a href=\"https://app.example.com/p8b-ws/issues/1\" style=\"text-decoration: none;\">\n          <div style=\" max-width: min-content; white-space: nowrap; background-color: #3e63dd; padding: 10px 15px; border: 1px solid #2f4ba8; border-radius: 4px; margin-top: 15px; cursor: pointer; font-size: 0.8rem; color: white; \" > View issue </div>\n        </a>\n      </div>\n      <!-- Footer --> \n      <table style=\"width: 100%; padding: 20px; justify-content: center\">\n        <tr>\n          <td>\n            <div style=\"font-size: 0.8rem; color: #1c2024\">\n              This email was sent to <a href=\"mailto:receiver@example.com\" style=\"color: #3a5bc7; font-weight: 500; text-decoration: none\" >receiver@example.com.</a > If you'd rather not receive this kind of email, <a href=\"https://app.example.com/p8b-ws/issues/1\" style=\"color: #3a5bc7; text-decoration: none\" >you can unsubscribe to the issue</a > or <a href=\"https://app.example.com/p8b-ws/settings/account/notifications/\" style=\"color: #3a5bc7; text-decoration: none\" >manage your email preferences</a >. <!-- Github | LinkedIn | Twitter --> \n              <div style=\"margin-top: 60px; float: right\"> <a href=\"https://github.com/makeplane\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/github_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> <a href=\"https://www.linkedin.com/company/planepowers/\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/linkedin_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> <a href=\"https://x.com/planepowers\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/twitter_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> </div>\n            </div>\n          </td>\n        </tr>\n      </table>\n    </div>\n  </body>\n</html>",
+      "text": "\n\nUpdates on issue\n\n                 P8B-7 updates \n                 p8b-ws/P8B project/P8B-7: Webhook issue \n\n           Updates were made to the issue by   Rex Receiver  . \n\n             Comments \n\n                         Rex Receiver \n\n                           A comment with a bold word &amp; an entity. \n\n                           Second line \n\n                        A  \n\n                         Avi Assignee \n\n                           Hello @Ada Actor, see this \n\n           View issue \n\n              This email was sent to receiver@example.com. If you'd rather not receive this kind of email, you can unsubscribe to the issue or manage your email preferences.\n\n"
+    },
+    {
+      "name": "issue_updates_empty_names_escaped",
+      "template": "emails/notifications/issue-updates.html",
+      "context": {
+        "data": [
+          {
+            "actor_detail": {
+              "avatar_url": "",
+              "first_name": "",
+              "last_name": ""
+            },
+            "changes": {
+              "target_date": {
+                "old_value": [
+                  "2026-01-05"
+                ],
+                "new_value": [
+                  "2026-02-01"
+                ]
+              },
+              "priority": {
+                "old_value": [
+                  "low"
+                ],
+                "new_value": [
+                  "urgent"
+                ]
+              }
+            },
+            "issue_details": {
+              "name": "a<b&c",
+              "identifier": "P8B-7"
+            },
+            "activity_time": "12:00 AM"
+          }
+        ],
+        "summary": "Updates were made to the issue by",
+        "actors_involved": 1,
+        "issue": {
+          "issue_identifier": "P8B-7",
+          "name": "<script>alert('x')</script> & \"quotes\"",
+          "issue_url": "https://app.example.com/p8b-ws/issues/1?x=\"'>"
+        },
+        "receiver": {
+          "email": "a<b&c@example.com"
+        },
+        "issue_url": "https://app.example.com/p8b-ws/issues/1?x=\"'>",
+        "project_url": "https://app.example.com/p8b-ws/issues/",
+        "workspace": "p8b-ws",
+        "project": "P8B <project>",
+        "user_preference": "https://app.example.com/p8b-ws/settings/account/notifications/",
+        "comments": [
+          {
+            "actor_comments": {
+              "old_value": [],
+              "new_value": [
+                "<p>one</p><b>two</b>&lt;three&gt;<!-- comment -->four"
+              ]
+            },
+            "actor_detail": {
+              "avatar_url": "",
+              "first_name": "Ada",
+              "last_name": "Actor"
+            }
+          }
+        ],
+        "entity_type": "issue"
+      },
+      "html": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\"> \n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" >\n  <head>\n    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Updates on issue</title>\n    <style type=\"text/css\" emogrify=\"no\"> html { font-family: system-ui; } p, h1, h2, h3, h4, ol, ul { margin: 0; } h-full { height: 100%; } a:hover { color: #3358d4 !important; } </style>\n    <style> *[class=\"gmail-fix\"] { display: none !important; } </style>\n    <style type=\"text/css\" emogrify=\"no\"> @media (max-width: 600px) { .gmx-killpill { content: \" \\03D1\"; } } </style>\n  </head>\n  <body bgcolor=\"#ffffff\" text=\"#3b3f44\" link=\"#006399\" yahoo=\"fix\" style=\"background-color: #f7f9ff; margin: 20px\" >\n    <div style=\" width: 600px; table-layout: fixed; height: 100%; margin-left: auto; margin-right: auto; \" >\n      <!-- Header --> \n      <div>\n        <table style=\"width: 600px\" cellspacing=\"0\">\n          <tr>\n            <td>\n              <div style=\"margin-left: 30px; margin-bottom: 20px; margin-top: 20px\" > <img src=\"https://media.docs.plane.so/logo/new-logo-white.png\" width=\"150\" border=\"0\" /> </div>\n            </td>\n          </tr>\n        </table>\n      </div>\n      <!-- Body --> \n      <div style=\" color: #1f2d5c; padding: 30px; border-radius: 4px; background-color: #fcfcfd; max-width: 100%; \" >\n        <div>\n          <table style=\"width: 100%\">\n            <tr>\n              <td>\n                <p style=\"font-size: 1rem; color: #1f2d5c; font-weight: 600\"> P8B-7 updates </p>\n                <p style=\"font-size: 1rem; font-weight: 500; color: #1f2d5c; line-height: 28px\"> p8b-ws/<a target=\"_blank\" style=\"color: #1f2d5c; text-decoration: none;\" href=\"https://app.example.com/p8b-ws/issues/\">P8B &lt;project&gt;</a>/<a style=\"color: #1f2d5c; text-decoration: none;\" target=\"_blank\" href=\"https://app.example.com/p8b-ws/issues/1?x=&quot;&#x27;&gt;\">P8B-7</a>: &lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt; &amp; &quot;quotes&quot; </p>\n              </td>\n            </tr>\n          </table>\n          <hr style=\" background-color: #f0f0f3; height: 1px; border: 0; margin-top: 15px; margin-bottom: 15px; \" />\n           \n          <p style=\"font-size: 1rem;color: #1f2d5c; line-height: 28px\"> Updates were made to the issue by <span style=\"font-size: 1rem; font-weight: 700; line-height: 28px\">     </span>. </p>\n           <!--   <p style=\"font-size: 1rem;color: #1f2d5c; line-height: 28px\"> <span style=\"font-size: 1rem; font-weight: 700; line-height: 28px\">   </span> made  update and added  new comment on the issue. </p>   -->   <!-- Outer update Box start -->  \n          <div style=\" background-color: #f7f9ff; border-radius: 8px; border-style: solid; border-width: 1px; border-color: #c1d0ff; padding: 20px; margin-top: 15px; max-width: 100%; \" >\n            <!-- Block Heading --> \n            <div style=\"padding-bottom: 20px\">\n              <p style=\"font-size: 0.8rem; font-weight: 600; color: #121a26\"> Updates </p>\n            </div>\n            <!-- Property Updates --> \n            <div style=\" background-color: white; max-width: 100%; overflow: hidden; overflow-wrap: break-word; word-wrap: break-word; padding-left: 15px; padding-bottom: 15px; border-radius: 8px; \" >\n              <!-- action performer --> \n              <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width: 100%\" >\n                <tr style=\"border-radius: 8px; margin-top: 20px\">\n                  <td style=\"width: 30px\">\n                     \n                    <table cellspacing=\"0\" cellpadding=\"0\">\n                      <tr>\n                        <td style=\" width: 25px; height: 25px; background-color: #4f3422; border-radius: 50%; text-align: center; \" > <span style=\" color: white; font-weight: 500; font-size: 13px; line-height: 25px; display: inline-block; \" >  </span> </td>\n                      </tr>\n                    </table>\n                     \n                  </td>\n                  <td style=\"padding-top: 20px; padding-bottom: 20px\">\n                    <p style=\" font-weight: 500; font-size: 0.8rem; color: #1c2024; width: fit-content; margin-left: 5px; \" >   </p>\n                  </td>\n                  <td>\n                    <p style=\" font-weight: 500; font-size: 0.6rem; color: #80838d; margin-left: 10px; \" > 12:00 AM </p>\n                  </td>\n                </tr>\n              </table>\n               <!-- due date changed --> \n              <table role=\"presentation\" style=\"max-width: 100%; padding-bottom: 15px\" >\n                <tr>\n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/due-date.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block\" /> </td>\n                  <td style=\"padding: 0px; text-align: center\">\n                    <div>\n                      <p style=\" padding: 0px; margin: 0px; font-size: 0.8rem; font-weight: 500; color: #525252; \" > Due Date: </p>\n                    </div>\n                  </td>\n                  <td>\n                     \n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #171717; margin-left: 5px; padding: 0px; \" > 2026-02-01 </p>\n                     \n                  </td>\n                </tr>\n              </table>\n                <!-- Assignee changed-->   <!-- State changed -->    <!-- Priority changed --> \n              <table role=\"presentation\" style=\"padding-bottom: 15px; max-width: 100%\" >\n                <tr>\n                  <td> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/priority.png\" width=\"12\" height=\"12\" border=\"0\" style=\"display: block; margin: 0px; padding: 0px\" /> </td>\n                  <td>\n                    <p style=\" font-size: 0.8rem; font-weight: 500; color: #525252; margin-right: 5px; \" > Priority: </p>\n                  </td>\n                  <td>\n                    <p style=\" font-size: 0.8rem; padding-left: 4px; padding-right: 4px; padding-bottom: 0px; font-weight: 500; border-radius: 2px; text-transform: capitalize;    background-color: #E9F6E9; color: #2A7E3B; \" > low </p>\n                  </td>\n                  <td style=\"padding-left: 10px; padding-right: 10px;\"> <img src=\"https://plane-marketing.s3.ap-south-1.amazonaws.com/plane-assets/emails/forward-arrow.png\" width=\"16\" height=\"16\" border=\"0\" style=\"display: block;\" /> </td>\n                  <td>\n                    <p style=\" font-size: 0.8rem; padding-left: 4px; padding-right: 4px; padding-bottom: 0px; font-weight: 500; border-radius: 2px; text-transform: capitalize; background-color: #FFDBDC; color: #CE2C31;    \" > urgent </p>\n                  </td>\n                </tr>\n              </table>\n                \n            </div>\n          </div>\n           <!-- Outer update Box end -->   <!-- Comments outer update Box --> \n          <div style=\" max-width: 100%; background-color: #f7f9ff; border-radius: 8px; border-style: solid; border-width: 1px; border-color: #c1d0ff; padding: 20px; margin-top: 15px; \" >\n            <!-- Block Heading --> \n            <p style=\"font-size: 0.8rem; font-weight: 600; color: #121a26; padding-bottom: 20px;\"> Comments </p>\n            <!-- Comments -->  \n            <table cellspacing=\"0\">\n              <tr style=\"border-radius: 8px\">\n                <td valign=\"top\">\n                   \n                  <table cellspacing=\"0\" cellpadding=\"0\">\n                    <tr>\n                      <td style=\" width: 25px; height: 25px; background-color: #4f3422; border-radius: 50%; text-align: center; \" > <span style=\" color: white; font-weight: 500; font-size: 13px; line-height: 25px; display: inline-block; \" > A </span> </td>\n                    </tr>\n                  </table>\n                   \n                </td>\n                <td style=\"padding-bottom: 15px\">\n                  <table>\n                    <tr>\n                      <td>\n                        <p style=\" font-weight: 500; font-size: 0.8rem; color: #1c2024; margin-left: 8px; \" > Ada Actor </p>\n                      </td>\n                    </tr>\n                     \n                    <tr>\n                      <td>\n                        <div style=\" padding: 6px 10px; margin-left: 10px; background-color: white; font-size: 0.8rem; color: #525252; margin-top: 5px; border-radius: 4px; overflow-x: scroll; max-width: 430px;\" >\n                          <p> onetwo&amp;lt;three&amp;gt;four </p>\n                        </div>\n                      </td>\n                    </tr>\n                     \n                  </table>\n                </td>\n              </tr>\n            </table>\n             \n          </div>\n           \n        </div>\n        <a href=\"https://app.example.com/p8b-ws/issues/1?x=&quot;&#x27;&gt;\" style=\"text-decoration: none;\">\n          <div style=\" max-width: min-content; white-space: nowrap; background-color: #3e63dd; padding: 10px 15px; border: 1px solid #2f4ba8; border-radius: 4px; margin-top: 15px; cursor: pointer; font-size: 0.8rem; color: white; \" > View issue </div>\n        </a>\n      </div>\n      <!-- Footer --> \n      <table style=\"width: 100%; padding: 20px; justify-content: center\">\n        <tr>\n          <td>\n            <div style=\"font-size: 0.8rem; color: #1c2024\">\n              This email was sent to <a href=\"mailto:a&lt;b&amp;c@example.com\" style=\"color: #3a5bc7; font-weight: 500; text-decoration: none\" >a&lt;b&amp;c@example.com.</a > If you'd rather not receive this kind of email, <a href=\"https://app.example.com/p8b-ws/issues/1?x=&quot;&#x27;&gt;\" style=\"color: #3a5bc7; text-decoration: none\" >you can unsubscribe to the issue</a > or <a href=\"https://app.example.com/p8b-ws/settings/account/notifications/\" style=\"color: #3a5bc7; text-decoration: none\" >manage your email preferences</a >. <!-- Github | LinkedIn | Twitter --> \n              <div style=\"margin-top: 60px; float: right\"> <a href=\"https://github.com/makeplane\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/github_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> <a href=\"https://www.linkedin.com/company/planepowers/\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/linkedin_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> <a href=\"https://x.com/planepowers\" target=\"_blank\" style=\"margin-left: 10px; text-decoration: none\" > <img src=\"https://creative-assets.mailinblue.com/editor/social-icons/rounded_colored/twitter_32px.png\" width=\"25\" height=\"25\" border=\"0\" style=\"display: inline-block\" /> </a> </div>\n            </div>\n          </td>\n        </tr>\n      </table>\n    </div>\n  </body>\n</html>",
+      "text": "\n\nUpdates on issue\n\n                 P8B-7 updates \n                 p8b-ws/P8B <project>/P8B-7: <script>alert('x')</script> & \"quotes\" \n\n           Updates were made to the issue by      . \n\n               Updates \n\n                     12:00 AM \n\n                       Due Date: \n\n                     2026-02-01 \n\n                     Priority: \n\n                     low \n\n                     urgent \n\n             Comments \n\n                        A  \n\n                         Ada Actor \n\n                           onetwo&lt;three&gt;four \n\n           View issue \n\n              This email was sent to a<b&c@example.com. If you'd rather not receive this kind of email, you can unsubscribe to the issue or manage your email preferences.\n\n"
+    },
+    {
       "name": "webhook_deactivate_escaped",
       "template": "emails/notifications/webhook-deactivate.html",
       "context": {

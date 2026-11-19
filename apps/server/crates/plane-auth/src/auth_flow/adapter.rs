@@ -43,8 +43,9 @@ use plane_core::context::RequestContext;
 use plane_db::JsonText;
 use plane_db::hooks::user as user_hooks;
 use plane_db::models::user::User;
-use plane_jobs::celery::CeleryPublisher;
 use plane_jobs::celery::tasks;
+use plane_jobs::celery::{CeleryPublisher, task_name};
+use plane_jobs::queue::Job;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -415,11 +416,25 @@ pub async fn save_user_data(
         // "Save first so activation is persisted before the email side-effect
         // fires" (`base.py:242-249`). The whole block is wrapped in
         // `try/except` and only logs.
-        if let Some(publisher) = publisher
-            && let Ok(site) = base_host(settings, LoginFlags::default())
-        {
+        //
+        // The publish goes through the ownership router like every other
+        // `.delay()`: `user_activation_email` is Rust-owned (set B), so a
+        // plain `CeleryPublisher::publish` would drop the message (found by
+        // `scenarios/write/auth-session-email.yaml`). A Celery-owned task
+        // still needs a broker; `dispatch` reports that as an error, which is
+        // the `except` branch here.
+        if let Ok(site) = base_host(settings, LoginFlags::default()) {
             let message = tasks::user_activation_email(site, user.id);
-            if let Err(error) = publisher.publish(&message).await {
+            let job = Job::from_message(&message);
+            if let Err(error) = plane_jobs::route::dispatch(
+                task_name::USER_ACTIVATION_EMAIL,
+                &job,
+                &message,
+                publisher,
+                Some(&***client),
+            )
+            .await
+            {
                 tracing::warn!(target: "plane.auth", %error, "user_activation_email failed");
             }
         }

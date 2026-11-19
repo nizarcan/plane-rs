@@ -234,13 +234,13 @@ impl Worker {
     /// Claim and process until the queue has no runnable job for this worker.
     /// Used by tests and by a future `plane-worker --once`.
     pub async fn drain(&self) -> Result<usize, QueueError> {
-        self.drain_limited(usize::MAX).await
+        self.drain_n(usize::MAX).await
     }
 
     /// [`drain`] with a cap on the jobs executed. `difftest task` caps it at
     /// one so a handler's published tasks stay queued, exactly as they do when
     /// Django's `task.apply()` publishes them (`D25`).
-    pub async fn drain_limited(&self, limit: usize) -> Result<usize, QueueError> {
+    pub async fn drain_n(&self, limit: usize) -> Result<usize, QueueError> {
         let mut processed = 0;
         while processed < limit {
             let client = self.pool.write_pool().get().await?;
