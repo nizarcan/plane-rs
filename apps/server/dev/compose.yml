@@ -64,7 +64,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2048M
+          memory: 640M
 
   valkey:
     image: valkey/valkey:7.2.11-alpine

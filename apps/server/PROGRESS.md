@@ -2428,4 +2428,18 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        the old code, and a re-measure of the worker row assigned (`rs/p8-listen`), with the
        `compare_boot.py` ephemeral SMTP ports and the exit check's path guard and teardown.
 
-   Running: `rs/p8-listen`. Then its verification, and the revert.
+   - **Listener fix merged (`398c2f05c0`), D37.** The new DB test failed on the old code (no
+     `LISTEN` session in 10 s) and passes in 0.16 s; claim latency at the 1 s default poll
+     411 → 13 ms median. Also: `compare_boot.py` on ephemeral SMTP ports; `exit_check.py`
+     refuses a path the Docker VM can't mount and tears its stack down on failure. Agent:
+     292/292 task cases, beat ×2, `compare_boot` 49/49, strict exit check 102/0/0, 1425 tests.
+     Orchestrator gate on `398c2f05c0`: fmt, clippy, 1425 tests, testkit 222, `plane-jobs` DB
+     test 9/9, `beat_exactly_once` PASS, `compare_boot` 49/49.
+   - **Environment reverted:** dev Postgres limit back to 640M in `dev/compose.yml` and the
+     container recreated (log cap now applied; templates intact); RabbitMQ `docker update`
+     back to 320M, restart policy `no` (its compose values); Colima back to 2 CPU / 2 GiB
+     and `vmif` started; the three frontend `.env` files (pointing at the dev proxy
+     `127.0.0.1:18080`, written 2026-11-17) moved to `dev/run/orch/frontend-env-backup/`.
+
+   **Done through Phase 8.** Open: the owner's `push_instance_metrics` decision (off behind
+   `PUSH_INSTANCE_METRICS_ENABLED`, D34) and the follow-ups listed in the Phase 8 entries.

@@ -819,6 +819,22 @@ workspace `Cargo.toml` and upgrade deliberately.
 - `docker-compose-local.yml` / `docker-compose-test.yml` are developer stacks and still run
   Django; they are not deployment files.
 
+## D37. The job listener drives its connection while it subscribes (decided 2026-11-19)
+
+- `crates/plane-jobs/src/listener.rs::listen_once` polls `Connection::poll_message`
+  concurrently with the `LISTEN` request (`tokio::select!`). tokio-postgres writes a request
+  only while its `Connection` is polled, so awaiting `LISTEN` first (the code until
+  `398c2f05c0`) never sent the subscription, and the worker ran on its poll fallback alone.
+  Spawning the `Connection` future isn't an alternative: it discards notifications.
+- The forwarding loop starts with the request, so no notification falls between
+  subscribing and forwarding. Reconnect and its 1 s backoff are unchanged.
+- `the_listener_subscribes_and_wakes_the_worker_before_the_poll_interval` (DB-backed, in
+  `plane-jobs/tests/jobs.rs`) requires a `LISTEN plane_jobs_jobs` session and a claim within
+  2 s at a 60 s poll; it fails on the old code. Enqueue-to-claim at the default 1 s poll:
+  411 ms median (973 max) before, 13 ms (24 max) after; worker idle +0.04 MiB (BENCH.md).
+- No other direct tokio-postgres connection has the pattern: all are spawned at once or come
+  from `deadpool_postgres`, which spawns its own connection task.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
