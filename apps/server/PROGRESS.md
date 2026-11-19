@@ -2360,6 +2360,15 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      and the harness's Django never runs the entrypoint's steps. Harness asymmetry, fix
      assigned (`rs/p8-bootfix`).
 
-   Running: the contract part of `d9eedf323e`'s verification; the strict exit check on
-   `rs/p8-deploy` (`plane-cutover`, 18500–18519); the boot-asymmetry fix (`rs/p8-bootfix`;
-   18030/18130, Redis 7/8, contract Redis 9). Then the verification of the merged head.
+   - **Deployment merged (`747ff0cdea`), D36. Phase 8 exit check PASSED:** strict
+     `tools/cutover/exit_check.py all` on `7bd759ffd3` (deployment + set B), **102 passed,
+     0 failed, 0 skipped**. Fresh: migrator applied the baseline (167 migrations) and
+     `plane_jobs`; upgrade: a Django-migrated dump restored, migrator "baseline matched".
+     Both: nine containers, none Python, no `python` process; 36 instance configurations;
+     the full walk incl. export job done, invite e-mail at the SMTP sink, webhook at the
+     local listener, `/static/logos/github_32px.png` byte-identical; no Celery dispatch or
+     `plane.exception` line. `JOBS_BINARY=plane-worker` CI-style build 63.2 MB, starts. Image
+     sizes: api 83.5 MB, worker 62.3 MB, beat 53.8 MB, migrator 53.7 MB.
+
+   Running: the boot-asymmetry fix (`rs/p8-bootfix`; 18030/18130, Redis 7/8, contract
+   Redis 9). Then the verification of the merged head, the benchmark and the revert.

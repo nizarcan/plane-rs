@@ -781,6 +781,33 @@ workspace `Cargo.toml` and upgrade deliberately.
   `p8b-send-order` (unsorted `event_data`/`activity`, recorder body and
   `webhook_logs.request_body` equal).
 
+## D36. Cutover deployment: Rust services only, Postgres queue, static from `plane-api` (decided 2026-11-19)
+
+- The shipped stacks (root and CLI compose, AIO supervisor) run `plane-api`
+  (`Dockerfile.plane-api`) and `plane-worker`/`plane-beat`/`plane-migrator`
+  (`Dockerfile.plane-jobs`). API, worker and beat depend on a completed migrator
+  (`service_completed_successfully`); Swarm and the Helm chart (separate repo, changes
+  documented in `deployments/kubernetes/community/README.md`) run it to completion first.
+- RabbitMQ, `rabbitmq_data`, `AMQP_URL`, `RABBITMQ_*`, `CELERY_*`, `GUNICORN_WORKERS` and
+  `METRICS_PUSH_INTERVAL_MINUTES` leave the deployment (`ENV.md` §4.1); the Rust loader still
+  accepts the old names. `PLANE_RS_JOB_*` is the queue's tuning surface. Worker and beat use
+  the API's env file. `INSTANCE_CHANGELOG_URL` is baked into the API image.
+- `Caddyfile.ce` routes `/api/*`, `/auth/*`, `/static/*` to `plane-api:8000`;
+  `Caddyfile.aio.ce` gains `/static/*` (deliberate fix: AIO never served it and the
+  invitation-e-mail logos 404ed). The coexistence route groups (`deploy/caddy/*`,
+  `route-groups.yaml`, `PLANE_RS_GROUP_*`) are dev/harness-only.
+- `build-branch.yml` publishes `makeplane/plane-{api,worker,beat,migrator}` instead of
+  `plane-backend`; the build action has no `target` input, so `Dockerfile.plane-jobs`'s last
+  stage builds the binary named by `JOBS_BINARY`.
+- `tools/cutover/exit_check.py all` is the Phase 8 exit check: fresh install and upgrade from
+  a restored Django-migrated dump, no Python process in any container, a scripted API walk
+  (sign-in → workspace → project → work item → comment → upload → export → invite e-mail →
+  webhook delivery), `/static`, `git grep apps/api/bin` clean in deployment files, and it fails
+  on any Celery dispatch or `plane.exception` line. The read-only difftest scenarios can't
+  target that stack (they need the dev fixture and dev-signed sessions).
+- `docker-compose-local.yml` / `docker-compose-test.yml` are developer stacks and still run
+  Django; they are not deployment files.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
