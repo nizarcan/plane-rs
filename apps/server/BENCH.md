@@ -1030,6 +1030,394 @@ worker/beat sample. The raw reports are in `apps/server/target/bench/phase5-2026
   process-tree RSS sums. The 60/20 MiB targets are the fair comparison; the 833×/192×
   ratios to Celery are indicative only.
 
+### Phase 8 — final (2026-11-19, `6bff715d1d`)
+
+This is the cutover measurement. All HTTP routes, 38 queue handlers and the 13
+beat entries are Rust-owned; RabbitMQ is out of the Rust stack; `plane-api`,
+`plane-worker` and `plane-beat` are the production binaries. The Phase 5 read
+matrix is repeated unchanged on the same containers, with a write mix and the
+background services measured under a live queue. Phase 5's specific caveat —
+the worker/beat idle figures were taken with only a `"starting"` log line —
+is answered below: the worker's LISTEN half **does not establish its
+subscription at this head** (finding 1); the poll fallback is what drains.
+
+#### Environment
+
+| | |
+| --- | --- |
+| Host / client | Apple MacBook Pro, Apple M3 Max (14-core), macOS 26.6.2, 36 GiB |
+| Docker VM | Colima / Docker 28.4.0, Linux `6.8.0-64-generic`, **6 vCPU / 9.7 GiB** (10,162,092 kB), overlayfs, cgroup v2 |
+| HTTP containers | `--cpus 2 --memory 512m --memory-swap 512m` each (Django and `plane-api`) |
+| Rust background containers | `--cpus 2 --memory 512m --memory-swap 512m` (`plane-worker`, `plane-beat`, `plane-migrator`) |
+| Celery containers | `--cpus 2 --memory 1g --memory-swap 1g` (a Linux prefork set needs more than the Rust in-flight set); stated again under "not like-for-like" |
+| `plane-api` image | 19,196,455 B (83.5 MB on disk); distroless `cc-debian12:nonroot`, rustc 1.99.1, fat LTO / 1 CGU / panic=abort / strip, `MIMALLOC_PURGE_DELAY=0`; `PLANE_RS_WORKER_THREADS=2` |
+| `plane-worker` / `plane-beat` / `plane-migrator` | 13,940,167 B (63.2 MB) / 11,106,367 B (53.8 MB) / 10,961,753 B (53.7 MB), same base and profile |
+| Django image | 106,967,048 B (497 MB on disk), `apps/api/Dockerfile.api` unchanged (`python:3.12.12-alpine`); Django 5.2.17, DRF 3.18.3, gunicorn 23.0.0, uvicorn 0.29.0, `GUNICORN_WORKERS=1` |
+| Django command | the entrypoint's gunicorn line, `--max-requests 1200 --max-requests-jitter 1000`, access log to `/dev/null` |
+| Postgres | 15.7-alpine, 2 GiB limit, dev settings (`fsync=off`) |
+| Fixture | `plane_fix_tpl`: 401 issues, 7 projects, 17 users, 15 signed sessions |
+| Namespace | containers `plane-rs-bench-p8-*`, databases `bench_p8_{django,api,jobs}`, Redis DBs **10** (Django) and **11** (Rust), vhosts `bench_p8_*`, ports 18310/18360 |
+| Boot | the migrator ran `baseline matched (167 migrations)` on both Rust databases before any container started; `plane-api` ran with `PLANE_RS_BOOT_STEPS=skip` so its boot does not make the outbound GitHub lookup (steady state only) |
+
+The Rust images were built from this worktree's source with
+`deploy/docker/Dockerfile.plane-api` and `Dockerfile.plane-jobs`; BuildKit's
+content-addressed cache reported every step `CACHED`, i.e. the same source had
+been built earlier in this VM, and the exported image IDs are `f637ed962ffd`
+(api), `673447910831` (worker), `5444dbb13af7` (beat), `d9101d9bed8f`
+(migrator). The Django image is the existing Phase 3/5 bench image (apps/api is
+untouched by the rewrite).
+
+#### Method
+
+* **Reads.** `scenarios/bench/reads-{users-me,project,issues,cycles,mixed}.yaml`,
+  concurrency 1, one repetition, 5 s warm-up, 10 s settle, 30 s measured
+  window (70 s for `reads-mixed`). That is Phase 5's method and its 50
+  sequential-requests-per-route floor: the smallest Django per-route count was
+  **70** (`reads-mixed`), the next 105; the others were 121–657. Rust's
+  smallest was 813. Per-template counts are in each report.
+* **Write mix.** New `scenarios/bench/writes-mixed.yaml`: `POST` work item,
+  `PATCH` work item, `POST` comment, `PATCH` comment, equal weights,
+  concurrency 1, 60 s. The write window is 1,916 requests on Django, so every
+  route has **at least 460** requests. **Deletes are not in the loop**: the
+  bench client pre-renders one static URL per template and has no per-request
+  captures, so a DELETE can succeed only once per target start; measuring it
+  would either restart the target per request or count 403s as errors (the
+  scenario header says so).
+* **Load.** `reads-mixed`, concurrency 8, one 20 s window after 5 s warm-up.
+  Re-measured on **fresh clones** (`phase8-20261119-load`, one extra
+  invocation): in the first run this window ran after the write mix, and the
+  write mix adds ~1,000 activity rows to the issue whose history the mix reads,
+  which made both targets look 3–10× slower (Rust 194 rps, Django 7 rps). The
+  table uses the clean re-run; `run-phase8.sh` now runs the load window before
+  the write mix.
+* **Verification first.** `difftest run` in attach mode compared every step of
+  all six scenarios — status, headers, decoded body, database diff, Redis diff
+  and drained Celery messages, with Rust-owned tasks compared as `plane_jobs`
+  rows: **all identical** (3/3, 4/4, 5/5, 5/5, 17/17 and 4/4 steps; six
+  `verify-*.log` files, exit 0).
+* **Memory / CPU.** The `plane-rs-bench-stats` sidecar samples cgroup v2
+  `memory.current`/`memory.stat`/`cpu.stat` 4 times per second, host-stamped
+  by `tools/bench/stamp.py`. `idle`/`peak` are cache-excluded
+  (`memory.current - inactive_file`, the figure `docker stats` shows); `CPU s`
+  is the `usage_usec` delta across the window. Per-row idle is the 3 s before
+  the first warm-up; fresh/after-run idle is the 5 s before each mark.
+* **No repetitions.** One window per point. The 1-minute load average before
+  and after every window is in `load.log`: **2.30–6.17** in the main run and
+  **3.51–5.00** in the load re-run. The Postgres instance had no other client
+  backend during the run (`pg-load.log`: only `bench_p8_*` and the logger's own
+  `plane` connection).
+* **Background services.** `plane-worker` ran with
+  `PLANE_RS_JOB_CONCURRENCY=4`, `PLANE_RS_JOB_POLL_MS=100`, its own clone and
+  Redis DB 11. It was settled 10 s, sampled idle, then four `plane.jobs.echo`
+  jobs with `sleep_ms: 20000` were inserted and sampled for 5 s with one
+  claimed job per slot. `plane-beat` was started once to seed the schedule,
+  stopped, and the nine Rust-owned cron rows were marked handed over and
+  backdated by one day (the state `plane-beat --take-all` leaves), so the
+  measured start fired **one real job per entry** instead of waiting for a
+  5-minute/daily boundary; it was then sampled for 5 s. `plane-api`'s idle is
+  the fresh sample from the HTTP matrix.
+* **Task throughput.** 10,000 `recent_visited_task` jobs (`args`/`kwargs`
+  exactly as the HTTP routes publish them) on the Rust worker vs Celery. Both
+  windows start immediately before the queue is filled and end when the target
+  reports all 10,000 processed (Rust: `plane_jobs.jobs.state`; Celery:
+  `celery inspect stats` totals — Django's `LOGGING` sets
+  `disable_existing_loggers`, so Celery's `succeeded` line never appears in
+  this image). Celery ran with `-P solo`: its prefork `-c 4` worker received
+  all 10,000 messages but executed none in 300 s on this host, the same prefork
+  hang Phase 6 recorded (the 200-message probe proved the task bodies do run,
+  via the `user_recent_visits` row it writes). Solo is one slot, so the Celery
+  number is a **lower bound on concurrency-4 throughput**, not a like-for-like
+  slot count.
+* **Whole stack.** Rust: api + worker + beat, no broker; the migrator is a
+  one-off that exits. Python: Django api + Celery worker + beat, plus
+  RabbitMQ. The Celery worker/beat are Linux containers with the same cgroup
+  method as Rust (Phase 4's 852.2/171.8 MiB are native macOS `ps` sums and are
+  quoted only as context). RabbitMQ is the **shared dev container**
+  (`plane-rs-dev-rabbitmq-1`, read-only cgroup sampling); it carries other
+  vhosts and is an upper bound. `RUST_REWRITE.md`'s deployment figure is
+  ~140 MiB.
+
+#### Measurements
+
+`idle`/`peak` are cache-excluded container memory; `CPU s` is the whole
+container over the window (30 s, 70 s for `reads-mixed`/c=1, 60 s for
+`writes-mixed`, 20 s for the concurrency-8 rows). One repetition, so a row is
+that run. Every row has **0 errors**; reconnects are noted below.
+
+| date | commit | scenario | target | conc | rps | p50 ms | p95 ms | p99 ms | err | idle | peak | CPU s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-19 | 6bff715d1d | reads-users-me | django | 1 | 74 | 12.38 | 16.62 | 18.62 | 0 | 155.2 MiB | 159.0 MiB | 19.16 |
+| 2026-11-19 | 6bff715d1d | reads-users-me | rust | 1 | 1311 | 0.68 | 1.15 | 1.40 | 0 | 70.5 MiB | 70.9 MiB | 5.50 |
+| 2026-11-19 | 6bff715d1d | reads-project | django | 1 | 43 | 16.64 | 38.53 | 41.60 | 0 | 149.7 MiB | 157.4 MiB | 15.71 |
+| 2026-11-19 | 6bff715d1d | reads-project | rust | 1 | 694 | 1.16 | 2.62 | 2.98 | 0 | 65.6 MiB | 67.0 MiB | 5.70 |
+| 2026-11-19 | 6bff715d1d | reads-issues | django | 1 | 26 | 34.72 | 68.80 | 97.73 | 0 | 150.6 MiB | 163.4 MiB | 19.39 |
+| 2026-11-19 | 6bff715d1d | reads-issues | rust | 1 | 246 | 2.44 | 8.14 | 8.97 | 0 | 66.9 MiB | 70.3 MiB | 6.16 |
+| 2026-11-19 | 6bff715d1d | reads-cycles | django | 1 | 24 | 33.73 | 90.56 | 103.36 | 0 | 162.6 MiB | 160.1 MiB | 16.61 |
+| 2026-11-19 | 6bff715d1d | reads-cycles | rust | 1 | 587 | 1.62 | 3.13 | 3.67 | 0 | 66.4 MiB | 66.6 MiB | 4.90 |
+| 2026-11-19 | 6bff715d1d | reads-mixed | django | 1 | 33 | 28.32 | 60.13 | 95.30 | 0 | 150.4 MiB | 162.4 MiB | 42.02 |
+| 2026-11-19 | 6bff715d1d | reads-mixed | rust | 1 | 440 | 1.40 | 7.23 | 7.96 | 0 | 66.1 MiB | 67.0 MiB | 13.87 |
+| 2026-11-19 | 6bff715d1d | reads-mixed | django | 8 | 58 | 110.02 | 279.81 | 353.28 | 0 | 150.9 MiB | 168.0 MiB | 24.84 |
+| 2026-11-19 | 6bff715d1d | reads-mixed | rust | 8 | 1931 | 2.88 | 12.01 | 15.73 | 0 | 59.7 MiB | 69.8 MiB | 16.81 |
+| 2026-11-19 | 6bff715d1d | writes-mixed | django | 1 | 32 | 30.38 | 36.58 | 41.28 | 0 | 158.4 MiB | 160.8 MiB | 38.52 |
+| 2026-11-19 | 6bff715d1d | writes-mixed | rust | 1 | 304 | 3.04 | 5.49 | 6.29 | 0 | 66.5 MiB | 66.6 MiB | 12.81 |
+
+Django reconnected once in the `users-me`, `project`, `cycles` and
+`writes-mixed` latency windows and twice in `reads-mixed`/c=1 — the
+`--max-requests 1200` worker restart. It reconnected **0** times in the
+concurrency-8 re-run (1,157 requests, below the recycling threshold). Rust
+reconnected 0 times anywhere.
+
+#### Container idle memory
+
+Fresh start is 30 s after the containers answered, before verification. After
+run is 30 s after the last measured window of the main matrix (which includes
+the write mix); the load re-run is a separate stack and is shown because its
+after-run state is the clean read-only one. Cache-excluded and raw
+`memory.current`.
+
+| | fresh start | | after main run | | after load re-run | |
+| --- | --- | --- | --- | --- | --- | --- |
+| | cache-excl. | raw | cache-excl. | raw | cache-excl. | raw |
+| django | 143.4 MiB | 147.2 MiB | 262.9 MiB | 266.7 MiB | 166.2 MiB | 170.0 MiB |
+| rust | 58.7 MiB | 58.7 MiB | 88.6 MiB | 88.6 MiB | 74.1 MiB | 74.1 MiB |
+
+The Rust containers report `file = 0` in `memory.stat` (no page cache is
+charged to them in this VM), so the cache-excluded figure is anonymous memory
+plus kernel overhead. The after-run growth is retained heap; Phase 3's
+1.08M-request curve is the evidence against a leak.
+
+#### Background services, with a live queue
+
+Same cgroup method and container limits as above, except Celery at 1 GiB.
+`idle` is the median of a 5 s window; `CPU` is the `usage_usec` delta over
+that window.
+
+| service | idle | CPU / 5 s | live-queue proof |
+| --- | --- | --- | --- |
+| `plane-api` | **58.7 MiB** (fresh) | — | idle HTTP target from the matrix |
+| `plane-worker`, listener up | **1.58 MiB** | 0.044 s | 2 DB connections: one claim loop, one listener connection open with an empty `query`; **0 `LISTEN` statements** (finding 1) |
+| `plane-worker`, 4 claimed jobs | **1.66 MiB** | 0.00 s (handlers asleep) | `plane_jobs.jobs`: **4 `running`**, all `locked_by` the worker id; worker log has 4 `"echo"` completions |
+| `plane-beat`, after a tick | **0.91 MiB** | 0.005 s | **9 rows in `plane_jobs.ticks`**, one per Rust-owned schedule, and 9 `fired schedule` log lines |
+| Celery worker `-c 4` | 359.57 MiB | 0.009 s | prefork container, queue empty |
+| Celery beat | 145.81 MiB | 0.016 s | `DatabaseScheduler` up, schedule empty (the cutover state) |
+| RabbitMQ (dev container) | 585.59 MiB | 0.39 s | read-only cgroup sample; shared with other vhosts (upper bound) |
+
+Against Phase 4/5's Celery figures (852.2 MiB worker, 171.8 MiB beat, native
+macOS `ps` sums): the worker is **227× smaller** on the equal Linux-cgroup
+method against the re-measured prefork container (359.57 MiB), and beat
+**160×** smaller against 145.81 MiB. The worker's idle CPU is measured at
+`PLANE_RS_JOB_POLL_MS=100` (set for the drain's latency); the default is
+1,000 ms, so the deployment's idle poll cost is roughly a tenth of 0.044 s/5 s.
+
+**Finding 1 — the LISTEN half is deadlocked at this head.** The worker opens
+the listener connection (`crates/plane-jobs/src/listener.rs:72`) and then
+awaits `client.batch_execute("LISTEN plane_jobs_jobs")` (`:74`) **before**
+anything polls the `Connection` future (`:81`). tokio-postgres only writes a
+request when its `Connection` is polled, so the `LISTEN` never reaches the
+server and the task never logs `job listener connected`; the server-side
+connection sits `idle/ClientRead` with an empty query (the proof file
+`worker-connections.txt`). The worker still drains through the 1 s poll
+fallback, which is why the queue measurements above work; the failure mode is
+up to one poll interval of wake-up latency, not lost jobs. The fix is one line
+(`tokio::spawn(connection)` before the `LISTEN`, or poll both concurrently).
+Phase 5's "1.02 MiB idle" figure had the same missing subscription; this run
+confirms it rather than assuming it.
+
+#### Task throughput
+
+10,000 `recent_visited_task` jobs, enqueue window included on both sides
+(Rust: one bulk `INSERT`, ~0.5 s; Celery: 10,000 `.delay()` publishes, 1.45 s).
+Rust's four handlers vs Celery's one solo slot.
+
+| drain | jobs | wall s | jobs/s | CPU s | CPU per job ms | jobs/s at CPU 1 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `plane-worker` (`PLANE_RS_JOB_CONCURRENCY=4`) | 10,000 | 12.94 | 773 | 2.70 | 0.270 | 3,708 |
+| `celery -P solo` (prefork `-c 4` hung) | 10,000 | 106.03 | 94 | 50.29 | 5.029 | 199 |
+
+Rust is **8.2× faster wall-clock** and **18.6× cheaper per job**; per slot it
+is 193 vs 94 jobs/s. If Celery's prefork executed, it could approach its
+concurrency-4 slot count, but this host does not run it (finding 2).
+
+**Finding 2 — Celery prefork does not execute in this environment.** Two
+10,000-message runs (`-c 4`, once with and once without freezing the
+container) logged all messages as `received` and zero completions in 300 s;
+`-P solo` executes the same payloads. A 200-message probe confirmed the task
+body runs (a new `user_recent_visits` row and a moved `visited_at`). Phase 6
+recorded the same prefork hang for the browser walk. This is a local
+Celery/billiard/Colima issue, not a Django behaviour the rewrite has to match;
+it is why the throughput comparison is one slot, and why **no Celery message
+was executed through the prefork worker** in this report.
+
+#### Whole-stack total
+
+Rust: `plane-api` fresh idle + `plane-worker` (listener up) + `plane-beat`
+(after a tick). The migrator is one-off and has exited; there is no broker.
+Python: Django api fresh idle + Celery worker (`-c 4` prefork) + Celery beat +
+RabbitMQ. All are Linux cgroup cache-excluded medians measured here, except
+the RabbitMQ alternatives noted.
+
+| stack | service | idle |
+| --- | --- | --- |
+| rust | `plane-api` | 58.7 MiB |
+| rust | `plane-worker` | 1.6 MiB |
+| rust | `plane-beat` | 0.9 MiB |
+| | **Rust total** | **61.2 MiB** |
+| python | Django api | 143.4 MiB |
+| python | Celery worker `-c 4` | 359.6 MiB |
+| python | Celery beat | 145.8 MiB |
+| | **Python total (containers)** | **648.8 MiB** |
+| python | RabbitMQ, `RUST_REWRITE.md` deployment | ~140 MiB |
+| python | **Python total + broker (brief's broker)** | **~789 MiB** |
+| python | RabbitMQ, shared dev container (upper bound) | 585.6 MiB |
+| python | **Python total + dev broker** | **1,234.3 MiB** |
+
+`RUST_REWRITE.md` budgets **Python ≈ 2,120 MiB** (api 760 + worker 1010 + beat
+350) of the 3.5 GB instance. The Rust stack is **61.2 MiB, 34.6× under that
+figure and 1.7% of 3.5 GB**; the re-measured Linux Python stack is 648.8 MiB
+plus a broker, i.e. the brief's deployed figures are production RSS with two
+API replicas and a macOS `spawn` worker, so the 34.6× is against the budget,
+not against this run's Python containers (which are 10.6× heavier than Rust on
+the same method, before the broker).
+
+#### Summary ratios
+
+| scenario | conc | rps django | rps rust | rps ratio | p95 django | p95 rust | p95 ratio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| reads-users-me | 1 | 74 | 1,311 | 17.8× | 16.62 | 1.15 | 14.4× |
+| reads-project | 1 | 43 | 694 | 16.0× | 38.53 | 2.62 | 14.7× |
+| reads-issues | 1 | 26 | 246 | 9.5× | 68.80 | 8.14 | 8.5× |
+| reads-cycles | 1 | 24 | 587 | 24.9× | 90.56 | 3.13 | 28.9× |
+| reads-mixed | 1 | 33 | 440 | 13.2× | 60.13 | 7.23 | 8.3× |
+| reads-mixed | 8 | 58 | 1,931 | 33.5× | 279.81 | 12.01 | 23.3× |
+| writes-mixed | 1 | 32 | 304 | 9.5× | 36.58 | 5.49 | 6.7× |
+
+**CPU per request** (whole container divided by that target's requests):
+
+| scenario | conc | django | rust | ratio |
+| --- | --- | --- | --- | --- |
+| reads-users-me | 1 | 8.69 ms | 0.140 ms | 62.1× |
+| reads-project | 1 | 12.05 ms | 0.274 ms | 44.0× |
+| reads-issues | 1 | 24.86 ms | 0.835 ms | 29.8× |
+| reads-cycles | 1 | 23.42 ms | 0.278 ms | 84.2× |
+| reads-mixed | 1 | 18.00 ms | 0.450 ms | 40.0× |
+| reads-mixed | 8 | 21.47 ms | 0.435 ms | 49.4× |
+| writes-mixed | 1 | 20.10 ms | 0.703 ms | 28.6× |
+
+#### What the numbers say
+
+**Throughput.** `plane-api` is **9.5×–24.9×** faster on the five read
+scenarios at concurrency 1 and **33.5×** on the page-load mix at concurrency
+8. The floor is the write-heavy issue surface (`reads-issues`, `writes-mixed`
+at 9.5×), the ceiling the short, database-round-trip-dominated cycle read
+(24.9×). Rust scales 4.4× from concurrency 1 to 8 on the mix (440 → 1,931
+rps); Django 1.75× (33 → 58), with p95 279.81 ms.
+
+**Against Phase 5.** The read paths gained rather than regressed after the
+Phase 6/7/8 work: Rust is **+15% to +40%** in rps (`users-me` 1,003 → 1,311,
+`project` 494 → 694, `cycles` 444 → 587, `mixed` 383 → 440, `issues` 202 →
+246) and **14–29% lower p95**; Django moved +3% to +21% (74 vs 61 rps on
+`users-me`, 58 vs 52 on the mix at c=8), i.e. the quieter host, not a code
+change. The concurrency-8 mix is **2.2× Phase 5's Rust rps** (1,931 vs 861);
+the Phase 5 row also published `recent_visited_task` to RabbitMQ, while the
+cutover row inserts it into `plane_jobs` on the same connection, so the two
+are not transport-identical (a point in Rust's favour, not a route change).
+
+**Writes are the same story.** Creating and editing work items and comments is
+9.5× faster (32 → 304 rps), with p95 6.7× lower (36.58 → 5.49 ms) and 28.6×
+less CPU per request. Django's write window is 1,916 requests in 60 s and
+includes one `--max-requests` restart.
+
+**Memory.** A fresh `plane-api` is **58.7 MiB vs Django's 143.4 MiB** (2.4×),
+peak under load 66–70 MiB vs 157–168 MiB, and after the full matrix 88.6 vs
+262.9 MiB. The worker/beat are **1.58/0.91 MiB** with a live queue, versus
+359.57/145.81 MiB for the same roles as Linux Celery containers (227×/160×).
+The whole Rust stack is **61.2 MiB**.
+
+**The worker's LISTEN half is the one real regression exposed by this run.**
+It is a wake-up optimisation, not correctness (the poll fallback drains), and
+the measurement above shows jobs claimed, executed and freed. It should still
+be fixed before the cutover is declared complete: `listener.rs:72-81` awaits
+`batch_execute` before polling the connection, so the subscription never
+happens. This is the answer to Phase 5's open caveat.
+
+**The write mix perturbs the history read if it runs first.** The first run's
+concurrency-8 row was measured after 1,000 comment activities were added to
+the issue `reads-mixed` uses for `issue-history`; both targets slowed (Rust
+194 rps, Django 7 rps) and the row was discarded and re-measured on fresh
+clones. The script now runs the load window before the write mix. If the
+matrix grows, keep destructive/write scenarios out of the read-state issue or
+re-clone between phases.
+
+#### Reproduce
+
+```bash
+# Everything: build the four Rust images, provision, verify, measure the read
+# and write matrix, the background services and the two drains, then clean up
+# (~20 min with the images cached).
+apps/server/tools/bench/run-phase8.sh --tag phase8-20261119
+
+# Reuse the images and target/release/difftest (what this report did).
+apps/server/tools/bench/run-phase8.sh --no-build --tag phase8-20261119
+
+# Re-measure only the concurrency-8 mix on fresh clones.
+apps/server/tools/bench/run-phase8.sh --no-build --load-only --tag phase8-20261119-load
+
+# Verification only, the background services only, or remove what a run left.
+apps/server/tools/bench/run-phase8.sh --no-build --verify-only
+apps/server/tools/bench/run-phase8.sh --no-build --jobs-only
+apps/server/tools/bench/run-phase8.sh --down
+```
+
+The run writes `summarize.md`, `table.md`, `ratios.md`, `stack.md` and
+`throughput.md`, plus `environment.txt`, `load.log`, `pg-load.log`, the cgroup
+samples, the verification reports and the proof files (`worker-connections.txt`,
+`worker-listen.txt`, `worker-claims.txt`, `beat-ticks.txt`). The raw reports
+are in `apps/server/target/bench/phase8-20261119/` (gitignored), with the load
+re-run in `phase8-20261119-load/`.
+
+#### Threats to validity (Phase 8)
+
+* **One repetition.** Every row is a single window; a difference under ~10% is
+  not evidence. The Django control rows are the sanity check.
+* **Shared host, quieter.** The 1-minute load average was 2.30–6.17 (main) and
+  3.51–5.00 (load re-run) on a 14-core host; the Postgres server was quiet
+  (only the run's own databases in `pg-load.log`).
+* **Client across the published port.** As in Phases 3/5; the c=8 Rust row
+  delivered 38,649 requests in 20 s, far below the 115k-rps client ceiling
+  Phase 3 measured at that concurrency.
+* **Re-measured c=8 row.** The table's `reads-mixed`/8 rows come from the
+  fresh-clone re-run, not the main matrix; their idle/fresh samples are from
+  that stack.
+* **Django `--max-requests`.** Kept (the production line). It reconnects once
+  in four latency windows and twice in `mixed`/c=1, and once in the write
+  window; the numbers include the restart, as deployed.
+* **Celery throughput is one slot.** The prefork `-c 4` worker never executed
+  a task on this host; the drain uses `-P solo` and is a lower bound on
+  concurrency-4 throughput. Completion used `celery inspect stats` because
+  Django's `LOGGING` suppresses Celery's success line.
+* **Celery memory is a Linux container, not native macOS.** 359.57/145.81 MiB
+  are directly comparable to the Rust containers (same cgroup method); Phase
+  4's 852.2/171.8 MiB are cross-environment context only, as Phase 5 warned.
+* **RabbitMQ is shared.** The 585.59 MiB sample is the dev stack's RabbitMQ
+  with other vhosts and connections; the brief's ~140 MiB is the deployment
+  figure. The Python total is quoted both ways.
+* **Memory is cache-excluded and sampled at 4 Hz.** Raw `memory.current` is in
+  the JSON; a spike shorter than 250 ms can be missed, and CPU window edges are
+  ±0.25 s.
+* **The VM is the temporary 6 vCPU / 9.7 GiB resize**, not the 2 vCPU
+  deployment; each container is pinned to 2 CPUs and Rust to 2 tokio threads,
+  so the internal comparison is unaffected.
+* **Image provenance is a BuildKit cache hit.** The Docker builds reported
+  every step cached from an earlier build of the same content-addressed
+  source; the image IDs quoted above are the ones `docker images` showed. The
+  binaries are the head's, not a fresh recompilation in this session.
+* **Boot steps skipped.** `plane-api` ran with `PLANE_RS_BOOT_STEPS=skip`
+  (no outbound GitHub call); this affects only boot, and boot parity is
+  covered by `tools/boot/compare_boot.py`, not this benchmark.
+* **The worker's LISTEN subscription is absent** (finding 1), so the worker
+  figures are "poll-only with a live queue", not "LISTEN-driven". The queue
+  behaviour itself is proven; the wake-up path is the open bug.
+
 ## How to reproduce
 
 From `apps/server` (the paths in `scenarios/targets.yaml` are repository-relative):
