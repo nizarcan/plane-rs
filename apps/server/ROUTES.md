@@ -327,85 +327,85 @@ They were produced by counting `path()` calls, which is not the same as counting
 
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
-| 273 | `/api/v1/assets/user-assets/` | POST | `plane.api.views.asset.UserAssetEndpoint` | IsAuthenticated | django | not-started |
-| 274 | `/api/v1/assets/user-assets/{asset_id}/` | PATCH, DELETE | `plane.api.views.asset.UserAssetEndpoint` | IsAuthenticated | django | not-started |
-| 275 | `/api/v1/assets/user-assets/server/` | POST | `plane.api.views.asset.UserServerAssetEndpoint` | IsAuthenticated | django | not-started |
-| 276 | `/api/v1/assets/user-assets/{asset_id}/server/` | PATCH, DELETE | `plane.api.views.asset.UserServerAssetEndpoint` | IsAuthenticated | django | not-started |
-| 277 | `/api/v1/workspaces/{slug}/assets/` | POST | `plane.api.views.asset.GenericAssetEndpoint` | WorkspaceUserPermission | django | not-started |
-| 278 | `/api/v1/workspaces/{slug}/assets/{asset_id}/` | GET, PATCH | `plane.api.views.asset.GenericAssetEndpoint` | WorkspaceUserPermission | django | not-started |
-| 279 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/` | GET, POST | `plane.api.views.cycle.CycleListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 280 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles-lite/` | GET | `plane.api.views.cycle.CycleListLiteAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 281 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{pk}/` | GET, PATCH, DELETE | `plane.api.views.cycle.CycleDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 282 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/cycle-issues/` | GET, POST | `plane.api.views.cycle.CycleIssueListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 283 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/cycle-issues/{issue_id}/` | GET, DELETE | `plane.api.views.cycle.CycleIssueDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 284 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/transfer-issues/` | POST | `plane.api.views.cycle.TransferCycleIssueAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 285 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/archive/` | POST | `plane.api.views.cycle.CycleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 286 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-cycles/` | GET | `plane.api.views.cycle.CycleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 287 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-cycles/{cycle_id}/unarchive/` | DELETE | `plane.api.views.cycle.CycleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 288 | `/api/v1/workspaces/{slug}/projects/{project_id}/intake-issues/` | GET, POST | `plane.api.views.intake.IntakeIssueListCreateAPIEndpoint` | ProjectLitePermission | django | not-started |
-| 289 | `/api/v1/workspaces/{slug}/projects/{project_id}/intake-issues/{issue_id}/` | GET, PATCH, DELETE | `plane.api.views.intake.IntakeIssueDetailAPIEndpoint` | ProjectLitePermission | django | not-started |
-| 290 | `/api/v1/workspaces/{slug}/projects/{project_id}/labels/` | GET, POST | `plane.api.views.issue.LabelListCreateAPIEndpoint` | ProjectMemberPermission (dynamic) | django | not-started |
-| 291 | `/api/v1/workspaces/{slug}/projects/{project_id}/labels/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.LabelDetailAPIEndpoint` | ProjectMemberPermission (dynamic) | django | not-started |
-| 292 | `/api/v1/workspaces/{slug}/projects/{project_id}/members/` | GET, POST | `plane.api.views.member.ProjectMemberListCreateAPIEndpoint` | ProjectMemberPermission (dynamic) | django | not-started |
-| 293 | `/api/v1/workspaces/{slug}/projects/{project_id}/members/{pk}/` | GET, PATCH, DELETE | `plane.api.views.member.ProjectMemberDetailAPIEndpoint` | ProjectMemberPermission (dynamic) | django | not-started |
-| 294 | `/api/v1/workspaces/{slug}/projects/{project_id}/project-members/` | GET, POST | `plane.api.views.member.ProjectMemberListCreateAPIEndpoint` | ProjectMemberPermission (dynamic) | django | not-started |
-| 295 | `/api/v1/workspaces/{slug}/projects/{project_id}/project-members-lite/` | GET | `plane.api.views.member.ProjectMemberLiteAPIEndpoint` | ProjectMemberPermission | django | not-started |
-| 296 | `/api/v1/workspaces/{slug}/projects/{project_id}/project-members/{pk}/` | GET, PATCH, DELETE | `plane.api.views.member.ProjectMemberDetailAPIEndpoint` | ProjectMemberPermission (dynamic) | django | not-started |
-| 297 | `/api/v1/workspaces/{slug}/members/` | GET | `plane.api.views.member.WorkspaceMemberAPIEndpoint` | WorkSpaceAdminPermission | django | not-started |
-| 298 | `/api/v1/workspaces/{slug}/members-lite/` | GET | `plane.api.views.member.WorkspaceMemberLiteAPIEndpoint` | WorkSpaceAdminPermission | django | not-started |
-| 299 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/` | GET, POST | `plane.api.views.module.ModuleListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 300 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules-lite/` | GET | `plane.api.views.module.ModuleListLiteAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 301 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{pk}/` | GET, PATCH, DELETE | `plane.api.views.module.ModuleDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 302 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{module_id}/module-issues/` | GET, POST | `plane.api.views.module.ModuleIssueListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 303 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{module_id}/module-issues/{issue_id}/` | DELETE | `plane.api.views.module.ModuleIssueDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 304 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{pk}/archive/` | POST | `plane.api.views.module.ModuleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 305 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-modules/` | GET | `plane.api.views.module.ModuleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 306 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-modules/{pk}/unarchive/` | DELETE | `plane.api.views.module.ModuleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 307 | `/api/v1/workspaces/{slug}/projects/` | GET, POST | `plane.api.views.project.ProjectListCreateAPIEndpoint` | ProjectBasePermission | django | not-started |
-| 308 | `/api/v1/workspaces/{slug}/projects-lite/` | GET | `plane.api.views.project.ProjectListLiteAPIEndpoint` | ProjectBasePermission | django | not-started |
-| 309 | `/api/v1/workspaces/{slug}/projects/{pk}/` | GET, PATCH, DELETE | `plane.api.views.project.ProjectDetailAPIEndpoint` | ProjectBasePermission | django | not-started |
-| 310 | `/api/v1/workspaces/{slug}/projects/{project_id}/archive/` | POST, DELETE | `plane.api.views.project.ProjectArchiveUnarchiveAPIEndpoint` | ProjectArchiveUnarchivePermission | django | not-started |
-| 311 | `/api/v1/workspaces/{slug}/projects/{project_id}/summary/` | GET | `plane.api.views.project.ProjectSummaryAPIEndpoint` | WorkSpaceAdminPermission | django | not-started |
-| 312 | `/api/v1/workspaces/{slug}/projects/{project_id}/states/` | GET, POST | `plane.api.views.state.StateListCreateAPIEndpoint` | ProjectEntityPermission (dynamic) | django | not-started |
-| 313 | `/api/v1/workspaces/{slug}/projects/{project_id}/states/{state_id}/` | GET, PATCH, DELETE | `plane.api.views.state.StateDetailAPIEndpoint` | ProjectEntityPermission (dynamic) | django | not-started |
-| 314 | `/api/v1/users/me/` | GET | `plane.api.views.user.UserEndpoint` | IsAuthenticated | django | not-started |
-| 315 | `/api/v1/workspaces/{slug}/issues/search/` | GET | `plane.api.views.issue.IssueSearchEndpoint` | IsAuthenticated | django | not-started |
-| 316 | `/api/v1/workspaces/{slug}/issues/{project_identifier}-{issue_identifier}/` | GET | `plane.api.views.issue.WorkspaceIssueAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 317 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/` | GET, POST | `plane.api.views.issue.IssueListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 318 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 319 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/links/` | GET, POST | `plane.api.views.issue.IssueLinkListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 320 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/links/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueLinkDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 321 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/comments/` | GET, POST | `plane.api.views.issue.IssueCommentListCreateAPIEndpoint` | ProjectLitePermission | django | not-started |
-| 322 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/comments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueCommentDetailAPIEndpoint` | ProjectLitePermission | django | not-started |
-| 323 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/activities/` | GET | `plane.api.views.issue.IssueActivityListAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 324 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/activities/{pk}/` | GET | `plane.api.views.issue.IssueActivityDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 325 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/issue-attachments/` | GET, POST | `plane.api.views.issue.IssueAttachmentListCreateAPIEndpoint` | IsAuthenticated | django | not-started |
-| 326 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/issue-attachments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueAttachmentDetailAPIEndpoint` | IsAuthenticated | django | not-started |
-| 327 | `/api/v1/workspaces/{slug}/work-items/search/` | GET | `plane.api.views.issue.IssueSearchEndpoint` | IsAuthenticated | django | not-started |
-| 328 | `/api/v1/workspaces/{slug}/work-items/{project_identifier}-{issue_identifier}/` | GET | `plane.api.views.issue.WorkspaceIssueAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 329 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/` | GET, POST | `plane.api.views.issue.IssueListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 330 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 331 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/links/` | GET, POST | `plane.api.views.issue.IssueLinkListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 332 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/links/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueLinkDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 333 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/comments/` | GET, POST | `plane.api.views.issue.IssueCommentListCreateAPIEndpoint` | ProjectLitePermission | django | not-started |
-| 334 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/comments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueCommentDetailAPIEndpoint` | ProjectLitePermission | django | not-started |
-| 335 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/activities/` | GET | `plane.api.views.issue.IssueActivityListAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 336 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/activities/{pk}/` | GET | `plane.api.views.issue.IssueActivityDetailAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 337 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/attachments/` | GET, POST | `plane.api.views.issue.IssueAttachmentListCreateAPIEndpoint` | IsAuthenticated | django | not-started |
-| 338 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/attachments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueAttachmentDetailAPIEndpoint` | IsAuthenticated | django | not-started |
-| 339 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/relations/` | GET, POST | `plane.api.views.issue.IssueRelationListCreateAPIEndpoint` | ProjectEntityPermission | django | not-started |
-| 340 | `/api/v1/workspaces/{slug}/invitations/` | GET:list, POST:create | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | django | not-started |
-| 341 | `/api/v1/workspaces/{slug}/invitations.{format}` | GET:list, POST:create | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | django | not-started |
-| 342 | `/api/v1/workspaces/{slug}/invitations/{pk}/` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | django | not-started |
-| 343 | `/api/v1/workspaces/{slug}/invitations/{pk}.{format}` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | django | not-started |
-| 344 | `/api/v1/workspaces/{slug}/` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | django | not-started |
-| 345 | `/api/v1/workspaces/{slug}/.{format}` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | django | not-started |
-| 346 | `/api/v1/workspaces/{slug}/stickies/` | GET:list, POST:create | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | django | not-started |
-| 347 | `/api/v1/workspaces/{slug}/stickies.{format}` | GET:list, POST:create | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | django | not-started |
-| 348 | `/api/v1/workspaces/{slug}/stickies/{pk}/` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | django | not-started |
-| 349 | `/api/v1/workspaces/{slug}/stickies/{pk}.{format}` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | django | not-started |
-| 350 | `/api/v1/workspaces/{slug}/` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | django | not-started |
-| 351 | `/api/v1/workspaces/{slug}/.{format}` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | django | not-started |
+| 273 | `/api/v1/assets/user-assets/` | POST | `plane.api.views.asset.UserAssetEndpoint` | IsAuthenticated | rust(POST) | verified |
+| 274 | `/api/v1/assets/user-assets/{asset_id}/` | PATCH, DELETE | `plane.api.views.asset.UserAssetEndpoint` | IsAuthenticated | rust(PATCH,DELETE) | verified |
+| 275 | `/api/v1/assets/user-assets/server/` | POST | `plane.api.views.asset.UserServerAssetEndpoint` | IsAuthenticated | rust(POST) | verified |
+| 276 | `/api/v1/assets/user-assets/{asset_id}/server/` | PATCH, DELETE | `plane.api.views.asset.UserServerAssetEndpoint` | IsAuthenticated | rust(PATCH,DELETE) | verified |
+| 277 | `/api/v1/workspaces/{slug}/assets/` | POST | `plane.api.views.asset.GenericAssetEndpoint` | WorkspaceUserPermission | rust(POST) | verified |
+| 278 | `/api/v1/workspaces/{slug}/assets/{asset_id}/` | GET, PATCH | `plane.api.views.asset.GenericAssetEndpoint` | WorkspaceUserPermission | rust(GET,PATCH) | verified |
+| 279 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/` | GET, POST | `plane.api.views.cycle.CycleListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 280 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles-lite/` | GET | `plane.api.views.cycle.CycleListLiteAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 281 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{pk}/` | GET, PATCH, DELETE | `plane.api.views.cycle.CycleDetailAPIEndpoint` | ProjectEntityPermission | rust(GET,PATCH,DELETE) | verified |
+| 282 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/cycle-issues/` | GET, POST | `plane.api.views.cycle.CycleIssueListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 283 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/cycle-issues/{issue_id}/` | GET, DELETE | `plane.api.views.cycle.CycleIssueDetailAPIEndpoint` | ProjectEntityPermission | rust(GET,DELETE) | verified |
+| 284 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/transfer-issues/` | POST | `plane.api.views.cycle.TransferCycleIssueAPIEndpoint` | ProjectEntityPermission | rust(POST) | verified |
+| 285 | `/api/v1/workspaces/{slug}/projects/{project_id}/cycles/{cycle_id}/archive/` | POST | `plane.api.views.cycle.CycleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | rust(POST) | verified |
+| 286 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-cycles/` | GET | `plane.api.views.cycle.CycleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 287 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-cycles/{cycle_id}/unarchive/` | DELETE | `plane.api.views.cycle.CycleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | rust(DELETE) | verified |
+| 288 | `/api/v1/workspaces/{slug}/projects/{project_id}/intake-issues/` | GET, POST | `plane.api.views.intake.IntakeIssueListCreateAPIEndpoint` | ProjectLitePermission | rust(GET,POST) | verified |
+| 289 | `/api/v1/workspaces/{slug}/projects/{project_id}/intake-issues/{issue_id}/` | GET, PATCH, DELETE | `plane.api.views.intake.IntakeIssueDetailAPIEndpoint` | ProjectLitePermission | rust(GET,PATCH,DELETE) | verified |
+| 290 | `/api/v1/workspaces/{slug}/projects/{project_id}/labels/` | GET, POST | `plane.api.views.issue.LabelListCreateAPIEndpoint` | ProjectMemberPermission (dynamic) | rust(GET,POST) | verified |
+| 291 | `/api/v1/workspaces/{slug}/projects/{project_id}/labels/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.LabelDetailAPIEndpoint` | ProjectMemberPermission (dynamic) | rust(GET,PATCH,DELETE) | verified |
+| 292 | `/api/v1/workspaces/{slug}/projects/{project_id}/members/` | GET, POST | `plane.api.views.member.ProjectMemberListCreateAPIEndpoint` | ProjectMemberPermission (dynamic) | rust(GET,POST) | verified |
+| 293 | `/api/v1/workspaces/{slug}/projects/{project_id}/members/{pk}/` | GET, PATCH, DELETE | `plane.api.views.member.ProjectMemberDetailAPIEndpoint` | ProjectMemberPermission (dynamic) | rust(GET,PATCH,DELETE) | verified |
+| 294 | `/api/v1/workspaces/{slug}/projects/{project_id}/project-members/` | GET, POST | `plane.api.views.member.ProjectMemberListCreateAPIEndpoint` | ProjectMemberPermission (dynamic) | rust(GET,POST) | verified |
+| 295 | `/api/v1/workspaces/{slug}/projects/{project_id}/project-members-lite/` | GET | `plane.api.views.member.ProjectMemberLiteAPIEndpoint` | ProjectMemberPermission | rust(GET) | verified |
+| 296 | `/api/v1/workspaces/{slug}/projects/{project_id}/project-members/{pk}/` | GET, PATCH, DELETE | `plane.api.views.member.ProjectMemberDetailAPIEndpoint` | ProjectMemberPermission (dynamic) | rust(GET,PATCH,DELETE) | verified |
+| 297 | `/api/v1/workspaces/{slug}/members/` | GET | `plane.api.views.member.WorkspaceMemberAPIEndpoint` | WorkSpaceAdminPermission | rust(GET) | verified |
+| 298 | `/api/v1/workspaces/{slug}/members-lite/` | GET | `plane.api.views.member.WorkspaceMemberLiteAPIEndpoint` | WorkSpaceAdminPermission | rust(GET) | verified |
+| 299 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/` | GET, POST | `plane.api.views.module.ModuleListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 300 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules-lite/` | GET | `plane.api.views.module.ModuleListLiteAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 301 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{pk}/` | GET, PATCH, DELETE | `plane.api.views.module.ModuleDetailAPIEndpoint` | ProjectEntityPermission | rust(GET,PATCH,DELETE) | verified |
+| 302 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{module_id}/module-issues/` | GET, POST | `plane.api.views.module.ModuleIssueListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 303 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{module_id}/module-issues/{issue_id}/` | DELETE | `plane.api.views.module.ModuleIssueDetailAPIEndpoint` | ProjectEntityPermission | rust(DELETE) | verified |
+| 304 | `/api/v1/workspaces/{slug}/projects/{project_id}/modules/{pk}/archive/` | POST | `plane.api.views.module.ModuleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | rust(POST) | verified |
+| 305 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-modules/` | GET | `plane.api.views.module.ModuleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 306 | `/api/v1/workspaces/{slug}/projects/{project_id}/archived-modules/{pk}/unarchive/` | DELETE | `plane.api.views.module.ModuleArchiveUnarchiveAPIEndpoint` | ProjectEntityPermission | rust(DELETE) | verified |
+| 307 | `/api/v1/workspaces/{slug}/projects/` | GET, POST | `plane.api.views.project.ProjectListCreateAPIEndpoint` | ProjectBasePermission | rust(GET,POST) | verified |
+| 308 | `/api/v1/workspaces/{slug}/projects-lite/` | GET | `plane.api.views.project.ProjectListLiteAPIEndpoint` | ProjectBasePermission | rust(GET) | verified |
+| 309 | `/api/v1/workspaces/{slug}/projects/{pk}/` | GET, PATCH, DELETE | `plane.api.views.project.ProjectDetailAPIEndpoint` | ProjectBasePermission | rust(GET,PATCH,DELETE) | verified |
+| 310 | `/api/v1/workspaces/{slug}/projects/{project_id}/archive/` | POST, DELETE | `plane.api.views.project.ProjectArchiveUnarchiveAPIEndpoint` | ProjectArchiveUnarchivePermission | rust(POST,DELETE) | verified |
+| 311 | `/api/v1/workspaces/{slug}/projects/{project_id}/summary/` | GET | `plane.api.views.project.ProjectSummaryAPIEndpoint` | WorkSpaceAdminPermission | rust(GET) | verified |
+| 312 | `/api/v1/workspaces/{slug}/projects/{project_id}/states/` | GET, POST | `plane.api.views.state.StateListCreateAPIEndpoint` | ProjectEntityPermission (dynamic) | rust(GET,POST) | verified |
+| 313 | `/api/v1/workspaces/{slug}/projects/{project_id}/states/{state_id}/` | GET, PATCH, DELETE | `plane.api.views.state.StateDetailAPIEndpoint` | ProjectEntityPermission (dynamic) | rust(GET,PATCH,DELETE) | verified |
+| 314 | `/api/v1/users/me/` | GET | `plane.api.views.user.UserEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 315 | `/api/v1/workspaces/{slug}/issues/search/` | GET | `plane.api.views.issue.IssueSearchEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 316 | `/api/v1/workspaces/{slug}/issues/{project_identifier}-{issue_identifier}/` | GET | `plane.api.views.issue.WorkspaceIssueAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 317 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/` | GET, POST | `plane.api.views.issue.IssueListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 318 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueDetailAPIEndpoint` | ProjectEntityPermission | rust(GET,PATCH,DELETE) | verified |
+| 319 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/links/` | GET, POST | `plane.api.views.issue.IssueLinkListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 320 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/links/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueLinkDetailAPIEndpoint` | ProjectEntityPermission | rust(GET,PATCH,DELETE) | verified |
+| 321 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/comments/` | GET, POST | `plane.api.views.issue.IssueCommentListCreateAPIEndpoint` | ProjectLitePermission | rust(GET,POST) | verified |
+| 322 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/comments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueCommentDetailAPIEndpoint` | ProjectLitePermission | rust(GET,PATCH,DELETE) | verified |
+| 323 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/activities/` | GET | `plane.api.views.issue.IssueActivityListAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 324 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/activities/{pk}/` | GET | `plane.api.views.issue.IssueActivityDetailAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 325 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/issue-attachments/` | GET, POST | `plane.api.views.issue.IssueAttachmentListCreateAPIEndpoint` | IsAuthenticated | rust(GET,POST) | verified |
+| 326 | `/api/v1/workspaces/{slug}/projects/{project_id}/issues/{issue_id}/issue-attachments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueAttachmentDetailAPIEndpoint` | IsAuthenticated | rust(GET,PATCH,DELETE) | verified |
+| 327 | `/api/v1/workspaces/{slug}/work-items/search/` | GET | `plane.api.views.issue.IssueSearchEndpoint` | IsAuthenticated | rust(GET) | verified |
+| 328 | `/api/v1/workspaces/{slug}/work-items/{project_identifier}-{issue_identifier}/` | GET | `plane.api.views.issue.WorkspaceIssueAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 329 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/` | GET, POST | `plane.api.views.issue.IssueListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 330 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueDetailAPIEndpoint` | ProjectEntityPermission | rust(GET,PATCH,DELETE) | verified |
+| 331 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/links/` | GET, POST | `plane.api.views.issue.IssueLinkListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 332 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/links/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueLinkDetailAPIEndpoint` | ProjectEntityPermission | rust(GET,PATCH,DELETE) | verified |
+| 333 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/comments/` | GET, POST | `plane.api.views.issue.IssueCommentListCreateAPIEndpoint` | ProjectLitePermission | rust(GET,POST) | verified |
+| 334 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/comments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueCommentDetailAPIEndpoint` | ProjectLitePermission | rust(GET,PATCH,DELETE) | verified |
+| 335 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/activities/` | GET | `plane.api.views.issue.IssueActivityListAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 336 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/activities/{pk}/` | GET | `plane.api.views.issue.IssueActivityDetailAPIEndpoint` | ProjectEntityPermission | rust(GET) | verified |
+| 337 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/attachments/` | GET, POST | `plane.api.views.issue.IssueAttachmentListCreateAPIEndpoint` | IsAuthenticated | rust(GET,POST) | verified |
+| 338 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/attachments/{pk}/` | GET, PATCH, DELETE | `plane.api.views.issue.IssueAttachmentDetailAPIEndpoint` | IsAuthenticated | rust(GET,PATCH,DELETE) | verified |
+| 339 | `/api/v1/workspaces/{slug}/projects/{project_id}/work-items/{issue_id}/relations/` | GET, POST | `plane.api.views.issue.IssueRelationListCreateAPIEndpoint` | ProjectEntityPermission | rust(GET,POST) | verified |
+| 340 | `/api/v1/workspaces/{slug}/invitations/` | GET:list, POST:create | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | rust(GET,POST) | verified |
+| 341 | `/api/v1/workspaces/{slug}/invitations.{format}` | GET:list, POST:create | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | rust(GET,POST) | verified |
+| 342 | `/api/v1/workspaces/{slug}/invitations/{pk}/` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | rust(GET,PUT,PATCH,DELETE) | verified |
+| 343 | `/api/v1/workspaces/{slug}/invitations/{pk}.{format}` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.invite.WorkspaceInvitationsViewset` | WorkspaceOwnerPermission | rust(GET,PUT,PATCH,DELETE) | verified |
+| 344 | `/api/v1/workspaces/{slug}/` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | rust(GET) | verified |
+| 345 | `/api/v1/workspaces/{slug}/.{format}` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | rust(GET) | verified |
+| 346 | `/api/v1/workspaces/{slug}/stickies/` | GET:list, POST:create | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | rust(GET,POST) | verified |
+| 347 | `/api/v1/workspaces/{slug}/stickies.{format}` | GET:list, POST:create | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | rust(GET,POST) | verified |
+| 348 | `/api/v1/workspaces/{slug}/stickies/{pk}/` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | rust(GET,PUT,PATCH,DELETE) | verified |
+| 349 | `/api/v1/workspaces/{slug}/stickies/{pk}.{format}` | GET:retrieve, PUT:update, PATCH:partial_update, DELETE:destroy | `plane.api.views.sticky.StickyViewSet` | WorkspaceUserPermission | rust(GET,PUT,PATCH,DELETE) | verified |
+| 350 | `/api/v1/workspaces/{slug}/` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | rust(GET) | verified |
+| 351 | `/api/v1/workspaces/{slug}/.{format}` | GET | `rest_framework.routers.APIRootView` | IsAuthenticated | rust(GET) | verified |
 
 ## public (`/api/public/`)
 

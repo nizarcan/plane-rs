@@ -1993,9 +1993,17 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        files.
      - `lxml_html_tables.py --check` added to CI.
 
-   Running: Phase 7 gaps (`rs/p7-gaps`, 18010/18110, Redis 3/4), Phase 8 P0
-   (`rs/p8-p0`, 18020/18120, Redis 5/6); the orchestrator's verification of
-   `5aad07a43f`, which gates flipping every v1 row (273–351). Then the final benchmark and the environment
+   - **Verified at `5aad07a43f`**: fmt, clippy, 1273 tests, testkit 197, selftest 141,
+     schema_check (5 crates), all four generator checks; **127 files / 6000 steps
+     clean** (Redis DBs flushed between files; `read/cycles-extra.yaml` once printed no
+     result line, then 63/63); OAuth 57/57 + 52/52; SMTP success/sender/recipient
+     clean; contract with every v1 row assumed Rust: **983 passed / 3 failed (the
+     baseline)**, no SIGTERM. **Flipped with this entry: every v1 row, 273–351, all
+     methods.** ROUTES.md: 388 rows Rust, 6 Django (248, `/robots.txt`, `/`, the three
+     schema rows).
+
+   Running: Phase 7 gaps (`rs/p7-gaps`, done, merging), Phase 8 P0 (merged
+   `5ac0fd86bb`, email corpus path being reconciled). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
