@@ -2002,8 +2002,41 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      methods.** ROUTES.md: 388 rows Rust, 6 Django (248, `/robots.txt`, `/`, the three
      schema rows).
 
-   Running: Phase 7 gaps (`rs/p7-gaps`, done, merging), Phase 8 P0 (merged
-   `5ac0fd86bb`, email corpus path being reconciled). Then the final benchmark and the environment
+   - **Phase 7 gaps merged (`90724f9c00`, verification pending)**: route 248 now
+     implements every grouped variant (`sub_group_by`, m2m `labels__id`/
+     `assignees__id`/`issue_module__module_id`, `state__group`, per-group cursors;
+     the space grouper's 19-field projection, so `plane-query`'s app paginator SQL
+     isn't reused); `/api/schema/` `?version=` (`info.version` + filename) and
+     `?lang=` (DRF's UUID help text in 24 locales, `deploy/openapi/translations.json`,
+     40-probe oracle); `OPTIONS /api/schema/` renders YAML (`plane-drf` gained a
+     PyYAML-scalar subset and route-aware OPTIONS negotiation). Agent:
+     `read/public-extra.yaml` 45/45, `read/openapi.yaml` 13/13, full sweeps 128/128,
+     1285 tests. `read/openapi.yaml` header conflict with the harness branch resolved.
+     - Left: `OPTIONS` on swagger-ui/redoc (Django: a `TemplateDoesNotExist` 500 / an
+       empty-context page); a CR/LF `?version=` body family; latin-1
+       `Content-Disposition` bytes; `plane_query::issue::group_values(state_id)` also
+       excludes `group='triage'` where the space grouper filters only `is_triage`.
+     - Upstream kept: the public `module_ids` array has no `deleted_at` filter; grouped
+       `total_count` counts (issue, group) rows; board 404 before pagination
+       validation; an out-of-key row is a `KeyError` 500.
+   - **Phase 8 P0 merged (`5ac0fd86bb`)**: `plane-jobs::policy` (per-task policy,
+     `PRODUCERS`), `Job::from_message`, `plane-worker` handler loop, `plane-tasks`
+     (`TaskContext`, registry), `plane-mail` (D23 code moved in, minijinja templates,
+     plain-text generation), `difftest task`, and **`recent_visited_task` owned by
+     Rust** (4 `difftest task` fixtures incl. the 21-row `== 20` bug). Agent: full
+     sweeps 52 + 75 clean, beat two-replica test 8/8. D24 (templates) and D25
+     (per-task cutover) recorded. The merge split the email corpus (the harness
+     branch's 19-message copy stayed at the old path); reconciled into `plane-mail`
+     (`6517053dc9`).
+     - Correction owed: the handler skips the `soft_delete_related_objects` publish
+       that `SoftDeleteModel.delete` makes (D25: publish it).
+     - Left: 10 of 12 e-mail templates; the task context's Redis/storage/HTTP are
+       unused yet; the worker runs `plane_jobs::migrate` instead of the plan's
+       `schema_version` check; `countdown`/`eta` not mapped to `run_at`;
+       `difftest task` compares DB rows only (Redis/S3/SMTP capture to add).
+
+   Running: the orchestrator's verification of `90724f9c00` (gates 248 and the schema
+   rows); Phase 8 set D. Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.

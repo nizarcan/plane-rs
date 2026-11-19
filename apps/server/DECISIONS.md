@@ -534,6 +534,41 @@ workspace `Cargo.toml` and upgrade deliberately.
   `compare_smtp_logs.py` compare both backends' transcripts, masking only
   `Date:` and the Message-ID local part. Ports 18410-18419 are reserved for it.
 
+## D24. E-mail templates: minijinja 3.1.0 over embedded copies of Django's templates (decided 2026-11-19)
+
+- `crates/plane-mail` owns outbound mail for the API and the worker: the D23 message
+  bytes and SMTP session (moved from `plane-http-app::instances::mail`, which now
+  re-exports it), `generate_plain_text_from_html`, `get_email_configuration`, and
+  template rendering.
+- Templates are checked in under `crates/plane-mail/templates/` and embedded with
+  `include_str!`, so a distroless image needs no files. Only ported templates are
+  registered; an unknown name is an explicit error, never a blank e-mail.
+- Rendering uses a Django-compatible formatter: `{{ x }}` is Python `str(x)` (`None` →
+  `None`, `True` → `True`) then `html.escape(quote=True)`, five characters only (not
+  `/`, which minijinja's own escaper would emit as `&#x2f;`).
+- Oracle: `tools/mail/email_template_corpus.py` records Django's `render_to_string` +
+  `generate_plain_text_from_html`; goldens are compared byte for byte. Each task set
+  that ports an e-mail adds its templates and corpus cases.
+
+## D25. Per-task cutover: ownership, producer table, payload equivalence (decided 2026-11-19)
+
+- A task moves to Rust by adding it to `plane_jobs::ownership::RUST_TASKS` and
+  `policy::PRODUCERS`, registering its handler in `crates/plane-tasks`, and adding it
+  to the testkit's `RUST_OWNED_TASKS` mirror. Never dual-publish.
+- `PRODUCERS` is the safety rule: a unit test rejects any Rust-owned task with a
+  Python (`Celery`/`CeleryBeat`) producer, so a task only moves once every call site
+  that enqueues it is Rust.
+- `Job::from_message` is the only queue representation of a call site, so the queue
+  payload is provably the Celery `(args, kwargs)`.
+- Scenario sweeps drop A's Celery delivery for Rust-owned tasks; handler correctness is
+  proven by `difftest task` (A = Django `task.apply()`, B = `plane-worker --once`),
+  which compares the task's effects.
+- **A handler reproduces every side effect of the Python task, including the tasks it
+  publishes**, even when the published task is a no-op for that model: while Celery
+  still runs, the message is observable. (P0's `recent_visited_task` skipped the
+  `soft_delete_related_objects` publish that `SoftDeleteModel.delete` makes; that is
+  corrected in the next task set.)
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
