@@ -2269,6 +2269,9 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        uncoerced data (`"3"` vs `3` fires); deactivation mail never sends for
        API-created webhooks and ignores `reason`.
 
-   Running: the orchestrator's verification of `8406d7a925`, set B part 2 (`rs/p8-b`:
-   build check, webhook retry/deactivation cases, header casing, 12, 13, all sweeps;
-   18020/18120, Redis 5/6, contract Redis 15, SMTP 18410–18417).
+   Running: the orchestrator's verification of `f4e33cc6e2` (A2); set B part 2
+   (`rs/p8-b`: webhook retry/deactivation cases, header casing, 12, 13, all sweeps,
+   A2's one-job mechanism; 18020/18120, Redis 5/6, contract Redis 15, SMTP 18410–18417);
+   start-up + `plane-migrator` (`rs/p8-boot`: §3 and §4 of `plans/CUTOVER.md`, with
+   `push_instance_metrics` not ported by default as one marked point; 18030/18130,
+   Redis 7/8, contract Redis 9). Deployment and the exit check (§5) follow.
