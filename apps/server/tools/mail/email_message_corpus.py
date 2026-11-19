@@ -29,7 +29,7 @@ Regenerate from the repository root:
 `--check` re-renders into memory and fails on any difference, so a Django or
 `email` package change cannot silently invalidate the Rust builder's golden.
 
-The output is `crates/plane-http-app/tests/golden/email_messages.json`.
+The output is `crates/plane-mail/tests/golden/email_messages.json`.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ from smtplib import quoteaddr  # noqa: E402
 OUT = (
     SERVER_ROOT
     / "crates"
-    / "plane-http-app"
+    / "plane-mail"
     / "tests"
     / "golden"
     / "email_messages.json"
