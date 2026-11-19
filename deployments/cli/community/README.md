@@ -159,7 +159,7 @@ Below are the most import keys you must refer to. _<span style="color: #fcba03">
 
 > HTTPS - The bundled Caddy proxy can issue certificates. Set `SITE_ADDRESS` to your domain (default `:80`, plain HTTP), `CERT_EMAIL` for the ACME account, optionally `CERT_ACME_DNS` for a DNS challenge, and keep `LISTEN_HTTPS_PORT` (default `443`) free.
 
-> External services - To use your own Postgres, Redis, RabbitMQ or S3 instead of the bundled containers, set `DATABASE_URL`, `REDIS_URL`, `AMQP_URL`, and `USE_MINIO=0` with the `AWS_*` values in `plane.env`.
+> External services - To use your own Postgres, Redis or S3 instead of the bundled containers, set `DATABASE_URL`, `REDIS_URL`, and `USE_MINIO=0` with the `AWS_*` values in `plane.env`. Background jobs use the Postgres-backed `plane_jobs` table; there is no RabbitMQ.
 
 There are many other settings you can play with. We suggest you also set up email (SMTP) so you can invite your teammates onto the platform. SMTP is not set in `plane.env`: configure it in the instance admin at `/god-mode` → Email after you start the services.
 
@@ -402,20 +402,19 @@ Select a Service you want to view the logs for:
    1) Web
    2) Space
    3) API
-   4) Worker
-   5) Beat-Worker
+   4) Plane Worker
+   5) Plane Beat
    6) Migrator
    7) Proxy
    8) Redis
    9) Postgres
    10) Minio
-   11) RabbitMQ
    0) Back to Main Menu
 
 Service: 3
 ```
 
-The Docker Swarm sub-menu lists services 1-9 (no Minio or RabbitMQ). The `admin` and `live` services have no menu entry; view them with `docker compose -f plane-app/docker-compose.yaml logs -f admin` (or `live`).
+The Docker Swarm sub-menu lists services 1-9 (no Minio). The `admin` and `live` services have no menu entry; view them with `docker compose -f plane-app/docker-compose.yaml logs -f admin` (or `live`).
 Select any of the service to view the logs e.g. `3`. Expect something similar to this
 
 ```bash

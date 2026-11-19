@@ -396,7 +396,7 @@ function startServices() {
         fi
     fi
 
-    local api_container_id=$(docker container ls -q -f "name=$SERVICE_FOLDER-api")
+    local api_container_id=$(docker container ls -q -f "name=$SERVICE_FOLDER-plane-api")
 
     # Verify container exists
     if [ -z "$api_container_id" ]; then
@@ -410,7 +410,10 @@ function startServices() {
     local start_time=$(date +%s)
 
     echo "   Waiting for API Service to be ready..."
-    while ! docker exec "$api_container_id" python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=3)" > /dev/null 2>&1; do
+    # The Rust image is distroless: there is no shell, curl or python to exec.
+    # `plane-api` logs one `listening` line after its boot steps and the bind,
+    # which is the same readiness signal the old in-container probe confirmed.
+    while ! docker logs "$api_container_id" 2>&1 | grep -q "listening"; do
         local current_time=$(date +%s)
         local elapsed_time=$((current_time - start_time))
 
@@ -418,7 +421,7 @@ function startServices() {
             echo ""
             echo "   API Service health check timed out after 5 minutes"
             echo "   Checking if API container is still running..."
-            if docker ps | grep -q "$SERVICE_FOLDER-api"; then
+            if docker ps | grep -q "$SERVICE_FOLDER-plane-api"; then
                 echo "   API container is running but did not pass the health-check. Continuing without marking it ready."
                 api_ready=false
                 break
@@ -515,20 +518,19 @@ function viewLogs(){
         echo "   1) Web"
         echo "   2) Space"
         echo "   3) API"
-        echo "   4) Worker"
-        echo "   5) Beat-Worker"
+        echo "   4) Plane Worker"
+        echo "   5) Plane Beat"
         echo "   6) Migrator"
         echo "   7) Proxy"
         echo "   8) Redis"
         echo "   9) Postgres"
         echo "   10) Minio"
-        echo "   11) RabbitMQ"
         echo "   0) Back to Main Menu"
         echo 
         read -p "Service: " DOCKER_SERVICE_NAME
 
-        until (( DOCKER_SERVICE_NAME >= 0 && DOCKER_SERVICE_NAME <= 11 )); do
-            echo "Invalid selection. Please enter a number between 0 and 11."
+        until (( DOCKER_SERVICE_NAME >= 0 && DOCKER_SERVICE_NAME <= 10 )); do
+            echo "Invalid selection. Please enter a number between 0 and 10."
             read -p "Service: " DOCKER_SERVICE_NAME
         done
 
@@ -539,15 +541,14 @@ function viewLogs(){
             case $DOCKER_SERVICE_NAME in
                 1) viewSpecificLogs "web";;
                 2) viewSpecificLogs "space";;
-                3) viewSpecificLogs "api";;
-                4) viewSpecificLogs "worker";;
-                5) viewSpecificLogs "beat-worker";;
+                3) viewSpecificLogs "plane-api";;
+                4) viewSpecificLogs "plane-worker";;
+                5) viewSpecificLogs "plane-beat";;
                 6) viewSpecificLogs "migrator";;
                 7) viewSpecificLogs "proxy";;
                 8) viewSpecificLogs "plane-redis";;
                 9) viewSpecificLogs "plane-db";;
                 10) viewSpecificLogs "plane-minio";;
-                11) viewSpecificLogs "plane-mq";;
                 0) askForAction;;
                 *) echo "INVALID SERVICE NAME SUPPLIED";;
             esac
@@ -558,15 +559,15 @@ function viewLogs(){
         case $ARG_SERVICE_NAME in
             web) viewSpecificLogs "web";;
             space) viewSpecificLogs "space";;
-            api) viewSpecificLogs "api";;
-            worker) viewSpecificLogs "worker";;
-            beat-worker) viewSpecificLogs "beat-worker";;
+            api) viewSpecificLogs "plane-api";;
+            worker) viewSpecificLogs "plane-worker";;
+            beat) viewSpecificLogs "plane-beat";;
+            beat-worker) viewSpecificLogs "plane-beat";;
             migrator) viewSpecificLogs "migrator";;
             proxy) viewSpecificLogs "proxy";;
             redis) viewSpecificLogs "plane-redis";;
             postgres) viewSpecificLogs "plane-db";;
             minio) viewSpecificLogs "plane-minio";;
-            rabbitmq) viewSpecificLogs "plane-mq";;
             *) echo "INVALID SERVICE NAME SUPPLIED";;
         esac
     else
@@ -630,7 +631,6 @@ function backupData() {
 
     backup_container_dir "$BACKUP_FOLDER" "plane-db" "/var/lib/postgresql/data" "pgdata" || exit 1
     backup_container_dir "$BACKUP_FOLDER" "plane-minio" "/export" "uploads" || exit 1
-    backup_container_dir "$BACKUP_FOLDER" "plane-mq" "/var/lib/rabbitmq" "rabbitmq_data" || exit 1
     backup_container_dir "$BACKUP_FOLDER" "plane-redis" "/data" "redisdata" || exit 1
 
     echo ""

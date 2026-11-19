@@ -4,10 +4,14 @@ FROM --platform=$BUILDPLATFORM tonistiigi/binfmt AS binfmt
 # **************************************************
 #  STAGE 0: Image Loading
 # **************************************************
-FROM node:22-alpine AS node
-
 FROM makeplane/plane-frontend:${PLANE_VERSION} AS web-img
-FROM makeplane/plane-backend:${PLANE_VERSION} AS backend-img
+# Phase 8 cutover: the backend roles are the Rust images. They are glibc
+# binaries, so the runner below is Debian-based rather than the old
+# `python:3.12-alpine`; the Python backend image is no longer pulled.
+FROM makeplane/plane-api:${PLANE_VERSION} AS api-img
+FROM makeplane/plane-worker:${PLANE_VERSION} AS worker-img
+FROM makeplane/plane-beat:${PLANE_VERSION} AS beat-img
+FROM makeplane/plane-migrator:${PLANE_VERSION} AS migrator-img
 FROM makeplane/plane-space:${PLANE_VERSION} AS space-img
 FROM makeplane/plane-admin:${PLANE_VERSION} AS admin-img
 FROM makeplane/plane-live:${PLANE_VERSION} AS live-img
@@ -16,49 +20,27 @@ FROM makeplane/plane-proxy:${PLANE_VERSION} AS proxy-img
 # **************************************************
 #  STAGE 1: Runner
 # **************************************************
-FROM python:3.12.12-alpine AS runner
+# `node:22-bookworm-slim` gives glibc for the four Rust binaries and the Node
+# runtime the space and live servers need. It also ships node/npm; npm is
+# removed below because the space program execs its bin shim directly.
+FROM node:22-bookworm-slim AS runner
 
 WORKDIR /app
 
-# grpcio ships its own roots.pem, which still trusts emSign ECC Root CA - G3 (eMudhra incident);
-# point it at the system bundle, which the OS update below keeps current.
-ENV GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt
-
-# OS security updates. --available forces reinstall from the current repos;
-# bump APK_SECURITY_PATCH to bust buildx's cached layer (keyed on this command
+# OS security updates. The Rust binaries need nothing from the image except
+# glibc, libgcc and the CA bundle; supervisord comes from apt. Bump
+# OS_SECURITY_PATCH to bust buildx's cached layer (keyed on this command
 # string), otherwise a rebuild silently re-ships the old packages.
-ARG APK_SECURITY_PATCH=2026-10-26
-RUN echo "apk-security-patch ${APK_SECURITY_PATCH}" && apk update && apk upgrade --no-cache --available
-
-# The node binary only links libstdc++ and libgcc_s from /usr/lib, so install
-# them from apk instead of copying node:22-alpine's whole /usr/lib. That copy
-# overwrote the libraries upgraded above (libcrypto, libssl, libz, libapk) with
-# node's copies from a different Alpine release, shipping unpatched versions
-# and breaking /sbin/apk.
-RUN apk add --no-cache \
-    "libstdc++" \
-    "libgcc" \
-    "libpq" \
-    "libxslt" \
-    "xmlsec" \
-    "nss-tools" \
-    "bash" \
-    "curl" \
-    "uuidgen" \
-    "ncdu" \
-    "vim"
-
-COPY --from=node /usr/local/lib /usr/local/lib
-COPY --from=node /usr/local/include /usr/local/include
-COPY --from=node /usr/local/bin /usr/local/bin
-
-# The copy above re-introduces node:22-alpine's npm, whose bundled dependencies
-# carry known vulnerabilities (pacote, ip-address, brace-expansion, tar,
-# sigstore) -- the per-service images strip npm, so without this the AIO is the
-# only place they come back. npm is not needed at runtime: the space program in
-# supervisor.conf execs its react-router-serve bin shim directly rather than
-# going through npx.
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+ARG OS_SECURITY_PATCH=2026-11-19
+ENV DEBIAN_FRONTEND=noninteractive
+RUN echo "aio-security-patch ${OS_SECURITY_PATCH}" \
+    && apt-get update \
+    && apt-get upgrade --yes \
+    && apt-get install --no-install-recommends --yes \
+        ca-certificates \
+        supervisor \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=web-img /usr/share/caddy/html /app/web
 COPY --from=space-img /app /app/space
@@ -70,18 +52,15 @@ RUN rm -rf /app/space/apps/space/.next/cache
 COPY --from=proxy-img /usr/bin/caddy /usr/bin/caddy
 COPY dist/Caddyfile /app/proxy/Caddyfile
 
-COPY --from=backend-img /code /app/backend
-COPY --from=backend-img /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
-COPY --from=backend-img /usr/local/bin/ /usr/local/bin/
+COPY --from=api-img /usr/local/bin/plane-api /usr/local/bin/plane-api
+# The published jobs images all use the Dockerfile's default `image` stage,
+# whose binary is `/usr/local/bin/plane-jobs` (the role is selected by the
+# `JOBS_BINARY` build argument). Rename it back to the path supervisor.conf
+# and the compose stacks use.
+COPY --from=worker-img /usr/local/bin/plane-jobs /usr/local/bin/plane-worker
+COPY --from=beat-img /usr/local/bin/plane-jobs /usr/local/bin/plane-beat
+COPY --from=migrator-img /usr/local/bin/plane-jobs /usr/local/bin/plane-migrator
 
-RUN pip install supervisor
-
-# pip is only needed for the install above. The runner base's own pip (25.0.1)
-# vendors a certifi that still trusts the compromised emSign G3 root
-# (GHSA-6q48-6c7w-9gw2), so drop it before the image ships.
-RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
-           /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
-           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
 RUN mkdir -p /etc/supervisor/conf.d
 
 COPY start.sh /app/start.sh
@@ -97,4 +76,4 @@ VOLUME ["/app/data", "/app/logs"]
 
 EXPOSE 80 443
 
-CMD ["/app/start.sh"] 
+CMD ["/app/start.sh"]

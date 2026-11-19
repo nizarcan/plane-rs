@@ -1,4 +1,15 @@
-# Coexistence proxy
+# Coexistence proxy (dev and harness only after the Phase 8 cutover)
+
+> **Phase 8.** The shipped proxy (`apps/proxy/Caddyfile.ce`, and the AIO
+> variant) no longer imports this fragment. It routes `/api/*`, `/auth/*` and
+> `/static/*` straight to `plane-api:8000`; `PLANE_RS_GROUP_*`,
+> `route-groups.yaml` and `Caddyfile.coexist` are retired from production.
+> They stay in the tree because the differential harness and
+> `apps/server/dev/proxy.sh` still need them: the dev proxy compares Rust and
+> Django side by side on the same port (`dev/Caddyfile.dev` imports the
+> generated fragment), and `tools/contract` and `tools/proxy/test_gen_caddy.py`
+> use the same ownership table and group flags. Do not copy
+> `Caddyfile.coexist` into a production image.
 
 Caddy decides, per request, whether Django or the Rust `plane-api` answers.
 The decision is generated, not hand-written, so moving a route group is a
@@ -46,11 +57,11 @@ against the local stack. The dev script writes its own gitignored copy,
    apps/api/.venv/bin/python apps/server/tools/proxy/gen_caddy.py --check
    ```
 
-4. Reload the proxy. Production: put `Caddyfile.coexist` at `/etc/caddy/Caddyfile`
-   (the path the proxy image loads) and run `caddy reload --config /etc/caddy/Caddyfile`.
-   Dev: `apps/server/dev/proxy.sh reload` regenerates the gitignored
-   `dev/run/rust-routes.caddy` from the same inputs and reloads Caddy; it does
-   not write the committed fragment.
+4. Reload the proxy. Development/harness: `apps/server/dev/proxy.sh reload`
+   regenerates the gitignored `dev/run/rust-routes.caddy` from the same inputs
+   and reloads Caddy; it does not write the committed fragment. Production
+   stopped using `Caddyfile.coexist` at the Phase 8 cutover (see the note at
+   the top); there is nothing to flip there.
 
 `gen_caddy.py --explain` prints every route with its group and effective
 methods, which is the quickest way to see what a change did.

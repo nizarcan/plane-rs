@@ -8,7 +8,7 @@ services:
         DOCKER_BUILDKIT: 1
     restart: always
     depends_on:
-      - api
+      - plane-api
 
   admin:
     container_name: admin
@@ -19,7 +19,7 @@ services:
         DOCKER_BUILDKIT: 1
     restart: always
     depends_on:
-      - api
+      - plane-api
       - web
 
   space:
@@ -31,70 +31,88 @@ services:
         DOCKER_BUILDKIT: 1
     restart: always
     depends_on:
-      - api
+      - plane-api
       - web
 
-  api:
-    container_name: api
+  # Phase 8 cutover (`apps/server/plans/CUTOVER.md` §5): the four backend
+  # services are the Rust binaries. `migrator` owns the Django baseline schema
+  # and `plane_jobs`, and every long-running service waits for it to finish
+  # successfully before it starts.
+  plane-api:
+    container_name: plane-api
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.api
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-api
       args:
         DOCKER_BUILDKIT: 1
     restart: always
-    command: ./bin/docker-entrypoint-api.sh
     env_file:
       - ./apps/api/.env
     depends_on:
-      - plane-db
-      - plane-redis
+      plane-db:
+        condition: service_started
+      plane-redis:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
 
-  worker:
-    container_name: bgworker
+  plane-worker:
+    container_name: plane-worker
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.api
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
+      target: worker
       args:
         DOCKER_BUILDKIT: 1
     restart: always
-    command: ./bin/docker-entrypoint-worker.sh
+    # The worker needs the api's environment: it decrypts the instance
+    # configuration with SECRET_KEY and reads DATABASE_URL, REDIS_URL, AWS_*,
+    # WEB_URL, LIVE_URL and WEBHOOK_ALLOWED_* for the task handlers.
     env_file:
       - ./apps/api/.env
     depends_on:
-      - api
-      - plane-db
-      - plane-redis
+      plane-db:
+        condition: service_started
+      plane-redis:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
 
-  beat-worker:
-    container_name: beatworker
+  plane-beat:
+    container_name: plane-beat
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.api
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
+      target: beat
       args:
         DOCKER_BUILDKIT: 1
     restart: always
-    command: ./bin/docker-entrypoint-beat.sh
     env_file:
       - ./apps/api/.env
     depends_on:
-      - api
-      - plane-db
-      - plane-redis
+      plane-db:
+        condition: service_started
+      plane-redis:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
 
   migrator:
     container_name: plane-migrator
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.api
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
+      target: migrator
       args:
         DOCKER_BUILDKIT: 1
     restart: no
-    command: ./bin/docker-entrypoint-migrator.sh
     env_file:
       - ./apps/api/.env
     depends_on:
-      - plane-db
-      - plane-redis
+      plane-db:
+        condition: service_started
+      plane-redis:
+        condition: service_started
 
   live:
     container_name: plane-live
@@ -127,19 +145,6 @@ services:
     volumes:
       - redisdata:/data
 
-  plane-mq:
-    container_name: plane-mq
-    image: rabbitmq:3.13.6-management-alpine
-    restart: always
-    env_file:
-      - .env
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-
   plane-minio:
     container_name: plane-minio
     image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
@@ -166,7 +171,7 @@ services:
       BUCKET_NAME: ${AWS_S3_BUCKET_NAME:-uploads}
     depends_on:
       - web
-      - api
+      - plane-api
       - space
       - admin
 
@@ -174,4 +179,3 @@ volumes:
   pgdata:
   redisdata:
   uploads:
-  rabbitmq_data:

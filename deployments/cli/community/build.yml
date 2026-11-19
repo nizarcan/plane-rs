@@ -23,11 +23,35 @@ services:
       context: ../../
       dockerfile: apps/live/Dockerfile.live
 
-  api:
-    image: ${DOCKERHUB_USER:-local}/plane-backend:${APP_RELEASE:-latest}
+  # Phase 8: the backend roles are the Rust images. Their build context is the
+  # repository root (the binaries embed one Django template), and the three
+  # `plane-jobs` roles are separate targets of one Dockerfile.
+  plane-api:
+    image: ${DOCKERHUB_USER:-local}/plane-api:${APP_RELEASE:-latest}
     build:
-      context: ../../apps/api
-      dockerfile: Dockerfile.api
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-api
+
+  plane-worker:
+    image: ${DOCKERHUB_USER:-local}/plane-worker:${APP_RELEASE:-latest}
+    build:
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
+      target: worker
+
+  plane-beat:
+    image: ${DOCKERHUB_USER:-local}/plane-beat:${APP_RELEASE:-latest}
+    build:
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
+      target: beat
+
+  migrator:
+    image: ${DOCKERHUB_USER:-local}/plane-migrator:${APP_RELEASE:-latest}
+    build:
+      context: .
+      dockerfile: apps/server/deploy/docker/Dockerfile.plane-jobs
+      target: migrator
 
   proxy:
     image: ${DOCKERHUB_USER:-local}/plane-proxy:${APP_RELEASE:-latest}

@@ -1,0 +1,199 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The Phase 8 exit-check stack (`plans/CUTOVER.md` §5).
+#
+# Only the backend services the walk needs: Postgres, Valkey, MinIO, the local
+# sink (SMTP + webhook + fake GitHub), the four Rust binaries and the proxy.
+# The frontends are deliberately absent: the walk talks to /api, /auth and
+# /static through the proxy, and `/` is the api's health JSON.
+#
+# Every host port is in 18500-18519 and bound to 127.0.0.1. The project name is
+# `plane-cutover` and every container is named `plane-cutover-*`, so cleanup is
+# by exact name and cannot touch the dev stack or the owner's containers.
+#
+# Images are built by `exit_check.py build` with exact names
+# (`plane-cutover-api:local`, ...), not by Compose, so `docker image rm` can
+# remove exactly what this stack created.
+
+name: plane-cutover
+
+services:
+  plane-db:
+    container_name: plane-cutover-db
+    image: postgres:15.7-alpine
+    restart: "no"
+    command: postgres -c 'max_connections=200'
+    environment:
+      POSTGRES_USER: plane
+      POSTGRES_PASSWORD: plane
+      POSTGRES_DB: plane
+      PGDATA: /var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:18500:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plane -d plane -h 127.0.0.1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 5s
+
+  plane-redis:
+    container_name: plane-cutover-redis
+    image: valkey/valkey:7.2.11-alpine
+    restart: "no"
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:18501:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
+  plane-minio:
+    container_name: plane-cutover-minio
+    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+    restart: "no"
+    ports:
+      - "127.0.0.1:18502:9000"
+      - "127.0.0.1:18503:9001"
+    environment:
+      MINIO_ROOT_USER: access-key
+      MINIO_ROOT_PASSWORD: secret-key
+    volumes:
+      - miniodata:/export
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        silo server /export --address ':9000' --console-address ':9001' &
+        silo_pid=$$!
+        until mc alias set local http://127.0.0.1:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" >/dev/null 2>&1; do
+          sleep 1
+        done
+        until mc ready local >/dev/null 2>&1; do
+          sleep 1
+        done
+        mc mb --ignore-existing local/uploads >/dev/null
+        wait $$silo_pid
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local >/dev/null 2>&1 && mc ls local/uploads >/dev/null 2>&1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 5s
+
+  # SMTP sink (25), webhook listener (8080) and fake GitHub (8080 /repos/...).
+  # A Rust binary in a distroless image: no Python process anywhere in the
+  # stack is the exit criterion.
+  cutover-sink:
+    container_name: plane-cutover-sink
+    build:
+      context: ./sink
+      dockerfile: Dockerfile
+    image: plane-cutover-sink:local
+    restart: "no"
+    # The webhook URL must pass Django's URLValidator, which rejects a bare
+    # single-label host; the alias gives the sink a dotted name on the compose
+    # network. WEBHOOK_ALLOWED_HOSTS names it.
+    networks:
+      default:
+        aliases:
+          - cutover-sink.local
+    volumes:
+      - sinklogs:/logs
+
+  migrator:
+    container_name: plane-cutover-migrator
+    image: plane-cutover-migrator:local
+    restart: "no"
+    env_file:
+      - ./run/cutover.env
+    depends_on:
+      plane-db:
+        condition: service_healthy
+
+  plane-api:
+    container_name: plane-cutover-api
+    image: plane-cutover-api:local
+    restart: "no"
+    env_file:
+      - ./run/cutover.env
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+      plane-minio:
+        condition: service_healthy
+      cutover-sink:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
+
+  plane-worker:
+    container_name: plane-cutover-worker
+    image: plane-cutover-worker:local
+    restart: "no"
+    env_file:
+      - ./run/cutover.env
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+      plane-minio:
+        condition: service_healthy
+      cutover-sink:
+        condition: service_started
+      migrator:
+        condition: service_completed_successfully
+
+  plane-beat:
+    container_name: plane-cutover-beat
+    image: plane-cutover-beat:local
+    restart: "no"
+    env_file:
+      - ./run/cutover.env
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+
+  # The image the deployment builds from apps/proxy/Dockerfile.ce, with the
+  # same Caddyfile mounted into the stock image (building the custom Caddy is
+  # minutes of Go modules for no routing difference).
+  proxy:
+    container_name: plane-cutover-proxy
+    image: caddy:2
+    restart: "no"
+    ports:
+      - "127.0.0.1:18505:80"
+    environment:
+      SITE_ADDRESS: ":80"
+      BUCKET_NAME: uploads
+      FILE_SIZE_LIMIT: "5242880"
+    volumes:
+      - ../../../../apps/proxy/Caddyfile.ce:/etc/caddy/Caddyfile:ro
+    depends_on:
+      plane-api:
+        condition: service_started
+      plane-minio:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  sinklogs:

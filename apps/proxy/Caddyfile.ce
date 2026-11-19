@@ -11,11 +11,13 @@
 	
 	reverse_proxy /live/* live:3000
 
-	reverse_proxy /api/* api:8000
+	# Phase 8 cutover: the Rust plane-api owns all three Django prefixes,
+	# including /static/* (the embedded apps/api/plane/static files).
+	reverse_proxy /api/* plane-api:8000
 
-	reverse_proxy /auth/* api:8000
+	reverse_proxy /auth/* plane-api:8000
 
-	reverse_proxy /static/* api:8000
+	reverse_proxy /static/* plane-api:8000
 
 	reverse_proxy /{$BUCKET_NAME}/* plane-minio:9000
 	reverse_proxy /{$BUCKET_NAME} plane-minio:9000

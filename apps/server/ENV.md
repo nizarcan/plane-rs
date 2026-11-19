@@ -160,6 +160,12 @@ wins whenever it is non-empty.
 
 ### 1.5 RabbitMQ and Celery
 
+**Historical at the Phase 8 cutover.** The six broker names and
+`METRICS_PUSH_INTERVAL_MINUTES` below are no longer set by any shipped
+deployment (§4.1); the Rust loader still accepts them so an old environment
+file keeps loading unchanged, exactly as it keeps accepting every other
+Django-era name. Kept here because Django is the specification for the loader.
+
 | Variable | Default | Parsing and semantics | Feeds | Roles | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `AMQP_URL` | unset | Truthy → `CELERY_BROKER_URL` verbatim (no parsing, no normalisation) | `CELERY_BROKER_URL` | api, worker, beat | Takes precedence over all `RABBITMQ_*`. |
@@ -259,7 +265,7 @@ every send, so the database row (§3) overrides the environment by default.
 | `SPACE_BASE_PATH` | `"/spaces/"` | Same normalisation as `ADMIN_BASE_PATH` | `settings.SPACE_BASE_PATH` | api | |
 | `LIVE_BASE_URL` | unset (`None`) | Same validate-or-null rule | `settings.LIVE_BASE_URL`; `settings.LIVE_URL` | api | |
 | `LIVE_BASE_PATH` | `"/live/"` | Raw string, fed to `urljoin(LIVE_BASE_URL, LIVE_BASE_PATH)`; `LIVE_URL` is `None` when `LIVE_BASE_URL` is unset | `settings.LIVE_BASE_PATH`, `settings.LIVE_URL` | api | A path without a leading `/` replaces the last segment of the base URL (standard `urljoin`). |
-| `INSTANCE_CHANGELOG_URL` | `""` (settings) / the Plane changelog URL via `ENV` in `Dockerfile.api:10` | Raw string | `settings.INSTANCE_CHANGELOG_URL`, exposed as `config.instance_changelog_url` | api | The image sets a non-empty default, so the effective default in containers is not `""`. |
+| `INSTANCE_CHANGELOG_URL` | `""` (settings) / the Plane changelog URL via `ENV` in `Dockerfile.api:10` | Raw string | `settings.INSTANCE_CHANGELOG_URL`, exposed as `config.instance_changelog_url` | api | The image sets a non-empty default, so the effective default in containers is not `""`. `Dockerfile.plane-api` bakes in the same value at cutover. |
 | `SESSION_COOKIE_NAME` | `"session-id"` | Raw string | `settings.SESSION_COOKIE_NAME` | api | The admin session uses the hardcoded `admin-session-id` (`common.py:431`), not configurable. |
 | `SESSION_COOKIE_AGE` | `604800` | `int(os.environ.get("SESSION_COOKIE_AGE",604800))` — seconds; also the stored-session expiry | `settings.SESSION_COOKIE_AGE` | api | `SESSION_ENGINE = plane.db.models.session` (custom DB-backed sessions). |
 | `ADMIN_SESSION_COOKIE_AGE` | `3600` | `int(...)` seconds | `settings.ADMIN_SESSION_COOKIE_AGE` | api | |
@@ -361,7 +367,7 @@ part of the Rust config.
 
 | Variable | Default | Where | Meaning |
 | --- | --- | --- | --- |
-| `GUNICORN_WORKERS` | — | `bin/docker-entrypoint-api.sh:38` | `-w "$GUNICORN_WORKERS"` for gunicorn. Compose default `1` (`deployments/cli/community/docker-compose.yml`), `.env.example` `2`. No Rust equivalent: `plane-api` needs its own worker-count flag, added under the `PLANE_RS_` rule (§6) when that binary is written. |
+| `GUNICORN_WORKERS` | — | `bin/docker-entrypoint-api.sh:38` | `-w "$GUNICORN_WORKERS"` for gunicorn. Compose default `1` (`deployments/cli/community/docker-compose.yml`), `.env.example` `2`. **Removed from the shipped deployments at cutover** (§4.1); the Rust equivalent is `PLANE_RS_WORKER_THREADS` (§6), which counts tokio threads rather than processes. |
 | `PORT` | `${PORT:-8000}` | `bin/docker-entrypoint-api.sh:38` | gunicorn `--bind 0.0.0.0:${PORT:-8000}`. |
 | `HOSTNAME` | shell | both api entrypoints (`:18`) | `hostname` command output used to build `MACHINE_SIGNATURE`. Shell-local. |
 | `MAC_ADDRESS` | shell | both api entrypoints (`:18`) | First MAC from `ip link`. Shell-local. |
@@ -471,6 +477,11 @@ No percent-encoding is applied to any component. With all defaults the result
 is `amqp://guest:guest@localhost:5672//` (vhost `/`). Rust must parse this URL
 into (host, port, user, password, vhost) for `lapin`; note that the vhost is
 everything after the third `/`, so `//` means `/`.
+
+**At the cutover the derivation is dead code in a deployment** (§4.1): no
+shipped environment sets `AMQP_URL` or `RABBITMQ_*`, every task is
+`plane_jobs`-owned, and no `plane-mq` container exists. `plane-core` keeps the
+parser because the loader must accept a Django-era environment unchanged.
 
 ### 2.5 MinIO custom domain (`common.py:348`)
 
@@ -906,7 +917,7 @@ proxy's own body limit. Listed so the Rust deployment stays compatible.
 
 | Variable | Default in Caddyfile | Effect relevant to the API |
 | --- | --- | --- |
-| `FILE_SIZE_LIMIT` | none (compose always sets it) | `request_body { max_size {$FILE_SIZE_LIMIT} }` — the proxy rejects bodies above this before they reach `api:8000`. Must equal the API's `FILE_SIZE_LIMIT`. |
+| `FILE_SIZE_LIMIT` | none (compose always sets it) | `request_body { max_size {$FILE_SIZE_LIMIT} }` — the proxy rejects bodies above this before they reach `plane-api:8000`. Must equal the API's `FILE_SIZE_LIMIT`. |
 | `BUCKET_NAME` | none | Routes `/{BUCKET_NAME}/*` to `plane-minio:9000` so presigned MinIO URLs work. Must equal `AWS_S3_BUCKET_NAME`. |
 | `SITE_ADDRESS` | none | Caddy site block address (e.g. `:80`, `example.com`). |
 | `CERT_EMAIL` | empty | ACME account email. |
@@ -915,27 +926,36 @@ proxy's own body limit. Listed so the Rust deployment stays compatible.
 | `TRUSTED_PROXIES` | `0.0.0.0/0` | Which peers may set `X-Forwarded-For`/`X-Real-IP`; Caddy then sets `client_ip_headers X-Forwarded-For X-Real-IP`. This is what makes `NUM_PROXIES` meaningful. |
 
 Routing fixed in the Caddyfile: `/api/*`, `/auth/*`, `/static/*` →
-`api:8000`; `/spaces/*` → `space:3000`; `/god-mode/*` → `admin:3000`;
-`/live/*` → `live:3000`; `/{BUCKET_NAME}*` → `plane-minio:9000`; everything else
-→ `web:3000`. `max_header_size 25MB`.
+`plane-api:8000`; `/spaces/*` → `space:3000`; `/god-mode/*` → `admin:3000`;
+`/live/*` → `live:3000`; `/{BUCKET_NAME}*` → `plane-minio:9000`; everything
+else → `web:3000`. `max_header_size 25MB`. The AIO Caddyfile
+(`Caddyfile.aio.ce`) proxies the same three prefixes to `localhost:3004` and
+gained the `/static/*` handle at cutover (it never had one, so invitation-email
+logos used to 404).
 
 **`docker-compose.yml`** (repo root): `FILE_SIZE_LIMIT` and `BUCKET_NAME` are
 the only variables the proxy service gets; `plane-minio` takes
 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` as `MINIO_ROOT_USER`/`_PASSWORD`;
-`plane-mq` takes `RABBITMQ_USER`/`_PASSWORD`/`_VHOST`; `plane-db` takes
-`POSTGRES_USER`/`_DB`/`_PASSWORD` and `PGDATA`; `api`/`worker`/`beat-worker`/
-`migrator` all load `apps/api/.env` via `env_file`.
+`plane-db` takes `POSTGRES_USER`/`_DB`/`_PASSWORD` and `PGDATA`;
+`plane-api`/`plane-worker`/`plane-beat`/`migrator` all load `apps/api/.env` via
+`env_file` and wait for the migrator's `service_completed_successfully`. There
+is no `plane-mq` service and no `rabbitmq_data` volume.
 
 **`deployments/cli/community/docker-compose.yml`** (the published stack) is
 where the defaults live. Relevant groups:
 
-- api roles (`api`, `worker`, `beat-worker`, `migrator`): `WEB_URL` (`http://localhost`),
-  `DEBUG` (`0`), `CORS_ALLOWED_ORIGINS`, `GUNICORN_WORKERS` (`1`), `USE_MINIO` (`1`),
+- api roles (`plane-api`, `plane-worker`, `plane-beat`, `migrator`): `WEB_URL` (`http://localhost`),
+  `DEBUG` (`0`), `CORS_ALLOWED_ORIGINS`, `USE_MINIO` (`1`),
   `DATABASE_URL` (`postgresql://plane:plane@plane-db/plane`), `SECRET_KEY`,
-  `AMQP_URL` (`amqp://plane:plane@plane-mq:5672/plane`), `API_KEY_RATE_LIMIT`
-  (`60/minute`), `AUTHENTICATION_RATE_LIMIT` (`10/minute`), `NUM_PROXIES` (`""`),
-  `MINIO_ENDPOINT_SSL` (`0`), `LIVE_SERVER_SECRET_KEY`, `WEBHOOK_ALLOWED_IPS` (`""`),
-  `WEBHOOK_ALLOWED_HOSTS` (`""`), plus the DB, Redis, MinIO and S3 groups.
+  `API_KEY_RATE_LIMIT` (`60/minute`), `AUTHENTICATION_RATE_LIMIT` (`10/minute`),
+  `NUM_PROXIES` (`""`), `MINIO_ENDPOINT_SSL` (`0`), `LIVE_SERVER_SECRET_KEY`,
+  `WEBHOOK_ALLOWED_IPS` (`""`), `WEBHOOK_ALLOWED_HOSTS` (`""`), the job-queue
+  group (`PLANE_RS_JOB_CONCURRENCY` `4`, `PLANE_RS_JOB_LEASE_SECONDS` `60`,
+  `PLANE_RS_JOB_DRAIN_SECONDS` `30`, `PLANE_RS_JOB_POLL_MS` `1000`, all §6),
+  plus the DB, Redis, MinIO and S3 groups. `plane-worker` gets the same
+  environment as `plane-api`: it decrypts the instance configuration with
+  `SECRET_KEY` and the task handlers read the database, Redis, S3, `WEB_URL`,
+  `LIVE_URL` and the webhook allowlists.
 - DB group: `PGHOST`, `PGDATABASE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
   `POSTGRES_DB`, `POSTGRES_PORT` (`5432`), `PGDATA`. (`PGHOST`/`PGDATABASE` are
   libpq variables; Django only reads the `POSTGRES_*` ones and `DATABASE_URL`.)
@@ -962,6 +982,23 @@ keep accepting silently: `DOCKERIZED`, `OPENAI_API_KEY`, `OPENAI_API_BASE`
 `REDIS_PORT` and `RABBITMQ_*`-adjacent tooling names in the root file that are
 only used for compose variable interpolation. `LIVE_SERVER_SECRET_KEY` is read
 by `apps/live` (Hocuspocus auth middleware), not by the API.
+
+### 4.1 Removal at the Phase 8 cutover
+
+The shipped deployments (`docker-compose.yml`, `deployments/cli/community/`,
+`deployments/aio/community/`) no longer set these names:
+
+| Removed name(s) | Why | What replaces it |
+| --- | --- | --- |
+| `AMQP_URL`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_VHOST` | The broker is gone (`plans/CUTOVER.md` §2). | The Postgres-backed `plane_jobs` queue. `plane-core` still parses the six names (Django is the specification) but nothing publishes to Celery after cutover. |
+| `CELERY_BROKER_URL`, `CELERY_TIMEZONE`, `CELERY_TASK_SERIALIZER`, `CELERY_RESULT_SERIALIZER`, `CELERY_ACCEPT_CONTENT` | Derived Celery settings (`settings/common.py:354-387`), never environment inputs. | No Rust equivalent; §2.4 documents the historical derivation only. |
+| `GUNICORN_WORKERS` | There is no gunicorn. | `PLANE_RS_WORKER_THREADS` (§6) sizes the tokio runtime; unset keeps one thread per core. |
+| `METRICS_PUSH_INTERVAL_MINUTES` | `push_instance_metrics` is not ported (owner decision 5). | Nothing; the beat entry is gone. |
+
+Everything else keeps its name and default. `INSTANCE_CHANGELOG_URL` is baked
+into `Dockerfile.plane-api` as `https://sites.plane.so/pages/691ef037bcfe416a902e48cb55f59891/`,
+the value `Dockerfile.api:10` gave the Python image; a deployment can still
+override it. The worker images read the same environment file as the api image.
 
 ---
 

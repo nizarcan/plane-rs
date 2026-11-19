@@ -23,6 +23,10 @@ apps/server/dev
 apps/server/scenarios
 apps/server/tools
 apps/server/deploy
+# ... except the committed OpenAPI document and the Django baseline the
+# binaries embed (`deploy/openapi`, `deploy/schema`).
+!apps/server/deploy/openapi/**
+!apps/server/deploy/schema/**
 apps/server/docs
 apps/server/*.md
 apps/server/crates/plane-testkit
