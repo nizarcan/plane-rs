@@ -606,6 +606,27 @@ workspace `Cargo.toml` and upgrade deliberately.
   `difftest task` decompresses both sides and normalises only those two timestamp
   families; raw archive bytes are comparable only at a frozen clock.
 
+## D28. Queue provisioning in the harness, transport comparison, and beat handover (decided 2026-11-19)
+
+- `difftest run` (managed mode) and `tools/contract` provision every Rust target's
+  database with `plane-migrator` before starting it, like compose's
+  `service_completed_successfully` dependency (`plans/CUTOVER.md` §3). Without it, every
+  Rust route that publishes a Rust-owned task 500s (found at `90724f9c00`).
+- `plane_jobs.*` is removed from the generic DB diff. A Rust-owned task's delivery is
+  compared as `(task, args, kwargs)` between A's Celery message (kombu envelope decoded)
+  and B's `plane_jobs.jobs` row, with object key order canonicalised (jsonb reorders
+  keys). A delivery missing on either side fails the step; nothing is dropped.
+- `difftest task` diffs the whole schema, not a per-table list, so every side effect a
+  handler owes (D25) is checked. That is how P0's missing `visited_at` bump
+  (`auto_now`, `plane/db/models/recent_visit.py:30`) was found.
+- Schedules listed in `plane_jobs::beat::RUST_SCHEDULES` are flipped to `owner='rust'`
+  at `plane-beat` startup; the quiet-window handover then disables the
+  `django_celery_beat_periodictask` row. A unit test fails if a listed entry's task is
+  not Rust-owned. Rollback is removing the name from the list and re-enabling the
+  Django row.
+- The pipeline logs the cause of every 500 it renders at target `plane.exception`
+  (no secrets), as Django's `log_exception` does.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

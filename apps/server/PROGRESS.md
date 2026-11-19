@@ -2088,6 +2088,31 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        can raise; `sub_issues_count`/`link_count`/`attachment_count` never annotated (25
        columns); the analytics HTML body is rendered but never attached.
 
-   Running: Phase 8 set D (`rs/p8-d`, incl. the `plane_jobs` harness fix; 18010/18110,
-   Redis 3/4), set C part 3 (`rs/p8-c`: task 1 gaps, then 8, 46; 18020/18120, Redis
-   5/6).
+   - **Phase 8 set D merged (`a5f68cd40b`, verification running).** D28 recorded.
+     - Harness fix for `90724f9c00`: `plane-migrator` provisions `plane_jobs` on Rust
+       targets (`plane-testkit/src/provision.rs`, contract plugin); `plane_jobs` out of
+       the DB diff; A's Celery message compared to B's job row. 500 causes logged at
+       `plane.exception`. `email_template_corpus.py --check` real, in CI. Contract
+       plugin `IN_PROCESS_TYPE_TESTS` (`test_get_label_success` asserts a `uuid.UUID`).
+     - P0's "clean sweeps" most likely predate the switch; its `difftest task` evidence
+       stands. The whole-schema task diff found P0's missing `visited_at` bump (fixed).
+     - Switched: 3–7 (cleanup), 10 `hard_delete` (Django's FK `IntegrityError` reproduced,
+       same partial effects), 19, 20 (automation), 27 `process_logs` (token-log
+       middleware now dispatches). Handler only: 9 `soft_delete_related_objects`
+       (`page_version_task.py:74`, set A, still publishes it). Eight beat entries in
+       `beat::RUST_SCHEDULES`, handed over at `plane-beat` startup.
+     - Agent: 20/20 `difftest task`, 1317 tests, testkit 201, beat 8/8, read 52/52, write
+       75/75 after per-file reruns (Redis races), contract 983/3.
+     - Left: a soft-cascade hook raising after `deleted_at` (unreachable with valid data);
+       `process_logs` rejects non-string `log_data` (only producer sends strings).
+     - Upstream kept: `hard_delete` order violates the `DO_NOTHING` FK;
+       `archive_and_close_old_issues` publishes twice through un-`DISTINCT` joins;
+       `Project.identifier`, `State.slug` and `*_stripped` recomputed by the cascade's
+       full saves.
+     - The 20-case suite ran from an untracked `/tmp` script; set C part 3 makes it
+       `tools/jobs/run-task-cases.sh` + a case list.
+
+   Running: the orchestrator's verification of `a5f68cd40b` (gates 248 and 391–393), set
+   C part 3 (`rs/p8-c`: task 1 gaps, then 8, 46, the tracked case runner; 18020/18120,
+   Redis 5/6), set A3 (`rs/p8-a3`: tasks 23, 30, 31, then 9, and the `plane-admin`
+   backfills; 18010/18110, Redis 3/4).
