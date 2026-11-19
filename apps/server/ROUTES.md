@@ -425,7 +425,7 @@ They were produced by counting `path()` calls, which is not the same as counting
 | 245 | `/api/public/anchor/{anchor}/issues/{issue_id}/votes/` | GET:list, POST:create, DELETE:destroy | `plane.space.views.issue.IssueVotePublicViewSet` | IsAuthenticated | rust(GET,POST,DELETE) | verified |
 | 246 | `/api/public/anchor/{anchor}/meta/` | GET | `plane.space.views.meta.ProjectMetaDataEndpoint` | AllowAny | rust(GET) | verified |
 | 247 | `/api/public/anchor/{anchor}/settings/` | GET | `plane.space.views.project.ProjectDeployBoardPublicSettingsEndpoint` | AllowAny | rust(GET) | verified |
-| 248 | `/api/public/anchor/{anchor}/issues/` | GET | `plane.space.views.issue.ProjectIssuesPublicEndpoint` | AllowAny | django | not-started |
+| 248 | `/api/public/anchor/{anchor}/issues/` | GET | `plane.space.views.issue.ProjectIssuesPublicEndpoint` | AllowAny | rust(GET) | verified |
 | 249 | `/api/public/workspaces/{slug}/projects/{project_id}/anchor/` | GET | `plane.space.views.project.WorkspaceProjectAnchorEndpoint` | AllowAny | rust(GET) | verified |
 | 250 | `/api/public/anchor/{anchor}/cycles/` | GET | `plane.space.views.cycle.ProjectCyclesEndpoint` | AllowAny | rust(GET) | verified |
 | 251 | `/api/public/anchor/{anchor}/modules/` | GET | `plane.space.views.module.ProjectModulesEndpoint` | AllowAny | rust(GET) | verified |
@@ -509,9 +509,9 @@ They were produced by counting `path()` calls, which is not the same as counting
 
 | # | Path | Methods | View | Permissions | Owner | Status |
 |---|---|---|---|---|---|---|
-| 391 | `/api/schema/` | GET | `drf_spectacular.views.SpectacularAPIView` | AllowAny | django | in-progress |
-| 392 | `/api/schema/swagger-ui/` | GET | `drf_spectacular.views.SpectacularSwaggerView` | AllowAny | django | in-progress |
-| 393 | `/api/schema/redoc/` | GET | `drf_spectacular.views.SpectacularRedocView` | AllowAny | django | in-progress |
+| 391 | `/api/schema/` | GET | `drf_spectacular.views.SpectacularAPIView` | AllowAny | rust(GET) | verified |
+| 392 | `/api/schema/swagger-ui/` | GET | `drf_spectacular.views.SpectacularSwaggerView` | AllowAny | rust(GET) | verified |
+| 393 | `/api/schema/redoc/` | GET | `drf_spectacular.views.SpectacularRedocView` | AllowAny | rust(GET) | verified |
 
 ## Routing hazards
 

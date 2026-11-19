@@ -2112,7 +2112,16 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      - The 20-case suite ran from an untracked `/tmp` script; set C part 3 makes it
        `tools/jobs/run-task-cases.sh` + a case list.
 
-   Running: the orchestrator's verification of `a5f68cd40b` (gates 248 and 391–393), set
-   C part 3 (`rs/p8-c`: task 1 gaps, then 8, 46, the tracked case runner; 18020/18120,
+   - **Verified at `a5f68cd40b`**: fmt, clippy, 1317 tests, testkit 201, selftest 141,
+     schema_check (5 crates), beat 8/8, all five generator checks (incl. the template
+     corpus's real `--check`), set D's `difftest task` suite 19/19 (run from a `/tmp`
+     copy until the tracked runner lands), **128 files / 6085 steps clean in one pass**,
+     OAuth 57/57 + 52/52, SMTP success clean, contract with 248 and 391–393 assumed Rust
+     983/3 (baseline). **Flipped with this entry: 248 GET and 391–393 GET**; Caddy routes
+     only GET for the schema group, so the unported `OPTIONS` on swagger-ui/redoc stays
+     on Django. ROUTES.md: **392 rows Rust**; Django keeps only `/robots.txt` and `/`
+     (health, never routed to the API by Caddy).
+
+   Running: set C part 3 (`rs/p8-c`: task 1 gaps, then 8, 46, the tracked case runner; 18020/18120,
    Redis 5/6), set A3 (`rs/p8-a3`: tasks 23, 30, 31, then 9, and the `plane-admin`
    backfills; 18010/18110, Redis 3/4).
