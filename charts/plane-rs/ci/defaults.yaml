@@ -1,0 +1,8 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Chart CI fixture: the shipped defaults (bundled PostgreSQL, Valkey and MinIO,
+# chart-created Secrets, no ingress). Kept comment-only so a change to
+# values.yaml is exercised by `helm lint`/`helm template` without an override
+# hiding it.

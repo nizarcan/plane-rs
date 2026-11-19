@@ -1,0 +1,130 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{- if .Values.database.bundled }}
+{{- $name := include "plane-rs.componentName" (dict "ctx" $ "component" "postgresql") -}}
+{{- $claim := .Values.database.persistence.existingClaim -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "postgresql") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "postgresql") | nindent 4 }}
+  ports:
+    - name: postgresql
+      port: {{ .Values.database.port }}
+      targetPort: postgresql
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "postgresql") | nindent 4 }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "postgresql") | nindent 8 }}
+      {{- with .Values.database.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- include "plane-rs.podScheduling" .Values.database | nindent 6 }}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgresql
+          image: {{ .Values.database.image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - max_connections={{ .Values.database.maxConnections }}
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.database.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.database.name | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "plane-rs.databaseSecretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: {{ .Values.database.port }}
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.database.user | quote }}
+                - -d
+                - {{ .Values.database.name | quote }}
+                - -h
+                - 127.0.0.1
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.database.user | quote }}
+                - -d
+                - {{ .Values.database.name | quote }}
+                - -h
+                - 127.0.0.1
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.database.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      {{- if or (not .Values.database.persistence.enabled) $claim }}
+      volumes:
+        - name: data
+          {{- if $claim }}
+          persistentVolumeClaim:
+            claimName: {{ $claim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- end }}
+  {{- if and .Values.database.persistence.enabled (not $claim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.database.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.database.persistence.size }}
+  {{- end }}
+{{- end }}

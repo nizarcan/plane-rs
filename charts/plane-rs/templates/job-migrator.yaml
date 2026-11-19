@@ -1,0 +1,123 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* The schema owner: the embedded Django baseline plus the plane_jobs schema.
+It is a Job, not a Deployment, and it must finish before the api/worker/beat
+serve traffic. Two mechanisms enforce that (DECISIONS.md D34/D36):
+
+  * this Job (a pre-install,pre-upgrade hook when `migrator.hookMode` allows it,
+    which ArgoCD maps to PreSync) -- see values.yaml for when the hook can work;
+  * `wait_for_migrations` in every long-running binary: before the listener
+    opens, api/worker/beat read the `django_baseline` marker and the
+    plane_jobs schema version and block until the migrator has written them.
+
+The Job is the part that makes the release fail loudly when the baseline guard
+refuses an older or newer database; the waits only turn a missed ordering into
+a wait. No probes: a distroless one-shot binary reports success by exiting 0.
+
+The name is content-addressed (`<fullname>-migrator-<8 hex>`, see
+`plane-rs.migratorChecksum`), not revision-suffixed: ArgoCD renders with
+`helm template`, where `.Release.Revision` is always 1. An identical render
+keeps the same Job; a changed image, config or database input creates a new one,
+so the immutable pod template is never patched and the migration reruns. When
+the bundled PostgreSQL is used, a `wait-for-postgresql` init container holds the
+Job until the database accepts connections -- under ArgoCD the Job and the
+StatefulSet are applied in the same sync wave, so the Job must not depend on
+backoff retries to outlast a cold database. */}}
+{{- $hook := false -}}
+{{- if eq .Values.migrator.hookMode "always" -}}
+{{- $hook = true -}}
+{{- else if eq .Values.migrator.hookMode "auto" -}}
+{{- if and (not .Values.database.bundled) .Values.secrets.database.existingSecret -}}
+{{- $hook = true -}}
+{{- end -}}
+{{- else if ne .Values.migrator.hookMode "never" -}}
+{{- fail "migrator.hookMode must be one of auto, always, never" -}}
+{{- end -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "plane-rs.migratorJobName" . }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "migrator") | nindent 4 }}
+  {{- if $hook }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+  {{- end }}
+spec:
+  backoffLimit: {{ .Values.migrator.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrator.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.migrator.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "migrator") | nindent 8 }}
+        {{- with .Values.migrator.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.database.existingSecret }}
+        checksum/secret-database: {{ include (print $.Template.BasePath "/secret-database.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.migrator.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "plane-rs.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.migrator.podSecurityContext | nindent 8 }}
+      {{- include "plane-rs.podScheduling" .Values.migrator | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.migrator.terminationGracePeriodSeconds }}
+      {{- if .Values.database.bundled }}
+      # The bundled PostgreSQL is created by the same release (Helm) or the same
+      # sync (ArgoCD). Wait for it instead of burning backoffLimit attempts.
+      # pg_isready needs no credentials and no writable filesystem.
+      initContainers:
+        - name: wait-for-postgresql
+          image: {{ .Values.database.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - until pg_isready -h {{ include "plane-rs.componentName" (dict "ctx" $ "component" "postgresql") }} -p {{ .Values.database.port }} -U {{ .Values.database.user }} -d {{ .Values.database.name }}; do sleep 2; done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      {{- end }}
+      containers:
+        - name: migrator
+          image: {{ include "plane-rs.image" (dict "ctx" $ "image" .Values.migrator.image) }}
+          imagePullPolicy: {{ .Values.migrator.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.migrator.containerSecurityContext | nindent 12 }}
+          envFrom:
+            {{- include "plane-rs.migratorEnvFrom" . | nindent 12 }}
+            {{- with .Values.migrator.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.migrator.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.migrator.resources | nindent 12 }}

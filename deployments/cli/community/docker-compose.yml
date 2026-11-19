@@ -66,7 +66,7 @@ x-app-env: &app-env
 
 services:
   web:
-    image: makeplane/plane-frontend:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-web:${APP_RELEASE:-stable}
     deploy:
       replicas: ${WEB_REPLICAS:-1}
       restart_policy:
@@ -76,7 +76,7 @@ services:
       - plane-worker
 
   space:
-    image: makeplane/plane-space:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-space:${APP_RELEASE:-stable}
     deploy:
       replicas: ${SPACE_REPLICAS:-1}
       restart_policy:
@@ -87,7 +87,7 @@ services:
       - web
 
   admin:
-    image: makeplane/plane-admin:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-admin:${APP_RELEASE:-stable}
     deploy:
       replicas: ${ADMIN_REPLICAS:-1}
       restart_policy:
@@ -98,7 +98,7 @@ services:
 
   live:
     stop_grace_period: 30s
-    image: makeplane/plane-live:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-live:${APP_RELEASE:-stable}
     environment:
       <<: [*live-env, *redis-env]
     deploy:
@@ -116,7 +116,7 @@ services:
   # service-completion primitive), so on Swarm the migrator must be run to
   # completion before the stack is redeployed with the new images.
   plane-api:
-    image: makeplane/plane-api:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-api:${APP_RELEASE:-stable}
     deploy:
       replicas: ${API_REPLICAS:-1}
       restart_policy:
@@ -132,7 +132,7 @@ services:
         condition: service_completed_successfully
 
   plane-worker:
-    image: makeplane/plane-worker:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-worker:${APP_RELEASE:-stable}
     deploy:
       replicas: ${WORKER_REPLICAS:-1}
       restart_policy:
@@ -151,7 +151,7 @@ services:
         condition: service_completed_successfully
 
   plane-beat:
-    image: makeplane/plane-beat:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-beat:${APP_RELEASE:-stable}
     deploy:
       replicas: ${BEAT_WORKER_REPLICAS:-1}
       restart_policy:
@@ -167,7 +167,7 @@ services:
         condition: service_completed_successfully
 
   migrator:
-    image: makeplane/plane-migrator:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-migrator:${APP_RELEASE:-stable}
     deploy:
       replicas: 1
       restart_policy:
@@ -215,7 +215,7 @@ services:
 
   # Comment this if you already have a reverse proxy running
   proxy:
-    image: makeplane/plane-proxy:${APP_RELEASE:-stable}
+    image: ${IMAGE_REGISTRY:-ghcr.io/nizarcan}/plane-rs-proxy:${APP_RELEASE:-stable}
     deploy:
       replicas: 1
       restart_policy:

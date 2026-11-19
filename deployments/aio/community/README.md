@@ -47,6 +47,11 @@ You must provide these environment variables:
 
 ## Quick Start
 
+The AIO image is not published by the release workflow: the workflow publishes
+the nine component images (`ghcr.io/nizarcan/plane-rs-{api,worker,beat,migrator,web,space,admin,live,proxy}`)
+and [`build.sh`](#building-the-image) composes them into `plane-rs-aio:local`.
+Build it first, then run one of the examples below.
+
 ### Basic Usage
 
 ```bash
@@ -61,7 +66,7 @@ docker run --name plane-aio --rm -it \
     -e AWS_S3_BUCKET_NAME=your-bucket \
     -e SECRET_KEY=your-unique-secret-key \
     -e LIVE_SERVER_SECRET_KEY=your-unique-live-server-secret \
-    makeplane/plane-aio-community:latest
+    plane-rs-aio:local
 ```
 
 ### Example with IP Address
@@ -81,7 +86,7 @@ docker run --name myaio --rm -it \
     -e FILE_SIZE_LIMIT=10485760 \
     -e SECRET_KEY=$(openssl rand -hex 32) \
     -e LIVE_SERVER_SECRET_KEY=$(openssl rand -hex 32) \
-    makeplane/plane-aio-community:latest
+    plane-rs-aio:local
 ```
 
 ## Configuration Options
@@ -144,7 +149,7 @@ IMAGE_NAME=myplane-aio ./build.sh --release=v1.5.0
 Available build options:
 
 - `--release`: Plane version to build (required)
-- `--image-name`: Custom image name (default: `makeplane/plane-aio-community`, or the `IMAGE_NAME` env var)
+- `--image-name`: Custom image name (default: `ghcr.io/nizarcan/plane-rs-aio`, or the `IMAGE_NAME` env var)
 
 ## Troubleshooting
 
@@ -188,4 +193,4 @@ At startup the container writes the variables above into `/app/plane.env` and th
 
 ## Support
 
-For issues and support, see the [AIO self-hosting docs](https://developers.plane.so/self-hosting/methods/docker-aio), ask on the [Forum](https://forum.plane.so), or open a [GitHub issue](https://github.com/makeplane/plane/issues).
+For issues and support, see the [AIO self-hosting docs](https://developers.plane.so/self-hosting/methods/docker-aio), ask on the [Forum](https://forum.plane.so), or open a [GitHub issue](https://github.com/nizarcan/plane-rs/issues).

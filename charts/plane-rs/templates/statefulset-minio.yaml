@@ -1,0 +1,115 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{- if .Values.minio.bundled }}
+{{- $name := include "plane-rs.componentName" (dict "ctx" $ "component" "minio") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "minio") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "minio") | nindent 4 }}
+  ports:
+    - name: s3
+      port: {{ .Values.minio.port }}
+      targetPort: s3
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "minio") | nindent 4 }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "minio") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "minio") | nindent 8 }}
+      {{- with .Values.minio.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- include "plane-rs.podScheduling" .Values.minio | nindent 6 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - /export
+            - --console-address
+            - :9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "plane-rs.objectStorageSecretName" . }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "plane-rs.objectStorageSecretName" . }}
+                  key: AWS_SECRET_ACCESS_KEY
+          ports:
+            - name: s3
+              containerPort: {{ .Values.minio.port }}
+              protocol: TCP
+          # MinIO's own liveness endpoint; pgsty/silo keeps the same API. No
+          # shell is needed, unlike the `mc ready` check in the compose stack.
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /export
+      {{- if not .Values.minio.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.minio.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.minio.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.persistence.size }}
+  {{- end }}
+{{- end }}

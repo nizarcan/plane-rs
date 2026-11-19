@@ -1,0 +1,22 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Chart CI fixture: the ArgoCD/ESO production shape. The database is external
+# and its Secret exists before the release, so `migrator.hookMode: auto` really
+# renders the pre-install,pre-upgrade hook (ArgoCD: PreSync). The Secret contents
+# are the operator's responsibility; the chart only references the names.
+secrets:
+  app:
+    existingSecret: plane-app-secrets
+  database:
+    existingSecret: plane-database-secrets
+  objectStorage:
+    existingSecret: plane-object-storage-secrets
+database:
+  bundled: false
+  url: ""
+migrator:
+  hookMode: auto
+config:
+  webUrl: https://plane.example.com

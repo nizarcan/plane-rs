@@ -1,0 +1,96 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* The live server (Hocuspocus) answers WebSocket upgrades under /live and
+returns 404 for every plain GET on any other path, so an HTTP probe would
+report a healthy process as unhealthy. A TCP probe on 3000 is the truthful
+check: it fails when the Express listener is gone. API_BASE_URL and
+LIVE_SERVER_SECRET_KEY are required by the app at startup (zod-validated);
+REDIS_URL is optional there but is passed for multi-replica collaboration. */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "plane-rs.componentName" (dict "ctx" $ "component" "live") }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "live") | nindent 4 }}
+spec:
+  replicas: {{ .Values.live.replicas }}
+  revisionHistoryLimit: 3
+  {{- include "plane-rs.strategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "live") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "live") | nindent 8 }}
+        {{- with .Values.live.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.app.existingSecret }}
+        checksum/secret-app: {{ include (print $.Template.BasePath "/secret-app.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.live.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "plane-rs.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.live.podSecurityContext | nindent 8 }}
+      {{- include "plane-rs.podScheduling" .Values.live | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.live.terminationGracePeriodSeconds }}
+      containers:
+        - name: live
+          image: {{ include "plane-rs.image" (dict "ctx" $ "image" .Values.live.image) }}
+          imagePullPolicy: {{ .Values.live.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.live.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: API_BASE_URL
+              value: {{ default (printf "http://%s:8000" (include "plane-rs.componentName" (dict "ctx" $ "component" "api"))) .Values.live.apiBaseUrl | quote }}
+            - name: LIVE_BASE_PATH
+              value: {{ .Values.live.basePath | quote }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ default (include "plane-rs.webUrl" .) .Values.config.corsAllowedOrigins | quote }}
+            - name: REDIS_URL
+              value: {{ include "plane-rs.redisUrl" . | quote }}
+            - name: LIVE_SERVER_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "plane-rs.appSecretName" . }}
+                  key: LIVE_SERVER_SECRET_KEY
+            {{- with .Values.live.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.live.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.live.resources | nindent 12 }}

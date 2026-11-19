@@ -1,0 +1,75 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* Space serves the public project pages under /spaces; the path the probes
+use is the one the image's own HEALTHCHECK uses (`/spaces/`). */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "plane-rs.componentName" (dict "ctx" $ "component" "space") }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "space") | nindent 4 }}
+spec:
+  replicas: {{ .Values.space.replicas }}
+  revisionHistoryLimit: 3
+  {{- include "plane-rs.strategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "space") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "space") | nindent 8 }}
+        {{- with .Values.space.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.space.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "plane-rs.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.space.podSecurityContext | nindent 8 }}
+      {{- include "plane-rs.podScheduling" .Values.space | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.space.terminationGracePeriodSeconds }}
+      containers:
+        - name: space
+          image: {{ include "plane-rs.image" (dict "ctx" $ "image" .Values.space.image) }}
+          imagePullPolicy: {{ .Values.space.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.space.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- with .Values.space.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.space.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /spaces/
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /spaces/
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.space.resources | nindent 12 }}

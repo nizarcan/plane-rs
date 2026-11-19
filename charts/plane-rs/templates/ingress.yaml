@@ -1,0 +1,129 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* Path routing mirrors apps/proxy/Caddyfile.ce:
+     /api,/auth,/static -> plane-api:8000
+     /spaces            -> space:3000
+     /god-mode          -> admin:3000
+     /live              -> live:3000
+     /uploads           -> the bundled MinIO (presigned URLs are built for
+                           https://<host>/<bucket>/<key>)
+     /                  -> web:3000
+An empty path in `ingress.paths` disables that route. Prefix matching means
+`/spaces` also matches `/spaces/...`; the bundled Caddy additionally redirects
+`/spaces` and `/god-mode` to their trailing-slash form, which an Ingress does
+not, so the frontends' own SPA fallbacks serve those requests directly. */}}
+{{- if .Values.ingress.enabled }}
+{{- $api := include "plane-rs.componentName" (dict "ctx" $ "component" "api") -}}
+{{- $web := include "plane-rs.componentName" (dict "ctx" $ "component" "web") -}}
+{{- $space := include "plane-rs.componentName" (dict "ctx" $ "component" "space") -}}
+{{- $admin := include "plane-rs.componentName" (dict "ctx" $ "component" "admin") -}}
+{{- $live := include "plane-rs.componentName" (dict "ctx" $ "component" "live") -}}
+{{- $minio := include "plane-rs.componentName" (dict "ctx" $ "component" "minio") -}}
+{{- $pathType := .Values.ingress.pathType -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "plane-rs.componentName" (dict "ctx" $ "component" "ingress") }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "ingress") | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- with .Values.ingress.tls.secretName }}
+      secretName: {{ . }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          {{- with .Values.ingress.paths.api }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $api }}
+                port:
+                  number: 8000
+          {{- end }}
+          {{- with .Values.ingress.paths.auth }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $api }}
+                port:
+                  number: 8000
+          {{- end }}
+          {{- with .Values.ingress.paths.static }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $api }}
+                port:
+                  number: 8000
+          {{- end }}
+          {{- with .Values.ingress.paths.space }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $space }}
+                port:
+                  number: 3000
+          {{- end }}
+          {{- with .Values.ingress.paths.admin }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $admin }}
+                port:
+                  number: 3000
+          {{- end }}
+          {{- with .Values.ingress.paths.live }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $live }}
+                port:
+                  number: 3000
+          {{- end }}
+          {{- if .Values.minio.bundled }}
+          {{- with .Values.ingress.paths.uploads }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $minio }}
+                port:
+                  number: 9000
+          {{- end }}
+          {{- end }}
+          {{- with .Values.ingress.paths.web }}
+          - path: {{ . }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                name: {{ $web }}
+                port:
+                  number: 3000
+          {{- end }}
+          {{- with .Values.ingress.extraHosts }}
+    {{- toYaml . | nindent 4 }}
+          {{- end }}
+{{- end }}

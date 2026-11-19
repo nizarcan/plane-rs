@@ -1,0 +1,76 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* Admin ("god mode") is a second static Caddy build mounted at /god-mode; its
+own HEALTHCHECK requests /god-mode, which Caddy redirects to /god-mode/, so the
+probe uses the trailing slash to avoid counting a redirect as unhealthy. */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "plane-rs.componentName" (dict "ctx" $ "component" "admin") }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "admin") | nindent 4 }}
+spec:
+  replicas: {{ .Values.admin.replicas }}
+  revisionHistoryLimit: 3
+  {{- include "plane-rs.strategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "admin") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "admin") | nindent 8 }}
+        {{- with .Values.admin.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.admin.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "plane-rs.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.admin.podSecurityContext | nindent 8 }}
+      {{- include "plane-rs.podScheduling" .Values.admin | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.admin.terminationGracePeriodSeconds }}
+      containers:
+        - name: admin
+          image: {{ include "plane-rs.image" (dict "ctx" $ "image" .Values.admin.image) }}
+          imagePullPolicy: {{ .Values.admin.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.admin.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- with .Values.admin.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.admin.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /god-mode/
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /god-mode/
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.admin.resources | nindent 12 }}

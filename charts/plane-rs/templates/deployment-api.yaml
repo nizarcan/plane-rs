@@ -1,0 +1,94 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "plane-rs.componentName" (dict "ctx" $ "component" "api") }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  revisionHistoryLimit: 3
+  {{- include "plane-rs.strategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "api") | nindent 8 }}
+        {{- with .Values.api.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.app.existingSecret }}
+        checksum/secret-app: {{ include (print $.Template.BasePath "/secret-app.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if not .Values.secrets.database.existingSecret }}
+        checksum/secret-database: {{ include (print $.Template.BasePath "/secret-database.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "plane-rs.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
+      {{- include "plane-rs.podScheduling" .Values.api | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      containers:
+        - name: api
+          image: {{ include "plane-rs.image" (dict "ctx" $ "image" .Values.api.image) }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.api.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            {{- include "plane-rs.backendEnvFrom" . | nindent 12 }}
+            {{- with .Values.api.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.api.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # GET / is the Django health JSON (`{"status": "OK"}`, 16 bytes) and
+          # is answered without touching Postgres or Redis (asserted by
+          # middleware/mod.rs, `health_does_not_touch_the_database`). The
+          # startup probe covers the boot steps (wait_for_db,
+          # wait_for_migrations, register_instance, configure_instance,
+          # create_bucket, clear_cache) before the listener binds.
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}

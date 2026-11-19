@@ -1,0 +1,577 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Values for the plane-rs chart. The defaults deploy the whole stack on one
+# small cluster (the target is a Raspberry Pi arm64 cluster): every component
+# requests the footprint BENCH.md measures, the datastores are bundled and
+# small, and nothing is exposed outside the cluster until `ingress.enabled` is
+# set. See README.md for the install/upgrade walkthrough, the External Secrets
+# Operator example and the values table.
+
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full resource-name prefix (default `<release>-plane-rs`).
+fullnameOverride: ""
+
+# -- Secrets for pulling from a private GHCR package
+# (`kubectl create secret docker-registry ... --docker-server=ghcr.io`).
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Shared pod/container security defaults for the Rust images.
+#
+# The Rust images are `gcr.io/distroless/cc-debian12:nonroot`: UID/GID 65532,
+# no shell, no home directory, and the binaries write nothing to disk. The
+# frontend images (web, admin, space, live) are Caddy/Node images that run as
+# root and are given empty contexts below; override them per component if you
+# run a hardened rebuild.
+#
+# The anchors are resolved by the YAML parser, so every component still owns an
+# independent copy: `--set api.containerSecurityContext.readOnlyRootFilesystem=false`
+# affects only the api.
+# ---------------------------------------------------------------------------
+x-rust-pod-security-context: &rustPodSecurityContext
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+x-rust-container-security-context: &rustContainerSecurityContext
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ---------------------------------------------------------------------------
+# Service account. One account for every pod, so a cloud workload identity
+# (IRSA, GKE Workload Identity, Azure Workload Identity) is annotated once.
+# The Rust binaries never call the Kubernetes API; keep the token mounted only
+# if your object-storage identity needs it.
+# ---------------------------------------------------------------------------
+serviceAccount:
+  # -- Create the ServiceAccount. Set false to use one managed elsewhere.
+  create: true
+  # -- Name override; defaults to `<fullname>`.
+  name: ""
+  # -- Annotations, e.g. `eks.amazonaws.com/role-arn` for IRSA.
+  annotations: {}
+  # -- Mount the API token into the pods (Kubernetes default).
+  automountServiceAccountToken: true
+
+# ---------------------------------------------------------------------------
+# The HTTP server. Serves /api, /auth and /static.
+# ---------------------------------------------------------------------------
+api:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-api
+    # -- Defaults to `.Chart.AppVersion`.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # -- Replicas. The binary is stateless; sessions live in Postgres.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 1000m
+      memory: 256Mi
+  podSecurityContext: *rustPodSecurityContext
+  containerSecurityContext: *rustContainerSecurityContext
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  # -- Extra `env:` entries (name/value/valueFrom) for this pod only.
+  extraEnv: []
+  # -- Extra `envFrom:` entries for this pod only.
+  extraEnvFrom: []
+  # -- Must exceed the longest graceful shutdown (no drain in the api).
+  terminationGracePeriodSeconds: 30
+  service:
+    type: ClusterIP
+    annotations: {}
+
+# ---------------------------------------------------------------------------
+# The plane_jobs worker. No HTTP listener.
+# ---------------------------------------------------------------------------
+worker:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-worker
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 500m
+      memory: 192Mi
+  podSecurityContext: *rustPodSecurityContext
+  containerSecurityContext: *rustContainerSecurityContext
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraEnvFrom: []
+  # -- Drains in-flight jobs for `PLANE_RS_JOB_DRAIN_SECONDS` (30) on SIGTERM.
+  terminationGracePeriodSeconds: 45
+
+# ---------------------------------------------------------------------------
+# The scheduler. Exactly one replica: it owns the `plane_jobs` schedule rows and
+# must never run twice (see README, "Why one beat replica").
+# ---------------------------------------------------------------------------
+beat:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-beat
+    tag: ""
+    pullPolicy: IfNotPresent
+  # -- Do not change. The scheduler is a singleton by design; the replicas
+  # field exists only so a GitOps diff can be rejected explicitly.
+  replicas: 1
+  resources:
+    requests:
+      cpu: 5m
+      memory: 24Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  podSecurityContext: *rustPodSecurityContext
+  containerSecurityContext: *rustContainerSecurityContext
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraEnvFrom: []
+  terminationGracePeriodSeconds: 30
+
+# ---------------------------------------------------------------------------
+# The one-shot schema owner: the Django baseline plus the plane_jobs schema.
+# ---------------------------------------------------------------------------
+migrator:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-migrator
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 500m
+      memory: 192Mi
+  podSecurityContext: *rustPodSecurityContext
+  containerSecurityContext: *rustContainerSecurityContext
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraEnvFrom: []
+  terminationGracePeriodSeconds: 30
+  # -- How the Job is delivered to Helm/ArgoCD:
+  #   auto   (default) `pre-install,pre-upgrade` hook only when it can work: an
+  #          external database AND `secrets.database.existingSecret` set, so the
+  #          Secret and the database exist before Helm creates the release.
+  #          Otherwise a regular Job: with the bundled PostgreSQL the pod cannot
+  #          exist before the release (a pre-install hook runs before the
+  #          StatefulSet and the chart-created Secrets), so the Job runs beside
+  #          the Deployments and the binaries' `wait_for_migrations` holds them
+  #          until it finishes.
+  #   always force the hook; you must supply the database Secret yourself.
+  #   never  always a regular Job.
+  # `pre-install,pre-upgrade` maps to ArgoCD PreSync. `hookMode: auto` with an
+  # external database and `existingSecret` is the ArgoCD/ESO configuration.
+  #
+  # The Job is named `<fullname>-migrator-<8 hex>`, a checksum of the image,
+  # config and database inputs (not `.Release.Revision`: ArgoCD's `helm
+  # template` always renders 1). An identical render keeps the same Job; a
+  # changed input creates a new one, so the immutable pod template is never
+  # patched. See README.md, "ArgoCD".
+  hookMode: auto
+  # -- Attempts after the first failure. A baseline mismatch is permanent, so
+  # retries only cover a database that is not accepting connections yet.
+  backoffLimit: 3
+  # -- Bound a stuck run (a failed hook blocks the release).
+  activeDeadlineSeconds: 900
+  # -- Delete a finished Job after a day, keeping its logs for the first one.
+  ttlSecondsAfterFinished: 86400
+
+# ---------------------------------------------------------------------------
+# Frontends. web and admin are Caddy static servers; space is a
+# react-router-serve Node process; live is the Hocuspocus WebSocket server.
+# The VITE_* base URLs are baked into these images at build time (empty, which
+# means same-origin path routing: /api, /god-mode, /spaces, /live). Serving
+# them from separate hostnames needs images built with those VITE_* values.
+# ---------------------------------------------------------------------------
+web:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-web
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  # The Caddy image runs as root.
+  podSecurityContext: {}
+  containerSecurityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraEnvFrom: []
+  terminationGracePeriodSeconds: 30
+  service:
+    type: ClusterIP
+    annotations: {}
+
+space:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-space
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # The Node image runs as root.
+  podSecurityContext: {}
+  containerSecurityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraEnvFrom: []
+  terminationGracePeriodSeconds: 30
+  service:
+    type: ClusterIP
+    annotations: {}
+
+admin:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-admin
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  # The Caddy image runs as root.
+  podSecurityContext: {}
+  containerSecurityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraEnvFrom: []
+  terminationGracePeriodSeconds: 30
+  service:
+    type: ClusterIP
+    annotations: {}
+
+live:
+  image:
+    repository: ghcr.io/nizarcan/plane-rs-live
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 48Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  # The Node image runs as root.
+  podSecurityContext: {}
+  containerSecurityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  # -- Extra `env:` entries for the live server.
+  extraEnv: []
+  extraEnvFrom: []
+  # -- The live server's own shutdown deadline is 25 s.
+  terminationGracePeriodSeconds: 35
+  service:
+    type: ClusterIP
+    annotations: {}
+  # -- URL the live server uses to reach plane-api, default
+  # `http://<fullname>-api:8000`.
+  apiBaseUrl: ""
+  # -- Must match the ingress path prefix (`/live`).
+  basePath: "/live"
+
+# ---------------------------------------------------------------------------
+# Application configuration. Everything here is non-secret and lands in the
+# shared ConfigMap that api, worker, beat and migrator read; `live` reads only
+# the keys it needs. `config.extra` is merged last and wins, so it can override
+# any computed key.
+# ---------------------------------------------------------------------------
+config:
+  # -- Public URL of the installation. Empty derives it from `ingress`
+  # (`https://<host>` with TLS, `http://<host>` without) or falls back to
+  # `http://localhost`. Drives cookie security and the MinIO custom domain.
+  webUrl: ""
+  # -- Comma-separated origins allowed to call the API. Empty keeps the
+  # upstream default (CORS allow-all: the API reflects the request Origin).
+  corsAllowedOrigins: ""
+  # -- Django host validation; `*` accepts every Host header.
+  allowedHosts: "*"
+  # -- Upstream default. `1` selects debug logging, not a dev server.
+  debug: "0"
+  # -- Max request/upload size in bytes; must match the proxy's limit.
+  fileSizeLimit: "5242880"
+  # -- DRF throttle formats for `/api/v1/` and `/auth/`.
+  apiKeyRateLimit: "60/minute"
+  authenticationRateLimit: "10/minute"
+  # -- Number of trusted proxy hops in front of the API (ingress = 1). Empty
+  # keeps DRF's "join all X-Forwarded-For" behaviour.
+  numProxies: ""
+  # -- Comma-separated IPs/CIDRs allowed as webhook targets on private ranges.
+  webhookAllowedIps: ""
+  # -- Comma-separated hostnames that bypass the webhook private-IP check.
+  webhookAllowedHosts: ""
+  # -- Presigned-URL lifetime in seconds.
+  signedUrlExpiration: "3600"
+  # -- Session cookie domain; empty means host-only cookies.
+  cookieDomain: ""
+  # -- Absolute base URLs for the frontends. Empty keeps same-origin path
+  # routing (`/spaces/`, `/god-mode/`, `/live/`), which is what the ingress and
+  # the default images serve.
+  appBaseUrl: ""
+  adminBaseUrl: ""
+  spaceBaseUrl: ""
+  liveBaseUrl: ""
+
+  # -- Rust-only tuning (`apps/server/ENV.md` §6). Empty means the binary's
+  # default; only set what you need.
+  logFormat: "json" # json | pretty | compact
+  workerThreads: ""
+  dbPoolSize: "16"
+  jobConcurrency: "4"
+  jobLeaseSeconds: "60"
+  jobDrainSeconds: "30"
+  jobPollMs: "1000"
+  beatPollMs: "1000"
+
+  # -- Arbitrary extra ConfigMap entries (stringified). Wins over every
+  # computed key above, e.g. `{ USE_MINIO: "1" }` for an external MinIO.
+  extra: {}
+
+# ---------------------------------------------------------------------------
+# Secrets. Every group is either rendered from the values below or read from an
+# existing Secret you name (`existingSecret`), which is what External Secrets
+# Operator, Sealed Secrets or a manually created Secret use. A group that names
+# an existingSecret renders nothing and the chart never reads its contents.
+#
+# Required keys per group:
+#   app           SECRET_KEY, LIVE_SERVER_SECRET_KEY
+#                 (any other key overrides the ConfigMap key of the same name,
+#                 e.g. REDIS_URL, because the Secret is read after the ConfigMap)
+#   database      DATABASE_URL, POSTGRES_PASSWORD (the latter only for the
+#                 bundled PostgreSQL; an external Secret used with the bundled
+#                 database must point DATABASE_URL at
+#                 postgresql://<user>:<password>@<fullname>-postgresql:5432/<db>)
+#   objectStorage AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (also the bundled
+#                 MinIO's root credentials, MINIO_ROOT_USER/PASSWORD)
+# ---------------------------------------------------------------------------
+secrets:
+  app:
+    # -- Name of an existing Secret; disables the chart-created one below.
+    existingSecret: ""
+    # -- SECRET_KEY: signs sessions and derives the key that encrypts the
+    # instance-configuration rows (SMTP password, OAuth secrets). Changing it
+    # makes existing encrypted rows unreadable without an error.
+    secretKey: "change-this-key-on-deployment"
+    # -- Shared by the api (signing) and live (verifying) WebSocket tokens.
+    liveServerSecretKey: "change-this-key-on-deployment"
+    # -- Fail the render while either value above is still the placeholder
+    # (or empty). Recommended for anything real.
+    requireExplicitSecrets: false
+  database:
+    existingSecret: ""
+    # -- Superuser password for the bundled PostgreSQL and, unless
+    # `database.url` is set, the password in the generated DATABASE_URL.
+    # URL-safe characters only; use `database.url` or an existingSecret
+    # otherwise.
+    password: "plane"
+  objectStorage:
+    existingSecret: ""
+    # -- S3/MinIO credentials used by the apps and by the bundled MinIO.
+    accessKey: "access-key"
+    secretKey: "secret-key"
+
+# ---------------------------------------------------------------------------
+# PostgreSQL. `bundled: false` points the apps at `database.url` (or at the
+# DATABASE_URL key of `secrets.database.existingSecret`).
+# ---------------------------------------------------------------------------
+database:
+  bundled: true
+  # -- Full URL for an external database; ignored when bundled (the URL is
+  # derived from the fields below).
+  url: ""
+  image: postgres:15.7-alpine
+  user: plane
+  name: plane
+  port: 5432
+  # -- postgres `max_connections`; keep above the sum of every pod's
+  # PLANE_RS_DB_POOL_SIZE plus the worker's concurrency.
+  maxConnections: 200
+  persistence:
+    enabled: true
+    # -- Empty uses the cluster's default StorageClass.
+    storageClass: ""
+    size: 8Gi
+    # -- Mount an existing PVC instead of the StatefulSet's volumeClaimTemplate.
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 1000m
+      memory: 768Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Redis (Valkey). Sessions, cache, DRF throttle buckets and magic-link codes.
+# `bundled: false` requires `redis.url` (redis:// or rediss://).
+# ---------------------------------------------------------------------------
+redis:
+  bundled: true
+  # -- External URL; ignored when bundled. A password here is a credential:
+  # prefer an app Secret with a REDIS_URL key (it overrides the ConfigMap) or
+  # `secrets.app.existingSecret`.
+  url: ""
+  image: valkey/valkey:7.2.11-alpine
+  port: 6379
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# MinIO (pgsty/silo). `bundled: false` requires `objectStorage.endpoint`.
+# ---------------------------------------------------------------------------
+minio:
+  bundled: true
+  # pgsty/silo is pgsty/minio renamed: same S3 API, same env vars, same
+  # on-disk format. The image also ships `mc` and a shell, which the
+  # bucket-creation hook uses; point `image` at a runtime that lacks them and
+  # set `createBucket: false`, the api's boot step still creates the bucket.
+  image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+  port: 9000
+  # -- Create the bucket named `objectStorage.bucket` after install. The api
+  # also creates it at boot (idempotent); this hook makes the bucket exist even
+  # when the api started before MinIO was ready.
+  createBucket: true
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 8Gi
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+objectStorage:
+  # -- Bucket name; must equal the ingress `/uploads` prefix's target bucket
+  # when the bundled MinIO serves browser-facing presigned URLs.
+  bucket: uploads
+  # -- S3 region. Empty is the upstream default (no region).
+  region: ""
+  # -- Endpoint for an external S3/MinIO; ignored when `minio.bundled` is true.
+  endpoint: ""
+  # -- Set MINIO_ENDPOINT_SSL=1 when browsers reach the object store over TLS
+  # through the chart's host.
+  minioEndpointSsl: false
+
+# ---------------------------------------------------------------------------
+# Ingress. Mirrors apps/proxy/Caddyfile.ce: /api, /auth and /static to the api,
+# /spaces to space, /god-mode to admin, /live to live, /uploads to the bundled
+# MinIO and everything else to web. Without it every component still has a
+# ClusterIP Service, so `kubectl port-forward` runs the whole stack.
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  # -- `ingressClassName`, e.g. `nginx` or `traefik`.
+  className: ""
+  annotations: {}
+  # -- Hostname clients use. Also the default for `config.webUrl`.
+  host: plane.example.com
+  tls:
+    enabled: false
+    # -- Existing TLS Secret. Empty renders a `tls:` block without a secret
+    # name, which lets cert-manager's ingress-shim create one.
+    secretName: ""
+  pathType: Prefix
+  # -- Per-route path overrides. An empty path disables that route. Keep the
+  # component-relative defaults: the frontend images are built for them.
+  paths:
+    api: /api
+    auth: /auth
+    static: /static
+    space: /spaces
+    admin: /god-mode
+    live: /live
+    uploads: /uploads
+    web: /
+  # -- Additional host/path rules, passed through verbatim.
+  extraHosts: []
+
+# -- Extra Kubernetes objects (e.g. an ESO SecretStore + ExternalSecrets) to
+# render with the release. Passed through `toYaml`, not `tpl`.
+extraObjects: []

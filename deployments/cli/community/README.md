@@ -66,7 +66,7 @@ cd plane-selfhost
 #### For _Docker Compose_ based setup
 
 ```
-curl -fsSL -o setup.sh https://github.com/makeplane/plane/releases/latest/download/setup.sh
+curl -fsSL -o setup.sh https://github.com/nizarcan/plane-rs/releases/latest/download/setup.sh
 
 chmod +x setup.sh
 ```
@@ -74,12 +74,21 @@ chmod +x setup.sh
 #### For _Docker Swarm_ based setup
 
 ```
-curl -fsSL -o setup.sh https://github.com/makeplane/plane/releases/latest/download/swarm.sh
+curl -fsSL -o setup.sh https://github.com/nizarcan/plane-rs/releases/latest/download/swarm.sh
 
 chmod +x setup.sh
 ```
 
 ---
+
+### Container images
+
+The nine services are pulled from GHCR:
+`ghcr.io/nizarcan/plane-rs-{api,worker,beat,migrator,web,space,admin,live,proxy}`.
+The packages are public, so no `docker login` is needed. `plane.env` carries an
+`IMAGE_REGISTRY` line if you mirror them (for example
+`IMAGE_REGISTRY=registry.example.com/plane`); `APP_RELEASE` selects the tag and
+defaults to the latest release.
 
 ### Proceed with setup
 
@@ -598,7 +607,7 @@ Begin with downloading the migration script using below command
 
 ```
 
-curl -fsSL -o migrate.sh https://raw.githubusercontent.com/makeplane/plane/master/deployments/cli/community/migration-0.13-0.14.sh
+curl -fsSL -o migrate.sh https://raw.githubusercontent.com/nizarcan/plane-rs/main/deployments/cli/community/migration-0.13-0.14.sh
 
 chmod +x migrate.sh
 

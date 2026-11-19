@@ -1,0 +1,86 @@
+{{/*
+Copyright (c) 2023-present Plane Software, Inc. and contributors
+SPDX-License-Identifier: AGPL-3.0-only
+See the LICENSE file for details.
+*/}}
+{{/* Bucket creation for the bundled MinIO. The api's create_bucket boot step
+does the same thing idempotently, but it runs once at pod start: if the api
+started before MinIO was ready, the step logs a warning (create_bucket never
+fails the boot) and the bucket would be missing until the next restart. This
+post-install/post-upgrade hook closes that window. It is a hook, not a regular
+Job, so it also reruns after an upgrade; `before-hook-creation` replaces the
+previous attempt.
+
+The name carries a checksum of the image, bucket and endpoint: a Job's pod
+template is immutable, and under ArgoCD (which renders with `helm template`)
+the Helm hook becomes a PostSync hook where relying only on the delete policy
+would hide an unpatched change behind an apply error. A changed input creates a
+new hook Job; an identical one keeps its name and is recreated by
+`before-hook-creation`. Old Jobs are removed by ttlSecondsAfterFinished. */}}
+{{- if and .Values.minio.bundled .Values.minio.createBucket }}
+{{- $endpoint := include "plane-rs.objectStorageEndpoint" . -}}
+{{- $suffix := include "plane-rs.hash8" (dict "image" .Values.minio.image "bucket" .Values.objectStorage.bucket "endpoint" $endpoint) -}}
+{{- $full := include "plane-rs.fullname" . | trunc 39 | trimSuffix "-" -}}
+{{- $name := printf "%s-minio-bucket-%s" $full $suffix -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "plane-rs.labels" (dict "ctx" $ "component" "minio") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "plane-rs.selectorLabels" (dict "ctx" $ "component" "minio-bucket") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mc
+          image: {{ .Values.minio.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              until mc alias set local "$ENDPOINT" "$ACCESS_KEY" "$SECRET_KEY"; do
+                echo "waiting for MinIO at $ENDPOINT"
+                sleep 2
+              done
+              until mc ready local; do sleep 2; done
+              mc mb --ignore-existing "local/$BUCKET"
+          env:
+            - name: ENDPOINT
+              value: {{ $endpoint | quote }}
+            - name: BUCKET
+              value: {{ .Values.objectStorage.bucket | quote }}
+            - name: ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "plane-rs.objectStorageSecretName" . }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "plane-rs.objectStorageSecretName" . }}
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+{{- end }}
