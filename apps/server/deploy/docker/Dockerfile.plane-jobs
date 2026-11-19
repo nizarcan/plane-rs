@@ -48,6 +48,16 @@ WORKDIR /build/apps/server
 COPY apps/server/Cargo.toml apps/server/Cargo.lock apps/server/routes.json ./
 COPY apps/server/crates ./crates
 COPY apps/server/bins ./bins
+# `[patch.crates-io] zxcvbn = { path = "vendor/zxcvbn" }` (Cargo.toml): the
+# workspace does not build without the vendored crate, and it is a separate
+# workspace (excluded above), so it has to be copied explicitly.
+COPY apps/server/vendor ./vendor
+# `plane-migrator` embeds the Django baseline (`deploy/schema/baseline.sql` and
+# `django_migrations.txt`, `bins/plane-migrator/src/schema.rs`) and the worker
+# links the same crates as the api, so both committed `deploy/` inputs are
+# compile-time dependencies.
+COPY apps/server/deploy/openapi ./deploy/openapi
+COPY apps/server/deploy/schema ./deploy/schema
 COPY apps/api/templates/csrf_failure.html /build/apps/api/templates/csrf_failure.html
 
 ARG CARGO_BUILD_JOBS=2

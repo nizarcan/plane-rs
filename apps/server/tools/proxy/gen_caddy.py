@@ -92,7 +92,12 @@ DEFAULT_PRODUCTION_CADDYFILE = REPO_ROOT / "apps" / "proxy" / "Caddyfile.ce"
 # paths Caddyfile.ce sends here can ever be served by this fragment: everything
 # else goes to a frontend, MinIO or the web app, so a Rust matcher for one of
 # those paths would shadow that upstream instead of taking over an API route.
-API_UPSTREAM = "api:8000"
+# The production Caddyfile names its API upstream `plane-api:8000` after the
+# Phase 8 cutover; `api:8000` is the pre-cutover Django service name and stays
+# accepted so an older checkout or a coexistence deployment still generates the
+# same fragment.
+API_UPSTREAMS = ("api:8000", "plane-api:8000")
+API_UPSTREAM = "plane-api:8000"
 REVERSE_PROXY_RE = re.compile(r"^\s*reverse_proxy\s+(?P<matcher>\S+)\s+(?P<upstream>\S+)\s*$")
 
 UPSTREAM_PLACEHOLDER = "{$PLANE_RS_API_UPSTREAM:plane-api:8000}"
@@ -170,7 +175,7 @@ def load_owners(path: Path) -> dict[tuple[str, str, str], tuple[str, str]]:
 
 
 def api_path_matchers(path: Path = DEFAULT_PRODUCTION_CADDYFILE) -> tuple[str, ...]:
-    """Path matchers ``Caddyfile.ce`` sends to ``api:8000``, in file order.
+    """Path matchers ``Caddyfile.ce`` sends to the API, in file order.
 
     This is the gate on what Rust may take over. The production Caddyfile is the
     single source of truth for the split, so it is parsed instead of hard-coding
@@ -192,7 +197,7 @@ def api_path_matchers(path: Path = DEFAULT_PRODUCTION_CADDYFILE) -> tuple[str, .
     matchers: list[str] = []
     for line in text.splitlines():
         match = REVERSE_PROXY_RE.match(line)
-        if match is None or match.group("upstream") != API_UPSTREAM:
+        if match is None or match.group("upstream") not in API_UPSTREAMS:
             continue
         matcher = match.group("matcher")
         if not matcher.startswith("/"):
@@ -202,7 +207,8 @@ def api_path_matchers(path: Path = DEFAULT_PRODUCTION_CADDYFILE) -> tuple[str, .
 
     if not matchers:
         raise SystemExit(
-            f"{display_path(path)} has no `reverse_proxy <path> {API_UPSTREAM}` "
+            f"{display_path(path)} has no `reverse_proxy <path> api:8000` or "
+            f"`reverse_proxy <path> {API_UPSTREAM}` "
             "line; cannot tell which paths the production proxy sends to the API"
         )
     return tuple(matchers)
@@ -618,7 +624,8 @@ def build_plan(
                     f"error: {route['path']} ({group.name} group) is marked "
                     f"{owner_cell} in the Owner column, but the production proxy "
                     f"({display_path(DEFAULT_PRODUCTION_CADDYFILE)}) sends only "
-                    f"{explain_api_paths(api_matchers)} to {API_UPSTREAM}; "
+                    f"{explain_api_paths(api_matchers)} to {API_UPSTREAM} (the "
+                    "production Caddyfile); "
                     f"{route['path']} never reaches the API. Refusing to emit a "
                     "matcher that would hijack a non-API path."
                 )

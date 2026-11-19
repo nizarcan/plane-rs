@@ -12,7 +12,7 @@ The AIO image contains the following services:
 - **Space** (internal port 3002): Public project spaces at `/spaces`
 - **API Server** (internal port 3004): Backend API at `/api` and `/auth`
 - **Live Server** (internal port 3005): Real-time collaboration at `/live`
-- **Worker & Beat**: Background task processing
+- **Worker & Beat**: Rust `plane-worker` and `plane-beat`; the queue is the Postgres-backed `plane_jobs` table, there is no RabbitMQ
 - **Migrator**: Runs database migrations at startup
 
 ## Prerequisites
@@ -23,7 +23,6 @@ The AIO image requires these external services to be running:
 
 - **PostgreSQL Database**: For data storage
 - **Redis**: For caching and session management
-- **RabbitMQ**: For message queuing
 - **S3-Compatible Storage**: For file uploads (AWS S3 or MinIO)
 
 ### Required Environment Variables
@@ -35,8 +34,7 @@ You must provide these environment variables:
 - `DOMAIN_NAME`: Your domain name or IP address
 - `DATABASE_URL`: PostgreSQL connection string
 - `REDIS_URL`: Redis connection string
-- `AMQP_URL`: RabbitMQ connection string
-- `SECRET_KEY`: Django secret key (see [Security & Secrets](#security--secrets))
+- `SECRET_KEY`: secret key for sessions and encrypted instance settings (see [Security & Secrets](#security--secrets))
 - `LIVE_SERVER_SECRET_KEY`: Live server secret (see [Security & Secrets](#security--secrets))
 
 #### Storage Configuration
@@ -57,7 +55,6 @@ docker run --name plane-aio --rm -it \
     -e DOMAIN_NAME=your-domain.com \
     -e DATABASE_URL=postgresql://user:pass@host:port/database \
     -e REDIS_URL=redis://host:port \
-    -e AMQP_URL=amqp://user:pass@host:port/vhost \
     -e AWS_REGION=us-east-1 \
     -e AWS_ACCESS_KEY_ID=your-access-key \
     -e AWS_SECRET_ACCESS_KEY=your-secret-key \
@@ -76,7 +73,6 @@ docker run --name myaio --rm -it \
     -e DOMAIN_NAME=${MYIP} \
     -e DATABASE_URL=postgresql://plane:plane@${MYIP}:15432/plane \
     -e REDIS_URL=redis://${MYIP}:16379 \
-    -e AMQP_URL=amqp://plane:plane@${MYIP}:15673/plane \
     -e AWS_REGION=us-east-1 \
     -e AWS_ACCESS_KEY_ID=5MV45J9NF5TEFZWYCRAX \
     -e AWS_SECRET_ACCESS_KEY=7xMqAiAHsf2UUjMH+EwICXlyJL9TO30m8leEaDsL \
@@ -99,7 +95,7 @@ docker run --name myaio --rm -it \
 
 #### Security & Secrets
 
-- `SECRET_KEY` (required): Django secret key. It also encrypts saved instance settings, so keep the same value across restarts and container recreation. No default is provided and none is generated.
+- `SECRET_KEY` (required): secret key for sessions and encrypted instance settings. It also encrypts saved instance settings, so keep the same value across restarts and container recreation. No default is provided and none is generated.
 - `LIVE_SERVER_SECRET_KEY` (required): Live server secret. No default is provided and none is generated.
 
 Set both to unique, private values, either in `plane.env` (`variables.env`) or as environment variables. The container exits at startup if either is empty or still set to a default/placeholder value.
@@ -179,7 +175,7 @@ The container will validate required environment variables on startup and displa
 
 ### Environment variable precedence
 
-At startup the container writes the variables above into `/app/plane.env` and then exports every line of that file. Variables that the start script does not manage (`CERT_EMAIL`, `CERT_ACME_CA`, `CERT_ACME_DNS`, `DEBUG`, `GUNICORN_WORKERS`, `AUTHENTICATION_RATE_LIMIT`, `MINIO_ENDPOINT_SSL`, `WEBHOOK_ALLOWED_IPS`, `WEBHOOK_ALLOWED_HOSTS`, `API_BASE_URL`) keep the value from `/app/plane.env`, even if you pass them with `-e`. To change them, mount your own copy of the file: `-v /path/to/plane.env:/app/plane.env`.
+At startup the container writes the variables above into `/app/plane.env` and then exports every line of that file. Variables that the start script does not manage (`CERT_EMAIL`, `CERT_ACME_CA`, `CERT_ACME_DNS`, `DEBUG`, `AUTHENTICATION_RATE_LIMIT`, `PLANE_RS_JOB_*`, `MINIO_ENDPOINT_SSL`, `WEBHOOK_ALLOWED_IPS`, `WEBHOOK_ALLOWED_HOSTS`, `API_BASE_URL`) keep the value from `/app/plane.env`, even if you pass them with `-e`. To change them, mount your own copy of the file: `-v /path/to/plane.env:/app/plane.env`.
 
 ## Production Considerations
 

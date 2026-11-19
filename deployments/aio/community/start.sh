@@ -7,7 +7,7 @@ print_header(){
     echo "------------------------------------------------"
     echo ""
     echo "You are required to pass below environment variables to the script"
-    echo "    DOMAIN_NAME, DATABASE_URL, REDIS_URL, AMQP_URL"
+    echo "    DOMAIN_NAME, DATABASE_URL, REDIS_URL"
     echo "    AWS_REGION, AWS_ACCESS_KEY_ID"
     echo "    AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET_NAME"
     echo ""
@@ -24,7 +24,7 @@ print_header(){
 
 check_required_env(){
     echo "Checking required environment variables..."
-    local keys=("DOMAIN_NAME" "DATABASE_URL" "REDIS_URL" "AMQP_URL" 
+    local keys=("DOMAIN_NAME" "DATABASE_URL" "REDIS_URL"
                 "AWS_REGION" "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "AWS_S3_BUCKET_NAME")
     
     local missing_keys=()
@@ -185,7 +185,6 @@ update_env_file(){
     update_env_value "REDIS_URL" "$REDIS_URL"
     update_env_value "REDIS_SSL_CERT_REQS" "$REDIS_SSL_CERT_REQS"
     update_env_value "REDIS_SSL_CA_CERTS" "$REDIS_SSL_CA_CERTS"
-    update_env_value "AMQP_URL" "$AMQP_URL"
     
     # update aws credentials
     update_env_value "AWS_REGION" "$AWS_REGION"

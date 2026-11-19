@@ -29,9 +29,10 @@
 # indentation so `diff apps/proxy/Caddyfile.ce deploy/caddy/Caddyfile.coexist`
 # shows only the two structural changes.
 #
-# Production deployments keep using apps/proxy/Caddyfile.ce until cutover; this
-# file is the drop-in replacement for the transition and is what the CI
-# `caddy validate` step checks.
+# AFTER THE PHASE 8 CUTOVER THIS FILE IS DEV/HARNESS ONLY. The shipped proxy
+# (`apps/proxy/Caddyfile.ce`) routes /api/*, /auth/* and /static/* straight to
+# plane-api and does not import this fragment. This file remains for the
+# differential harness and `caddy validate`; see deploy/caddy/README.md.
 #
 # Rust upstream override: PLANE_RS_API_UPSTREAM (default plane-api:8000, the
 # service name in docker-compose.yml and the CE Helm chart). See

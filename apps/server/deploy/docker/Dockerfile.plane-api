@@ -61,6 +61,14 @@ WORKDIR /build/apps/server
 COPY apps/server/Cargo.toml apps/server/Cargo.lock apps/server/routes.json ./
 COPY apps/server/crates ./crates
 COPY apps/server/bins ./bins
+# `[patch.crates-io] zxcvbn = { path = "vendor/zxcvbn" }` (Cargo.toml): the
+# workspace does not build without the vendored crate, and it is a separate
+# workspace (excluded above), so it has to be copied explicitly.
+COPY apps/server/vendor ./vendor
+# `plane-http-app` embeds the committed OpenAPI document and the Swagger/ReDoc
+# pages (`crates/plane-http-app/src/openapi/`), so the `deploy/openapi`
+# directory is a compile-time input of the api binary.
+COPY apps/server/deploy/openapi ./deploy/openapi
 COPY apps/api/templates/csrf_failure.html /build/apps/api/templates/csrf_failure.html
 
 # The benchmark VM has 2 vCPUs and ~1.9 GB of RAM shared with the database
@@ -103,6 +111,13 @@ COPY --from=builder /out/plane-api /usr/local/bin/plane-api
 # semantics when `PLANE_RS_BIND` is unset (ENV.md), so compose can keep setting
 # only `PORT`.
 ENV PORT=8000
+
+# The Python image bakes the changelog URL in (`apps/api/Dockerfile.api:10`) and
+# `/api/instances/` returns it as `config.instance_changelog_url`; the Rust
+# image must carry the same value, otherwise an unset deployment variable would
+# change the response (`plans/CUTOVER.md` §5, "Env"). An operator can still
+# override it at run time, exactly as with the Django image.
+ENV INSTANCE_CHANGELOG_URL=https://sites.plane.so/pages/691ef037bcfe416a902e48cb55f59891/
 
 # mimalloc (DECISIONS.md D3) keeps a freed segment for `purge_delay`
 # milliseconds before returning it to the OS; mimalloc's own default is 10 ms,

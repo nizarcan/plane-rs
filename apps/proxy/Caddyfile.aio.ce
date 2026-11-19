@@ -18,6 +18,13 @@
         reverse_proxy localhost:3004
     }
 
+    # Deliberate Phase 8 fix (`plans/CUTOVER.md` §5): the AIO Caddyfile never
+    # had a /static/* handle, so invitation-email logos 404ed. plane-api serves
+    # the same eight files Django's collectstatic used to.
+    handle /static/* {
+        reverse_proxy localhost:3004
+    }
+
 	handle_path /god-mode* {
         root * /app/admin
         try_files {path} {path}/ /index.html
