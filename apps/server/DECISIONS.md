@@ -712,6 +712,25 @@ workspace `Cargo.toml` and upgrade deliberately.
   `plane_jobs` row and is compared as `(task, args, kwargs)` (D28). A default `--once`
   still drains everything.
 
+## D33. Webhook delivery: one unavoidable difference in `WebhookLog.response_headers` (decided 2026-11-19)
+
+- `crates/plane-tasks/src/webhook` ports `webhook_task` (model activity, fan-out,
+  `get_model_data` per entity, the `requests` JSON body and HMAC `X-Plane-Signature`,
+  a `WebhookLog` row per attempt with Python `repr()` columns, retry 0–600 s × 5,
+  deactivation and its e-mail). Retries are proven attempt by attempt: `difftest task`
+  runs one attempt through Celery's own tracer (`request.retries = n - 1`) and the
+  matching job attempt on the Rust side.
+- `webhook_logs.response_headers` is `str(requests.headers)`, whose keys keep the
+  remote's wire spelling. The Rust client can't recover it: `http::HeaderName` is
+  lower-case by construction, reqwest 0.13.5 has no response-side case preservation,
+  and hyper 1.12.0's `preserve_header_case` stores a `pub(crate)` `HeaderCaseMap` that
+  can't be read. Recovering it would need a second HTTP/1 parser, outside D9. Rust
+  writes canonical title case, so the column differs only for non-canonical spellings
+  (nginx `ETag`, Cloudflare `cf-*`, custom lower-case names); values, order, merging and
+  every decision the task makes are identical. Also: `response_body` for a transport
+  error is reqwest's `Display` text, not `requests`' message (D9's accepted error-text
+  difference).
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

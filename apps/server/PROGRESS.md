@@ -2269,9 +2269,29 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        uncoerced data (`"3"` vs `3` fires); deactivation mail never sends for
        API-created webhooks and ignores `reason`.
 
-   Running: the orchestrator's verification of `f4e33cc6e2` (A2); set B part 2
-   (`rs/p8-b`: webhook retry/deactivation cases, header casing, 12, 13, all sweeps,
-   A2's one-job mechanism; 18020/18120, Redis 5/6, contract Redis 15, SMTP 18410–18417);
+   - **Phase 8 set B part 2 on its branch (`8ae6eb5898`).** Switched 12
+     `stack_email_notification` (beat entry in `RUST_SCHEDULES`) and 13
+     `send_email_notification` (Redis lock, `issue-updates` template with `slice`/`add`/
+     `striptags`); webhook retry/deactivation proven per attempt through Celery's tracer
+     (D33); A2's one-job mechanism adopted. **Found by the full sweep:** after 36 moved,
+     the auth adapter still published `user_activation_email` straight to Celery, so the
+     e-mail was dropped; now routed through `dispatch`. Agent: 208/208 task cases, read
+     52/52, write 75/75, OAuth, SMTP, both beat scripts, contract 984/2, 1402 tests.
+     - `response_headers` casing: investigated, accepted (D33).
+     - **Not accepted:** `plane_jobs` payloads are `jsonb`, so dict key order is lost
+       between Rust tasks (multi-actor notification e-mails list actors in uuid order;
+       41 needed a per-serializer reorder). Fix in the transport assigned (part 3).
+     - The orchestrator's merge of `rs/p8-b` into `rust-rewrite` hit 9 semantic conflicts
+       (both B and A2 implemented `drain_n`, bs4 attribute matching, the task runner);
+       aborted, and `rust-rewrite` merged into `rs/p8-b` instead for part 3 to resolve.
+     - Upstream kept: `activity_time` guard on the literal `"actor_id"` (last wins, and
+       an empty change raises `KeyError`); the missing-base-URL branch leaks the Redis
+       lock; `avatar_url` `None` interpolated; HTML left in `Subject:`; receiver order
+       from `set()`; the retry raises a bare `RequestException()`.
+
+   Running: the orchestrator's verification of `f4e33cc6e2` (A2); set B part 3
+   (`rs/p8-b`: the A2 merge, order-preserving queue payloads; 18020/18120, Redis 5/6,
+   contract Redis 15);
    start-up + `plane-migrator` (`rs/p8-boot`: §3 and §4 of `plans/CUTOVER.md`, with
    `push_instance_metrics` not ported by default as one marked point; 18030/18130,
    Redis 7/8, contract Redis 9). Deployment and the exit check (§5) follow.
