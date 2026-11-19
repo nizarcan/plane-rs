@@ -53,9 +53,13 @@ COPY --from=proxy-img /usr/bin/caddy /usr/bin/caddy
 COPY dist/Caddyfile /app/proxy/Caddyfile
 
 COPY --from=api-img /usr/local/bin/plane-api /usr/local/bin/plane-api
-COPY --from=worker-img /usr/local/bin/plane-worker /usr/local/bin/plane-worker
-COPY --from=beat-img /usr/local/bin/plane-beat /usr/local/bin/plane-beat
-COPY --from=migrator-img /usr/local/bin/plane-migrator /usr/local/bin/plane-migrator
+# The published jobs images all use the Dockerfile's default `image` stage,
+# whose binary is `/usr/local/bin/plane-jobs` (the role is selected by the
+# `JOBS_BINARY` build argument). Rename it back to the path supervisor.conf
+# and the compose stacks use.
+COPY --from=worker-img /usr/local/bin/plane-jobs /usr/local/bin/plane-worker
+COPY --from=beat-img /usr/local/bin/plane-jobs /usr/local/bin/plane-beat
+COPY --from=migrator-img /usr/local/bin/plane-jobs /usr/local/bin/plane-migrator
 
 RUN mkdir -p /etc/supervisor/conf.d
 
