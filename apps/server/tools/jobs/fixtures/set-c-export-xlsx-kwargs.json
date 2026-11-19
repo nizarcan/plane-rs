@@ -1,0 +1,8 @@
+{
+  "provider": "xlsx",
+  "workspace_id": "e0000000-0000-4000-8000-000000000010",
+  "project_ids": ["e0000000-0000-4000-8000-000000000011"],
+  "token_id": "export-xlsx-single",
+  "multiple": false,
+  "slug": "p8c-export"
+}

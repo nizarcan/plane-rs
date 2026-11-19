@@ -72,15 +72,18 @@ database survives between runs (fast iterations, stale rows possible); pass
 Tests that patch a Celery task's `.delay` assert on the Python call. A Rust
 handler publishes a real AMQP message instead (or, for a Rust-owned task,
 enqueues a `plane_jobs.jobs` row), so after every Rust-bound request the
-plugin drains the run's own RabbitMQ vhost and the queue table and, for each message
-whose task's `.delay` is currently a `Mock` (`unittest.mock.patch("…delay")`
-replaces the attribute on the shared task object), calls that mock with the
-message's args and kwargs, with kombu's UUID envelopes restored to
-`uuid.UUID`. Messages for tasks that are not mocked are dropped: Django's own
-request would only have published them too, and nothing in the test consumes
-them. Cache *state* assertions need no special handling — Django and Rust share
-the same Redis database, and Rust performs the same cache writes a Django
-request would. A test that patches a cache method itself
+plugin drains the run's own RabbitMQ vhost and reads the queue rows the
+request inserted (bounded by a `created_at` watermark taken before the
+request). For each message or row whose task's `.delay` is currently a `Mock`
+(`unittest.mock.patch("…delay")` replaces the attribute on the shared task
+object), it calls that mock with the delivery's args and kwargs, with kombu's
+UUID envelopes restored to `uuid.UUID`; a `plane_jobs` row already stores the
+Python values (`Job::from_message`). Deliveries for tasks that are not mocked
+are dropped: Django's own request would only have published them too, and
+nothing in the test consumes them. Cache *state*
+assertions need no special handling — Django and Rust share the same Redis
+database, and Rust performs the same cache writes a Django request would. A
+test that patches a cache method itself
 (`patch.object(cache, "incr", side_effect=…)`) wants an in-process Python call
 Rust cannot make; `_local_mock_reason` detects that, like the patched storage
 wrappers, OAuth provider classes and throttle rates, and serves the request
@@ -958,48 +961,16 @@ def _drain_and_replay(admin: RabbitAdmin, record: TestRecord) -> None:
             kwargs = body[1] or {}
         else:
             continue
-        _replay_task(task_name, args, kwargs, record)
+        _replay_call(record, task_name, _decode_kombu(args), _decode_kombu(kwargs))
 
 
-def _drain_jobs_and_replay(record: TestRecord) -> None:
-    """Replay rows the Rust route enqueued into `plane_jobs.jobs`.
+def _replay_call(record: TestRecord, task_name: str, args: Any, kwargs: Any) -> None:
+    """Hand one published delivery to a patched `.delay`, if the test has one.
 
-    A Rust-owned task is inserted into the Postgres queue instead of RabbitMQ
-    (`DECISIONS.md` D25), so the AMQP drain above cannot see it. The contract
-    suite still asserts on a patched `.delay`, so the row is replayed the same
-    way; the rows are deleted afterwards (the transport is not an effect, and
-    no worker runs in a contract run).
+    `args`/`kwargs` are Python runtime values: a RabbitMQ message is decoded
+    from kombu's JSON envelope first, a `plane_jobs` row already stores them
+    (`Job::from_message`).
     """
-    from django.db import connection
-
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT task, payload::text FROM plane_jobs.jobs "
-                "WHERE state IN ('queued', 'running', 'done') "
-                "ORDER BY created_at, id"
-            )
-            rows = cursor.fetchall()
-            if rows:
-                cursor.execute(
-                    "DELETE FROM plane_jobs.jobs "
-                    "WHERE state IN ('queued', 'running', 'done')"
-                )
-    except Exception as error:  # noqa: BLE001 - reported as a limitation
-        record.limitations.append(f"cannot read plane_jobs.jobs: {error!r}")
-        return
-    for task_name, payload_text in rows:
-        try:
-            payload = json.loads(payload_text)
-        except (TypeError, ValueError):
-            continue
-        args = payload.get("args") or []
-        kwargs = payload.get("kwargs") or {}
-        _replay_task(task_name, args, kwargs, record)
-
-
-def _replay_task(task_name: str, args: Any, kwargs: Any, record: TestRecord) -> None:
-    """Hand one published task to the test's `.delay` mock or eager runner."""
     module_name, _, attribute = task_name.rpartition(".")
     try:
         task = getattr(importlib.import_module(module_name), attribute)
@@ -1023,7 +994,7 @@ def _replay_task(task_name: str, args: Any, kwargs: Any, record: TestRecord) -> 
         call_sites = _call_site_mocks(attribute)
         if call_sites:
             for call_site in call_sites:
-                call_site.delay(*_decode_kombu(args), **_decode_kombu(kwargs))
+                call_site.delay(*args, **kwargs)
             STATE.replay_count += 1
             record.replayed.append(task_name)
             return
@@ -1038,16 +1009,67 @@ def _replay_task(task_name: str, args: Any, kwargs: Any, record: TestRecord) -> 
                     f"[plane-contract] replaying {task_name!r} eagerly",
                     file=sys.stderr,
                 )
-            delay(*_decode_kombu(args), **_decode_kombu(kwargs))
+            delay(*args, **kwargs)
             STATE.replay_count += 1
             record.replayed.append(task_name)
             return
         # Not patched and not eager: Django would only have published the
         # message too, and nothing in the test consumes it.
         return
-    delay(*_decode_kombu(args), **_decode_kombu(kwargs))
+    delay(*args, **kwargs)
     STATE.replay_count += 1
     record.replayed.append(task_name)
+
+
+def _job_watermark() -> Any:
+    """The newest `plane_jobs.jobs.created_at`, or `None` without the schema.
+
+    A Rust-owned task's delivery is a queue row, not a RabbitMQ message, so a
+    test that patches its `.delay` needs the same replay the message drain
+    does (`DECISIONS.md` D28). The watermark bounds the replay to the request
+    that just ran; rows are not deleted, and an earlier request's delivery is
+    never replayed again.
+    """
+    from django.db import connection
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT max(created_at) FROM plane_jobs.jobs")
+            row = cursor.fetchone()
+            return row[0] if row else None
+    except Exception:  # noqa: BLE001 - the schema is optional for a Django-only run
+        return None
+
+
+def _replay_jobs(record: TestRecord, since: Any) -> None:
+    """Replay the jobs a Rust request queued into a patched `.delay` mock."""
+    from django.db import connection
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT task, payload::text FROM plane_jobs.jobs "
+                "WHERE created_at > %s ORDER BY created_at, id",
+                [since or "1970-01-01T00:00:00+00:00"],
+            )
+            rows = cursor.fetchall()
+    except Exception:  # noqa: BLE001 - the schema is optional for a Django-only run
+        return
+    for task_name, payload in rows:
+        if not isinstance(task_name, str):
+            continue
+        try:
+            body = json.loads(payload) if isinstance(payload, str) else payload
+        except ValueError:
+            continue
+        if not isinstance(body, dict):
+            continue
+        _replay_call(
+            record,
+            task_name,
+            body.get("args") or [],
+            body.get("kwargs") or {},
+        )
 
 
 def _call_site_mocks(attribute: str) -> list[unittest.mock.Mock]:
@@ -1255,6 +1277,7 @@ def _dispatch_to_rust(client: Any, environ: dict[str, Any], route: RustRoute) ->
     if record is not None:
         record.rust.append(entry)
         record.limitations.extend(limitations)
+    job_watermark = _job_watermark()
     try:
         wire = STATE.session.request(
             method,
@@ -1274,7 +1297,7 @@ def _dispatch_to_rust(client: Any, environ: dict[str, Any], route: RustRoute) ->
     if record is not None:
         if STATE.rabbit is not None:
             _drain_and_replay(STATE.rabbit, record)
-        _drain_jobs_and_replay(record)
+        _replay_jobs(record, job_watermark)
     response = _build_response(client, environ, wire, route)
     # `Client.request`'s "Update persistent cookie data"
     # (`django/test/client.py:1104-1106`): `self.cookies.update(response.cookies)`.

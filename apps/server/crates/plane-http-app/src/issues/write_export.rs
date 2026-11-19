@@ -219,7 +219,7 @@ pub fn post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
             TaskArg::Json(multiple),
             slug.to_owned(),
         );
-        jobs::dispatch_task(ctx, message.task(), &message, Job::new(message.task())).await?;
+        jobs::dispatch_task(ctx, message.task(), &message, Job::from_message(&message)).await?;
 
         Ok(message_body(
             200,

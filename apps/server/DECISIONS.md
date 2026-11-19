@@ -560,6 +560,8 @@ workspace `Cargo.toml` and upgrade deliberately.
   that enqueues it is Rust.
 - `Job::from_message` is the only queue representation of a call site, so the queue
   payload is provably the Celery `(args, kwargs)`.
+  Every producer passes `Job::from_message(&message)`; `Job::new(task)` queues an empty
+  payload once the task is Rust-owned (found at 18 call sites in sets A3 and C).
 - Scenario sweeps drop A's Celery delivery for Rust-owned tasks; handler correctness is
   proven by `difftest task` (A = Django `task.apply()`, B = `plane-worker --once`),
   which compares the task's effects.
@@ -586,6 +588,12 @@ workspace `Cargo.toml` and upgrade deliberately.
   in `tools/jobs/run_django_task.py`, and the Rust side's switch is compiled only
   with a non-default `difftest` cargo feature, so a release worker can't read it.
 - Outgoing messages and jobs a task publishes are compared too (D25).
+  Both sides' `(task, args, kwargs)` are compared as Python values (A's kombu UUID
+  envelope decoded by the shared `python_value`), and a still Celery-owned delivery is
+  additionally compared as its raw wire JSON, `epoch` → `<EPOCH>` (amended with set C
+  part 4).
+- A UUID absent from that clone's before-snapshot is `<NEW-UUID>` in the diff; a
+  fixture UUID stays literal, so writing the wrong existing row is still caught.
 - Each table's inserted/deleted/updated rows are compared as multisets after
   normalisation (amended with set A3): both sides mint independent uuid4 primary keys,
   so primary-key order is not an effect.
@@ -627,6 +635,14 @@ workspace `Cargo.toml` and upgrade deliberately.
   `django_celery_beat_periodictask` row. A unit test fails if a listed entry's task is
   not Rust-owned. Rollback is removing the name from the list and re-enabling the
   Django row.
+- The contract plugin replays the `plane_jobs.jobs` rows a Rust request inserted into a
+  patched `.delay` mock, like RabbitMQ messages, so a test asserting `.delay` keeps
+  working when its task is Rust-owned. Contract baseline from set C: 984 passed /
+  2 failed (the two legacy file-asset POST mocks).
+- The beat handover's quiet window is timing-sensitive: `tools/jobs/beat_handover.sh`
+  failed three times under several parallel cargo builds and passed 3/3 on a quieter
+  host. The cutover runbook hands schedules over on an idle host and checks the first
+  Rust ticks.
 - The pipeline logs the cause of every 500 it renders at target `plane.exception`
   (no secrets), as Django's `log_exception` does.
 

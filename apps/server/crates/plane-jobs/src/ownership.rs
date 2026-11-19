@@ -24,20 +24,40 @@ use std::sync::LazyLock;
 /// `plans/CUTOVER.md` §2.
 pub const RUST_TASKS: &[&str] = &[
     "plane.jobs.echo",
-    "plane.bgtasks.recent_visited_task.recent_visited_task",
+    // Phase 8 set C: ExportAnalyticsEndpoint.post is a Rust route.
+    "plane.bgtasks.analytic_plot_export.analytic_export_task",
+    // Phase 8 set D: the only producer is a Django beat entry, which
+    // `plane-beat` takes over (`beat::RUST_SCHEDULES`).
     "plane.bgtasks.cleanup_task.delete_api_logs",
     "plane.bgtasks.cleanup_task.delete_email_notification_logs",
-    "plane.bgtasks.cleanup_task.delete_page_versions",
     "plane.bgtasks.cleanup_task.delete_issue_description_versions",
+    "plane.bgtasks.cleanup_task.delete_page_versions",
     "plane.bgtasks.cleanup_task.delete_webhook_logs",
+    // Phase 8 set C: PageDuplicateEndpoint.post (route 133) is a Rust route.
+    "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
+    // Phase 8 set D: `check-every-day-to-delete-hard-delete`.
     "plane.bgtasks.deletion_task.hard_delete",
+    // Phase 8 set C: the only producer is ExportIssuesEndpoint.post, a Rust route.
+    "plane.bgtasks.export_task.issue_export_task",
+    // Phase 8 set D: `check-every-day-to-archive-and-close` and
+    // `check-every-five-minutes-to-unsnooze-intake-issues`.
     "plane.bgtasks.issue_automation_task.archive_and_close_old_issues",
     "plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues",
+    // Phase 8 set D: `APITokenLogMiddleware`.
     "plane.bgtasks.logger_task.process_logs",
     "plane.bgtasks.issue_description_version_task.issue_description_version_task",
     "plane.bgtasks.page_transaction_task.page_transaction",
     "plane.bgtasks.page_version_task.track_page_version",
     "plane.bgtasks.deletion_task.soft_delete_related_objects",
+    "plane.bgtasks.recent_visited_task.recent_visited_task",
+    // Phase 8 set C: all ten producers are Rust HTTP routes.
+    "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
+    // Phase 8 set C: four producers, all Rust HTTP routes.
+    "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
+    // Phase 8 set C: WorkspaceViewSet.create (route 186) is a Rust route.
+    "plane.bgtasks.workspace_seed_task.workspace_seed",
+    // Phase 8 set A1: every producer is a Rust HTTP route, the Rust
+    // `archive_and_close_old_issues`, or `transfer_cycle_issues`.
     "plane.bgtasks.issue_activities_task.issue_activity",
 ];
 

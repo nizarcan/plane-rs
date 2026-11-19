@@ -14,9 +14,18 @@
 
 name: plane-rs-dev
 
+# Container logs are capped: the json-file driver keeps everything by default, and an
+# `ALTER SYSTEM SET log_statement = 'all'` left on Postgres once grew its log to 43 GB.
+x-logging: &capped-logs
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "2"
+
 services:
   postgres:
     image: postgres:15.7-alpine
+    logging: *capped-logs
     ports:
       - "127.0.0.1:55432:5432"
     environment:
@@ -59,6 +68,7 @@ services:
 
   valkey:
     image: valkey/valkey:7.2.11-alpine
+    logging: *capped-logs
     ports:
       - "127.0.0.1:56379:6379"
     # No persistence: this is a cache, a rate-limit store and the live server's
@@ -86,6 +96,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13.6-management-alpine
+    logging: *capped-logs
     ports:
       - "127.0.0.1:55672:5672"
       - "127.0.0.1:55673:15672"
@@ -111,6 +122,7 @@ services:
     # Silo is the maintained MinIO-compatible object store used by this
     # repository. The image ships both `silo` and `mc`.
     image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+    logging: *capped-logs
     ports:
       - "127.0.0.1:59000:9000"
       - "127.0.0.1:59090:9001"
@@ -162,6 +174,7 @@ services:
     # megabytes and 64 MB leaves room for a burst of proxied bodies.
     profiles: ["proxy"]
     image: caddy:2.11.4-alpine
+    logging: *capped-logs
     container_name: plane-rs-dev-proxy
     ports:
       - "127.0.0.1:18080:18080"

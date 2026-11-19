@@ -11,24 +11,37 @@
 //! [`JobContext`] (its own database connection and the decoded payload).
 //!
 //! **Payload shape.** [`plane_jobs::Job::from_message`] stores
-//! `{"args": [...], "kwargs": {...}}` with Python runtime values. A handler
-//! reads its keyword arguments from `payload["kwargs"]`, exactly as the
-//! Celery task received them, so a handler test can run against either
-//! representation.
+//! `{"args": [...], "kwargs": {...}}` with Python runtime values, plus
+//! `"uuid_args"`/`"uuid_kwargs"` naming the arguments that were `uuid.UUID`
+//! objects (a handler that re-publishes to Celery needs the type to recreate
+//! kombu's envelope; see `issue_activity`). A handler reads its keyword
+//! arguments from `payload["kwargs"]`, exactly as the Celery task received
+//! them, so a handler test can run against either representation.
 //!
 //! **Failure policy.** Django's tasks swallow every exception
 //! (`log_exception` + `return`, `TASKS.md:517-521`), so a handler returns
 //! `Ok(())` after logging a data error. Only `webhook_send_task` retries
 //! (`plane_jobs::policy`).
 
+pub mod analytic_export;
 pub mod automation;
+pub mod bs4;
+mod bs4_entities;
 pub mod cleanup;
+pub mod copy_s3_object;
 pub mod deletion;
+pub mod export_task;
+pub mod exporter_expired;
+pub mod file_asset;
+pub mod html;
 pub mod issue_activity;
 pub mod logs;
 pub mod model_graph;
 pub mod recent_visited;
+pub mod storage_metadata;
 pub mod versions;
+pub mod work_item_link;
+pub mod workspace_seed;
 
 use std::sync::Arc;
 
@@ -132,12 +145,20 @@ impl TaskContext {
 pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     let mut registry = TaskRegistry::new();
     recent_visited::register(&mut registry, Arc::clone(&context));
-    cleanup::register(&mut registry, Arc::clone(&context));
-    deletion::register(&mut registry, Arc::clone(&context));
+    analytic_export::register(&mut registry, Arc::clone(&context));
     automation::register(&mut registry, Arc::clone(&context));
+    cleanup::register(&mut registry, Arc::clone(&context));
+    copy_s3_object::register(&mut registry, Arc::clone(&context));
+    deletion::register(&mut registry, Arc::clone(&context));
+    export_task::register(&mut registry, Arc::clone(&context));
+    exporter_expired::register(&mut registry, Arc::clone(&context));
+    file_asset::register(&mut registry, Arc::clone(&context));
     logs::register(&mut registry, Arc::clone(&context));
     versions::register(&mut registry, Arc::clone(&context));
     issue_activity::register(&mut registry, Arc::clone(&context));
+    storage_metadata::register(&mut registry, Arc::clone(&context));
+    work_item_link::register(&mut registry, Arc::clone(&context));
+    workspace_seed::register(&mut registry, Arc::clone(&context));
     registry
 }
 
@@ -145,20 +166,28 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
 /// test. Keep in step with the `register` calls above.
 pub const REGISTERED_TASKS: &[&str] = &[
     recent_visited::TASK,
-    cleanup::DELETE_API_LOGS,
-    cleanup::DELETE_EMAIL_NOTIFICATION_LOGS,
-    cleanup::DELETE_PAGE_VERSIONS,
-    cleanup::DELETE_ISSUE_DESCRIPTION_VERSIONS,
-    cleanup::DELETE_WEBHOOK_LOGS,
-    deletion::SOFT_DELETE_RELATED_OBJECTS,
-    deletion::HARD_DELETE,
+    analytic_export::TASK,
     automation::ARCHIVE_AND_CLOSE,
     automation::UNSNOOZE,
+    cleanup::DELETE_API_LOGS,
+    cleanup::DELETE_EMAIL_NOTIFICATION_LOGS,
+    cleanup::DELETE_ISSUE_DESCRIPTION_VERSIONS,
+    cleanup::DELETE_PAGE_VERSIONS,
+    cleanup::DELETE_WEBHOOK_LOGS,
+    copy_s3_object::TASK,
+    deletion::HARD_DELETE,
+    deletion::SOFT_DELETE_RELATED_OBJECTS,
+    export_task::TASK,
+    exporter_expired::TASK,
+    file_asset::TASK,
     logs::TASK,
     versions::ISSUE_DESCRIPTION_VERSION,
     versions::PAGE_TRANSACTION,
     versions::TRACK_PAGE_VERSION,
     issue_activity::ISSUE_ACTIVITY,
+    storage_metadata::TASK,
+    work_item_link::TASK,
+    workspace_seed::TASK,
 ];
 
 /// Publish a task the way the Python call site's `.delay()` does.

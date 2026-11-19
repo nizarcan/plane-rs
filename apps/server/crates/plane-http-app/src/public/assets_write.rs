@@ -625,9 +625,14 @@ async fn publish_metadata_task(ctx: &ViewCtx<'_>, asset_id: Uuid) -> Result<(), 
     // routes' `asset_id=` kwarg form.
     let message =
         plane_jobs::celery::tasks::get_asset_object_metadata_positional(asset_id.to_string());
-    crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await
-        .map(|_| ())
+    crate::common::jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await
+    .map(|_| ())
 }
 
 fn integrity(error: tokio_postgres::Error) -> ViewError {

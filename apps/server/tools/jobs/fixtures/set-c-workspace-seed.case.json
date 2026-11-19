@@ -1,0 +1,79 @@
+{
+  "task": "plane.bgtasks.workspace_seed_task.workspace_seed",
+  "sql": [
+    {
+      "label": "bot_user",
+      "query": "SELECT username, display_name, first_name, last_name, is_bot::text, bot_type, is_email_valid::text, is_password_autoset::text, email, (password LIKE 'pbkdf2_sha256$1000000$%')::text FROM users WHERE is_bot ORDER BY username"
+    },
+    {
+      "label": "counts",
+      "query": "SELECT 'projects', count(*)::text FROM projects UNION ALL SELECT 'project_members', count(*)::text FROM project_members UNION ALL SELECT 'project_user_properties', count(*)::text FROM project_user_properties UNION ALL SELECT 'states', count(*)::text FROM states UNION ALL SELECT 'labels', count(*)::text FROM labels UNION ALL SELECT 'cycles', count(*)::text FROM cycles UNION ALL SELECT 'modules', count(*)::text FROM modules UNION ALL SELECT 'issues', count(*)::text FROM issues UNION ALL SELECT 'issue_sequences', count(*)::text FROM issue_sequences UNION ALL SELECT 'issue_activities', count(*)::text FROM issue_activities UNION ALL SELECT 'issue_labels', count(*)::text FROM issue_labels UNION ALL SELECT 'cycle_issues', count(*)::text FROM cycle_issues UNION ALL SELECT 'module_issues', count(*)::text FROM module_issues UNION ALL SELECT 'issue_views', count(*)::text FROM issue_views UNION ALL SELECT 'pages', count(*)::text FROM pages UNION ALL SELECT 'project_pages', count(*)::text FROM project_pages ORDER BY 1"
+    },
+    {
+      "label": "membership",
+      "query": "SELECT u.username, wm.role::text, wm.company_role, wm.is_active::text, wm.created_by_id IS NULL, wm.updated_by_id IS NULL FROM workspace_members wm JOIN users u ON u.id = wm.member_id ORDER BY u.username"
+    },
+    {
+      "label": "projects",
+      "query": "SELECT p.name, p.identifier, p.network::text, p.cycle_view::text, p.module_view::text, p.issue_views_view::text, p.page_view::text, p.timezone, p.created_by_id = u.id, u.username FROM projects p JOIN users u ON u.id = p.created_by_id ORDER BY p.name"
+    },
+    {
+      "label": "project_members",
+      "query": "SELECT pm.project_id <> '00000000-0000-0000-0000-000000000000'::uuid, u.username, pm.role::text, pm.sort_order::text, pm.is_active::text, pm.preferences::text, pm.created_by_id = bot.id FROM project_members pm JOIN users u ON u.id = pm.member_id CROSS JOIN (SELECT id FROM users WHERE is_bot) bot ORDER BY u.username"
+    },
+    {
+      "label": "states",
+      "query": "SELECT name, slug, sequence::text, \"group\", \"default\"::text, color, description, created_by_id = (SELECT id FROM users WHERE is_bot) FROM states ORDER BY sequence"
+    },
+    {
+      "label": "labels",
+      "query": "SELECT name, color, sort_order::text, description, created_by_id = (SELECT id FROM users WHERE is_bot) FROM labels ORDER BY sort_order"
+    },
+    {
+      "label": "cycles",
+      "query": "SELECT name, sort_order::text, version::text, timezone, (end_date - start_date)::text, (start_date::date - (lag(end_date) OVER (ORDER BY sort_order))::date)::text FROM cycles ORDER BY sort_order"
+    },
+    {
+      "label": "modules",
+      "query": "SELECT name, status, sort_order::text, (target_date - start_date)::text, (start_date - min(start_date) OVER ())::text, description, logo_props::text FROM modules ORDER BY sort_order"
+    },
+    {
+      "label": "issues",
+      "query": "SELECT i.name, i.sequence_id::text, i.sort_order::text, i.priority, s.name, (i.completed_at IS NOT NULL)::text, (i.project_id = p.id AND i.workspace_id = p.workspace_id)::text, i.created_by_id = (SELECT id FROM users WHERE is_bot) FROM issues i JOIN states s ON s.id = i.state_id JOIN projects p ON p.id = i.project_id ORDER BY i.sequence_id"
+    },
+    {
+      "label": "issue_sequences",
+      "query": "SELECT i.name, string_agg(seq.sequence::text, ',' ORDER BY seq.sequence DESC, seq.id) FROM issue_sequences seq JOIN issues i ON i.id = seq.issue_id GROUP BY i.name ORDER BY i.name"
+    },
+    {
+      "label": "issue_activities",
+      "query": "SELECT i.name, a.verb, a.comment, (a.attachments = '{}'::varchar[])::text, a.actor_id = (SELECT id FROM users WHERE is_bot), (a.created_by_id IS NULL)::text FROM issue_activities a JOIN issues i ON i.id = a.issue_id ORDER BY i.name"
+    },
+    {
+      "label": "issue_labels",
+      "query": "SELECT i.name, l.name, (il.created_by_id IS NULL)::text FROM issue_labels il JOIN issues i ON i.id = il.issue_id JOIN labels l ON l.id = il.label_id ORDER BY i.name, l.name"
+    },
+    {
+      "label": "issue_cycles",
+      "query": "SELECT i.name, c.name, (ci.created_by_id IS NULL)::text FROM cycle_issues ci JOIN issues i ON i.id = ci.issue_id JOIN cycles c ON c.id = ci.cycle_id ORDER BY i.name"
+    },
+    {
+      "label": "issue_modules",
+      "query": "SELECT i.name, m.name, (mi.created_by_id IS NULL)::text FROM module_issues mi JOIN issues i ON i.id = mi.issue_id JOIN modules m ON m.id = mi.module_id ORDER BY i.name, m.name"
+    },
+    {
+      "label": "views",
+      "query": "SELECT v.name, v.description, v.access::text, v.sort_order::text, v.query::text, v.filters::text, v.rich_filters::text, v.is_locked::text, v.owned_by_id = (SELECT id FROM users WHERE is_bot), v.created_by_id = (SELECT id FROM users WHERE is_bot) FROM issue_views v ORDER BY v.name"
+    },
+    {
+      "label": "pages",
+      "query": "SELECT pg.name, pg.access::text, pg.is_global::text, pg.description_json::text, pg.logo_props::text, pg.view_props::text, pg.sort_order::text, pg.owned_by_id = (SELECT id FROM users WHERE is_bot), pg.created_by_id = (SELECT id FROM users WHERE is_bot), pg.updated_by_id = (SELECT id FROM users WHERE is_bot), count(pp.id)::text FROM pages pg LEFT JOIN project_pages pp ON pp.page_id = pg.id GROUP BY pg.id ORDER BY pg.name"
+    }
+  ],
+  "normalize": [
+    {
+      "pattern": "pbkdf2_sha256\\$[^$]*\\$[^$]*\\$[^\"]*",
+      "replacement": "<PASSWORD>"
+    }
+  ]
+}

@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // See the LICENSE file for details.
 
-//! `difftest task`: one Celery task, executed by both backends, compared.
+//! `difftest task`: one Celery task, executed by both backends, its effects
+//! compared: database rows (the whole schema), the tasks each side publishes,
+//! S3 objects (bytes, content type, ACL) and the requests a task makes to a
+//! local fake HTTP server.
 //!
 //! A = the real Django task through `task.apply()` in-process
 //! (`tools/jobs/run_django_task.py`); B = a job enqueued into `plane_jobs` and
@@ -27,12 +30,35 @@
 //! `issue_activity` message is `<EPOCH>` for the same reason; the rest of the
 //! published arguments must match exactly.
 //!
+//! A generated value the task stores is compared structurally: a UUID that was
+//! not in that clone's before snapshot becomes `<NEW-UUID>`, and the case's own
+//! `normalize` rules (the same ones its SQL rows use) apply to the diff values
+//! too — a presigned URL normalises the same way everywhere. A fixture value
+//! stays literal, so writing the wrong one is still caught.
+//!
 //! ## Expected failures
 //!
 //! `--expect-django-failure`/`--expect-worker-failure` declare that the task
 //! itself is expected to fail (the upstream `hard_delete` `DO_NOTHING` bug,
 //! `plans/CUTOVER.md` §6). The DB effects committed before the failure are
 //! still compared, so B has to fail at the same statement.
+//!
+//! ## Case files
+//!
+//! The worker binary must be built with the `difftest` feature
+//! (`cargo build -p plane-worker --features difftest`) when a case drives the
+//! link crawler: its fake HTTP server lives on loopback, and the crawl
+//! handler's SSRF escape is compiled in only with that feature. A default
+//! worker ignores `PLANE_RS_DIFFTEST_ALLOW_LOOPBACK` by design
+//! (`crates/plane-tasks/Cargo.toml`).
+//!
+//! With `--case` the run adds what the task's case file names
+//! (`crate::task_case`): narrow SQL projections printed next to the
+//! whole-schema diff, two agent-owned S3 buckets the tool creates, seeds, reads
+//! and deletes, a `127.0.0.1` recorder whose responses the case scripts, and
+//! (with `"smtp": {}`) one `fake_smtp.py` listener per side. Without `--case`
+//! the whole-schema diff and the published-work comparison still apply, so the
+//! P0 fixtures keep working.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -42,6 +68,11 @@ use std::time::Duration;
 use crate::celery::{CeleryDrain, CeleryMessage, RabbitAdmin, amqp_url_with_vhost};
 use crate::db::{DbAdmin, DbDiff, diff_snapshots};
 use crate::redis::{RedisAdmin, RedisDiff, RedisSnapshotter, diff_snapshots as redis_diff};
+use crate::s3::S3Admin;
+use crate::task_case::{
+    Recorder, SmtpCase, TaskCase, compare_objects, compare_requests, compare_rows,
+    compare_smtp_logs,
+};
 use crate::util::{repo_root, validate_identifier};
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
@@ -81,6 +112,19 @@ pub struct TaskOptions {
     pub worker: Option<PathBuf>,
     /// Template database cloned for both sides.
     pub template_db: String,
+    /// Per-task comparison case (SQL queries, S3 capture, fake HTTP server).
+    pub case_path: Option<PathBuf>,
+    /// Dev MinIO endpoint for the S3 capture.
+    pub s3_endpoint: String,
+    pub s3_access_key: String,
+    pub s3_secret_key: String,
+    /// Bucket for the Django side. Both are created, seeded and deleted by
+    /// this tool; they must not be the shared `uploads` bucket.
+    pub s3_bucket_a: Option<String>,
+    pub s3_bucket_b: Option<String>,
+    /// `LIVE_BASE_URL` for both sides; `{{http}}` expands to the recorder's
+    /// base URL, so a case can answer `LIVE_URL/convert-document/`.
+    pub live_url: Option<String>,
     /// A substring of Django's failure, when the task is expected to fail.
     pub expect_django_failure: Option<String>,
     /// A substring of the worker's `last_error`, when it is expected to fail.
@@ -107,9 +151,148 @@ impl TaskOptions {
             rabbit_password: "plane".to_string(),
             worker: None,
             template_db: "plane_tpl".to_string(),
+            case_path: None,
+            s3_endpoint: "http://127.0.0.1:59000".to_string(),
+            s3_access_key: "access-key".to_string(),
+            s3_secret_key: "secret-key".to_string(),
+            s3_bucket_a: None,
+            s3_bucket_b: None,
+            live_url: None,
             expect_django_failure: None,
             expect_worker_failure: None,
         }
+    }
+}
+
+/// Replace `{{http}}` in every string of the kwargs with the recorder URL.
+fn substitute(value: &mut serde_json::Value, http: &str) {
+    match value {
+        serde_json::Value::String(text) => {
+            if text.contains("{{http}}") {
+                *text = text.replace("{{http}}", http);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                substitute(item, http);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                substitute(item, http);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The S3 half of a run: the admin client plus the two bucket names.
+struct S3Capture {
+    admin: S3Admin,
+    bucket_a: String,
+    bucket_b: String,
+}
+
+impl S3Capture {
+    async fn observe(
+        &self,
+    ) -> Result<(
+        Vec<crate::s3::ObservedObject>,
+        Vec<crate::s3::ObservedObject>,
+    )> {
+        let a = self.admin.observe(&self.bucket_a).await?;
+        let b = self.admin.observe(&self.bucket_b).await?;
+        Ok((a, b))
+    }
+
+    async fn cleanup(&self) {
+        let _ = self.admin.empty_bucket(&self.bucket_a).await;
+        let _ = self.admin.delete_bucket(&self.bucket_a).await;
+        let _ = self.admin.empty_bucket(&self.bucket_b).await;
+        let _ = self.admin.delete_bucket(&self.bucket_b).await;
+    }
+}
+
+/// The two `fake_smtp.py` listeners and their per-side instance-configuration
+/// rewriting.
+struct SmtpCapture {
+    a: SmtpListener,
+    b: SmtpListener,
+}
+
+struct SmtpListener {
+    child: std::process::Child,
+    path: PathBuf,
+    port: u16,
+}
+
+impl SmtpCapture {
+    fn start(case: &SmtpCase) -> Result<Self> {
+        let root = repo_root();
+        let script = root.join("apps/server/tools/mail/fake_smtp.py");
+        let python = root.join("apps/api/.venv/bin/python");
+        let dir = std::env::temp_dir().join(format!("plane-difftest-smtp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let start_one = |port: u16, name: &str| -> Result<SmtpListener> {
+            let path = dir.join(format!("{name}.jsonl"));
+            let _ = std::fs::remove_file(&path);
+            let child = std::process::Command::new(&python)
+                .arg(&script)
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--output")
+                .arg(&path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .with_context(|| format!("starting fake_smtp.py on {port}"))?;
+            Ok(SmtpListener { child, path, port })
+        };
+        let _ = case;
+        let a = start_one(18418, "a")?;
+        let b = start_one(18419, "b")?;
+        Ok(Self { a, b })
+    }
+
+    /// Point one clone's instance configuration at its listener.
+    async fn configure(&self, admin: &DbAdmin, database: &str, port: u16) -> Result<()> {
+        let client = admin.connect(database).await?;
+        let statements = [
+            ("EMAIL_HOST", "127.0.0.1".to_string()),
+            ("EMAIL_PORT", port.to_string()),
+            ("EMAIL_USE_TLS", "0".to_string()),
+            ("EMAIL_USE_SSL", "0".to_string()),
+            ("EMAIL_HOST_USER", String::new()),
+            ("EMAIL_HOST_PASSWORD", String::new()),
+            (
+                "EMAIL_FROM",
+                "Team Plane <team@mailer.plane.so>".to_string(),
+            ),
+        ];
+        for (key, value) in statements {
+            let sql = format!(
+                "UPDATE instance_configurations SET value = '{}' WHERE key = '{}'",
+                value.replace('\'', "''"),
+                key
+            );
+            client.execute(&sql, &[]).await?;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        for listener in [&mut self.a, &mut self.b] {
+            let _ = listener.child.kill();
+            let _ = listener.child.wait();
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SmtpCapture {
+    fn drop(&mut self) {
+        let _ = self.finish();
     }
 }
 
@@ -123,7 +306,7 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
     validate_identifier(&options.b_db)?;
     validate_identifier(&options.template_db)?;
     validate_identifier(&options.vhost)?;
-    let kwargs: serde_json::Value = serde_json::from_str(
+    let mut kwargs: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&options.kwargs_path)
             .with_context(|| format!("reading {}", options.kwargs_path.display()))?,
     )
@@ -134,6 +317,72 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
             options.kwargs_path.display()
         );
     }
+    let case = match &options.case_path {
+        Some(path) => Some(TaskCase::load(path)?),
+        None => None,
+    };
+    if let Some(case) = &case
+        && let Some(task) = &case.task
+        && task != &options.task
+    {
+        bail!(
+            "case {} is for {task}, not {}",
+            options
+                .case_path
+                .as_ref()
+                .map_or_else(String::new, |path| path.display().to_string()),
+            options.task
+        );
+    }
+    let recorder = match case.as_ref().and_then(|case| case.http.clone()) {
+        Some(http) => {
+            let recorder = Recorder::start(http).await?;
+            substitute(&mut kwargs, recorder.url());
+            Some(recorder)
+        }
+        None => None,
+    };
+    let live_url = options.live_url.as_ref().map(|value| match &recorder {
+        Some(recorder) => value.replace("{{http}}", recorder.url()),
+        None => value.clone(),
+    });
+    let s3 = match case.as_ref().and_then(|case| case.s3.as_ref()) {
+        Some(s3_case) => {
+            let (Some(bucket_a), Some(bucket_b)) =
+                (options.s3_bucket_a.clone(), options.s3_bucket_b.clone())
+            else {
+                bail!("the case captures S3; pass --s3-bucket-a and --s3-bucket-b");
+            };
+            if !bucket_a.starts_with("p8") || !bucket_b.starts_with("p8") {
+                bail!("S3 test buckets must start with p8 (agent-owned names)");
+            }
+            if bucket_a == bucket_b {
+                bail!("--s3-bucket-a and --s3-bucket-b must differ");
+            }
+            let admin = S3Admin::new(
+                &options.s3_endpoint,
+                &options.s3_access_key,
+                &options.s3_secret_key,
+            );
+            admin.recreate_bucket(&bucket_a).await?;
+            admin.recreate_bucket(&bucket_b).await?;
+            for seed in &s3_case.seeds {
+                let object = seed.object()?;
+                admin.put_object(&bucket_a, &object).await?;
+                admin.put_object(&bucket_b, &object).await?;
+            }
+            Some(S3Capture {
+                admin,
+                bucket_a,
+                bucket_b,
+            })
+        }
+        None => None,
+    };
+    let mut smtp = match case.as_ref().and_then(|case| case.smtp.as_ref()) {
+        Some(smtp_case) => Some(SmtpCapture::start(smtp_case)?),
+        None => None,
+    };
     let setup = match &options.setup_path {
         Some(path) => Some(
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
@@ -164,19 +413,57 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         setup.as_deref(),
     )
     .await?;
+    if let Some(smtp) = &smtp {
+        smtp.configure(&admin, &options.a_db, smtp.a.port).await?;
+        smtp.configure(&admin, &options.b_db, smtp.b.port).await?;
+    }
     rabbit.create_vhost(&options.vhost).await?;
     rabbit
         .grant_full_permissions(&options.vhost, &options.rabbit_user)
         .await?;
 
-    let outcome = execute(options, &kwargs, &admin, &rabbit).await;
+    let outcome = execute(
+        options,
+        &kwargs,
+        &admin,
+        &rabbit,
+        Captures {
+            case: case.as_ref(),
+            recorder: recorder.as_ref(),
+            s3: s3.as_ref(),
+            live_url: live_url.as_deref(),
+        },
+    )
+    .await;
+
+    if let Some(smtp) = &mut smtp {
+        smtp.finish()?;
+    }
+    // Only compare transcripts when both sides ran: a failed side leaves one
+    // log empty and the real error is `outcome`.
+    let smtp_outcome = if outcome.is_ok() {
+        match (&case, &smtp) {
+            (Some(case), Some(smtp)) if case.smtp.is_some() => {
+                compare_smtp_logs(&smtp.a.path, &smtp.b.path)
+            }
+            _ => Ok(()),
+        }
+    } else {
+        Ok(())
+    };
 
     if !options.keep {
         let _ = admin.drop_database(&options.a_db).await;
         let _ = admin.drop_database(&options.b_db).await;
         let _ = rabbit.delete_vhost(&options.vhost).await;
     }
-    outcome
+    // The buckets are always the tool's, so they always go, even with
+    // `--keep` (which keeps databases for inspection, not S3 corpora).
+    if let Some(s3) = &s3 {
+        s3.cleanup().await;
+    }
+    outcome?;
+    smtp_outcome
 }
 
 /// One side's published work, in the order it left the process.
@@ -187,12 +474,26 @@ struct Outgoing {
     kwargs: serde_json::Value,
 }
 
+/// The per-case capture handles a run may have.
+struct Captures<'a> {
+    case: Option<&'a TaskCase>,
+    recorder: Option<&'a Recorder>,
+    s3: Option<&'a S3Capture>,
+    live_url: Option<&'a str>,
+}
+
 async fn execute(
     options: &TaskOptions,
     kwargs: &serde_json::Value,
     admin: &DbAdmin,
     rabbit: &RabbitAdmin,
+    captures: Captures<'_>,
 ) -> Result<()> {
+    let case = captures.case;
+    let recorder = captures.recorder;
+    let bucket_a = captures.s3.map(|s3| s3.bucket_a.as_str());
+    let bucket_b = captures.s3.map(|s3| s3.bucket_b.as_str());
+    let live_url = captures.live_url;
     let catalog = admin
         .load_catalog(&options.a_db, &["public".to_string()], &[])
         .await?;
@@ -213,11 +514,16 @@ async fn execute(
 
     let started: DateTime<Utc> = Utc::now();
     let before_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
-    let django = run_django(options, kwargs).await?;
+    let http_start = recorder.map_or(0, Recorder::request_count);
+    let django = run_django(options, kwargs, bucket_a, live_url).await?;
+    // Capture immediately: later requests append to the same log.
+    let django_http = recorder.map(|recorder| recorder.slice(http_start));
     let messages_a = drain_messages(rabbit, &drain, &options.vhost).await?;
     let after_redis_a = redis_a.1.snapshot().await?.snapshot;
     let before_b = admin.snapshot(&options.b_db, &catalog).await?.snapshot;
-    let worker = run_worker(options, kwargs, admin).await?;
+    let rust_start = recorder.map_or(0, Recorder::request_count);
+    let worker = run_worker(options, kwargs, admin, bucket_b, live_url).await?;
+    let rust_http = recorder.map(|recorder| recorder.slice(rust_start));
     let messages_b = drain_messages(rabbit, &drain, &options.vhost).await?;
     let jobs_b = rust_jobs(admin, &options.b_db, &worker.job_id).await?;
     let after_redis_b = redis_b.1.snapshot().await?.snapshot;
@@ -235,6 +541,22 @@ async fn execute(
     outgoing_b.extend(jobs_b.iter().map(job_to_outgoing));
     normalise_outgoing(&mut outgoing_a);
     normalise_outgoing(&mut outgoing_b);
+    // `python_value` decodes a `uuid.UUID` envelope, which is the transport's
+    // representation of the same Python value; a task still delivered through
+    // Celery on both sides is additionally compared as raw JSON, so an
+    // envelope that one side omitted is still a difference.
+    let raw_a = raw_celery_payloads(&messages_a);
+    let raw_b = raw_celery_payloads(&messages_b);
+    if raw_a != raw_b {
+        for index in 0..raw_a.len().max(raw_b.len()) {
+            let left = raw_a.get(index);
+            let right = raw_b.get(index);
+            if left != right {
+                println!("celery {index}:\n  django: {left:?}\n  rust:   {right:?}");
+            }
+        }
+        bail!("Celery wire payloads differ");
+    }
 
     println!(
         "difftest task: {} — django {:?}, rust {:?}, django messages={} rust messages={} rust jobs={}",
@@ -248,8 +570,8 @@ async fn execute(
 
     let mut diff_a = diff_snapshots(&before_a, &after_a);
     let mut diff_b = diff_snapshots(&before_b, &after_b);
-    normalise_diff(&mut diff_a, started);
-    normalise_diff(&mut diff_b, started);
+    normalise_diff(&mut diff_a, started, case, &known_uuids(&before_a));
+    normalise_diff(&mut diff_b, started, case, &known_uuids(&before_b));
     if diff_a != diff_b {
         print_diff("django", &diff_a);
         print_diff("rust", &diff_b);
@@ -266,6 +588,23 @@ async fn execute(
             changes.deleted.len(),
             changes.updated.len()
         );
+    }
+
+    // The case's own projections, when it names any: a narrow, readable view
+    // of the same effects (the whole-schema diff above is authoritative).
+    if let Some(case) = case {
+        for query in &case.sql {
+            let a = query_rows(admin, &options.a_db, &query.query).await?;
+            let b = query_rows(admin, &options.b_db, &query.query).await?;
+            println!(
+                "difftest task: {} — sql {}: django rows={} rust rows={}",
+                options.task,
+                query.label,
+                a.len(),
+                b.len()
+            );
+            compare_rows(case, &query.label, &a, &b)?;
+        }
     }
 
     if outgoing_a != outgoing_b {
@@ -289,7 +628,7 @@ async fn execute(
         outgoing_a.len()
     );
 
-    // Redis is the fourth effect: `issue_activity` writes the request origin
+    // Redis is a side effect too: `issue_activity` writes the request origin
     // under the issue id with `EX 600` (`issue_activities_task.py:1574-1577`).
     // Each side's DB was flushed first, so only the task's writes appear. The
     // TTL is measured a few milliseconds apart; everything else is exact.
@@ -304,6 +643,14 @@ async fn execute(
         "PASS: redis effects are identical ({} keys)",
         redis_a_diff.total_changes()
     );
+
+    if let Some(s3) = captures.s3 {
+        let (a, b) = s3.observe().await?;
+        compare_objects(case.expect("S3 capture requires a case"), &a, &b)?;
+    }
+    if let (Some(a), Some(b)) = (django_http, rust_http) {
+        compare_requests(case.expect("http capture requires a case"), &a, &b)?;
+    }
     Ok(())
 }
 
@@ -313,7 +660,7 @@ async fn redis_side(
     index: i64,
     vhost: &str,
 ) -> Result<(RedisAdmin, RedisSnapshotter)> {
-    let env = dev_env(database, index, vhost)?;
+    let env = dev_env(database, index, vhost, None, None, false)?;
     let url = env
         .get("REDIS_URL")
         .ok_or_else(|| anyhow::anyhow!("django-env.sh did not set REDIS_URL"))?;
@@ -381,12 +728,75 @@ async fn drain_messages(
     drain.drain(&queues).await
 }
 
+/// A Celery message in the same Python-value shape as a `plane_jobs` row.
+///
+/// `task.apply()` captures what the task published, and kombu's JSON envelope
+/// renders a `uuid.UUID` argument as `{"__type__": "uuid", "__value__": …}`.
+/// The queue representation (`Job::from_message`) stores the value the Python
+/// task receives at run time, so both sides are decoded through
+/// [`crate::ownership::python_value`] before the comparison (`DECISIONS.md`
+/// D28). The raw wire payload of a task that both sides still deliver through
+/// Celery is compared separately by [`raw_celery_payloads`], so this decoding
+/// cannot hide a wire difference there.
 fn message_to_outgoing(message: &CeleryMessage) -> Outgoing {
     Outgoing {
         task: message.task.clone().unwrap_or_default(),
-        args: message.args.clone(),
-        kwargs: message.kwargs.clone(),
+        args: crate::ownership::python_value(&message.args),
+        kwargs: crate::ownership::python_value(&message.kwargs),
     }
+}
+
+/// The wire payload of the messages whose task is still Celery-owned, in
+/// order. A Rust-owned task's Celery message is A-only, so it is excluded; a
+/// task both sides publish (B's handler publishing a Celery-owned task) must
+/// match byte for byte here.
+///
+/// `epoch=int(timezone.now().timestamp())` is the one argument that carries
+/// the clock (`issue_automation_task.py:82,145`); the two sides run a second
+/// apart, so it is replaced by `<EPOCH>` before the comparison, exactly as
+/// [`normalise_outgoing`] does for the decoded form.
+fn raw_celery_payloads(messages: &[CeleryMessage]) -> Vec<String> {
+    messages
+        .iter()
+        .filter(|message| {
+            message
+                .task
+                .as_deref()
+                .is_some_and(|task| !crate::ownership::rust_owned(task))
+        })
+        .map(|message| {
+            let mut kwargs = message.kwargs.clone();
+            if let Some(object) = kwargs.as_object_mut() {
+                if object.contains_key("epoch") {
+                    object.insert("epoch".to_string(), serde_json::json!("<EPOCH>"));
+                }
+                // `notifications`' `issue_activities_created` is a JSON string
+                // holding the created rows. Their ids, `auto_now` timestamps
+                // and (for label/assignee sets) order are random, so replace
+                // only those; everything else, including each row's key order,
+                // is still compared.
+                if message.task.as_deref() == Some("plane.bgtasks.notification_task.notifications")
+                    && let Some(serde_json::Value::String(text)) =
+                        object.get("issue_activities_created")
+                    && let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text)
+                {
+                    normalise_activity_payload(&mut value);
+                    object.insert(
+                        "issue_activities_created".to_string(),
+                        serde_json::Value::String(
+                            serde_json::to_string(&value).unwrap_or_default(),
+                        ),
+                    );
+                }
+            }
+            format!(
+                "{}\u{0}{}\u{0}{}",
+                message.task.clone().unwrap_or_default(),
+                serde_json::to_string(&message.args).unwrap_or_default(),
+                serde_json::to_string(&kwargs).unwrap_or_default()
+            )
+        })
+        .collect()
 }
 
 fn job_to_outgoing(row: &tokio_postgres::Row) -> Outgoing {
@@ -455,9 +865,21 @@ struct DjangoOutcome {
 }
 
 /// A = `task.apply()` in the real Django, with the dev stack's environment.
-async fn run_django(options: &TaskOptions, kwargs: &serde_json::Value) -> Result<DjangoOutcome> {
+async fn run_django(
+    options: &TaskOptions,
+    kwargs: &serde_json::Value,
+    bucket: Option<&str>,
+    live_url: Option<&str>,
+) -> Result<DjangoOutcome> {
     let root = repo_root();
-    let env = dev_env(&options.a_db, options.a_redis_db, &options.vhost)?;
+    let env = dev_env(
+        &options.a_db,
+        options.a_redis_db,
+        &options.vhost,
+        bucket,
+        live_url,
+        true,
+    )?;
     let output = Command::new(root.join("apps/api/.venv/bin/python"))
         .arg(root.join("apps/server/tools/jobs/run_django_task.py"))
         .arg(&options.task)
@@ -534,13 +956,22 @@ async fn run_worker(
     options: &TaskOptions,
     kwargs: &serde_json::Value,
     admin: &DbAdmin,
+    bucket: Option<&str>,
+    live_url: Option<&str>,
 ) -> Result<WorkerOutcome> {
     let root = repo_root();
     let worker = options
         .worker
         .clone()
         .unwrap_or_else(|| root.join("apps/server/target/debug/plane-worker"));
-    let env = dev_env(&options.b_db, options.b_redis_db, &options.vhost)?;
+    let env = dev_env(
+        &options.b_db,
+        options.b_redis_db,
+        &options.vhost,
+        bucket,
+        live_url,
+        true,
+    )?;
 
     // Create/modify the `plane_jobs` schema before the insert. The worker
     // migrates on boot too, but that would happen after the insert.
@@ -642,12 +1073,95 @@ async fn rust_jobs(
         .context("reading the jobs the handler enqueued")
 }
 
+/// One case query, every column rendered as text (the query casts them).
+async fn query_rows(admin: &DbAdmin, database: &str, sql: &str) -> Result<Vec<Vec<String>>> {
+    let client = admin.connect(database).await?;
+    let messages = client
+        .simple_query(sql)
+        .await
+        .with_context(|| format!("running a case query on {database}"))?;
+    let mut rows = Vec::new();
+    for message in messages {
+        if let tokio_postgres::SimpleQueryMessage::Row(row) = message {
+            rows.push(
+                (0..row.len())
+                    .map(|index| row.get(index).unwrap_or("NULL").to_string())
+                    .collect(),
+            );
+        }
+    }
+    Ok(rows)
+}
+
 /// A single-quoted SQL literal (the values are generated, not user input).
 fn sql_literal(value: &str) -> String {
     value.replace('\'', "''")
 }
 
-/// Normalise the clock and generated primary keys. See the module docs.
+/// UUID-shaped text, for the generated-value rule below.
+static UUID_TEXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        .expect("static UUID regex")
+});
+
+/// Every UUID-shaped string a database held before the task ran.
+fn known_uuids(snapshot: &crate::db::DbSnapshot) -> std::collections::HashSet<String> {
+    let mut known = std::collections::HashSet::new();
+    for rows in snapshot.tables.values() {
+        for row in rows.values() {
+            collect_uuids(row, &mut known);
+        }
+    }
+    known
+}
+
+fn collect_uuids(value: &serde_json::Value, known: &mut std::collections::HashSet<String>) {
+    match value {
+        serde_json::Value::String(text) => {
+            for found in UUID_TEXT.find_iter(text) {
+                known.insert(found.as_str().to_string());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_uuids(item, known);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values() {
+                collect_uuids(item, known);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Normalise a value the diff prints: the case's normalisers, then a UUID the
+/// run generated (it was not in the before snapshot) as `<NEW-UUID>`.
+fn normalise_value(
+    value: &mut serde_json::Value,
+    case: Option<&TaskCase>,
+    known: &std::collections::HashSet<String>,
+) {
+    normalise_timestamp(value);
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    let mut out = case.map_or_else(|| text.to_string(), |case| case.normalize_text(text));
+    out = UUID_TEXT
+        .replace_all(&out, |found: &regex::Captures<'_>| {
+            if known.contains(found.get(0).map_or("", |m| m.as_str())) {
+                found.get(0).map_or("", |m| m.as_str()).to_string()
+            } else {
+                "<NEW-UUID>".to_string()
+            }
+        })
+        .into_owned();
+    *value = serde_json::Value::String(out);
+}
+
+/// Normalise the clock, generated primary keys and generated values. See the
+/// module docs.
 ///
 /// Every value that parses as an RFC 3339 instant becomes `<TS>`: the two
 /// fixture applications call `now()` a few milliseconds apart, so the *same*
@@ -655,26 +1169,42 @@ fn sql_literal(value: &str) -> String {
 /// the task moved still shows up as a `changed` entry, because the harness
 /// diffs before and after within each database — normalising the values only
 /// hides the clock, not the update.
-fn normalise_diff(diff: &mut DbDiff, _started: DateTime<Utc>) {
+fn normalise_diff(
+    diff: &mut DbDiff,
+    _started: DateTime<Utc>,
+    case: Option<&TaskCase>,
+    known: &std::collections::HashSet<String>,
+) {
     for table in diff.tables.values_mut() {
         for row in table.inserted.iter_mut().chain(table.deleted.iter_mut()) {
             if let Some(object) = row.as_object_mut() {
                 for (column, value) in object.iter_mut() {
                     if column == "id" {
                         *value = serde_json::json!("<ID>");
+                    } else if column == "epoch" {
+                        *value = serde_json::json!("<EPOCH>");
                     } else {
-                        normalise_timestamp(value);
+                        normalise_value(value, case, known);
                     }
                 }
             }
         }
+        // The snapshot iterates a map keyed by primary key, so a table with
+        // several inserts would otherwise compare in each side's random-uuid
+        // order. The diff is a multiset comparison.
+        table.inserted.sort_by_key(canonical_json);
+        table.deleted.sort_by_key(canonical_json);
         for updated in &mut table.updated {
             if let Some(changed) = updated.get_mut("changed").and_then(|v| v.as_object_mut()) {
-                for entry in changed.values_mut() {
+                for (column, entry) in changed.iter_mut() {
                     if let Some(pair) = entry.as_object_mut() {
                         for side in ["a", "b"] {
                             if let Some(value) = pair.get_mut(side) {
-                                normalise_timestamp(value);
+                                if column == "epoch" {
+                                    *value = serde_json::json!("<EPOCH>");
+                                } else {
+                                    normalise_value(value, case, known);
+                                }
                             }
                         }
                     }
@@ -705,6 +1235,10 @@ fn normalise_timestamp(value: &mut serde_json::Value) {
     }
 }
 
+fn canonical_json(row: &serde_json::Value) -> String {
+    serde_json::to_string(row).unwrap_or_default()
+}
+
 fn print_diff(side: &str, diff: &DbDiff) {
     for (table, changes) in &diff.tables {
         println!(
@@ -728,7 +1262,14 @@ fn print_diff(side: &str, diff: &DbDiff) {
 /// `dev/django-env.sh` evaluated with this run's database, Redis index and
 /// vhost. The script is the single source of truth for the dev environment, so
 /// the worker and Django see the same variables the differential harness uses.
-fn dev_env(db: &str, redis_db: i64, vhost: &str) -> Result<BTreeMap<String, String>> {
+fn dev_env(
+    db: &str,
+    redis_db: i64,
+    vhost: &str,
+    bucket: Option<&str>,
+    live_url: Option<&str>,
+    allow_loopback: bool,
+) -> Result<BTreeMap<String, String>> {
     let script = repo_root().join("apps/server/dev/django-env.sh");
     let output = std::process::Command::new("bash")
         .arg("-c")
@@ -763,6 +1304,27 @@ fn dev_env(db: &str, redis_db: i64, vhost: &str) -> Result<BTreeMap<String, Stri
             env.insert(key.to_string(), value.to_string());
         }
     }
+    if let Some(bucket) = bucket {
+        // `settings.AWS_STORAGE_BUCKET_NAME` and `S3Storage`'s
+        // `AWS_S3_BUCKET_NAME` are read separately.
+        env.insert("AWS_STORAGE_BUCKET_NAME".to_string(), bucket.to_string());
+        env.insert("AWS_S3_BUCKET_NAME".to_string(), bucket.to_string());
+    }
+    if let Some(live_url) = live_url {
+        // `settings.LIVE_URL = urljoin(LIVE_BASE_URL, LIVE_BASE_PATH)` with the
+        // default path `/live/`.
+        env.insert("LIVE_BASE_URL".to_string(), live_url.to_string());
+    }
+    if allow_loopback {
+        // `difftest task`'s local fake HTTP server is on 127.0.0.1. Django's
+        // runner patches its own `is_blocked_ip`; the worker's crawl handler
+        // reads this switch. Neither is set in a deployment.
+        env.insert("PLANE_DIFFTEST_ALLOW_LOOPBACK".to_string(), "1".to_string());
+        env.insert(
+            "PLANE_RS_DIFFTEST_ALLOW_LOOPBACK".to_string(),
+            "1".to_string(),
+        );
+    }
     // `REDIS_URL` is derived by the harness's convention, not by
     // django-env.sh itself (it reads PLANE_REDIS_DB, which is already set).
     env.insert(
@@ -783,6 +1345,8 @@ pub fn default_paths() -> (PathBuf, PathBuf) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::db::{DbDiff, TableDiff};
 
@@ -815,8 +1379,74 @@ mod tests {
             "ffffffff-ffff-ffff-ffff-ffffffffffff",
             "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
         );
-        normalise_diff(&mut django, Utc::now());
-        normalise_diff(&mut rust, Utc::now());
+        normalise_diff(
+            &mut django,
+            Utc::now(),
+            None,
+            &std::collections::HashSet::new(),
+        );
+        normalise_diff(
+            &mut rust,
+            Utc::now(),
+            None,
+            &std::collections::HashSet::new(),
+        );
         assert_eq!(django, rust);
+    }
+
+    fn message(task: &str, args: serde_json::Value, kwargs: serde_json::Value) -> CeleryMessage {
+        CeleryMessage {
+            queue: "celery".to_string(),
+            task: Some(task.to_string()),
+            headers: BTreeMap::new(),
+            properties: BTreeMap::new(),
+            args,
+            kwargs,
+            body_extra: None,
+        }
+    }
+
+    #[test]
+    fn a_celery_uuid_envelope_decodes_to_its_python_value() {
+        let id = "00000000-0000-0000-0000-000000000020";
+        let envelope = serde_json::json!({
+            "__type__": "uuid",
+            "__value__": {"hex": id.replace('-', "")},
+        });
+        let a = message(
+            "plane.bgtasks.deletion_task.soft_delete_related_objects",
+            serde_json::json!([envelope.clone()]),
+            serde_json::json!({"model_name": "project", "entity_identifier": envelope}),
+        );
+        let outgoing = message_to_outgoing(&a);
+        assert_eq!(outgoing.args, serde_json::json!([id]));
+        assert_eq!(outgoing.kwargs["entity_identifier"], id);
+        // The same delivery queued by B: `Job::from_message` stores the value.
+        let job = Outgoing {
+            task: "plane.bgtasks.deletion_task.soft_delete_related_objects".to_string(),
+            args: serde_json::json!([id]),
+            kwargs: serde_json::json!({"model_name": "project", "entity_identifier": id}),
+        };
+        assert_eq!(outgoing, job);
+    }
+
+    #[test]
+    fn a_celery_owned_wire_difference_is_still_a_difference() {
+        let task = "plane.bgtasks.notification_task.notifications";
+        let id = "00000000-0000-0000-0000-000000000020";
+        let envelope = serde_json::json!({
+            "__type__": "uuid",
+            "__value__": {"hex": id.replace('-', "")},
+        });
+        let a = message(task, serde_json::json!([envelope]), serde_json::json!({}));
+        let b = message(task, serde_json::json!([id]), serde_json::json!({}));
+        assert_ne!(raw_celery_payloads(&[a]), raw_celery_payloads(&[b]));
+        // A Rust-owned delivery is excluded from the wire comparison.
+        let owned = message(
+            "plane.bgtasks.workspace_seed_task.workspace_seed",
+            serde_json::json!([]),
+            serde_json::json!({}),
+        );
+        assert!(raw_celery_payloads(&[owned]).is_empty());
     }
 }

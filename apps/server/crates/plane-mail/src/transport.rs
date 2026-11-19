@@ -333,6 +333,8 @@ pub struct Message {
     pub reply_to: Vec<String>,
     /// `attach_alternative(content, mimetype)` in call order.
     pub alternatives: Vec<Alternative>,
+    /// `attach(filename, content)` in call order.
+    pub attachments: Vec<Attachment>,
 }
 
 /// One `EmailAlternative` (`django/core/mail/message.py:239`).
@@ -341,6 +343,17 @@ pub struct Alternative {
     pub content: String,
     /// `"text/html"` on every Plane task that attaches one.
     pub mimetype: String,
+}
+
+/// One `EmailMessage.attach(filename, content)` rendered by
+/// `_create_attachment` (`django/core/mail/message.py:309-347,382-426`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attachment {
+    pub filename: String,
+    /// The guessed MIME type from the filename (`mimetypes.guess_type`).
+    pub mimetype: String,
+    /// The text payload Django hands to `SafeMIMEText`.
+    pub content: String,
 }
 
 impl Alternative {
@@ -367,6 +380,7 @@ impl Message {
             cc: Vec::new(),
             reply_to: Vec::new(),
             alternatives: Vec::new(),
+            attachments: Vec::new(),
         }
     }
 
@@ -389,6 +403,43 @@ impl Message {
             cc: Vec::new(),
             reply_to: Vec::new(),
             alternatives: vec![Alternative::html(html)],
+            attachments: Vec::new(),
+        }
+    }
+
+    /// `EmailMultiAlternatives(subject, body=text, from_email=from, to=[to])`
+    /// with `msg.attach(filename, content)` for a text attachment, the shape
+    /// `analytic_plot_export.send_export_email` builds
+    /// (`plane/bgtasks/analytic_plot_export.py:45-88`).
+    #[must_use]
+    pub fn with_text_attachment(
+        subject: impl Into<String>,
+        text: impl Into<String>,
+        from: impl Into<String>,
+        to: Vec<String>,
+        filename: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        let filename = filename.into();
+        let mimetype = match filename.rsplit_once('.').map(|(_, extension)| extension) {
+            Some(extension) if extension.eq_ignore_ascii_case("csv") => "text/csv",
+            Some(extension) if extension.eq_ignore_ascii_case("txt") => "text/plain",
+            Some(extension) if extension.eq_ignore_ascii_case("html") => "text/html",
+            _ => "application/octet-stream",
+        };
+        Self {
+            subject: subject.into(),
+            body: text.into(),
+            from_email: from.into(),
+            to,
+            cc: Vec::new(),
+            reply_to: Vec::new(),
+            alternatives: Vec::new(),
+            attachments: vec![Attachment {
+                filename,
+                mimetype: mimetype.to_string(),
+                content: content.into(),
+            }],
         }
     }
 
@@ -436,6 +487,59 @@ impl Message {
         boundary: Option<&str>,
     ) -> Result<Vec<u8>, MailError> {
         let mut out = Vec::with_capacity(512 + self.body.len());
+
+        // `_create_attachments` runs after `_create_alternatives`: with at
+        // least one attachment it wraps the (text or alternative) message in
+        // `multipart/mixed` (`django/core/mail/message.py:365-380`).
+        if !self.attachments.is_empty() {
+            let boundary = boundary.map_or_else(make_boundary, str::to_string);
+            write_header(
+                &mut out,
+                "Content-Type",
+                &format!("multipart/mixed; boundary=\"{boundary}\""),
+            )?;
+            out.extend_from_slice(b"MIME-Version: 1.0\r\n");
+            out = self.write_headers_only(out, date, message_id)?;
+            out.extend_from_slice(b"\r\n");
+            out.extend_from_slice(b"--");
+            out.extend_from_slice(boundary.as_bytes());
+            out.extend_from_slice(b"\r\n");
+            if self.alternatives.is_empty() {
+                write_text_part(&mut out, &self.body, "plain")?;
+            } else {
+                write_header(
+                    &mut out,
+                    "Content-Type",
+                    &format!("multipart/alternative; boundary=\"{boundary}\""),
+                )?;
+                out.extend_from_slice(b"MIME-Version: 1.0\r\n\r\n");
+                write_text_part(&mut out, &self.body, "plain")?;
+                for alternative in &self.alternatives {
+                    out.extend_from_slice(b"\r\n--");
+                    out.extend_from_slice(boundary.as_bytes());
+                    out.extend_from_slice(b"\r\n");
+                    let subtype = alternative
+                        .mimetype
+                        .split_once('/')
+                        .map(|(_, subtype)| subtype)
+                        .unwrap_or("html");
+                    write_text_part(&mut out, &alternative.content, subtype)?;
+                }
+                out.extend_from_slice(b"\r\n--");
+                out.extend_from_slice(boundary.as_bytes());
+                out.extend_from_slice(b"\r\n");
+            }
+            for attachment in &self.attachments {
+                out.extend_from_slice(b"\r\n--");
+                out.extend_from_slice(boundary.as_bytes());
+                out.extend_from_slice(b"\r\n");
+                write_attachment_part(&mut out, attachment)?;
+            }
+            out.extend_from_slice(b"\r\n--");
+            out.extend_from_slice(boundary.as_bytes());
+            out.extend_from_slice(b"--\r\n");
+            return Ok(out);
+        }
 
         // `_create_alternatives` wraps the text shell in
         // `SafeMIMEMultipart(_subtype="alternative")` before `message()` adds
@@ -1837,6 +1941,28 @@ fn write_text_part(out: &mut Vec<u8>, content: &str, subtype: &str) -> Result<()
     Ok(())
 }
 
+/// One `SafeMIMEText` attachment (`django/core/mail/message.py:382-426`):
+/// the guessed `text/*` subtype with `charset="utf-8"`, Django's 7bit/8bit/QP
+/// choice, then the `Content-Disposition` header.
+fn write_attachment_part(out: &mut Vec<u8>, attachment: &Attachment) -> Result<(), MailError> {
+    write_header(
+        out,
+        "Content-Type",
+        &format!("{}; charset=\"utf-8\"", attachment.mimetype),
+    )?;
+    out.extend_from_slice(b"MIME-Version: 1.0\r\n");
+    let (cte, body) = encode_text_body(&attachment.content);
+    out.extend_from_slice(format!("Content-Transfer-Encoding: {cte}\r\n").as_bytes());
+    write_header(
+        out,
+        "Content-Disposition",
+        &format!("attachment; filename=\"{}\"", attachment.filename),
+    )?;
+    out.extend_from_slice(b"\r\n");
+    write_crlf_lines(out, &body);
+    Ok(())
+}
+
 /// `email.generator.Generator._make_boundary`: `"=" * 15 + "%019d" % token +
 /// "=="`, where `token = random.randrange(sys.maxsize)`.
 ///
@@ -2108,6 +2234,7 @@ mod tests {
             cc: Vec::new(),
             reply_to: Vec::new(),
             alternatives: Vec::new(),
+            attachments: Vec::new(),
         };
         let (from, recipients) = message.envelope().expect("envelope");
         assert_eq!(from, "<team@mailer.plane.so>");

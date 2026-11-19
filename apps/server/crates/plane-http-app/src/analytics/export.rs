@@ -92,7 +92,7 @@ pub fn export_analytics<'a>(
             slug.to_owned(),
             user.to_string(),
         );
-        jobs::dispatch_task(ctx, message.task(), &message, Job::new(message.task())).await?;
+        jobs::dispatch_task(ctx, message.task(), &message, Job::from_message(&message)).await?;
 
         Ok(message_body(
             200,

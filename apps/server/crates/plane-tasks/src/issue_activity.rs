@@ -72,14 +72,18 @@
 //! revision. `json.dumps(..., cls=DjangoJSONEncoder)` is
 //! `plane_serde::Dialect::Django`.
 //!
+//! # Published `notifications` arguments
+//!
+//! `Job::from_message` stores Python runtime values, so a `uuid.UUID`
+//! argument is a string in the queued payload. It also records the UUID-typed
+//! arguments in `uuid_kwargs`; this handler uses that hint to recreate
+//! kombu's `{"__type__": "uuid"}` envelope when it re-publishes
+//! `notifications`, exactly like Django passing the object through. An
+//! authored `difftest task` payload has no hint, so a string stays a string —
+//! which is what Django's `task.apply()` receives in that case.
+//!
 //! # Known differences, all deliberate
 //!
-//! * `Job::from_message` stores a Python `uuid.UUID` argument as its string
-//!   (`DECISIONS.md` D25), so the `notifications` message re-publishes
-//!   `issue_id`/`project_id` as strings where Django would carry kombu's
-//!   `{"__type__": "uuid"}` envelope (the automation and bulk-date call sites).
-//!   The consumer reads both forms identically; the queued payload itself is
-//!   the producer's message, decoded once.
 //! * `subscriber` is passed to `notifications` as a bool from its truthiness.
 //!   Every call site passes a bool; a non-bool would keep its Python value in
 //!   Django's message.
@@ -201,6 +205,21 @@ async fn run(context: &TaskContext, client: &Client, payload: &Value) -> R<()> {
     let Some(kwargs) = crate::kwargs(payload) else {
         return python("payload has no kwargs object");
     };
+    // `Job::from_message` records which kwargs were `uuid.UUID` objects; the
+    // re-published `notifications` message must keep kombu's envelope for
+    // them (`DECISIONS.md` D25: a handler reproduces every task it publishes).
+    let uuid_kwargs: BTreeSet<String> = payload
+        .get("uuid_kwargs")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+
     let request = Request {
         activity_type: match kwargs.get("type") {
             Some(Value::String(text)) => text.clone(),
@@ -278,9 +297,12 @@ async fn run(context: &TaskContext, client: &Client, payload: &Value) -> R<()> {
             .map_err(|error| Failure::Python(format!("json.dumps: {error}")))?;
         let message = tasks::notifications(NotificationsCall {
             activity_type: request.activity_type.clone(),
-            issue_id: task_arg(request.issue_id.as_ref()),
-            actor_id: task_arg(request.actor_id.as_ref()),
-            project_id: task_arg(request.project_id.as_ref()),
+            issue_id: task_arg_typed(request.issue_id.as_ref(), uuid_kwargs.contains("issue_id")),
+            actor_id: task_arg_typed(request.actor_id.as_ref(), uuid_kwargs.contains("actor_id")),
+            project_id: task_arg_typed(
+                request.project_id.as_ref(),
+                uuid_kwargs.contains("project_id"),
+            ),
             subscriber: request.subscriber,
             issue_activities_created: TaskArg::json_text(encoded),
             requested_data: task_arg(request.requested_data.as_ref()),
@@ -995,6 +1017,18 @@ fn convert_epoch(value: Option<&PyValue>) -> R<Option<f64>> {
             python_type_name(other)
         )),
     }
+}
+
+/// [`task_arg`], recreating kombu's UUID envelope when the queued payload
+/// recorded that the producer passed a `uuid.UUID` object.
+fn task_arg_typed(value: Option<&PyValue>, as_uuid: bool) -> TaskArg {
+    if as_uuid
+        && let Some(PyValue::Str(text)) = value
+        && let Some(uuid) = parse_uuid_text(&text.to_string_lossy())
+    {
+        return TaskArg::Uuid(uuid);
+    }
+    task_arg(value)
 }
 
 /// `task_arg` for the `notifications` pass-through kwargs.
@@ -3220,6 +3254,26 @@ mod tests {
             .expect("timestamp")
             .with_timezone(&Utc);
         assert_eq!(drf_datetime(value), "2026-11-19T05:22:50.670790Z");
+    }
+
+    #[test]
+    fn a_uuid_hint_recreates_the_celery_envelope() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let value = PyValue::Str(PyStr::new(id));
+        assert_eq!(
+            task_arg_typed(Some(&value), true),
+            TaskArg::Uuid(Uuid::parse_str(id).expect("uuid"))
+        );
+        assert_eq!(
+            task_arg_typed(Some(&value), false),
+            TaskArg::Str(id.to_string())
+        );
+        // A non-UUID string keeps its string type even with a hint.
+        let other = PyValue::Str(PyStr::new("not-a-uuid"));
+        assert_eq!(
+            task_arg_typed(Some(&other), true),
+            TaskArg::Str("not-a-uuid".to_string())
+        );
     }
 
     #[test]

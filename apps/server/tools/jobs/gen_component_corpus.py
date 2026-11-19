@@ -8,11 +8,10 @@ Runs the real `extract_all_components` (`plane/bgtasks/page_transaction_task.py:
 on the same case list the Rust test uses and writes/checks
 `crates/plane-tasks/tests/golden/page_components.json`.
 
-Usage (from `apps/server/`, with the dev stack's Django environment sourced —
-`plane.settings.production` needs `DATABASE_URL`/`REDIS_URL` even for a pure
-function):
+Usage (from `apps/server/`, with the API virtualenv; no services needed —
+`plane.settings.production` only reads the four variables below, and the
+component parser is a pure function):
 
-    eval "$(bash dev/django-env.sh)"
     apps/api/.venv/bin/python tools/jobs/gen_component_corpus.py
     apps/api/.venv/bin/python tools/jobs/gen_component_corpus.py --check
 
@@ -27,7 +26,14 @@ from pathlib import Path
 
 API = Path(__file__).resolve().parents[3] / "api"
 sys.path.insert(0, str(API))
+# A self-contained bootstrap, like the other generators: production settings
+# read these four even though this script only calls a pure function, and the
+# dummy values keep it from touching a service.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
+os.environ.setdefault("SECRET_KEY", "component-corpus-not-a-secret")
+os.environ.setdefault("DATABASE_URL", "postgresql://x:x@127.0.0.1:1/x")
+os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:1/0")
+os.environ.setdefault("ENABLE_DRF_SPECTACULAR", "0")
 
 import django  # noqa: E402
 

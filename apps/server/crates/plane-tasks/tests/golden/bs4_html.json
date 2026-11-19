@@ -1,0 +1,402 @@
+{
+  "bs4": "4.12.3",
+  "python": "3.12.13",
+  "cases": [
+    {
+      "name": "editor-paragraph",
+      "html": "<p>Hello <strong>world</strong> and <em>everyone</em>.</p>",
+      "output": "<p>Hello <strong>world</strong> and <em>everyone</em>.</p>",
+      "stripped": "Hello world and everyone."
+    },
+    {
+      "name": "editor-empty-paragraph",
+      "html": "<p></p>",
+      "output": "<p></p>",
+      "stripped": ""
+    },
+    {
+      "name": "editor-mention",
+      "html": "<p>Hi <mention-component id=\"f0000000-0000-4000-8000-000000000001\" name=\"Ada Admin\"></mention-component>, please look.</p>",
+      "output": "<p>Hi <mention-component id=\"f0000000-0000-4000-8000-000000000001\" name=\"Ada Admin\"></mention-component>, please look.</p>",
+      "stripped": "Hi , please look."
+    },
+    {
+      "name": "editor-mention-data",
+      "html": "<p><mention-component id=\"f0000000-0000-4000-8000-000000000002\" entity-name=\"issue\" entity-identifier=\"ALP-12\">#12</mention-component></p>",
+      "output": "<p><mention-component entity-identifier=\"ALP-12\" entity-name=\"issue\" id=\"f0000000-0000-4000-8000-000000000002\">#12</mention-component></p>",
+      "stripped": "#12"
+    },
+    {
+      "name": "editor-image",
+      "html": "<p><image-component src=\"f0000000-0000-4000-8000-000000000041\" width=\"640\" height=\"480\" aspect-ratio=\"1.333\"></image-component></p>",
+      "output": "<p><image-component aspect-ratio=\"1.333\" height=\"480\" src=\"f0000000-0000-4000-8000-000000000041\" width=\"640\"></image-component></p>",
+      "stripped": ""
+    },
+    {
+      "name": "editor-image-external",
+      "html": "<p><image-component src=\"https://example.com/pic.png\" alt=\"a picture\"></image-component></p>",
+      "output": "<p><image-component alt=\"a picture\" src=\"https://example.com/pic.png\"></image-component></p>",
+      "stripped": ""
+    },
+    {
+      "name": "editor-image-self-closing",
+      "html": "<image-component src=\"f0000000-0000-4000-8000-000000000042\"/>",
+      "output": "<image-component src=\"f0000000-0000-4000-8000-000000000042\"></image-component>",
+      "stripped": ""
+    },
+    {
+      "name": "editor-image-nested-in-list",
+      "html": "<ul><li>one<image-component src=\"f0000000-0000-4000-8000-000000000043\"></image-component></li></ul>",
+      "output": "<ul><li>one<image-component src=\"f0000000-0000-4000-8000-000000000043\"></image-component></li></ul>",
+      "stripped": "one"
+    },
+    {
+      "name": "editor-headings",
+      "html": "<h1>Title</h1><h2>Sub &amp; more</h2><h3>Third</h3>",
+      "output": "<h1>Title</h1><h2>Sub &amp; more</h2><h3>Third</h3>",
+      "stripped": "TitleSub & moreThird"
+    },
+    {
+      "name": "editor-table",
+      "html": "<table><tbody><tr><th>Name</th><th>Value</th></tr><tr><td>alpha</td><td>1 &amp; 2</td></tr></tbody></table>",
+      "output": "<table><tbody><tr><th>Name</th><th>Value</th></tr><tr><td>alpha</td><td>1 &amp; 2</td></tr></tbody></table>",
+      "stripped": "NameValuealpha1 & 2"
+    },
+    {
+      "name": "editor-table-no-tbody",
+      "html": "<table><tr><td>a<td>b</table>",
+      "output": "<table><tr><td>a<td>b</td></td></tr></table>",
+      "stripped": "ab"
+    },
+    {
+      "name": "editor-code-block",
+      "html": "<pre><code class=\"language-python\">if a &lt; b:\n    print(\"hi\")\n</code></pre>",
+      "output": "<pre><code class=\"language-python\">if a &lt; b:\n    print(\"hi\")\n</code></pre>",
+      "stripped": "if a < b:\n    print(\"hi\")\n"
+    },
+    {
+      "name": "editor-inline-code",
+      "html": "<p>Use <code>a &amp;&amp; b</code> here.</p>",
+      "output": "<p>Use <code>a &amp;&amp; b</code> here.</p>",
+      "stripped": "Use a && b here."
+    },
+    {
+      "name": "editor-nested-lists",
+      "html": "<ol><li>first<ul><li>nested a</li><li>nested b<ol><li>deep</li></ol></li></ul></li><li>second</li></ol>",
+      "output": "<ol><li>first<ul><li>nested a</li><li>nested b<ol><li>deep</li></ol></li></ul></li><li>second</li></ol>",
+      "stripped": "firstnested anested bdeepsecond"
+    },
+    {
+      "name": "editor-blockquote-hr",
+      "html": "<blockquote><p>quoted</p></blockquote><hr><p>after</p>",
+      "output": "<blockquote><p>quoted</p></blockquote><hr/><p>after</p>",
+      "stripped": "quotedafter"
+    },
+    {
+      "name": "editor-link",
+      "html": "<p><a href=\"https://example.com/a?x=1&amp;y=2#frag\" target=\"_blank\" rel=\"noopener noreferrer\">link</a></p>",
+      "output": "<p><a href=\"https://example.com/a?x=1&amp;y=2#frag\" rel=\"noopener noreferrer\" target=\"_blank\">link</a></p>",
+      "stripped": "link"
+    },
+    {
+      "name": "editor-break",
+      "html": "<p>line one<br>line two<br/>line three</p>",
+      "output": "<p>line one<br/>line two<br>line three</br></p>",
+      "stripped": "line oneline twoline three"
+    },
+    {
+      "name": "editor-unicode",
+      "html": "<p>emoji 😀, dashes — and non-breaking space</p>",
+      "output": "<p>emoji 😀, dashes — and non-breaking space</p>",
+      "stripped": "emoji 😀, dashes — and non-breaking space"
+    },
+    {
+      "name": "editor-entities",
+      "html": "<p>&copy; &lt;tag&gt; &amp;amp; &#147; &#x1F600; &nbsp;</p>",
+      "output": "<p>© &lt;tag&gt; &amp;amp; “ 😀  </p>",
+      "stripped": "© <tag> &amp; “ 😀  "
+    },
+    {
+      "name": "editor-styled",
+      "html": "<p><span style=\"color: #ff0000; font-weight: bold;\">red</span><span class=\"a  b\">spaced</span></p>",
+      "output": "<p><span style=\"color: #ff0000; font-weight: bold;\">red</span><span class=\"a b\">spaced</span></p>",
+      "stripped": "redspaced"
+    },
+    {
+      "name": "editor-full-document",
+      "html": "<!DOCTYPE html><html><head><meta charset=\"utf8\"><title>Doc</title></head><body><p>body</p></body></html>",
+      "output": "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"/><title>Doc</title></head><body><p>body</p></body></html>",
+      "stripped": "Docbody"
+    },
+    {
+      "name": "editor-script-style",
+      "html": "<script>if (a < b && c) { x(\"</div>\") }</script><style>a > b { color: red }</style>",
+      "output": "<script>if (a < b && c) { x(\"</div>\") }</script><style>a > b { color: red }</style>",
+      "stripped": "if (a < b && c) { x(\"</div>\") }a > b { color: red }"
+    },
+    {
+      "name": "editor-pre-whitespace",
+      "html": "<pre>  x\n  y </pre><textarea>\n  z\n</textarea>",
+      "output": "<pre>  x\n  y </pre><textarea>\n  z\n</textarea>",
+      "stripped": "  x\n  y \n  z\n"
+    },
+    {
+      "name": "malformed-unclosed",
+      "html": "<div><p>one<p>two",
+      "output": "<div><p>one<p>two</p></p></div>",
+      "stripped": "onetwo"
+    },
+    {
+      "name": "malformed-stray-end",
+      "html": "</p><p>x</p></div></p>y",
+      "output": "<p>x</p>y",
+      "stripped": "xy"
+    },
+    {
+      "name": "malformed-misnested",
+      "html": "<p><b>x</p>y</b>z",
+      "output": "<p><b>x</b></p>yz",
+      "stripped": "xyz"
+    },
+    {
+      "name": "malformed-nested-li",
+      "html": "<ul><li>a<li>b</ul>",
+      "output": "<ul><li>a<li>b</li></li></ul>",
+      "stripped": "ab"
+    },
+    {
+      "name": "malformed-incomplete-tag",
+      "html": "<p>x</p",
+      "output": "<p>x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-incomplete-comment",
+      "html": "<!-- unterminated",
+      "output": "<!-- unterminated-->",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-incomplete-entity",
+      "html": "<p>&amp",
+      "output": "<p>&amp;amp</p>",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-bare-ampersand",
+      "html": "<p>a & b</p>",
+      "output": "<p>a &amp; b</p>",
+      "stripped": "a & b"
+    },
+    {
+      "name": "malformed-lt",
+      "html": "<p>a < b and <3</p>",
+      "output": "<p>a &lt; b and &lt;3</p>",
+      "stripped": "a < b and <3"
+    },
+    {
+      "name": "malformed-bogus-comment",
+      "html": "<p><!--not -- a --></p><!--a--!>",
+      "output": "<p><!--not -- a --></p><!--a-->",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-declaration",
+      "html": "<!DOCTYPE><p>x</p>",
+      "output": "<!DOCTYPE  >\n<p>x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-doctype",
+      "html": "<!doctype HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\">x",
+      "output": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\">\nx",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-cdata",
+      "html": "<![CDATA[x<y]]>",
+      "output": "<![CDATA[x<y]]>",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-pi",
+      "html": "<?xml version=\"1.0\"?><p>x</p>",
+      "output": "<?xml version=\"1.0\"?><p>x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-attr-quotes",
+      "html": "<p title='he said \"hi\"' data-x=\"a'b\" empty=\"\">q</p>",
+      "output": "<p data-x=\"a'b\" empty=\"\" title='he said \"hi\"'>q</p>",
+      "stripped": "q"
+    },
+    {
+      "name": "malformed-attr-entities",
+      "html": "<p title=\"a&amp;b<c>d\" alt=\"x &quot;y&quot;\">z</p>",
+      "output": "<p alt='x \"y\"' title=\"a&amp;b&lt;c&gt;d\">z</p>",
+      "stripped": "z"
+    },
+    {
+      "name": "malformed-attr-duplicate",
+      "html": "<p a=\"1\" A=\"2\" b>x</p>",
+      "output": "<p a=\"2\" b=\"\">x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-attr-unquoted",
+      "html": "<p a=1 b=two/>three c = 4>x</p>",
+      "output": "<p a=\"1\" b=\"two/\">three c = 4&gt;x</p>",
+      "stripped": "three c = 4>x"
+    },
+    {
+      "name": "malformed-uppercase",
+      "html": "<P CLASS=\"A\"><B>x</B></P>",
+      "output": "<p class=\"A\"><b>x</b></p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-self-closing-div",
+      "html": "<div/><span/>tail",
+      "output": "<div></div><span></span>tail",
+      "stripped": "tail"
+    },
+    {
+      "name": "malformed-void-close",
+      "html": "<p>a<br></br>b<img src=\"u\"></img>c</p>",
+      "output": "<p>a<br/>b<img src=\"u\"/>c</p>",
+      "stripped": "abc"
+    },
+    {
+      "name": "malformed-text-only",
+      "html": "plain text only",
+      "output": "plain text only",
+      "stripped": "plain text only"
+    },
+    {
+      "name": "malformed-empty",
+      "html": "",
+      "output": "",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-whitespace",
+      "html": "  <p>x</p>  ",
+      "output": " <p>x</p> ",
+      "stripped": "  x  "
+    },
+    {
+      "name": "malformed-newlines",
+      "html": "<div>\n <p>x</p>\n</div>",
+      "output": "<div>\n<p>x</p>\n</div>",
+      "stripped": "\n x\n"
+    },
+    {
+      "name": "malformed-null",
+      "html": "<p>\u0000x</p>",
+      "output": "<p>\u0000x</p>",
+      "stripped": "\u0000x"
+    },
+    {
+      "name": "malformed-html-comment-whitespace",
+      "html": "<p><!--   --></p>",
+      "output": "<p><!-- --></p>",
+      "stripped": ""
+    },
+    {
+      "name": "editor-title",
+      "html": "<title>a &amp; b < c</title><p>x</p>",
+      "output": "<title>a &amp; b &lt; c</title><p>x</p>",
+      "stripped": "a & b < cx"
+    },
+    {
+      "name": "editor-textarea-entities",
+      "html": "<textarea>a &lt; b &amp; c</textarea>",
+      "output": "<textarea>a &lt; b &amp; c</textarea>",
+      "stripped": "a < b & c"
+    },
+    {
+      "name": "editor-mention-in-table",
+      "html": "<table><tbody><tr><td><mention-component id=\"f0000000-0000-4000-8000-000000000003\" name=\"Mia\"></mention-component></td></tr></tbody></table>",
+      "output": "<table><tbody><tr><td><mention-component id=\"f0000000-0000-4000-8000-000000000003\" name=\"Mia\"></mention-component></td></tr></tbody></table>",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-template",
+      "html": "<template><p>x</p></template>",
+      "output": "<template><p>x</p></template>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-unterminated-attr",
+      "html": "<p a=\"x>y</p>",
+      "output": "",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-bare-attr-end",
+      "html": "<p a=>x</p>",
+      "output": "<p a=\"\">x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-slash-space",
+      "html": "<p/ >x</p>",
+      "output": "<p>x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-two-voids",
+      "html": "<p>a<br><br></br>b</p>",
+      "output": "<p>a<br/><br/>b</p>",
+      "stripped": "ab"
+    },
+    {
+      "name": "malformed-comment-abrupt",
+      "html": "<!---><p>x</p>",
+      "output": "<!-- --><p>x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-lt-eof",
+      "html": "<p>x<",
+      "output": "<p>x&lt;</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-amp-eof",
+      "html": "<p>&a",
+      "output": "<p>a</p>",
+      "stripped": ""
+    },
+    {
+      "name": "malformed-xmp",
+      "html": "<xmp><b>x</b></xmp>",
+      "output": "<xmp>&lt;b&gt;x&lt;/b&gt;</xmp>",
+      "stripped": "<b>x</b>"
+    },
+    {
+      "name": "malformed-nested-script",
+      "html": "<script>var a = '</div>';</script><p>x</p>",
+      "output": "<script>var a = '</div>';</script><p>x</p>",
+      "stripped": "var a = '</div>';x"
+    },
+    {
+      "name": "malformed-uppercase-doctype",
+      "html": "<!DoCtYpE html><p>x</p>",
+      "output": "<!DOCTYPE html>\n<p>x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-attr-newline",
+      "html": "<p\na=\"1\"\nb=2>x</p>",
+      "output": "<p a=\"1\" b=\"2\">x</p>",
+      "stripped": "x"
+    },
+    {
+      "name": "malformed-attr-amp-eof",
+      "html": "<p title=\"a&amp\">x</p>",
+      "output": "<p title=\"a&amp;\">x</p>",
+      "stripped": "x"
+    }
+  ]
+}

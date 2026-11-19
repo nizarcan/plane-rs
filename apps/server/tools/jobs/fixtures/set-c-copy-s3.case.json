@@ -1,0 +1,58 @@
+{
+  "task": "plane.bgtasks.copy_s3_object.copy_s3_objects_of_description_and_assets",
+  "sql": [
+    {
+      "label": "file_assets",
+      "query": "SELECT CASE WHEN id::text LIKE 'c0f0%' THEN id::text ELSE '<NEW-ID>' END, COALESCE(issue_id::text, 'NULL'), COALESCE(page_id::text, 'NULL'), COALESCE(project_id::text, 'NULL'), entity_type, size::text, is_uploaded, COALESCE(created_by_id::text, 'NULL'), COALESCE(updated_by_id::text, 'NULL'), COALESCE(deleted_at::text, 'NULL'), asset, attributes::text, COALESCE(storage_metadata::text, 'NULL') FROM file_assets ORDER BY regexp_replace(asset, '[0-9a-f]{32}', '<HEX>'), id::text LIKE 'c0f0%' DESC"
+    },
+    {
+      "label": "pages",
+      "query": "SELECT id::text, regexp_replace(description_html, 'src=\"(?!c0f0)[0-9a-f-]{36}\"', 'src=\"<NEW>\"', 'g'), COALESCE(description_stripped, 'NULL'), description_json::text, encode(description_binary, 'escape'), COALESCE(created_by_id::text, 'NULL'), COALESCE(updated_by_id::text, 'NULL') FROM pages ORDER BY id"
+    },
+    {
+      "label": "issues",
+      "query": "SELECT id::text, regexp_replace(description_html, 'src=\"(?!c0f0)[0-9a-f-]{36}\"', 'src=\"<NEW>\"', 'g'), COALESCE(description_stripped, 'NULL'), state_id::text, COALESCE(completed_at::text, 'NULL'), COALESCE(created_by_id::text, 'NULL'), COALESCE(updated_by_id::text, 'NULL') FROM issues ORDER BY id"
+    }
+  ],
+  "s3": {
+    "seeds": [
+      {
+        "key": "c0f00000-0000-4000-8000-000000000010/deadbeef-photo.png",
+        "text": "page-bytes",
+        "content_type": "image/png"
+      },
+      {
+        "key": "c0f00000-0000-4000-8000-000000000010/feedface-issue.png",
+        "text": "issue-bytes",
+        "content_type": "image/png"
+      }
+    ]
+  },
+  "http": {
+    "responses": {
+      "/live/convert-document/": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"description_json\": {\"type\": \"doc\", \"content\": []}, \"description_binary\": \"aGVsbG8=\"}"
+      }
+    },
+    "normalize": [
+      {
+        "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+        "replacement": "<UUID4>"
+      }
+    ]
+  },
+  "normalize": [
+    {
+      "pattern": "[0-9a-f]{32}",
+      "replacement": "<HEX>"
+    },
+    {
+      "pattern": "p8[a-z0-9-]+-[ab]",
+      "replacement": "<BUCKET>"
+    }
+  ]
+}

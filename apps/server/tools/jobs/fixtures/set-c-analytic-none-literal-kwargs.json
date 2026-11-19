@@ -1,0 +1,12 @@
+{
+  "email": "ada-gaps@example.com",
+  "data": {
+    "x_axis": "labels__id",
+    "y_axis": "issue_count",
+    "labels": [
+      "None"
+    ]
+  },
+  "slug": "p8c-gaps",
+  "user_id": "e0000000-0000-4000-8000-000000000001"
+}

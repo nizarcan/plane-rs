@@ -342,8 +342,7 @@ pub fn post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
         let task = task_name::PAGE_TRANSACTION;
         let message =
             tasks::page_transaction(source.description_html.clone(), None, TaskArg::uuid(new_id));
-        let job = Job::from_message(&message);
-        jobs::dispatch_task(ctx, task, &message, job).await?;
+        jobs::dispatch_task(ctx, task, &message, Job::from_message(&message)).await?;
 
         // `copy_s3_objects_of_description_and_assets.delay(entity_name="PAGE",
         // entity_identifier=page.id, project_id=project_id, slug=slug,
@@ -356,7 +355,7 @@ pub fn post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
             slug,
             user,
         );
-        jobs::dispatch_task(ctx, task, &message, Job::new(task)).await?;
+        jobs::dispatch_task(ctx, task, &message, Job::from_message(&message)).await?;
 
         response_body(ctx, client, new_id).await
     })
