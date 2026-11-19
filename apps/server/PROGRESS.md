@@ -2471,7 +2471,12 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
   lines. The dev `SECRET_KEY` (the only long value in `dev/.env.local`) occurs 0 times in
   the history diff; no `.env`/key/credential file was ever added except that test key.
   Follow-up: a `.gitleaks.toml` allowlist for these paths, and a CI scan.
-Running: `rs/rs-telemetry` (`push_instance_metrics`; 18010/18110, Redis 3/4/11), `rs/rs-helm`
-(chart, GHCR CI, image names). Next: upstream pin + oracle fetch + `apps/api` removal, README,
+- **Helm chart + GHCR CI merged (`d2a73c5732`), D38.** `helm lint --strict`, 7 renders, kubeconform
+  0 invalid across all fixtures; actionlint clean; negative renders fail with explicit messages.
+  Left for the real cluster: arm64 pulls, probes on real binaries, read-only rootfs, both
+  migrator shapes under ArgoCD, the bucket hook on the silo image, PVCs on `nfs-data`, ESO key
+  names, GHCR package visibility on first push.
+
+Running: `rs/rs-telemetry` (`push_instance_metrics`; 18010/18110, Redis 3/4/11). Next: upstream pin + oracle fetch + `apps/api` removal, README,
 secret scan, publish, homelab.
 

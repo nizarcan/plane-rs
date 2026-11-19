@@ -835,6 +835,29 @@ workspace `Cargo.toml` and upgrade deliberately.
 - No other direct tokio-postgres connection has the pattern: all are spawned at once or come
   from `deadpool_postgres`, which spawns its own connection task.
 
+## D38. The Helm chart and the published images live in this repository (decided 2026-11-20)
+
+- Nine images, `ghcr.io/nizarcan/plane-rs-{api,worker,beat,migrator,web,space,admin,live,proxy}`,
+  published by `.github/workflows/build-branch.yml` on push to `main`, tags `v*` and dispatch:
+  `linux/amd64` + `linux/arm64` built natively, pushed with the built-in `GITHUB_TOKEN`
+  (`packages: write`). Every deployment file pulls them (`IMAGE_REGISTRY` replaces
+  `DOCKERHUB_USER`). Django-only workflows (`migration-check`, `pull-request-build-lint-api`,
+  `check-version`, the upstream `feature-deployment`) are removed.
+- `charts/plane-rs` replaces the external `plane-ce` chart: the four Rust services and four
+  frontends, ingress paths identical to `Caddyfile.ce`, optional bundled PostgreSQL / Valkey /
+  MinIO, an `existingSecret` per secret group (app, database, object storage), no RabbitMQ.
+  `chart-ci.yml` lints, renders every fixture and runs `kubeconform -strict`.
+- The migrator and bucket Jobs are content-addressed (`<fullname>-migrator-<8 hex>` over the
+  image and every pod-template input), never `.Release.Revision`: ArgoCD renders with `helm
+  template` (revision always 1) and Job pod templates are immutable. The regular Job carries no
+  ArgoCD `Sync` hook (that would re-run the migration on every sync); with an external database
+  and an existing Secret it is a Helm `pre-install,pre-upgrade` hook (ArgoCD PreSync). With the
+  bundled PostgreSQL a `pg_isready` init container waits for the StatefulSet. `wait_for_migrations`
+  holds api/worker/beat in every shape.
+- Beat is a singleton (render fails on `replicas != 1`). Probes: api `GET /` (answered without
+  the database; startup window 5 min for the boot steps), web `/`, space `/spaces/`, admin
+  `/god-mode/`, live TCP; worker, beat and the migrator have none (no HTTP, distroless).
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
