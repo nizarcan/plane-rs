@@ -526,8 +526,13 @@ async fn publish_model_activity(
         slug: slug.to_owned(),
         origin: origin(ctx)?,
     });
-    crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await?;
+    crate::common::jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await?;
     Ok(())
 }
 
@@ -962,7 +967,7 @@ pub fn destroy<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
                 ctx,
                 activity.task(),
                 &activity,
-                plane_jobs::queue::Job::new(activity.task()),
+                plane_jobs::queue::Job::from_message(&activity),
             )
             .await?;
         }

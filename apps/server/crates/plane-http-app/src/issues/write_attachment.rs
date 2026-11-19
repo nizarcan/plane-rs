@@ -446,9 +446,14 @@ async fn publish_created(
         plane_jobs::celery::tasks::IssueActivityCall::view(base, base_host(ctx)?),
     );
     let task = plane_jobs::celery::task_name::ISSUE_ACTIVITY;
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await
-        .map(|_| ())
+    jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await
+    .map(|_| ())
 }
 
 async fn publish_deleted(
@@ -470,9 +475,14 @@ async fn publish_deleted(
         plane_jobs::celery::tasks::IssueActivityCall::view(base, base_host(ctx)?),
     );
     let task = plane_jobs::celery::task_name::ISSUE_ACTIVITY;
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await
-        .map(|_| ())
+    jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await
+    .map(|_| ())
 }
 
 fn base_host(ctx: &ViewCtx<'_>) -> Result<String, ViewError> {

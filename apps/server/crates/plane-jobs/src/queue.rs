@@ -191,6 +191,13 @@ impl Job {
         job.max_retries = policy.max_retries;
         job.retry_backoff_seconds = policy.retry_backoff_seconds;
         job.retry_jitter = policy.retry_jitter;
+        // `countdown=` / an `eta` published by the call site becomes the job's
+        // due instant (`plans/CUTOVER.md` §2: `countdown` → `Job.run_at`). The
+        // Celery message resolves the same countdown against its own publish
+        // instant, a few microseconds earlier.
+        if let Some(seconds) = message.countdown() {
+            job.run_at = Some(chrono::Utc::now() + chrono::TimeDelta::seconds(seconds));
+        }
         job
     }
 }

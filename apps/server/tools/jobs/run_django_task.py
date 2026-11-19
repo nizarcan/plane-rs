@@ -14,7 +14,10 @@ Usage (the harness passes the environment from dev/django-env.sh):
 
   .venv/bin/python ../server/tools/jobs/run_django_task.py \
       plane.bgtasks.recent_visited_task.recent_visited_task \
-      '{"slug":"acme", ...}'
+      '{"slug":"acme", ...}' '[]'
+
+The third argument is the positional `args` array (default `[]`); a task whose
+call sites are positional passes them there instead of in `kwargs`.
 
 Prints one JSON line: the task status and the string form of its result.
 """
@@ -57,6 +60,7 @@ def allow_loopback_for_difftest() -> None:
 
 def main() -> int:
     task_name, kwargs_json = sys.argv[1], sys.argv[2]
+    args_json = sys.argv[3] if len(sys.argv) > 3 else "[]"
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
 
     import django
@@ -69,7 +73,8 @@ def main() -> int:
 
     task = import_string(task_name)
     kwargs = json.loads(kwargs_json)
-    result = task.apply(kwargs=kwargs, throw=False)
+    args = json.loads(args_json)
+    result = task.apply(args=args, kwargs=kwargs, throw=False)
     print(
         json.dumps(
             {

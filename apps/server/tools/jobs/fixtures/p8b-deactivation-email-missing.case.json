@@ -1,0 +1,5 @@
+{
+  "task": "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+  "sql": [],
+  "smtp": {}
+}

@@ -172,7 +172,13 @@ pub fn post<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, View
             let message =
                 tasks::issue_activity(IssueActivityCall::view(base, queries::base_host(ctx)?));
             let task = plane_jobs::celery::task_name::ISSUE_ACTIVITY;
-            jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+            jobs::dispatch_task(
+                ctx,
+                task,
+                &message,
+                plane_jobs::queue::Job::from_message(&message),
+            )
+            .await?;
         }
 
         // `updated_sub_issues = Issue.issue_objects.filter(...)

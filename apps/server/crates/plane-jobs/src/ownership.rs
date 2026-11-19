@@ -56,6 +56,21 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
     // Phase 8 set C: WorkspaceViewSet.create (route 186) is a Rust route.
     "plane.bgtasks.workspace_seed_task.workspace_seed",
+    // Phase 8 set B: the webhook chain moves in its producer order.
+    "plane.bgtasks.webhook_task.model_activity",
+    "plane.bgtasks.webhook_task.webhook_activity",
+    "plane.bgtasks.webhook_task.webhook_send_task",
+    "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+    // Phase 8 set B: the auth and user e-mails. Every producer is a Rust route
+    // or the Rust auth adapter (`PRODUCERS` below).
+    "plane.bgtasks.forgot_password_task.forgot_password",
+    "plane.bgtasks.magic_link_code_task.magic_link",
+    "plane.bgtasks.project_add_user_email_task.project_add_user_email",
+    "plane.bgtasks.user_activation_email_task.user_activation_email",
+    "plane.bgtasks.user_deactivation_email_task.user_deactivation_email",
+    "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
+    "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
+    "plane.bgtasks.workspace_invitation_task.workspace_invitation",
 ];
 
 /// A task's owner.

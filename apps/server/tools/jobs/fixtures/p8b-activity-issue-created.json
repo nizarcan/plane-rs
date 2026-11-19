@@ -1,0 +1,13 @@
+{
+  "event": "issue",
+  "verb": "created",
+  "field": null,
+  "old_value": null,
+  "new_value": null,
+  "actor_id": "b0000000-0000-4000-8000-000000000001",
+  "slug": "p8b-ws",
+  "current_site": "https://app.example.com",
+  "event_id": "b0000000-0000-4000-8000-000000000013",
+  "old_identifier": null,
+  "new_identifier": null
+}

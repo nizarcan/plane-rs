@@ -29,10 +29,17 @@ pub struct HeaderList {
 
 impl HeaderList {
     /// Merge an `http::HeaderMap` the way urllib3's `HTTPHeaderDict` does.
+    ///
+    /// `http::HeaderMap` lowercases every name and does not keep the wire
+    /// casing, so the name is restored to the canonical `Title-Case` form that
+    /// every mainstream server sends (nginx, hyper, uvicorn, Caddy). Python's
+    /// `str(response.headers)` carries whatever casing arrived, so a server
+    /// that sends `content-type` in lower case differs in this one column.
     pub fn from_map(headers: &HeaderMap) -> Self {
         let mut list = Self::default();
         for (name, value) in headers {
-            list.append(name.as_ref(), &String::from_utf8_lossy(value.as_bytes()));
+            let name = canonical_name(name.as_ref());
+            list.append(&name, &String::from_utf8_lossy(value.as_bytes()));
         }
         list
     }
@@ -90,9 +97,36 @@ impl HeaderList {
     }
 }
 
+/// RFC 7230's canonical casing: capitalise each `-`-separated token.
+fn canonical_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut start = true;
+    for character in name.chars() {
+        if character == '-' {
+            out.push('-');
+            start = true;
+            continue;
+        }
+        if start {
+            out.extend(character.to_uppercase());
+            start = false;
+        } else {
+            out.extend(character.to_lowercase());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn header_names_are_canonicalised() {
+        assert_eq!(canonical_name("content-type"), "Content-Type");
+        assert_eq!(canonical_name("x-plane-delivery"), "X-Plane-Delivery");
+        assert_eq!(canonical_name("etag"), "Etag");
+    }
 
     #[test]
     fn duplicates_merge_at_first_position() {

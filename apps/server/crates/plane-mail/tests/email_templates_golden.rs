@@ -21,6 +21,7 @@ struct Corpus {
     templates: Vec<TemplateCase>,
     plain_text: Vec<PlainTextCase>,
     multipart: String,
+    webhook_multipart: String,
     attachment: String,
 }
 
@@ -94,6 +95,37 @@ fn multipart_bytes_match_django() {
         )
         .expect("bytes");
     assert_eq!(String::from_utf8(bytes).expect("utf-8"), corpus.multipart);
+}
+
+#[test]
+fn long_html_alternative_is_quoted_printable_like_django() {
+    let corpus = corpus();
+    let context = serde_json::json!({
+        "email": "receiver@example.com",
+        "message": "Webhook http://127.0.0.1:1234/hook-one has been deactivated due to \
+                    failed requests.",
+        "webhook_url": "https://app.example.com/p8b-ws/settings/webhooks/\
+                        b0000000-0000-4000-8000-000000000021",
+    });
+    let html = render("emails/notifications/webhook-deactivate.html", &context).expect("render");
+    let message = Message::with_html(
+        "Webhook Deactivated",
+        generate_plain_text_from_html(&html),
+        html,
+        "Team Plane <team@mailer.plane.so>",
+        vec!["receiver@example.com".to_string()],
+    );
+    let bytes = message
+        .as_bytes_with_boundary(
+            "<DATE>",
+            "<MESSAGE-ID>",
+            Some("<BOUNDARY-0000000000000000000000000>"),
+        )
+        .expect("bytes");
+    assert_eq!(
+        String::from_utf8(bytes).expect("utf-8"),
+        corpus.webhook_multipart
+    );
 }
 
 #[test]

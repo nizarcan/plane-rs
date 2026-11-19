@@ -414,7 +414,7 @@ async fn publish_activity(
         ctx,
         activity.task(),
         &activity,
-        plane_jobs::queue::Job::new(activity.task()),
+        plane_jobs::queue::Job::from_message(&activity),
     )
     .await
     .map(|_| ())

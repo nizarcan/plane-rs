@@ -151,7 +151,7 @@ pub fn deactivate<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse
         )?;
         let task = task_name::USER_DEACTIVATION_EMAIL;
         let message = plane_jobs::celery::tasks::user_deactivation_email(origin, user.id);
-        jobs::dispatch_task(ctx, task, &message, Job::new(task)).await?;
+        jobs::dispatch_task(ctx, task, &message, Job::from_message(&message)).await?;
 
         // 9. `logout(request)` (`:373`): flush; the runtime applies the
         //    AnonymousUser half and the middleware the cookie half.

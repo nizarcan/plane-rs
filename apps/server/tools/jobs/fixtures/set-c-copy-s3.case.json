@@ -49,10 +49,6 @@
     {
       "pattern": "[0-9a-f]{32}",
       "replacement": "<HEX>"
-    },
-    {
-      "pattern": "p8c-[a-z0-9-]+-[ab]",
-      "replacement": "<BUCKET>"
     }
   ]
 }

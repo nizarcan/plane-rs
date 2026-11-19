@@ -370,7 +370,7 @@ pub fn comment_create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -388,7 +388,7 @@ pub fn comment_create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
             ctx,
             model.task(),
             &model,
-            plane_jobs::queue::Job::new(model.task()),
+            plane_jobs::queue::Job::from_message(&model),
         )
         .await?;
 
@@ -464,7 +464,7 @@ pub fn comment_partial_update<'a>(
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -481,7 +481,7 @@ pub fn comment_partial_update<'a>(
             ctx,
             model.task(),
             &model,
-            plane_jobs::queue::Job::new(model.task()),
+            plane_jobs::queue::Job::from_message(&model),
         )
         .await?;
 
@@ -540,7 +540,7 @@ pub fn comment_destroy<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRes
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -847,7 +847,7 @@ pub fn issue_reaction_create<'a>(
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -928,7 +928,7 @@ pub fn issue_reaction_destroy<'a>(
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -1028,7 +1028,7 @@ pub fn comment_reaction_create<'a>(
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -1101,7 +1101,7 @@ pub fn comment_reaction_destroy<'a>(
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 

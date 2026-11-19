@@ -1986,7 +1986,10 @@ fn quopri_body_encode(body: &str) -> String {
     // The map is over octets, not characters: a UTF-8 `ä` is `=C3=A4`.
     let mut quoted = String::with_capacity(body.len());
     for &byte in body.as_bytes() {
-        if (byte < 33 && !matches!(byte, b'\t' | b'\n' | b'\r')) || byte == b'=' || byte > 126 {
+        // `_QUOPRI_BODY_ENCODE_MAP` (`email/quoprimime.py`) leaves space, tab
+        // and every printable ASCII character alone; a trailing space is
+        // quoted by the line-wrapper below.
+        if (byte < 32 && !matches!(byte, b'\t' | b'\n' | b'\r')) || byte == b'=' || byte > 126 {
             quoted.push_str(&format!("={byte:02X}"));
         } else {
             quoted.push(byte as char);

@@ -65,6 +65,64 @@ TEMPLATE_CASES = [
         "template": "emails/exports/analytics.html",
         "context": {},
     },
+    {
+        "name": "project_addition",
+        "template": "emails/notifications/project_addition.html",
+        "context": {
+            "project_name": "Alpha & Co",
+            "workspace_name": "Acme",
+            "email": "ada@example.com",
+            "inviter_first_name": "Rex",
+            "project_url": "https://plane.example.com/acme/projects/"
+            "b0000000-0000-4000-8000-000000000011/issues",
+        },
+    },
+    {
+        "name": "workspace_invitation",
+        "template": "emails/invitations/workspace_invitation.html",
+        "context": {
+            "email": "ada@example.com",
+            "first_name": "Rex <Receiver>",
+            "workspace_name": "Acme",
+            "abs_url": "https://plane.example.com/workspace-invitations/"
+            "?invitation_id=b0000000-0000-4000-8000-000000000030&slug=acme&token=t0k",
+        },
+    },
+    {
+        "name": "user_activation",
+        "template": "emails/user/user_activation.html",
+        "context": {"email": "ada@example.com", "profile_url": "https://plane.example.com/profile"},
+    },
+    {
+        "name": "user_deactivation",
+        "template": "emails/user/user_deactivation.html",
+        "context": {"email": "ada@example.com", "login_url": "https://plane.example.com/login"},
+    },
+    {
+        "name": "email_updated",
+        "template": "emails/user/email_updated.html",
+        "context": {"email": "ada@example.com"},
+    },
+    {
+        "name": "webhook_deactivate",
+        "template": "emails/notifications/webhook-deactivate.html",
+        "context": {
+            "email": "ada@example.com",
+            "message": "Webhook https://hooks.example.com/plane?x=1 has been deactivated due to "
+            "failed requests.",
+            "webhook_url": "https://plane.example.com/acme/settings/webhooks/"
+            "8a1b2c3d-4e5f-6789-abcd-ef0123456789",
+        },
+    },
+    {
+        "name": "webhook_deactivate_escaped",
+        "template": "emails/notifications/webhook-deactivate.html",
+        "context": {
+            "email": "a<b&c@example.com",
+            "message": "Webhook <script> has been deactivated due to failed requests.",
+            "webhook_url": "https://plane.example.com/acme/settings/webhooks/1?x=\"'>",
+        },
+    },
 ]
 
 PLAIN_TEXT_CASES = [
@@ -213,6 +271,39 @@ def record_multipart():
     return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
 
 
+def record_webhook_multipart():
+    """The deactivation e-mail: a 32 KB HTML alternative with 4 KB lines.
+
+    The long lines make `SafeMIMEText` choose quoted-printable for the HTML
+    part, which is the only case in the corpus that exercises
+    `email.quoprimime.body_encode` (spaces stay literal, trailing spaces are
+    quoted, lines wrap at 76 with a soft break).
+    """
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    from plane_utils_email import generate_plain_text_from_html
+
+    html = render_to_string(
+        "emails/notifications/webhook-deactivate.html",
+        {
+            "email": "receiver@example.com",
+            "message": "Webhook http://127.0.0.1:1234/hook-one has been deactivated due to "
+            "failed requests.",
+            "webhook_url": "https://app.example.com/p8b-ws/settings/webhooks/"
+            "b0000000-0000-4000-8000-000000000021",
+        },
+    )
+    message = EmailMultiAlternatives(
+        subject="Webhook Deactivated",
+        body=generate_plain_text_from_html(html),
+        from_email="Team Plane <team@mailer.plane.so>",
+        to=["receiver@example.com"],
+    )
+    message.attach_alternative(html, "text/html")
+    return mask_generated(message.message().as_bytes(linesep="\r\n").decode("utf-8"))
+
+
 def record_attachment():
     """`analytic_plot_export.send_export_email`'s exact message shape."""
     from django.core.mail import EmailMultiAlternatives
@@ -268,6 +359,7 @@ def main(argv: list[str]) -> int:
         "templates": record_templates(),
         "plain_text": record_plain_text(),
         "multipart": record_multipart(),
+        "webhook_multipart": record_webhook_multipart(),
         "attachment": record_attachment(),
     }
     rendered = json.dumps(corpus, indent=2, ensure_ascii=False) + "\n"

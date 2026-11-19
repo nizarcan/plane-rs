@@ -2161,7 +2161,7 @@ pub(crate) async fn publish_issue_activity(
         ctx,
         task,
         &message,
-        plane_jobs::queue::Job::new(task),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await?;
     Ok(())
@@ -2212,7 +2212,7 @@ pub(crate) async fn publish_model_activity(
         ctx,
         task,
         &message,
-        plane_jobs::queue::Job::new(task),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await?;
     Ok(())

@@ -1,0 +1,12 @@
+{
+  "model_name": "issue",
+  "model_id": "b0000000-0000-4000-8000-000000000013",
+  "requested_data": {
+    "name": "Webhook issue",
+    "point": 3
+  },
+  "current_instance": "{\"name\": \"Webhook issue\", \"point\": 3}",
+  "actor_id": "b0000000-0000-4000-8000-000000000001",
+  "slug": "p8b-ws",
+  "origin": "https://app.example.com"
+}

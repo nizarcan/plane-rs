@@ -2174,7 +2174,7 @@ async fn publish_project_activity(
         ctx,
         task,
         &message,
-        plane_jobs::queue::Job::new(task),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await
     .map(|_| ())
@@ -2677,7 +2677,7 @@ pub fn delete<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             ctx,
             task,
             &message,
-            plane_jobs::queue::Job::new(task),
+            plane_jobs::queue::Job::from_message(&message),
         )
         .await?;
         Ok(ViewResponse::empty(204))

@@ -1,0 +1,5 @@
+{
+  "task": "plane.bgtasks.forgot_password_task.forgot_password",
+  "sql": [],
+  "smtp": {}
+}

@@ -46,6 +46,30 @@ const TEMPLATES: &[(&str, &str)] = &[
         "emails/exports/analytics.html",
         include_str!("../templates/analytics.html.j2"),
     ),
+    (
+        "emails/notifications/webhook-deactivate.html",
+        include_str!("../templates/webhook_deactivate.html.j2"),
+    ),
+    (
+        "emails/notifications/project_addition.html",
+        include_str!("../templates/project_addition.html.j2"),
+    ),
+    (
+        "emails/invitations/workspace_invitation.html",
+        include_str!("../templates/workspace_invitation.html.j2"),
+    ),
+    (
+        "emails/user/user_activation.html",
+        include_str!("../templates/user_activation.html.j2"),
+    ),
+    (
+        "emails/user/user_deactivation.html",
+        include_str!("../templates/user_deactivation.html.j2"),
+    ),
+    (
+        "emails/user/email_updated.html",
+        include_str!("../templates/email_updated.html.j2"),
+    ),
 ];
 
 /// The rendering error a task reports as a handler failure.

@@ -138,3 +138,53 @@ a3 plane.bgtasks.page_transaction_task.page_transaction page-transaction-script.
 
 # Task 9's fourth cascade case (the unknown model name logs and returns).
 d plane.bgtasks.deletion_task.soft_delete_related_objects soft-cascade-unknown-model.json soft-cascade-base.sql - --expect-django-failure LookupError --expect-worker-failure nosuchmodel
+
+# ---- set B (webhooks and e-mail) ------------------------------------------
+
+# Task 43 model_activity: created and updated publish webhook_activity, an
+# unchanged value publishes nothing, and an invalid current_instance fails.
+b plane.bgtasks.webhook_task.model_activity p8b-model-created.json p8b-webhook-base.sql p8b-model-created.case.json
+b plane.bgtasks.webhook_task.model_activity p8b-model-updated.json p8b-webhook-base.sql p8b-model-updated.case.json
+b plane.bgtasks.webhook_task.model_activity p8b-model-unchanged.json p8b-webhook-base.sql p8b-model-unchanged.case.json
+b plane.bgtasks.webhook_task.model_activity p8b-model-bad-json.json p8b-webhook-base.sql p8b-model-bad-json.case.json --expect-django-failure JSONDecodeError --expect-worker-failure current_instance
+
+# Task 42 webhook_activity: the fan-out and every entity serializer.
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-issue-created.json p8b-webhook-base.sql p8b-activity-issue-created.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-issue-deleted.json p8b-webhook-base.sql p8b-activity-issue-deleted.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-cycle.json p8b-webhook-base.sql p8b-activity-cycle.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-module.json p8b-webhook-base.sql p8b-activity-module.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-module-issue.json p8b-webhook-base.sql p8b-activity-module-issue.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-cycle-issue.json p8b-webhook-base.sql p8b-activity-cycle-issue.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-comment.json p8b-webhook-base.sql p8b-activity-comment.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-intake.json p8b-webhook-base.sql p8b-activity-intake.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-missing.json p8b-webhook-base.sql p8b-activity-missing.case.json
+b plane.bgtasks.webhook_task.webhook_activity p8b-activity-wrong-workspace.json p8b-webhook-base.sql p8b-activity-wrong-workspace.case.json
+
+# Task 41 webhook_send_task: the pinned POST, the HMAC, the log row, and the
+# two non-retrying failure branches (blocked URL; missing webhook).
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-issue.json p8b-webhook-base.sql p8b-send-issue.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-project.json p8b-webhook-base.sql p8b-send-project.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-blocked.json p8b-webhook-base.sql p8b-send-blocked.case.json
+b plane.bgtasks.webhook_task.webhook_send_task p8b-send-missing-webhook.json p8b-webhook-base.sql p8b-send-missing-webhook.case.json
+
+# Task 40 send_webhook_deactivation_email: SMTP bytes, and the missing-user
+# branch (no message).
+b plane.bgtasks.webhook_task.send_webhook_deactivation_email p8b-deactivation-email.json p8b-webhook-base.sql p8b-deactivation-email.case.json
+b plane.bgtasks.webhook_task.send_webhook_deactivation_email p8b-deactivation-email-missing.json p8b-webhook-base.sql p8b-deactivation-email-missing.case.json
+
+# The auth and user e-mails (tasks 17, 28, 32, 36-39, 45). These call sites are
+# positional, so the kwargs files use the `{"args": [...]}` form. SMTP bytes are
+# compared through one fake listener per side; 45's fixture row also proves the
+# `message` column write and the audit-column nulling.
+b plane.bgtasks.forgot_password_task.forgot_password p8b-mail-forgot.json p8b-email-base.sql p8b-mail-forgot.case.json
+b plane.bgtasks.magic_link_code_task.magic_link p8b-mail-magic.json p8b-email-base.sql p8b-mail-magic.case.json
+b plane.bgtasks.user_activation_email_task.user_activation_email p8b-mail-activation.json p8b-email-base.sql p8b-mail-activation.case.json
+b plane.bgtasks.user_activation_email_task.user_activation_email p8b-mail-activation-nameless.json p8b-email-base.sql p8b-mail-activation-nameless.case.json
+b plane.bgtasks.user_deactivation_email_task.user_deactivation_email p8b-mail-deactivation.json p8b-email-base.sql p8b-mail-deactivation.case.json
+b plane.bgtasks.user_email_update_task.send_email_update_magic_code p8b-mail-update-code.json p8b-email-base.sql p8b-mail-update-code.case.json
+b plane.bgtasks.user_email_update_task.send_email_update_confirmation p8b-mail-update-confirmation.json p8b-email-base.sql p8b-mail-update-confirmation.case.json
+b plane.bgtasks.user_email_update_task.send_email_update_confirmation p8b-mail-update-confirmation-null.json p8b-email-base.sql p8b-mail-update-confirmation-null.case.json
+b plane.bgtasks.project_add_user_email_task.project_add_user_email p8b-mail-project-add.json p8b-email-base.sql p8b-mail-project-add.case.json
+b plane.bgtasks.project_add_user_email_task.project_add_user_email p8b-mail-project-add-missing.json p8b-email-base.sql p8b-mail-project-add-missing.case.json
+b plane.bgtasks.workspace_invitation_task.workspace_invitation p8b-mail-invitation.json p8b-email-base.sql p8b-mail-invitation.case.json
+b plane.bgtasks.workspace_invitation_task.workspace_invitation p8b-mail-invitation-missing.json p8b-email-base.sql p8b-mail-invitation-missing.case.json

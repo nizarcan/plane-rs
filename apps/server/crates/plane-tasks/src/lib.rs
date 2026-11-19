@@ -28,6 +28,7 @@ mod bs4_entities;
 pub mod cleanup;
 pub mod copy_s3_object;
 pub mod deletion;
+pub mod emails;
 pub mod export_task;
 pub mod exporter_expired;
 pub mod file_asset;
@@ -37,6 +38,7 @@ pub mod model_graph;
 pub mod recent_visited;
 pub mod storage_metadata;
 pub mod versions;
+pub mod webhook;
 pub mod work_item_link;
 pub mod workspace_seed;
 
@@ -147,11 +149,13 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     cleanup::register(&mut registry, Arc::clone(&context));
     copy_s3_object::register(&mut registry, Arc::clone(&context));
     deletion::register(&mut registry, Arc::clone(&context));
+    emails::register(&mut registry, Arc::clone(&context));
     export_task::register(&mut registry, Arc::clone(&context));
     exporter_expired::register(&mut registry, Arc::clone(&context));
     file_asset::register(&mut registry, Arc::clone(&context));
     logs::register(&mut registry, Arc::clone(&context));
     versions::register(&mut registry, Arc::clone(&context));
+    webhook::register(&mut registry, Arc::clone(&context));
     storage_metadata::register(&mut registry, Arc::clone(&context));
     work_item_link::register(&mut registry, Arc::clone(&context));
     workspace_seed::register(&mut registry, Arc::clone(&context));
@@ -172,6 +176,14 @@ pub const REGISTERED_TASKS: &[&str] = &[
     cleanup::DELETE_WEBHOOK_LOGS,
     copy_s3_object::TASK,
     deletion::HARD_DELETE,
+    emails::FORGOT_PASSWORD,
+    emails::MAGIC_LINK,
+    emails::PROJECT_ADD_USER_EMAIL,
+    emails::USER_ACTIVATION_EMAIL,
+    emails::USER_DEACTIVATION_EMAIL,
+    emails::SEND_EMAIL_UPDATE_MAGIC_CODE,
+    emails::SEND_EMAIL_UPDATE_CONFIRMATION,
+    emails::WORKSPACE_INVITATION,
     deletion::SOFT_DELETE_RELATED_OBJECTS,
     export_task::TASK,
     exporter_expired::TASK,
@@ -180,6 +192,10 @@ pub const REGISTERED_TASKS: &[&str] = &[
     versions::ISSUE_DESCRIPTION_VERSION,
     versions::PAGE_TRANSACTION,
     versions::TRACK_PAGE_VERSION,
+    webhook::MODEL_ACTIVITY,
+    webhook::WEBHOOK_ACTIVITY,
+    webhook::WEBHOOK_SEND,
+    webhook::DEACTIVATION_EMAIL,
     storage_metadata::TASK,
     work_item_link::TASK,
     workspace_seed::TASK,
