@@ -218,8 +218,32 @@ async fn run_inner(
     let scenario = Scenario::load(&opts.scenario_path)?;
     let rules = Arc::new(NormalizeRules::load(&opts.normalize_path)?);
     let targets = TargetsFile::load(&opts.targets_path)?;
-    let spec_a = targets.get(&opts.target_a)?.clone();
-    let spec_b = targets.get(&opts.target_b)?.clone();
+    let mut spec_a = targets.get(&opts.target_a)?.clone();
+    let mut spec_b = targets.get(&opts.target_b)?.clone();
+    // The one per-target thing a scenario may change: the command, for a
+    // scenario that needs a different server wrapper (`scenarios/boot/static.yaml`
+    // collects a static root). Ports, environment and the secret key stay with
+    // the caller's targets file. A scenario key that names no target would be
+    // silently unused and turn into a diff, so fail with the names it expects.
+    for name in scenario.target_commands.keys() {
+        if !targets.targets.contains_key(name) {
+            bail!(
+                "scenario {} declares `target_commands` for {name:?}, but {} defines only: {}; \
+                 name that target {name:?} in the targets file or run the scenario with its \
+                 documented target names",
+                scenario.name,
+                opts.targets_path.display(),
+                targets
+                    .targets
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+    }
+    scenario.apply_target_command(&opts.target_a, &mut spec_a);
+    scenario.apply_target_command(&opts.target_b, &mut spec_b);
 
     // `--a-redis-db`/`--b-redis-db` override the scenario in both modes: the
     // flags select where the harness flushes and snapshots, so a scenario
@@ -1242,6 +1266,15 @@ async fn execute_step(
     }
     let mut jobs = jobs;
     for job in owned.iter_mut().chain(jobs.iter_mut()) {
+        // `process_logs` carries the response body as text: parse a JSON body
+        // and apply this step's response-body rules before the generic
+        // message rules, so the transport comparison sees the same body the
+        // HTTP comparison did (D16's `$.counts`, D17's `$.asset_url`).
+        side.normalizer.normalize_logged_response_body_with(
+            &job.task,
+            &mut job.kwargs,
+            Some((&response.body, &body)),
+        );
         side.normalizer
             .normalize_job(&mut job.args, &mut job.kwargs);
     }

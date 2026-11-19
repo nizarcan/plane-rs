@@ -53,6 +53,8 @@ from pathlib import Path
 
 import psycopg
 
+from pg_dump_hint import hint as pg_dump_hint
+
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = SERVER_DIR.parent.parent
 API_DIR = REPO_ROOT / "apps" / "api"
@@ -149,11 +151,15 @@ def dump(url: str, pg_dump: str) -> bytes:
         "--dbname",
         url,
     ]
-    result = subprocess.run(command, check=False, stdout=subprocess.PIPE)
+    result = subprocess.run(
+        command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", "replace")
+        detail = pg_dump_hint(stderr, dump_url_flag="--dump-url")
         raise SystemExit(
-            f"pg_dump failed ({result.returncode}): {' '.join(command)}\n"
-            "Pass --pg-dump with a client whose major version matches the server."
+            f"pg_dump failed ({result.returncode}): {' '.join(command)}\n{stderr}"
+            + (f"{detail}\n" if detail else "")
         )
     return result.stdout
 

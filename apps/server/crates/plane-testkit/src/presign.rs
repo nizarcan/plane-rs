@@ -398,6 +398,36 @@ pub fn equivalent(a: &str, b: &str) -> Option<bool> {
     Some(a_rest == b_rest && (a_date - b_date).abs() <= 2)
 }
 
+/// Replace every `<presigned-date:<epoch>>` in `text` with
+/// `<presigned-date>`.
+///
+/// The HTTP body comparison verifies each signed URL and allows the two dates
+/// to be within two seconds ([`equivalent`]). A `process_logs` message whose
+/// body is byte-identical to that response needs the same equivalence, but the
+/// transport comparison is a plain value comparison; drop the epoch there so a
+/// one-second boundary cannot turn one delivery into two.
+#[must_use]
+pub fn generic_dates(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("<presigned-date:") {
+        out.push_str(&rest[..start]);
+        let after = start + "<presigned-date:".len();
+        match rest[after..].find('>') {
+            Some(end) => {
+                out.push_str("<presigned-date>");
+                rest = &rest[after + end + 1..];
+            }
+            None => {
+                out.push_str(&rest[start..]);
+                return out;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn split_date(value: &str) -> Option<(String, i64)> {
     let start = value.find("<presigned-date:")?;
     let after = start + "<presigned-date:".len();
@@ -469,5 +499,17 @@ mod tests {
             .expect("parse")
             .canonical();
         assert_eq!(equivalent(&one, &five), Some(false));
+    }
+
+    #[test]
+    fn a_transport_copy_drops_the_date_epoch() {
+        let canonical = PresignedGet::parse(&url("20261116T123456Z"))
+            .expect("parse")
+            .canonical();
+        let generic = generic_dates(&canonical);
+        assert!(generic.contains("X-Amz-Date=<presigned-date>"));
+        assert!(!generic.contains("<presigned-date:"));
+        // Everything else, including the signature placeholder, is unchanged.
+        assert!(generic.contains("X-Amz-Signature=<presigned-signature>"));
     }
 }

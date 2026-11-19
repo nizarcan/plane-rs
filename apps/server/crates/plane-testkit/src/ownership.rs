@@ -266,7 +266,8 @@ pub fn python_value(value: &serde_json::Value) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashSet};
+    use std::sync::Arc;
 
     use super::*;
 
@@ -347,6 +348,136 @@ mod tests {
         }];
         let differences = compare_transports(&owned, &jobs);
         assert_eq!(differences.len(), 2, "one missing on B, one extra on B");
+    }
+
+    /// A normaliser with the rule that makes `$.counts` a key set (D16).
+    fn process_logs_normalizer(request: &str) -> crate::normalize::TargetNormalizer {
+        let rules: crate::config::NormalizeRules = serde_yaml_ng::from_str(
+            r#"
+unordered_json_paths:
+  - path: "$.counts"
+    mode: object_keys
+    request: "GET /api/v1/workspaces/{}/projects/{}/summary/"
+    why: "test"
+"#,
+        )
+        .expect("normalize rules");
+        let mut normalizer =
+            crate::normalize::TargetNormalizer::new(crate::normalize::NormalizerConfig {
+                rules: Arc::new(rules),
+                base_url: "http://127.0.0.1:18000".to_string(),
+                known_uuids: Arc::new(HashSet::new()),
+                secret_key: None,
+                passwords: Arc::new(Vec::new()),
+                aws: None,
+            });
+        normalizer.set_request(request.to_string());
+        let at = chrono::Utc::now();
+        normalizer.start_step(at, at);
+        normalizer
+    }
+
+    fn process_logs_job(response_body: &str) -> TransportJob {
+        TransportJob {
+            task: crate::normalize::PROCESS_LOGS_TASK.to_string(),
+            args: serde_json::json!([]),
+            kwargs: serde_json::json!({
+                "log_data": {
+                    "token_identifier": "token",
+                    "path": "/api/v1/workspaces/fix-workspace/projects/1/summary/",
+                    "method": "GET",
+                    "query_params": "",
+                    "response_code": 200,
+                    "response_body": response_body,
+                }
+            }),
+        }
+    }
+
+    fn normalize(job: &mut TransportJob, request: &str) {
+        let mut normalizer = process_logs_normalizer(request);
+        normalizer.normalize_logged_response_body(&job.task, &mut job.kwargs);
+        normalizer.normalize_job(&mut job.args, &mut job.kwargs);
+    }
+
+    const SUMMARY_REQUEST: &str = "GET /api/v1/workspaces/fix-workspace/projects/1/summary/";
+
+    #[test]
+    fn process_logs_counts_key_order_is_normalised_before_comparison() {
+        // Django builds `counts` from a set; the two messages carry the same
+        // key set in different orders.
+        let mut a = process_logs_job(r#"{"counts":{"open":1,"done":2},"name":"s"}"#);
+        let mut b = process_logs_job(r#"{"counts":{"done":2,"open":1},"name":"s"}"#);
+        normalize(&mut a, SUMMARY_REQUEST);
+        normalize(&mut b, SUMMARY_REQUEST);
+        assert_eq!(a.kwargs, b.kwargs);
+        assert!(compare_transports(&[a], &[b]).is_empty());
+    }
+
+    #[test]
+    fn process_logs_reuses_the_already_normalised_response_body() {
+        let raw = br#"{"counts":{"open":1,"done":2},"name":"s"}"#;
+        let mut job = process_logs_job(std::str::from_utf8(raw).expect("utf8"));
+        let normalized = crate::normalize::NormalizedBody {
+            value: crate::normalize::BodyValue::Json(serde_json::json!({
+                "counts": {"done": 2, "open": 1},
+                "name": "s",
+            })),
+            modified: true,
+        };
+        let mut normalizer = process_logs_normalizer(SUMMARY_REQUEST);
+        normalizer.normalize_logged_response_body_with(
+            &job.task,
+            &mut job.kwargs,
+            Some((raw, &normalized)),
+        );
+        assert_eq!(
+            job.kwargs["log_data"]["response_body"],
+            r#"{"counts":{"done":2,"open":1},"name":"s"}"#
+        );
+    }
+
+    #[test]
+    fn process_logs_changed_counts_value_still_differs() {
+        let mut a = process_logs_job(r#"{"counts":{"open":1,"done":2},"name":"s"}"#);
+        let mut b = process_logs_job(r#"{"counts":{"open":1,"done":3},"name":"s"}"#);
+        normalize(&mut a, SUMMARY_REQUEST);
+        normalize(&mut b, SUMMARY_REQUEST);
+        let differences = compare_transports(&[a], &[b]);
+        assert_eq!(differences.len(), 2, "one missing on B, one extra on B");
+    }
+
+    #[test]
+    fn process_logs_other_log_data_fields_still_differ() {
+        let mut a = process_logs_job(r#"{"counts":{"open":1,"done":2}}"#);
+        let mut b = process_logs_job(r#"{"counts":{"done":2,"open":1}}"#);
+        b.kwargs["log_data"]["response_code"] = serde_json::json!(500);
+        normalize(&mut a, SUMMARY_REQUEST);
+        normalize(&mut b, SUMMARY_REQUEST);
+        assert_eq!(compare_transports(&[a], &[b]).len(), 2);
+    }
+
+    #[test]
+    fn process_logs_normalisation_leaves_other_tasks_alone() {
+        let mut job = process_logs_job(r#"{"counts":{"open":1,"done":2}}"#);
+        job.task = "plane.bgtasks.issue_activities_task.issue_activity".to_string();
+        let before = job.kwargs.clone();
+        let mut normalizer = process_logs_normalizer(SUMMARY_REQUEST);
+        normalizer.normalize_logged_response_body(&job.task, &mut job.kwargs);
+        assert_eq!(job.kwargs, before);
+    }
+
+    #[test]
+    fn process_logs_non_json_body_is_compared_byte_for_byte() {
+        let mut a = process_logs_job("not json");
+        let mut b = process_logs_job("not json");
+        normalize(&mut a, SUMMARY_REQUEST);
+        normalize(&mut b, SUMMARY_REQUEST);
+        assert!(compare_transports(std::slice::from_ref(&a), &[b]).is_empty());
+
+        let mut c = process_logs_job("not JSON");
+        normalize(&mut c, SUMMARY_REQUEST);
+        assert_eq!(compare_transports(std::slice::from_ref(&a), &[c]).len(), 2);
     }
 
     #[test]

@@ -354,6 +354,7 @@ impl Recorder {
                 password_vars: Vec::new(),
                 redis_db,
                 target_env: BTreeMap::new(),
+                target_commands: BTreeMap::new(),
                 probe_compare_celery: false,
                 steps: Vec::new(),
             },

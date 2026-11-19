@@ -19,6 +19,8 @@
 //! rather than `collectstatic`.
 //!
 //! * [`wait`] — the connect retry and the migrations-ready check.
+//! * [`steps`] — `PLANE_RS_BOOT_STEPS`, the harness's explicit switch that
+//!   skips the four mutating steps Django's dev target skips too.
 //! * [`instance`] — `register_instance` (created/extended `Instance`, GitHub
 //!   `releases/latest`) and `configure_instance` (the 36
 //!   `InstanceConfiguration` rows, Fernet-encrypted where Django encrypts).
@@ -37,6 +39,7 @@ pub mod cache;
 pub mod config_variables;
 pub mod instance;
 pub mod static_files;
+pub mod steps;
 pub mod wait;
 
 /// Errors the boot steps report to their binary. A boot step that Django's

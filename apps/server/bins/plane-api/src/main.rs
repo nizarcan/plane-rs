@@ -119,27 +119,46 @@ async fn serve(
     // configuration seed, bucket check and cache flush Django runs before
     // gunicorn. `collectstatic` is replaced by the embedded `/static/` handler
     // (`plane-bootstrap::static_files`).
+    //
+    // The waits always run: they only read. The four mutating steps run unless
+    // the differential harness set `PLANE_RS_BOOT_STEPS=skip`
+    // (`plane-bootstrap::steps`, `ENV.md` §6, D34). That switch is the
+    // harness's, not a deployment's: the harness's Django target
+    // (`dev/django-serve.sh`) starts after the entrypoint's setup steps, so
+    // running them here would compare a boot-stamped instance row against the
+    // fixture's untouched one.
+    let boot_steps = plane_bootstrap::steps::BootSteps::from_env()?;
     plane_bootstrap::wait::wait_for_db(&db).await?;
     plane_bootstrap::wait::wait_for_migrations(&db).await?;
-    {
-        let client = db
-            .write_pool()
-            .get()
+    if boot_steps.runs_mutating() {
+        {
+            let client = db
+                .write_pool()
+                .get()
+                .await
+                .context("connecting to Postgres for the boot steps")?;
+            plane_bootstrap::instance::register_instance(
+                &client,
+                &settings,
+                &plane_bootstrap::instance::machine_signature(),
+            )
             .await
-            .context("connecting to Postgres for the boot steps")?;
-        plane_bootstrap::instance::register_instance(
-            &client,
-            &settings,
-            &plane_bootstrap::instance::machine_signature(),
-        )
-        .await
-        .context("registering the instance")?;
-        plane_bootstrap::instance::configure_instance(&client, &settings)
-            .await
-            .context("configuring the instance")?;
+            .context("registering the instance")?;
+            plane_bootstrap::instance::configure_instance(&client, &settings)
+                .await
+                .context("configuring the instance")?;
+        }
+        plane_bootstrap::bucket::create_bucket(&settings).await;
+        plane_bootstrap::cache::clear_cache(&settings).await;
+    } else {
+        tracing::warn!(
+            target: "plane.boot",
+            variable = plane_bootstrap::steps::BootSteps::ENV,
+            "skipping register_instance, configure_instance, create_bucket and \
+             clear_cache; this is a test-harness setting and must never be used \
+             in a deployment"
+        );
     }
-    plane_bootstrap::bucket::create_bucket(&settings).await;
-    plane_bootstrap::cache::clear_cache(&settings).await;
 
     let state = Arc::new(AppState {
         settings,
