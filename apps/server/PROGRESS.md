@@ -2191,4 +2191,6 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      server-wide settings on the shared stack.
 
    Running: the orchestrator's verification of `33dd7bcc24`, set A1 (`rs/p8-a1`:
-   `issue_activity`; 18010/18110, Redis 3/4, contract Redis 11).
+   `issue_activity`; 18010/18110, Redis 3/4, contract Redis 11), set B (`rs/p8-b`: tasks
+   12, 13, 17, 28, 32, 36–43, 45; 18020/18120, Redis 5/6, contract Redis 15, SMTP
+   18410–18417).
