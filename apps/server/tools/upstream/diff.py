@@ -25,6 +25,10 @@ the pin with `UPGRADING.md` once the changes are ported and verified.
 
 By default the report is written below `apps/server/target/upstream-diff/`
 (gitignored). `--stdout` prints it instead; nothing generated is committed.
+
+`--check-verbatim` is the drift guard CI runs: every path in `[verbatim]` must
+be byte-identical to the pin, and every `[modified]` file must still exist on
+both sides. It compares committed trees (`pin..HEAD`), not the working tree.
 """
 
 from __future__ import annotations
@@ -514,6 +518,25 @@ def render(
     lines.append(f"- Changed files: **{len(entries)}**")
     lines.append("")
 
+    modified = fork_modified()
+    if modified:
+        changed = {entry["path"] for entry in entries}
+        lines.append("## Fork-modified upstream files")
+        lines.append("")
+        lines.append(
+            "These files are **not** verbatim: three-way merge the target's change "
+            "into this fork's version (base `pinned`, ours `HEAD`, theirs `target`) "
+            "and keep the documented local change. Never copy the target file over it."
+        )
+        lines.append("")
+        lines.append("| Path | Why this fork edits it | Changed in target? |")
+        lines.append("| --- | --- | --- |")
+        for path, why in modified.items():
+            lines.append(
+                f"| `{cell(path)}` | {cell(why)} | {'**yes**' if path in changed else 'no'} |"
+            )
+        lines.append("")
+
     lines.append("## Files by category")
     lines.append("")
     lines.append("| Category | Files |")
@@ -665,13 +688,108 @@ def render(
     return "\n".join(lines)
 
 
+def fork_modified() -> dict[str, str]:
+    """The `[modified]` table: upstream path -> why this fork edits it."""
+    return dict(oracle.upstream().get("modified", {}))
+
+
+def check_verbatim() -> int:
+    """Fail when a `[verbatim]` path differs from the pin or a modified file vanished."""
+    pin = oracle.pinned_commit()
+    # Compare in the real checkout: the pin is in this repository's history (or
+    # is fetched into it), while the bare mirror has no branch HEAD for a fork
+    # commit. Fetching the pin by SHA is the one allowed network operation.
+    if (
+        run(
+            ["git", "-C", str(REPO_ROOT), "cat-file", "-e", f"{pin}^{{commit}}"],
+            check=False,
+        ).returncode
+        != 0
+    ):
+        wait_for_commit(pin)
+        run(
+            [
+                "git",
+                "-C",
+                str(REPO_ROOT),
+                "fetch",
+                "--no-tags",
+                "--depth=1",
+                oracle.upstream_repository(),
+                pin,
+            ]
+        )
+    data = oracle.upstream()
+    paths = list(data.get("verbatim", {}).get("paths", []))
+    modified = fork_modified()
+    if not paths:
+        print("FAIL: [verbatim] lists no paths", file=sys.stderr)
+        return 1
+
+    overlap = sorted(set(paths) & set(modified))
+    if overlap:
+        print(
+            "FAIL: paths are both verbatim and modified: " + ", ".join(overlap),
+            file=sys.stderr,
+        )
+        return 1
+
+    # The bare mirror has no branch HEAD; compare against this checkout's
+    # committed HEAD explicitly.
+    head = run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "--verify", "HEAD^{commit}"]
+    ).stdout.strip()
+    result = run(
+        ["git", "-C", str(REPO_ROOT), "diff", "--name-status", pin, head, "--", *paths],
+        check=False,
+    )
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr)
+        return 1
+    if result.stdout.strip():
+        print(
+            "FAIL: these [verbatim] paths differ from the pin "
+            f"{pin[:12]}; either bring them back or list the file under [modified] "
+            "with its reason:",
+            file=sys.stderr,
+        )
+        print(result.stdout.rstrip(), file=sys.stderr)
+        return 1
+
+    failures = 0
+    for path in modified:
+        for ref in (pin, head):
+            present = (
+                run(
+                    ["git", "-C", str(REPO_ROOT), "cat-file", "-e", f"{ref}:{path}"],
+                    check=False,
+                ).returncode
+                == 0
+            )
+            if not present:
+                print(f"FAIL: [modified] {path} is missing at {ref}", file=sys.stderr)
+                failures += 1
+    if failures:
+        return 1
+
+    print(
+        f"ok: [verbatim] {len(paths)} path(s) match {pin[:12]}; "
+        f"[modified] {len(modified)} file(s) exist on both sides"
+    )
+    return 0
+
+
 def safe_name(ref: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", ref).strip("_") or "target"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("target_ref", help="a sha, a local ref or an upstream branch")
+    parser.add_argument(
+        "target_ref",
+        nargs="?",
+        help="a sha, a local ref or an upstream branch (not needed with --check-verbatim)",
+    )
     parser.add_argument(
         "--out",
         type=Path,
@@ -684,7 +802,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="only classify files; skip the oracle, route and task regeneration",
     )
+    parser.add_argument(
+        "--check-verbatim",
+        action="store_true",
+        help="fail when a [verbatim] path differs from the pin",
+    )
     args = parser.parse_args(argv)
+
+    if args.check_verbatim:
+        return check_verbatim()
+
+    if not args.target_ref:
+        parser.error("target_ref is required unless --check-verbatim is used")
 
     pin = oracle.pinned_commit()
     target = resolve(args.target_ref)

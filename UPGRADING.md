@@ -46,15 +46,30 @@ Keep the report with the change while working; do not commit it.
 
 ## 2. Bring the frontends forward
 
-`apps/web`, `apps/space`, `apps/admin`, `apps/live`, `apps/proxy` and `packages/`
-are taken from the target commit verbatim (see `[verbatim]` in `UPSTREAM.toml`).
-Never adapt them to the Rust backend: they are the contract. Update the whole
+`apps/web`, `apps/space`, `apps/admin`, `apps/live` and `packages/` are taken
+from the target commit verbatim (see `[verbatim]` in `UPSTREAM.toml`). Never
+adapt them to the Rust backend: they are the contract. Update the whole
 subtrees rather than cherry-picking:
 
 ```bash
-git checkout <target> -- apps/web apps/space apps/admin apps/live apps/proxy packages
+git checkout <target> -- apps/web apps/space apps/admin apps/live packages
 pnpm install && pnpm check            # the frontends' own gates
 ```
+
+`[modified]` lists upstream files this fork edits; today that is only
+`apps/proxy/Caddyfile.ce` and `Caddyfile.aio.ce` (D36: `/api/*`, `/auth/*` and
+`/static/*` go to `plane-api:8000`). **Do not copy the target file over ours.**
+Three-way merge it: compare the pin's version with the target's, then apply
+that change to our version and keep the D36 routes:
+
+```bash
+git diff <pin> <target> -- apps/proxy/Caddyfile.ce apps/proxy/Caddyfile.aio.ce
+```
+
+`tools/upstream/diff.py <target>` lists these files in a “Fork-modified upstream
+files” section and flags any the target changed. `diff.py --check-verbatim` (CI)
+fails if a `[verbatim]` path differs from the pinned commit, or a `[modified]`
+file is missing on either side.
 
 If a frontend change depends on a backend change, port the backend change in
 the same branch; the old backend must keep answering the old frontend until
@@ -253,7 +268,8 @@ Then re-fetch the default oracle and prove the file and the cache agree:
 unset PLANE_RS_UPSTREAM_COMMIT PLANE_RS_ORACLE_DIR
 apps/server/tools/upstream/oracle.sh fetch
 apps/server/tools/upstream/oracle.sh check
-apps/server/tools/upstream/diff.py <same target>   # says "is the pinned commit"
+apps/server/tools/upstream/diff.py --check-verbatim  # [verbatim]/[modified] table
+apps/server/tools/upstream/diff.py <same target>     # says "is the pinned commit"
 ```
 
 Also update `BASELINE_ID` in `bins/plane-migrator/src/schema.rs` to the new

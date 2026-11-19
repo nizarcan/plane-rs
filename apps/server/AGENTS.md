@@ -7,11 +7,12 @@ is how work is done day to day. When they disagree, `RUST_REWRITE.md` wins.
 ## Hard rules (repeated from the brief because they are the ones that get broken)
 
 1. Never modify anything under `apps/web`, `apps/admin`, `apps/space`,
-   `apps/live`, `apps/proxy` or `packages/`: they are upstream's, verbatim
-   (`UPSTREAM.toml`). `apps/api` is **not in this checkout**; Django is the
-   specification and the test oracle, materialised by
-   `tools/upstream/oracle.sh` into the home cache. Read it there, never copy it
-   back into the tree.
+   `apps/live` or `packages/`: they are upstream's, verbatim (`UPSTREAM.toml`).
+   `apps/proxy` is upstream's except the two `[modified]` Caddyfiles (D36);
+   three-way merge those on a pin move, never copy the target over. `apps/api`
+   is **not in this checkout**; Django is the specification and the test oracle,
+   materialised by `tools/upstream/oracle.sh` into the home cache. Read it
+   there, never copy it back into the tree.
 2. Never push, never deploy, never connect to any database, Redis, broker or bucket other
    than the dev stack described below. In particular the machine already runs unrelated
    containers on ports 5432, 6379, 9000, 9001, 9092 and a Redis on 6390: never touch them.

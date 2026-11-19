@@ -14,7 +14,8 @@ before touching anything under `apps/server/`. This file is the map.
 | Path | What it is | Can you edit it? |
 | --- | --- | --- |
 | `apps/server/` | The Rust backend: Cargo workspace, crates, binaries, tools, scenarios, decision log, ledger | Yes — that is the work |
-| `apps/web`, `apps/space`, `apps/admin`, `apps/live`, `apps/proxy`, `packages/` | Upstream frontends and shared packages at the commit in `UPSTREAM.toml` | **No.** They are taken verbatim; changes belong upstream, then a pin move |
+| `apps/web`, `apps/space`, `apps/admin`, `apps/live`, `packages/` | Upstream frontends and shared packages at the commit in `UPSTREAM.toml` | **No.** They are taken verbatim; changes belong upstream, then a pin move |
+| `apps/proxy` | Upstream Caddy configs; `Caddyfile.ce`/`Caddyfile.aio.ce` carry the D36/Phase 8 routes | Only those two files, as `[modified]` in `UPSTREAM.toml`; three-way merge on a pin move, never copy the target over |
 | `apps/api` | Upstream's Django backend | **Not in this repository.** It exists only as *the oracle* (see below) |
 | `UPSTREAM.toml` | Repository URL, commit, describe, date, verbatim paths, what replaces `apps/api` | Only through `UPGRADING.md` |
 | `UPGRADING.md` | Procedure for moving the pin, including schema upgrade steps | Yes, when the procedure changes |
