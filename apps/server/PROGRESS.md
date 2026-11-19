@@ -2138,6 +2138,23 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        mid-copy; copied rows' `created_by`/`updated_by` always nulled; the issue's
        `save()` nulls its audit columns and replaces a null state with the default.
 
-   Running: set C part 4 (`rs/p8-c`: the merge, task 1 duplication, 46; 18020/18120,
-   Redis 5/6, contract Redis 15), set A3 (`rs/p8-a3`: tasks 23, 30, 31, then 9, and the
-   `plane-admin` backfills; 18010/18110, Redis 3/4).
+   - **Phase 8 set A3 merged (`fa7e26e867`, verification running).** Switched: 23
+     `issue_description_version_task`, 30 `page_transaction`, 31 `track_page_version`
+     (an upstream no-op, D30), 9 `soft_delete_related_objects`. `bins/plane-admin` with
+     `sync-issue-version` / `sync-issue-description-version` (D31). Fixed: the four newly
+     switched call sites queued an empty payload (`Job::from_message` now used). Agent:
+     46 new `difftest task` cases + 4 cascade cases pass, backfills row-identical, read
+     52/52, write 75/75, 1324 tests, testkit 202, beat clean. D26 amended (multiset row
+     comparison).
+     - Left: `plane-admin` `reset_password`/`activate_user`/`test_email`; the worker's
+       payload decoder accepts a message missing a required kwarg where Celery fails at
+       binding (no Rust producer sends one); backfill comparison not in CI.
+     - Upstream kept: `track_page_version` reads the missing `page.description`;
+       `page_transaction`'s removal has no `page_id` filter (cross-page soft delete); an
+       `<image-component>` URL in a `UUIDField` fails the whole insert; inserts commit
+       before a failing delete; version rows' audit users always `NULL`; the backfill's
+       next-batch publish sits inside the batch transaction; `properties`/`meta` always
+       `{}`.
+
+   Running: the orchestrator's verification of `fa7e26e867`, set C part 4 (`rs/p8-c`:
+   the merge, task 1 duplication, 46; 18020/18120, Redis 5/6, contract Redis 15).

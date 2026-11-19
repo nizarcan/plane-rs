@@ -586,6 +586,9 @@ workspace `Cargo.toml` and upgrade deliberately.
   in `tools/jobs/run_django_task.py`, and the Rust side's switch is compiled only
   with a non-default `difftest` cargo feature, so a release worker can't read it.
 - Outgoing messages and jobs a task publishes are compared too (D25).
+- Each table's inserted/deleted/updated rows are compared as multisets after
+  normalisation (amended with set A3): both sides mint independent uuid4 primary keys,
+  so primary-key order is not an effect.
 - SMTP: a case with `"smtp": {}` starts one `tools/mail/fake_smtp.py` per side and points
   that clone's `EMAIL_*` instance configuration at it; envelopes and message bytes are
   compared, masking only `Date:`, the `Message-ID` and the random MIME boundary.
@@ -642,6 +645,31 @@ workspace `Cargo.toml` and upgrade deliberately.
 - `difftest task` gains `--live-url` (the task's `convert-document` POST) and per-case
   HTTP-body normalisers, and compares S3 listings sorted after normalisation, so a
   fresh uuid key is a one-shot value.
+
+## D30. `track_page_version` is an upstream no-op; `soft_delete_related_objects` moves with it (decided 2026-11-19)
+
+- `page_version_task.py:55,63` read `page.description`, which `Page` doesn't define
+  (it has `description_json`). Every changed description raises `AttributeError`, is
+  logged, and writes nothing; the create branch, the 600 s update branch, the
+  20-version trim and its `soft_delete_related_objects` publish (`:72-74`) are
+  unreachable. Verified with the real task (10 `difftest task` cases: no DB effect, no
+  message). The Rust handler ports the bug.
+- That unreachable line was task 9's only Python producer, so
+  `soft_delete_related_objects` is Rust-owned from set A3 on. `TASKS.md` and
+  `plans/CUTOVER.md`'s description of task 31 describe the intent, not the behaviour.
+
+## D31. The command-only version backfills live in `plane-admin` (decided 2026-11-19)
+
+- `sync_issue_version` / `sync_issue_description_version` and their `schedule_*` tasks
+  (21/22/25/26) have no HTTP, beat or task producer, so they get no `plane_jobs` row and
+  no `PRODUCERS` entry. `bins/plane-admin` runs the batch loop in-process:
+  `--batch-size` replaces `input()`, `--countdown` is the chain's `eta` delay, each batch
+  keeps the task's transaction and ordering, and the loop stops at `end_offset >= total`.
+- Proven row for row against the Python command and task chain on cloned fixture DBs
+  (`tools/jobs/run_backfill_chain.py`, `compare_backfill.py`). `reset_password`,
+  `activate_user` and `test_email` join `plane-admin` later (`plans/CUTOVER.md` §3).
+- The Python tasks stay registered in the Celery worker while it exists; no Rust path
+  publishes them.
 
 ## Open owner decisions
 
