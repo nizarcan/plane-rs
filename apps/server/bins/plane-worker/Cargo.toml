@@ -26,6 +26,7 @@ difftest = ["plane-tasks/difftest"]
 anyhow.workspace = true
 plane-core = { path = "../../crates/plane-core" }
 plane-db = { path = "../../crates/plane-db" }
+plane-bootstrap = { path = "../../crates/plane-bootstrap" }
 plane-jobs = { path = "../../crates/plane-jobs" }
 plane-tasks = { path = "../../crates/plane-tasks" }
 serde_json.workspace = true

@@ -19,6 +19,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
+plane-bootstrap = { path = "../../crates/plane-bootstrap" }
 plane-core = { path = "../../crates/plane-core" }
 plane-db = { path = "../../crates/plane-db" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

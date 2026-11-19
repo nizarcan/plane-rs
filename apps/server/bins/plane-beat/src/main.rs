@@ -43,6 +43,13 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("building the tokio runtime")?;
     runtime.block_on(async move {
+        // The migrator owns the schema; beat is a consumer like the worker.
+        plane_bootstrap::wait::wait_for_db(&db)
+            .await
+            .context("waiting for the database")?;
+        plane_bootstrap::wait::wait_for_migrations(&db)
+            .await
+            .context("waiting for migrations")?;
         let beat = Beat::new(db, config, test_interval)
             .await
             .context("seeding the schedule")?;

@@ -20,7 +20,9 @@ anyhow.workspace = true
 plane-core = { path = "../../crates/plane-core" }
 plane-db = { path = "../../crates/plane-db" }
 plane-jobs = { path = "../../crates/plane-jobs" }
+thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-postgres.workspace = true
 
 [lints]
 workspace = true

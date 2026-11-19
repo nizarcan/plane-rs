@@ -403,11 +403,14 @@ impl Redis {
         Ok(ttl)
     }
 
-    /// `FLUSHDB` on the selected database.
+    /// `FLUSHDB` on the selected database: `django_redis`'s
+    /// `DefaultClient.clear()` (`django_redis/client/default.py:550-561`).
     ///
-    /// Test-only. Every caller must have verified that the URL points at one of
-    /// the isolated dev databases (`ENV.md`, `AGENTS.md` "Isolation between
-    /// concurrent agents").
+    /// Production caller: `plane-bootstrap`'s `clear_cache` boot step, which
+    /// ports `manage.py clear_cache` as-is (it wipes throttle buckets and
+    /// magic-link codes on every API start). Tests must still verify the URL
+    /// points at one of the isolated dev databases (`ENV.md`, `AGENTS.md`
+    /// "Isolation between concurrent agents").
     pub async fn flush_db(&self) -> Result<(), Error> {
         let mut connection = self.connection().await?;
         let _: () = redis::cmd("FLUSHDB").query_async(&mut connection).await?;

@@ -1,0 +1,220 @@
+{
+  "variables": [
+    {
+      "key": "ENABLE_SIGNUP",
+      "category": "AUTHENTICATION",
+      "is_encrypted": false,
+      "default": "1"
+    },
+    {
+      "key": "ENABLE_EMAIL_PASSWORD",
+      "category": "AUTHENTICATION",
+      "is_encrypted": false,
+      "default": "1"
+    },
+    {
+      "key": "ENABLE_MAGIC_LINK_LOGIN",
+      "category": "AUTHENTICATION",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "DISABLE_WORKSPACE_CREATION",
+      "category": "WORKSPACE_MANAGEMENT",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "IS_GOOGLE_ENABLED",
+      "category": "GOOGLE",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "GOOGLE_CLIENT_ID",
+      "category": "GOOGLE",
+      "is_encrypted": false,
+      "default": null
+    },
+    {
+      "key": "GOOGLE_CLIENT_SECRET",
+      "category": "GOOGLE",
+      "is_encrypted": true,
+      "default": null
+    },
+    {
+      "key": "ENABLE_GOOGLE_SYNC",
+      "category": "GOOGLE",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "IS_GITHUB_ENABLED",
+      "category": "GITHUB",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "GITHUB_CLIENT_ID",
+      "category": "GITHUB",
+      "is_encrypted": false,
+      "default": null
+    },
+    {
+      "key": "GITHUB_CLIENT_SECRET",
+      "category": "GITHUB",
+      "is_encrypted": true,
+      "default": null
+    },
+    {
+      "key": "GITHUB_ORGANIZATION_ID",
+      "category": "GITHUB",
+      "is_encrypted": false,
+      "default": null
+    },
+    {
+      "key": "ENABLE_GITHUB_SYNC",
+      "category": "GITHUB",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "IS_GITLAB_ENABLED",
+      "category": "GITLAB",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "GITLAB_HOST",
+      "category": "GITLAB",
+      "is_encrypted": false,
+      "default": null
+    },
+    {
+      "key": "GITLAB_CLIENT_ID",
+      "category": "GITLAB",
+      "is_encrypted": false,
+      "default": null
+    },
+    {
+      "key": "GITLAB_CLIENT_SECRET",
+      "category": "GITLAB",
+      "is_encrypted": true,
+      "default": null
+    },
+    {
+      "key": "ENABLE_GITLAB_SYNC",
+      "category": "GITLAB",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "IS_GITEA_ENABLED",
+      "category": "GITEA",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "GITEA_HOST",
+      "category": "GITEA",
+      "is_encrypted": false,
+      "default": null
+    },
+    {
+      "key": "GITEA_CLIENT_ID",
+      "category": "GITEA",
+      "is_encrypted": false,
+      "default": null
+    },
+    {
+      "key": "GITEA_CLIENT_SECRET",
+      "category": "GITEA",
+      "is_encrypted": true,
+      "default": null
+    },
+    {
+      "key": "ENABLE_GITEA_SYNC",
+      "category": "GITEA",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "ENABLE_SMTP",
+      "category": "SMTP",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "EMAIL_HOST",
+      "category": "SMTP",
+      "is_encrypted": false,
+      "default": ""
+    },
+    {
+      "key": "EMAIL_HOST_USER",
+      "category": "SMTP",
+      "is_encrypted": false,
+      "default": ""
+    },
+    {
+      "key": "EMAIL_HOST_PASSWORD",
+      "category": "SMTP",
+      "is_encrypted": true,
+      "default": ""
+    },
+    {
+      "key": "EMAIL_PORT",
+      "category": "SMTP",
+      "is_encrypted": false,
+      "default": "587"
+    },
+    {
+      "key": "EMAIL_FROM",
+      "category": "SMTP",
+      "is_encrypted": false,
+      "default": ""
+    },
+    {
+      "key": "EMAIL_USE_TLS",
+      "category": "SMTP",
+      "is_encrypted": false,
+      "default": "1"
+    },
+    {
+      "key": "EMAIL_USE_SSL",
+      "category": "SMTP",
+      "is_encrypted": false,
+      "default": "0"
+    },
+    {
+      "key": "LLM_API_KEY",
+      "category": "AI",
+      "is_encrypted": true,
+      "default": null
+    },
+    {
+      "key": "LLM_PROVIDER",
+      "category": "AI",
+      "is_encrypted": false,
+      "default": "openai"
+    },
+    {
+      "key": "LLM_MODEL",
+      "category": "AI",
+      "is_encrypted": false,
+      "default": "gpt-4o-mini"
+    },
+    {
+      "key": "GPT_ENGINE",
+      "category": "AI",
+      "is_encrypted": false,
+      "default": "gpt-3.5-turbo"
+    },
+    {
+      "key": "UNSPLASH_ACCESS_KEY",
+      "category": "UNSPLASH",
+      "is_encrypted": true,
+      "default": ""
+    }
+  ]
+}

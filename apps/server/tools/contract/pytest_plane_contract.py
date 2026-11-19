@@ -345,6 +345,7 @@ class PlaneApi:
                 "needs the plane_jobs schema that the compose migrator provides."
             )
         environment = self._environment()
+        _stamp_baseline_migrations(environment["DATABASE_URL"])
         migrated = subprocess.run(
             [str(PLANE_MIGRATOR_BINARY)],
             cwd=str(REPO_ROOT),
@@ -1019,6 +1020,50 @@ def _replay_call(record: TestRecord, task_name: str, args: Any, kwargs: Any) -> 
     delay(*args, **kwargs)
     STATE.replay_count += 1
     record.replayed.append(task_name)
+
+
+def _stamp_baseline_migrations(database_url: str) -> None:
+    """Give the `--nomigrations` test database the baseline's recorder rows.
+
+    `pytest.ini` runs with `--nomigrations`, so pytest-django creates the
+    schema from the models (the pinned commit's schema) but no
+    `public.django_migrations` table. `plane-migrator` refuses a non-empty
+    `public` without that table rather than guessing (`plans/CUTOVER.md` §4),
+    so the contract database is stamped with the same 167 `(app, name)` rows the
+    baseline was taken with. They are not invented: they are
+    `deploy/schema/django_migrations.txt`, and `--nomigrations` means exactly
+    "this schema is the model state at HEAD". The migrator then sees a normal
+    upgrade and only adds `plane_jobs`.
+
+    Uses psycopg directly: the fixture that starts the Rust server is not
+    marked `django_db`, so Django's connection would be blocked by
+    pytest-django.
+    """
+    import psycopg
+
+    rows = []
+    for line in (SERVER_DIR / "deploy" / "schema" / "django_migrations.txt").read_text().splitlines():
+        if not line.strip():
+            continue
+        app, name = line.split("\t", 1)
+        rows.append((app, name))
+    with psycopg.connect(database_url) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('public.django_migrations')")
+            if cursor.fetchone()[0] is not None:
+                return
+            cursor.execute(
+                "CREATE TABLE django_migrations ("
+                "id bigserial PRIMARY KEY, "
+                "app character varying(255) NOT NULL, "
+                "name character varying(255) NOT NULL, "
+                "applied timestamp with time zone NOT NULL)"
+            )
+            cursor.executemany(
+                "INSERT INTO django_migrations (app, name, applied) "
+                "VALUES (%s, %s, now())",
+                rows,
+            )
 
 
 def _job_watermark() -> Any:

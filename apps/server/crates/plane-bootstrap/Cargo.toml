@@ -1,0 +1,35 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+
+[package]
+name = "plane-bootstrap"
+description = "Boot steps and operator commands shared by the Rust binaries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aws-lc-rs.workspace = true
+chrono.workspace = true
+deadpool-postgres.workspace = true
+plane-auth = { path = "../plane-auth" }
+plane-cache = { path = "../plane-cache" }
+plane-core = { path = "../plane-core" }
+plane-db = { path = "../plane-db" }
+plane-jobs = { path = "../plane-jobs" }
+plane-mail = { path = "../plane-mail" }
+plane-net = { path = "../plane-net" }
+plane-storage = { path = "../plane-storage" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["time"] }
+tokio-postgres.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

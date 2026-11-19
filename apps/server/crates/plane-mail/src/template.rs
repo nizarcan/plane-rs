@@ -46,6 +46,10 @@ const TEMPLATES: &[(&str, &str)] = &[
         "emails/exports/analytics.html",
         include_str!("../templates/analytics.html.j2"),
     ),
+    (
+        "emails/test_email.html",
+        include_str!("../templates/test_email.html.j2"),
+    ),
 ];
 
 /// The rendering error a task reports as a handler failure.

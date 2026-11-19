@@ -82,6 +82,36 @@ enum Command {
         #[arg(long, default_value_t = 300)]
         countdown: u64,
     },
+    /// Reset a user's password (`manage.py reset_password <email>`).
+    ResetPassword {
+        /// The user's e-mail address.
+        email: String,
+    },
+    /// Make a user active (`manage.py activate_user <email>`).
+    ActivateUser {
+        /// The user's e-mail address.
+        email: String,
+    },
+    /// Send the test e-mail (`manage.py test_email <to_email>`).
+    TestEmail {
+        /// The receiver's e-mail address.
+        to_email: String,
+    },
+    /// Create or extend the `Instance` row (`manage.py register_instance`).
+    /// This is the API's boot step, exposed for operators and the comparison
+    /// harness. `PLANE_RS_GITHUB_RELEASES_URL` points the version lookup at a
+    /// local fake in tests (ENV.md §6).
+    RegisterInstance {
+        /// The entrypoint's machine signature; only checked for emptiness,
+        /// exactly as Django does.
+        machine_signature: String,
+    },
+    /// Seed the 36 `InstanceConfiguration` rows (`manage.py configure_instance`).
+    ConfigureInstance,
+    /// Head/create the object-storage bucket (`manage.py create_bucket`).
+    CreateBucket,
+    /// `FLUSHDB` on `REDIS_URL` (`manage.py clear_cache`).
+    ClearCache,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -91,10 +121,19 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .with_target(false)
+        // Django's logging goes to stderr; stdout stays the command output the
+        // differential comparison reads byte for byte.
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
         .init();
     let cli = Cli::parse();
-    let settings =
-        Settings::from_env(Role::Migrator).map_err(|error| anyhow::anyhow!("{error}"))?;
+    // `clear_cache` is the one subcommand that needs `REDIS_URL`; the rest are
+    // Django commands that run with only a database (and `SECRET_KEY`).
+    let role = match cli.command {
+        Command::ClearCache => Role::Api,
+        _ => Role::Migrator,
+    };
+    let settings = Settings::from_env(role).map_err(|error| anyhow::anyhow!("{error}"))?;
     let db = DbPools::from_settings(&settings)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -122,8 +161,52 @@ fn main() -> anyhow::Result<()> {
                 )
                 .await
             }
+            Command::ResetPassword { email } => {
+                finish(plane_bootstrap::admin::reset_password(&client, &email).await?)
+            }
+            Command::ActivateUser { email } => {
+                finish(plane_bootstrap::admin::activate_user(&client, &email).await?)
+            }
+            Command::TestEmail { to_email } => {
+                finish(plane_bootstrap::admin::test_email(&client, &settings, &to_email).await?)
+            }
+            Command::RegisterInstance { machine_signature } => {
+                plane_bootstrap::instance::register_instance(
+                    &client,
+                    &settings,
+                    &machine_signature,
+                )
+                .await?;
+                Ok(())
+            }
+            Command::ConfigureInstance => {
+                plane_bootstrap::instance::configure_instance(&client, &settings).await?;
+                Ok(())
+            }
+            Command::CreateBucket => {
+                plane_bootstrap::bucket::create_bucket(&settings).await;
+                Ok(())
+            }
+            Command::ClearCache => {
+                plane_bootstrap::cache::clear_cache(&settings).await;
+                Ok(())
+            }
         }
     })
+}
+
+/// Django's `CommandError`: `manage.py` prints `CommandError: <message>` to
+/// stderr and exits 1.
+fn finish(
+    result: std::result::Result<(), plane_bootstrap::admin::AdminError>,
+) -> anyhow::Result<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(plane_bootstrap::admin::AdminError::CommandError(message)) => {
+            eprintln!("CommandError: {message}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// `sync_issue_version`'s batch loop (`issue_version_sync.py:181-222`).

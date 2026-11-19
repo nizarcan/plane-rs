@@ -809,6 +809,21 @@ fn reverse_name(address: IpAddr) -> String {
 /// `EmailBackend.send_messages` does for a connection the caller did not
 /// already have open (`smtp.py:143-160`).
 pub async fn send(configuration: &EmailConfiguration, message: &Message) -> Result<(), MailError> {
+    send_with_timeout(configuration, message, None).await
+}
+
+/// [`send`] with an explicit socket timeout.
+///
+/// `manage.py test_email` builds its connection with `timeout=30`
+/// (`test_email.py:37-45`); every other Plane call site leaves
+/// `EMAIL_TIMEOUT` unset, which is `None`. The timeout bounds the TCP connect
+/// here; Django's `smtplib` applies it to every socket operation, a difference
+/// that only shows on a server that accepts the connection and then stalls.
+pub async fn send_with_timeout(
+    configuration: &EmailConfiguration,
+    message: &Message,
+    timeout: Option<std::time::Duration>,
+) -> Result<(), MailError> {
     // `EmailBackend.__init__`: TLS and SSL are mutually exclusive
     // (`smtp.py:47-51`). The endpoint builds the connection outside its `try`,
     // so Django answers 500; the handler maps this to a 500.
@@ -842,7 +857,7 @@ pub async fn send(configuration: &EmailConfiguration, message: &Message) -> Resu
     // `DNS_NAME.get_fqdn()`, once per process, for the EHLO argument and the
     // Message-ID domain.
     let local_hostname = dns_name_async().await;
-    let mut session = Session::connect(configuration, host, local_hostname).await?;
+    let mut session = Session::connect(configuration, host, local_hostname, timeout).await?;
     if configuration.use_tls {
         // `starttls()`: a plaintext connection that must upgrade.
         session.starttls(tls_parameters(host)?).await?;
@@ -920,6 +935,7 @@ impl Session {
         configuration: &EmailConfiguration,
         host: &str,
         local_hostname: &str,
+        timeout: Option<std::time::Duration>,
     ) -> Result<Self, MailError> {
         let port = u16::try_from(configuration.port).map_err(|_| {
             MailError::Generic(format!("port must be 0-65535, got {}", configuration.port))
@@ -930,8 +946,10 @@ impl Session {
         } else {
             None
         };
-        // `EMAIL_TIMEOUT` is unset in Plane: `None` waits forever.
-        let stream = AsyncNetworkStream::connect_tokio1((host, port), None, tls, None)
+        // `EMAIL_TIMEOUT` is unset in Plane: `None` waits forever. The one
+        // exception is `manage.py test_email`, whose `get_connection(timeout=30)`
+        // passes a duration through `send_with_timeout`.
+        let stream = AsyncNetworkStream::connect_tokio1((host, port), timeout, tls, None)
             .await
             .map_err(map_connect_error)?;
         let mut session = Self {

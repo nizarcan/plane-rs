@@ -136,7 +136,24 @@ async fn run(state: &AppState, ctx: &mut RequestContext, body: &mut Option<Body>
     }
 
     // 1. SecurityMiddleware.request: SSL redirect is off; HSTS is response-side.
-    // 2. WhiteNoise: no request-phase effect.
+    // 2. WhiteNoise: a known `/static/*` file is answered here, before the view
+    //    pipeline; an unknown one falls through to the URL resolver (Django
+    //    404s). The response phases run from layer 2 down, so SecurityMiddleware
+    //    and CORS still process it, exactly as they would Django's.
+    if let Some(resp) = static_file_response(ctx.path.as_str(), &ctx.method) {
+        let mut db = auth::RequestDb::default();
+        let mut auth_context = auth::AuthContext::new(&state.settings, ctx);
+        return run_response_phases(
+            state,
+            ctx,
+            &mut auth_context,
+            &mut db,
+            resp,
+            2,
+            Instant::now(),
+        )
+        .await;
+    }
     // 3. SessionMiddleware.process_request: choose the cookie by path and build
     //    the store. Nothing is read from the database yet.
     let mut db = auth::RequestDb::default();
@@ -438,6 +455,44 @@ async fn response_phase(
         // effect.
         _ => Ok(resp),
     }
+}
+
+/// The WhiteNoise response for a static file
+/// (`whitenoise/base.py:197-236`, `responders.py:80-100`).
+///
+/// WhiteNoise sets `Content-Type`, `Cache-Control: max-age=60, public` (with
+/// `DEBUG=0`), `Access-Control-Allow-Origin: *`, `Last-Modified`, `ETag` and
+/// `Content-Length`; none of the eight embedded files has a compressed variant,
+/// so there is no `Vary`. A non-GET/HEAD request for an existing file is
+/// WhiteNoise's 405 with `Allow: GET, HEAD` and no content type.
+fn static_file_response(path: &str, method: &Method) -> Option<Resp> {
+    let file = plane_bootstrap::static_files::lookup(path)?;
+    if *method != Method::GET && *method != Method::HEAD {
+        let mut resp = Resp::empty(405, TEXT_HTML);
+        resp.content_type = None;
+        resp.set_header("Allow", "GET, HEAD");
+        return Some(resp);
+    }
+    let body = if *method == Method::GET {
+        file.bytes.to_vec()
+    } else {
+        Vec::new()
+    };
+    let mut resp = Resp::new(200, file.content_type, body);
+    resp.set_header(
+        "Cache-Control",
+        plane_bootstrap::static_files::CACHE_CONTROL,
+    );
+    resp.set_header("Access-Control-Allow-Origin", "*");
+    resp.set_header("ETag", plane_bootstrap::static_files::etag(file));
+    resp.set_header(
+        "Last-Modified",
+        plane_bootstrap::static_files::LAST_MODIFIED,
+    );
+    // Set before the pipeline's CommonMiddleware would: WhiteNoise's header is
+    // the full file size even for HEAD.
+    resp.set_header("Content-Length", file.bytes.len().to_string());
+    Some(resp)
 }
 
 #[cfg(test)]

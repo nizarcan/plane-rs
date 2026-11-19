@@ -21,6 +21,12 @@ use uuid::Uuid;
 /// The notify channel `enqueue` raises and the worker listens on.
 pub const NOTIFY_CHANNEL: &str = "plane_jobs_jobs";
 
+/// The `plane_jobs.meta.schema_version` this crate writes and every consumer
+/// expects. `plane-migrator` (through [`migrate`]) writes it and
+/// `plane-bootstrap::wait::wait_for_migrations` compares the stored value
+/// against this constant; bump it here only, never in a consumer.
+pub const SCHEMA_VERSION: &str = "2";
+
 const MIGRATION: &str = r#"
 CREATE SCHEMA IF NOT EXISTS plane_jobs;
 
@@ -252,9 +258,9 @@ pub async fn migrate<C: GenericClient + Sync>(client: &C) -> Result<(), QueueErr
     client.batch_execute(MIGRATION).await?;
     client
         .execute(
-            "INSERT INTO plane_jobs.meta (key, value) VALUES ('schema_version', '2') \
+            "INSERT INTO plane_jobs.meta (key, value) VALUES ('schema_version', $1) \
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-            &[],
+            &[&SCHEMA_VERSION],
         )
         .await?;
     Ok(())

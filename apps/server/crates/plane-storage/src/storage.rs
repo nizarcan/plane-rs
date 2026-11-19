@@ -186,6 +186,72 @@ impl Storage {
         Self::new(settings, &plane_core::config::ProcessEnv)
     }
 
+    /// `boto3.client("s3").head_bucket(Bucket=...)`
+    /// (`plane/db/management/commands/create_bucket.py:32`).
+    ///
+    /// `Ok(())` when the bucket exists; an S3 error response otherwise. A
+    /// `HEAD` has no body, so botocore's `Error.Code` is the status code as a
+    /// string; [`StorageError::s3_code`] carries that.
+    pub async fn head_bucket(&self) -> Result<(), StorageError> {
+        let endpoint = self.endpoint(None)?;
+        let bucket = self.bucket()?;
+        let response = self
+            .send(
+                endpoint,
+                &self.region,
+                Method::HEAD,
+                Target::Bucket(bucket),
+                &[],
+                Vec::new(),
+                b"",
+                false,
+            )
+            .await?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+        Err(s3_error(response).await)
+    }
+
+    /// `boto3.client("s3").create_bucket(Bucket=...)`
+    /// (`create_bucket.py:43`).
+    ///
+    /// boto3 sends a `LocationConstraint` body for every region but
+    /// `us-east-1`; MinIO in the dev stack and in CI runs `us-east-1`.
+    pub async fn create_bucket(&self) -> Result<(), StorageError> {
+        let endpoint = self.endpoint(None)?;
+        let bucket = self.bucket()?;
+        let body = if self.region == "us-east-1" {
+            Vec::new()
+        } else {
+            format!(
+                "<CreateBucketConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\
+                 <LocationConstraint>{}</LocationConstraint></CreateBucketConfiguration>",
+                self.region
+            )
+            .into_bytes()
+        };
+        let response = self
+            .send(
+                endpoint,
+                &self.region,
+                Method::PUT,
+                Target::Bucket(bucket),
+                &[],
+                vec![Header {
+                    name: "content-type".to_string(),
+                    value: "application/xml".to_string(),
+                }],
+                &body,
+                false,
+            )
+            .await?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+        Err(s3_error(response).await)
+    }
+
     /// A view whose MinIO endpoint comes from this request, like
     /// `S3Storage(request=request)`.
     pub fn request<'a>(&'a self, request: RequestInfo<'a>) -> StorageRequest<'a> {

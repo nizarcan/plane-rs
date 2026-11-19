@@ -112,6 +112,35 @@ async fn serve(
     drf: plane_drf::dispatch::Runtime,
 ) -> anyhow::Result<()> {
     let bind = settings.rust.bind;
+
+    // `apps/api/bin/docker-entrypoint-api.sh:3-33`, in order. The migrator is a
+    // compose `service_completed_successfully` dependency, so the two waits are
+    // followed by the marker it writes, then the same create/extend,
+    // configuration seed, bucket check and cache flush Django runs before
+    // gunicorn. `collectstatic` is replaced by the embedded `/static/` handler
+    // (`plane-bootstrap::static_files`).
+    plane_bootstrap::wait::wait_for_db(&db).await?;
+    plane_bootstrap::wait::wait_for_migrations(&db).await?;
+    {
+        let client = db
+            .write_pool()
+            .get()
+            .await
+            .context("connecting to Postgres for the boot steps")?;
+        plane_bootstrap::instance::register_instance(
+            &client,
+            &settings,
+            &plane_bootstrap::instance::machine_signature(),
+        )
+        .await
+        .context("registering the instance")?;
+        plane_bootstrap::instance::configure_instance(&client, &settings)
+            .await
+            .context("configuring the instance")?;
+    }
+    plane_bootstrap::bucket::create_bucket(&settings).await;
+    plane_bootstrap::cache::clear_cache(&settings).await;
+
     let state = Arc::new(AppState {
         settings,
         routes,

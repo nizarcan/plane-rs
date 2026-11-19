@@ -2448,6 +2448,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "plane-bootstrap",
  "plane-core",
  "plane-db",
  "tokio",
@@ -2471,6 +2472,7 @@ dependencies = [
  "mimalloc",
  "percent-encoding",
  "plane-auth",
+ "plane-bootstrap",
  "plane-cache",
  "plane-core",
  "plane-db",
@@ -2529,12 +2531,37 @@ name = "plane-beat"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "plane-bootstrap",
  "plane-core",
  "plane-db",
  "plane-jobs",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "plane-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "aws-lc-rs",
+ "chrono",
+ "deadpool-postgres",
+ "plane-auth",
+ "plane-cache",
+ "plane-core",
+ "plane-db",
+ "plane-jobs",
+ "plane-mail",
+ "plane-net",
+ "plane-storage",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2745,7 +2772,9 @@ dependencies = [
  "plane-core",
  "plane-db",
  "plane-jobs",
+ "thiserror",
  "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]
@@ -2900,6 +2929,7 @@ name = "plane-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "plane-bootstrap",
  "plane-core",
  "plane-db",
  "plane-jobs",

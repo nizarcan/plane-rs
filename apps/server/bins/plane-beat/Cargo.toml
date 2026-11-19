@@ -19,6 +19,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 plane-core = { path = "../../crates/plane-core" }
 plane-db = { path = "../../crates/plane-db" }
+plane-bootstrap = { path = "../../crates/plane-bootstrap" }
 plane-jobs = { path = "../../crates/plane-jobs" }
 tokio = { workspace = true, features = [
   "macros",
