@@ -2410,4 +2410,22 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        so the `Caddyfile.ce` bind mount fails) and left the stack up. Follow-up: refuse a
        non-shared path up front, and clean up on failure.
 
-   Running: the final benchmark. Then the revert.
+   - **Final benchmark merged (`cfcb3bf6cf`, BENCH.md "Phase 8 — final").** Equal
+     containers (`--cpus 2 --memory 512m`), one repetition, 0 errors. Reads c=1: Rust
+     246–1311 rps vs Django 24–74 (9.5×–24.9×); `reads-mixed` c=8: 1931 vs 58 rps (33.5×,
+     p99 15.7 vs 353 ms); writes c=1 (`scenarios/bench/writes-mixed.yaml`, create+update of
+     work items and comments; DELETE not measurable with static URLs): 304 vs 32 rps (9.5×).
+     CPU/request 28.6×–84.2× lower. Idle: `plane-api` 58.7 MiB, `plane-worker` 1.58 MiB
+     (1.66 with 4 claimed jobs), `plane-beat` 0.91 MiB after 9 real ticks; Celery worker
+     `-c 4` 359.6 MiB and beat 145.8 MiB re-measured in containers. Throughput, 10,000
+     `recent_visited_task`: Rust 773 jobs/s (0.27 ms CPU/job) vs Celery `-P solo` 94 jobs/s
+     (5.03 ms; prefork `-c 4` hung on this host, so Celery's figure is a lower bound).
+     Whole stack idle: Rust 61.2 MiB vs Python 648.8 MiB before RabbitMQ (~789 with ~140
+     MiB broker); the `RUST_REWRITE.md` budget put Python at ≈ 2,120 MiB.
+     - **Product bug found:** `plane-jobs/src/listener.rs` awaits `LISTEN` before polling the
+       tokio-postgres `Connection`, so the subscription never reaches Postgres and the worker
+       runs on the poll fallback only (up to 1 s claim latency). Fix, a DB test that fails on
+       the old code, and a re-measure of the worker row assigned (`rs/p8-listen`), with the
+       `compare_boot.py` ephemeral SMTP ports and the exit check's path guard and teardown.
+
+   Running: `rs/p8-listen`. Then its verification, and the revert.
