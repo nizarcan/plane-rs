@@ -2329,5 +2329,33 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        command-only ones in `plane-admin` (D31) and `push_instance_metrics` (open owner
        question, D34).
 
-   Running: the orchestrator's verification of `d9eedf323e`, then of `b74a5d6a0c`;
-   deployment + exit check (`rs/p8-deploy`, §5; Redis 7/8, contract Redis 9).
+   - **Deployment on its branch (`e1d746b4be`, `rust-rewrite` merged in as `7bd759ffd3`).**
+     Root/CLI compose and AIO run only `plane-api`/`plane-worker`/`plane-beat`/`plane-migrator`
+     (migrator completion dependencies; RabbitMQ, `rabbitmq_data`, `AMQP_URL`, `RABBITMQ_*`,
+     `CELERY_*`, `GUNICORN_WORKERS`, `METRICS_PUSH_INTERVAL_MINUTES` removed); Caddy CE routes
+     `/api`, `/auth`, `/static` to `plane-api`; AIO gains `/static/*` (deliberate fix: the
+     invitation logos 404ed). Both Rust Dockerfiles fixed (they didn't copy `vendor/zxcvbn`
+     or `deploy/openapi`, so they didn't build). `tools/cutover/exit_check.py` (fresh + upgrade,
+     no Python container, API walk, `/static`, fails on any Celery dispatch or
+     `plane.exception` line): 94 pass / 4 skip pre-set-B with `--allow-celery-dispatch`;
+     strict mode failed exactly on the then Celery-owned invite/webhook tasks.
+     `build-branch.yml` now publishes the four Rust images instead of `plane-backend`
+     (`Dockerfile.plane-jobs` gains a `JOBS_BINARY` default stage: the build action has no
+     `target` input); actionlint clean, nothing run or pushed.
+     - Accepted: the read-only scenarios can't target the cutover stack (dev fixture and
+       dev-signed sessions); the AIO image isn't built here (needs frontend images); the Helm
+       chart (separate repo) is documented only; `docker-compose-local.yml`/`-test.yml` are
+       developer stacks and still run Django.
+   - **Verification of `d9eedf323e` (partial):** gates, baseline `--check`, `verify_migrator`
+     (all PASS), `compare_boot` PASS, 242/242 task cases, OAuth, SMTP, `beat_exactly_once` and
+     `beat_handover` PASS; sweeps 125/128: `boot/static.yaml` 0/9 (needs the static-serving
+     Django target, which a normal targets file lacks) and `read/instances.yaml` 27/30,
+     `write/instances-write.yaml` 23/25, `write/instances-signup.yaml` 9/10:
+     `$.instance.latest_version` `v1.4.3` vs `1.5.0`, because Rust's `plane-api` runs
+     `register_instance` at boot (failed GitHub lookup → current version, upstream behaviour)
+     and the harness's Django never runs the entrypoint's steps. Harness asymmetry, fix
+     assigned (`rs/p8-bootfix`).
+
+   Running: the contract part of `d9eedf323e`'s verification; the strict exit check on
+   `rs/p8-deploy` (`plane-cutover`, 18500–18519); the boot-asymmetry fix (`rs/p8-bootfix`;
+   18030/18130, Redis 7/8, contract Redis 9). Then the verification of the merged head.
