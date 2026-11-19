@@ -2464,6 +2464,13 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
 - `PLAYBOOK.md` (repository root): the method, technology-neutral, with this rewrite as the
   worked example.
 
+- **Secret scan of `290383d7f9..rust-rewrite` (gitleaks, 377 commits): no real secret.**
+  2,403 candidates, all test material: 2,260 golden reset tokens, 51 zxcvbn corpus
+  passwords, `HTTP_CONTRACT.md` codec vectors, fixture rows, CSRF/JWT unit-test vectors, the
+  documented throwaway `plane-net/tests/fixtures/pinned.test.key`, two `curl -u` dev-broker
+  lines. The dev `SECRET_KEY` (the only long value in `dev/.env.local`) occurs 0 times in
+  the history diff; no `.env`/key/credential file was ever added except that test key.
+  Follow-up: a `.gitleaks.toml` allowlist for these paths, and a CI scan.
 Running: `rs/rs-telemetry` (`push_instance_metrics`; 18010/18110, Redis 3/4/11), `rs/rs-helm`
 (chart, GHCR CI, image names). Next: upstream pin + oracle fetch + `apps/api` removal, README,
 secret scan, publish, homelab.
