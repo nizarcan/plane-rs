@@ -79,6 +79,77 @@ impl Metadata {
     /// Render with the DRF JSON dialect, splicing the recorded `actions` text
     /// verbatim so its field order is preserved.
     pub fn render(&self) -> Result<Vec<u8>, plane_serde::Error> {
+        self.render_json(None)
+    }
+
+    /// `JSONRenderer.render` with an explicit indentation. DRF's
+    /// `OpenApiJsonRenderer.get_indent` is 4 (`drf_spectacular/renderers.py`),
+    /// which is what `OPTIONS /api/schema/` renders when the negotiated
+    /// renderer is one of its JSON renderers.
+    pub fn render_json(&self, indent: Option<usize>) -> Result<Vec<u8>, plane_serde::Error> {
+        let indent = match indent {
+            Some(indent) => indent,
+            None => return self.render_compact(),
+        };
+        let pad = " ".repeat(indent);
+        let mut out: Vec<u8> = Vec::with_capacity(512);
+        out.extend_from_slice(b"{\n");
+        let entries: [(&str, &str); 2] = [("name", &self.name), ("description", &self.description)];
+        for (key, value) in entries {
+            out.extend_from_slice(pad.as_bytes());
+            out.extend_from_slice(plane_serde::to_vec(Dialect::Drf, key)?.as_slice());
+            out.extend_from_slice(b": ");
+            out.extend_from_slice(plane_serde::to_vec(Dialect::Drf, value)?.as_slice());
+            out.extend_from_slice(b",\n");
+        }
+        for (key, values) in [("renders", &self.renders), ("parses", &self.parses)] {
+            out.extend_from_slice(pad.as_bytes());
+            out.extend_from_slice(plane_serde::to_vec(Dialect::Drf, key)?.as_slice());
+            out.extend_from_slice(b": [\n");
+            for (index, value) in values.iter().enumerate() {
+                out.extend_from_slice(pad.as_bytes());
+                out.extend_from_slice(pad.as_bytes());
+                out.extend_from_slice(plane_serde::to_vec(Dialect::Drf, value)?.as_slice());
+                if index + 1 < values.len() {
+                    out.push(b',');
+                }
+                out.push(b'\n');
+            }
+            out.extend_from_slice(pad.as_bytes());
+            out.extend_from_slice(b"]");
+            out.extend_from_slice(if key == "parses" && self.actions.is_empty() {
+                b"\n"
+            } else {
+                b",\n"
+            });
+        }
+        if !self.actions.is_empty() {
+            // No route with a YAML/pretty-JSON renderer has actions (only the
+            // three drf-spectacular views offer those renderers), so the
+            // recorded compact JSON is spliced unchanged.
+            out.extend_from_slice(pad.as_bytes());
+            out.extend_from_slice(b"\"actions\": {\n");
+            for (index, (method, json)) in self.actions.iter().enumerate() {
+                out.extend_from_slice(pad.as_bytes());
+                out.extend_from_slice(pad.as_bytes());
+                out.extend_from_slice(
+                    plane_serde::to_vec(Dialect::Drf, method.as_str())?.as_slice(),
+                );
+                out.extend_from_slice(b": ");
+                out.extend_from_slice(json.as_bytes());
+                if index + 1 < self.actions.len() {
+                    out.push(b',');
+                }
+                out.push(b'\n');
+            }
+            out.extend_from_slice(pad.as_bytes());
+            out.extend_from_slice(b"}\n");
+        }
+        out.extend_from_slice(b"}");
+        Ok(out)
+    }
+
+    fn render_compact(&self) -> Result<Vec<u8>, plane_serde::Error> {
         let mut out = Vec::with_capacity(256);
         out.extend_from_slice(b"{\"name\":");
         out.extend(plane_serde::to_vec(Dialect::Drf, &self.name)?);
@@ -102,6 +173,43 @@ impl Metadata {
         }
         out.push(b'}');
         Ok(out)
+    }
+
+    /// `OpenApiYamlRenderer.render` for the metadata dict.
+    ///
+    /// `yaml.safe_dump(..., sort_keys=False, allow_unicode=True)` with a
+    /// string representer that uses `|` for a value with a newline
+    /// (`drf_spectacular/renderers.py:70-76`): mapping keys at column 0, block
+    /// sequences not indented under their key.
+    #[must_use]
+    pub fn render_yaml(&self) -> Vec<u8> {
+        let mut out = String::with_capacity(512);
+        out.push_str("name: ");
+        out.push_str(&crate::yaml::scalar(&self.name, 0));
+        out.push_str("\ndescription: ");
+        out.push_str(&crate::yaml::scalar(&self.description, 0));
+        out.push('\n');
+        for (key, values) in [("renders", &self.renders), ("parses", &self.parses)] {
+            out.push_str(key);
+            out.push_str(":\n");
+            for value in values {
+                out.push_str("- ");
+                out.push_str(&crate::yaml::scalar(value, 0));
+                out.push('\n');
+            }
+        }
+        if !self.actions.is_empty() {
+            // As in `render_json`: no route with a YAML renderer has actions.
+            out.push_str("actions:\n");
+            for (method, json) in &self.actions {
+                out.push_str("  ");
+                out.push_str(method.as_str());
+                out.push_str(": ");
+                out.push_str(json);
+                out.push('\n');
+            }
+        }
+        out.into_bytes()
     }
 }
 
@@ -320,6 +428,56 @@ mod tests {
         let method = route.options.attempts.first().cloned().expect("attempt");
         let error = determine(route, &[method]).expect_err("must fail");
         assert!(matches!(error, MetadataError::ActionsFailed(_)));
+    }
+
+    /// `OPTIONS /api/schema/` renders the metadata through the view's first
+    /// renderer (YAML), not `JSONRenderer` — captured from Django.
+    #[test]
+    fn the_schema_options_body_is_yaml() {
+        let table = table();
+        let route = table
+            .routes()
+            .iter()
+            .find(|route| route.view == "drf_spectacular.views.SpectacularAPIView")
+            .expect("schema");
+        let metadata = determine(route, &[Method::GET]).expect("metadata");
+        assert!(metadata.actions.is_empty());
+        let body = String::from_utf8(metadata.render_yaml()).expect("utf8");
+        let expected = concat!(
+            "name: Spectacular Api\n",
+            "description: |-\n",
+            "  OpenApi3 schema for this API. Format can be selected via content negotiation.\n",
+            "\n",
+            "  - YAML: application/vnd.oai.openapi\n",
+            "  - JSON: application/vnd.oai.openapi+json\n",
+            "renders:\n",
+            "- application/vnd.oai.openapi\n",
+            "- application/yaml\n",
+            "- application/vnd.oai.openapi+json\n",
+            "- application/json\n",
+            "parses:\n",
+            "- application/json\n",
+            "- application/x-www-form-urlencoded\n",
+            "- multipart/form-data\n",
+        );
+        assert_eq!(body, expected);
+    }
+
+    /// The same metadata for an `Accept: application/json` request uses
+    /// `OpenApiJsonRenderer`'s four-space indentation.
+    #[test]
+    fn the_schema_options_json_body_is_indented() {
+        let table = table();
+        let route = table
+            .routes()
+            .iter()
+            .find(|route| route.view == "drf_spectacular.views.SpectacularAPIView")
+            .expect("schema");
+        let metadata = determine(route, &[Method::GET]).expect("metadata");
+        let body = String::from_utf8(metadata.render_json(Some(4)).expect("render")).expect("utf8");
+        assert!(body.starts_with("{\n    \"name\": \"Spectacular Api\",\n"));
+        assert!(body.contains("\n    \"renders\": [\n        \"application/vnd.oai.openapi\",\n"));
+        assert!(body.ends_with("\n    ]\n}"));
     }
 
     #[test]

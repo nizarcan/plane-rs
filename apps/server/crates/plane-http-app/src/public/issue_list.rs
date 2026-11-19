@@ -26,6 +26,8 @@
 //!
 //! `issue_filters` is the only filter source: this view never calls
 //! `filter_queryset`, so `?filters=` and the `IssueFilterSet` do not apply.
+//! The board lookup runs **before** `paginate`, so an unknown anchor is the
+//! 404 even when `per_page`/`cursor`/`group_by` are invalid.
 //!
 //! ## The space grouper
 //!
@@ -35,7 +37,10 @@
 //! * `issue_queryset_grouper` annotates the three id arrays with `ArrayAgg`
 //!   **over the through-table joins** (`COALESCE(ARRAY_AGG(DISTINCT …) FILTER
 //!   (…), ARRAY[]::uuid[])`) instead of the app grouper's correlated
-//!   subqueries — so those joins are present even when the list is ungrouped;
+//!   subqueries — so those joins are present even when the list is ungrouped.
+//!   Unlike the app grouper, `module_ids` has **no** `deleted_at` filter
+//!   (`space/utils/grouper.py:76-80`); only grouping by the field adds the
+//!   through-table predicate (`:44-48`).
 //! * `issue_on_results`' field list is shorter: no `completed_at`,
 //!   `sub_issues_count`, `created_at`, `updated_at`, `updated_by`,
 //!   `attachment_count`, `link_count`, `is_draft` or `archived_at`, and it adds
@@ -51,14 +56,24 @@
 //! The envelope is the same `{grouped_by, …, results}` shape for all three
 //! (`plane/utils/paginator.py:733-757`).
 //!
-//! Ported here: the ungrouped page and a single, non-m2m `group_by`
-//! (`state_id`, `state__group`, `priority`, `cycle_id`, `project_id`,
-//! `created_by`, `target_date`, `start_date` — the fields that keep one row per
-//! issue). The m2m group fields (`labels__id`, `assignees__id`,
-//! `issue_module__module_id`) and `sub_group_by` answer an explicit
-//! not-implemented error: their paginator variants (multi-group membership and
-//! sub-group cells, `paginator.py:334-389,567-632`) are not ported yet. The gap
-//! is recorded in the ledger; no scenario covers it.
+//! The grouped variants are reproduced in full: membership arrays for the m2m
+//! group fields (`labels__id`, `assignees__id`, `issue_module__module_id`),
+//! sub-group cells, per-group cursors (`row_number` partitioned by the group
+//! columns) and the paginator's own counts. The group keys come from
+//! `issue_group_values` (`space/utils/grouper.py:145-213`), which is the same
+//! `plane_query::issue::group_values` port the `/api/` lists use.
+//!
+//! Three quirks are kept because they decide the body:
+//!
+//! * `total_count` is `queryset.count()` on the windowed, grouped query: the
+//!   `DISTINCT`/`GROUP BY` contains the m2m group columns, so a page grouped by
+//!   one m2m field counts one row per (issue, group) and a page with two m2m
+//!   fields counts one per (issue, group, sub group) — see
+//!   [`hits_statement`].
+//! * `count` is the number of rows on the page, which is up to `per_page` rows
+//!   **per group**, not in total (`paginator.py:250-277`).
+//! * `total_pages` is `ceil(largest group / per_page)` from the count filter's
+//!   group totals, and 0 when the page is empty (`paginator.py:283-290`).
 
 use chrono::NaiveDate;
 use deadpool_postgres::Client;
@@ -70,7 +85,7 @@ use plane_query::issue::group_values::{self, GroupValues, GroupValuesRequest};
 use plane_query::issue::model::{GroupField, Relation, manager_predicate};
 use plane_query::issue::order::Ordering;
 use plane_query::json::Json;
-use plane_query::paginator::{OffsetWindow, PageQuery, ceil_div, request_now};
+use plane_query::paginator::{Cursor, OffsetWindow, PageQuery, ceil_div, request_now};
 use plane_query::sql::{Frag, Join, Select, Value};
 use plane_serde::Dialect;
 use uuid::Uuid;
@@ -93,6 +108,24 @@ async fn issues_inner<'a>(ctx: &'a ViewCtx<'a>) -> Result<ViewResponse, ViewErro
         let timezone = user_timezone(ctx);
         let now = request_now();
 
+        // `issue_filters(request.query_params, "GET")` runs before the board
+        // lookup, so a malformed date is its 400 even for an unknown anchor.
+        let filters = match LegacyFilters::parse(&FilterParams::Get(ctx.query()), now.date_naive())
+        {
+            Ok(filters) => filters,
+            Err(error) => return map_query_error(error),
+        };
+        let ordering = Ordering::resolve(ctx.query().get_or("order_by", "-created_at"));
+
+        // `DeployBoard.objects.filter(...).first()` -> the view's own 404.
+        let Some(board) = board::published_board(client, anchor).await? else {
+            return Ok(error_body(404, "Project is not published"));
+        };
+        let project_id = board.entity_identifier;
+        let slug = workspace_slug(client, board.workspace_id).await?;
+
+        // `group_by = request.GET.get("group_by", False)` / `sub_group_by`:
+        // present-but-empty is falsey, exactly like the Python.
         let group_by_raw = ctx
             .query()
             .get("group_by")
@@ -112,45 +145,8 @@ async fn issues_inner<'a>(ctx: &'a ViewCtx<'a>) -> Result<ViewResponse, ViewErro
             ));
         }
 
-        // `paginate` validates `per_page`, `cursor` and the two group names
-        // before it evaluates the queryset (`paginator.py:681-712`).
-        let page = match PageQuery::parse(ctx.query(), group_by_raw, sub_group_by_raw) {
-            Ok(page) => page,
-            Err(error) => return map_query_error(error),
-        };
         let group_by = group_by_raw.and_then(GroupField::parse);
         let sub_group_by = sub_group_by_raw.and_then(GroupField::parse);
-        if sub_group_by.is_some() {
-            return Err(ViewError::Unknown(
-                "public issue list: sub_group_by is not ported yet".to_owned(),
-            ));
-        }
-        if let Some(group) = group_by {
-            if group.mapper().is_some() {
-                return Err(ViewError::Unknown(format!(
-                    "public issue list: group_by={} (an m2m field) is not ported yet",
-                    group.as_str()
-                )));
-            }
-            if group == GroupField::StateGroup {
-                return Err(ViewError::Unknown(
-                    "public issue list: grouping by state__group is not ported yet".to_owned(),
-                ));
-            }
-        }
-
-        let filters = match LegacyFilters::parse(&FilterParams::Get(ctx.query()), now.date_naive())
-        {
-            Ok(filters) => filters,
-            Err(error) => return map_query_error(error),
-        };
-        let ordering = Ordering::resolve(ctx.query().get_or("order_by", "-created_at"));
-
-        let Some(board) = board::published_board(client, anchor).await? else {
-            return Ok(error_body(404, "Project is not published"));
-        };
-        let project_id = board.entity_identifier;
-        let slug = workspace_slug(client, board.workspace_id).await?;
 
         let query = SpaceQuery {
             project_id,
@@ -159,13 +155,49 @@ async fn issues_inner<'a>(ctx: &'a ViewCtx<'a>) -> Result<ViewResponse, ViewErro
             timezone,
             ordering: &ordering,
             group_by,
+            sub_group_by,
+        };
+        // `group_by_fields=issue_group_values(...)` is an argument to
+        // `self.paginate`, so it is evaluated **before** `paginate` validates
+        // `per_page`/`cursor`/the field names. For the issue-derived fields
+        // this is the Python `AttributeError` (500), which wins over a bad
+        // cursor.
+        let group_fields = match group_by {
+            Some(group) => Some(group_keys(client, &query, group).await?),
+            None => None,
+        };
+        let sub_fields = match sub_group_by {
+            Some(sub) => Some(group_keys(client, &query, sub).await?),
+            None => None,
+        };
+
+        // `paginate` validates `per_page`, `cursor` and the two group names
+        // before it evaluates the queryset (`paginator.py:681-712`).
+        let page = match PageQuery::parse(ctx.query(), group_by_raw, sub_group_by_raw) {
+            Ok(page) => page,
+            Err(error) => return map_query_error(error),
         };
         let base = query.build();
         let window = OffsetWindow::new(&page, plane_query::paginator::MAX_LIMIT);
 
-        match group_by {
-            None => ungrouped_page(client, &query, &base, &window).await,
-            Some(group) => grouped_page(client, &query, &base, group, &window).await,
+        match (group_by, group_fields) {
+            (None, _) => ungrouped_page(client, &query, &base, &window).await,
+            (Some(group), Some(group_fields)) => {
+                grouped_page(
+                    client,
+                    &query,
+                    &base,
+                    &window,
+                    group,
+                    sub_group_by,
+                    &group_fields,
+                    sub_fields.as_deref(),
+                )
+                .await
+            }
+            _ => Err(ViewError::Unknown(
+                "group keys were not fetched for the group field".to_owned(),
+            )),
         }
     }
 }
@@ -178,6 +210,7 @@ struct SpaceQuery<'a> {
     timezone: chrono_tz::Tz,
     ordering: &'a Ordering,
     group_by: Option<GroupField>,
+    sub_group_by: Option<GroupField>,
 }
 
 impl SpaceQuery<'_> {
@@ -202,8 +235,8 @@ impl SpaceQuery<'_> {
             Value::Text(self.workspace_slug.to_owned()),
         ));
         // `issue_queryset_grouper`'s through-table `deleted_at` predicate for
-        // an m2m group field; the arrays filter their own rows regardless.
-        if let Some(group) = self.group_by {
+        // each m2m group field (`space/utils/grouper.py:44-48`).
+        for group in [self.group_by, self.sub_group_by].into_iter().flatten() {
             let column = match group {
                 GroupField::LabelsId => Some("issue_labels.deleted_at"),
                 GroupField::AssigneesId => Some("issue_assignees.deleted_at"),
@@ -214,21 +247,31 @@ impl SpaceQuery<'_> {
                 builder.and(Frag::is_null(column));
             }
         }
+        // `order_issue_queryset`'s annotation joins (`labels__name` needs
+        // `issue_labels` -> `labels`).
+        for (relation, kind) in self.ordering.joins.entries() {
+            builder.require(relation, kind);
+        }
         self.filters.apply(&mut builder);
         self.filters.apply_dates(&mut builder, self.timezone);
         builder
     }
 }
 
-/// The `issue_on_results` `SELECT` list, in the space grouper's order.
-fn projection(group: Option<GroupField>) -> Vec<(&'static str, Frag)> {
+/// The `issue_on_results` `SELECT` list, in the space grouper's order
+/// (`space/utils/grouper.py:88-193`).
+///
+/// The three id annotations come first; grouping by one of them removes its
+/// annotation and appends the raw through column in its place, after the
+/// remaining annotations (`original_list.remove`/`append`).
+fn projection(group: Option<GroupField>, sub: Option<GroupField>) -> Vec<(&'static str, Frag)> {
     let cycle_id = Frag::raw(
         "(SELECT U0.\"cycle_id\" FROM \"cycle_issues\" U0 \
          WHERE (U0.\"deleted_at\" IS NULL AND U0.\"deleted_at\" IS NULL \
          AND U0.\"issue_id\" = (\"issues\".\"id\")) \
          ORDER BY U0.\"created_at\" DESC LIMIT 1)",
     );
-    let mut fields = vec![
+    let mut fields: Vec<(&'static str, Frag)> = vec![
         ("id", Frag::raw("issues.id")),
         ("name", Frag::raw("issues.name")),
         ("state_id", Frag::raw("issues.state_id")),
@@ -243,62 +286,41 @@ fn projection(group: Option<GroupField>) -> Vec<(&'static str, Frag)> {
         ("cycle_id", cycle_id),
         ("created_by", Frag::raw("issues.created_by_id")),
         ("state__group", Frag::raw("states.group")),
-        (
-            "assignee_ids",
-            array_aggregate(
-                "issue_assignees",
-                "assignee_id",
-                "issue_assignees.deleted_at IS NULL",
-            ),
-        ),
-        (
-            "label_ids",
-            array_aggregate(
-                "issue_labels",
-                "label_id",
-                "issue_labels.deleted_at IS NULL",
-            ),
-        ),
-        (
-            "module_ids",
-            array_aggregate("module_issues", "module_id", "TRUE"),
-        ),
     ];
-    // An m2m group replaces its array with the raw through column
-    // (`issue_on_results`'s `original_list.remove`/`append`). Those groupings
-    // are rejected before this runs.
-    let _ = group;
-    fields.push((
-        "vote_items",
-        Frag::raw(
-            "ARRAY_AGG(DISTINCT CASE WHEN issue_votes.deleted_at IS NULL \
-             AND issue_votes.id IS NOT NULL THEN \
-             JSONB_BUILD_OBJECT('vote', issue_votes.vote, 'actor_details', \
-               JSONB_BUILD_OBJECT('id', issue_votes.actor_id, 'first_name', v_actor.first_name, \
-                 'last_name', v_actor.last_name, 'avatar', v_actor.avatar, \
-                 'avatar_url', CASE WHEN v_actor.avatar_asset_id IS NOT NULL \
-                   THEN ('/api/assets/v2/static/' || (v_actor.avatar_asset_id)::varchar || '/') \
-                   ELSE v_actor.avatar END, \
-                 'display_name', v_actor.display_name)) ELSE NULL END) \
-             FILTER (WHERE issue_votes.deleted_at IS NULL AND issue_votes.id IS NOT NULL)",
-        ),
-    ));
-    fields.push((
-        "reaction_items",
-        Frag::raw(
-            "ARRAY_AGG(DISTINCT CASE WHEN issue_reactions.deleted_at IS NULL \
-             AND issue_reactions.id IS NOT NULL THEN \
-             JSONB_BUILD_OBJECT('reaction', issue_reactions.reaction, 'actor_details', \
-               JSONB_BUILD_OBJECT('id', issue_reactions.actor_id, 'first_name', r_actor.first_name, \
-                 'last_name', r_actor.last_name, 'avatar', r_actor.avatar, \
-                 'avatar_url', CASE WHEN r_actor.avatar_asset_id IS NOT NULL \
-                   THEN ('/api/assets/v2/static/' || (r_actor.avatar_asset_id)::varchar || '/') \
-                   ELSE r_actor.avatar END, \
-                 'display_name', r_actor.display_name)) ELSE NULL END) \
-             FILTER (WHERE issue_reactions.deleted_at IS NULL AND issue_reactions.id IS NOT NULL)",
-        ),
-    ));
+    let mut original = ["assignee_ids", "label_ids", "module_ids"].to_vec();
+    let mut substitutions: Vec<(&'static str, Frag)> = Vec::new();
+    for field in [group, sub].into_iter().flatten() {
+        if let Some(mapper) = field.mapper() {
+            original.retain(|key| *key != mapper);
+            substitutions.push((field.as_str(), field.expression()));
+        }
+    }
+    for key in original {
+        fields.push((key, array_expression(key)));
+    }
+    fields.extend(substitutions);
+    fields.push(("vote_items", vote_items_expression()));
+    fields.push(("reaction_items", reaction_items_expression()));
     fields
+}
+
+fn array_expression(key: &str) -> Frag {
+    match key {
+        "assignee_ids" => array_aggregate(
+            "issue_assignees",
+            "assignee_id",
+            "issue_assignees.deleted_at IS NULL",
+        ),
+        "label_ids" => array_aggregate(
+            "issue_labels",
+            "label_id",
+            "issue_labels.deleted_at IS NULL",
+        ),
+        // `space/utils/grouper.py:76-80`: no `deleted_at` (and no
+        // `modules.archived_at`) filter, and no `modules` join.
+        "module_ids" => array_aggregate("module_issues", "module_id", "TRUE"),
+        _ => Frag::raw("NULL"),
+    }
 }
 
 fn array_aggregate(table: &str, column: &str, filter: &str) -> Frag {
@@ -306,6 +328,36 @@ fn array_aggregate(table: &str, column: &str, filter: &str) -> Frag {
         "COALESCE(ARRAY_AGG(DISTINCT {table}.{column}) \
          FILTER (WHERE (NOT ({table}.{column} IS NULL) AND {filter})), ARRAY[]::uuid[])"
     ))
+}
+
+fn vote_items_expression() -> Frag {
+    Frag::raw(
+        "ARRAY_AGG(DISTINCT CASE WHEN issue_votes.deleted_at IS NULL \
+         AND issue_votes.id IS NOT NULL THEN \
+         JSONB_BUILD_OBJECT('vote', issue_votes.vote, 'actor_details', \
+           JSONB_BUILD_OBJECT('id', issue_votes.actor_id, 'first_name', v_actor.first_name, \
+             'last_name', v_actor.last_name, 'avatar', v_actor.avatar, \
+             'avatar_url', CASE WHEN v_actor.avatar_asset_id IS NOT NULL \
+               THEN ('/api/assets/v2/static/' || (v_actor.avatar_asset_id)::varchar || '/') \
+               ELSE v_actor.avatar END, \
+             'display_name', v_actor.display_name)) ELSE NULL END) \
+         FILTER (WHERE issue_votes.deleted_at IS NULL AND issue_votes.id IS NOT NULL)",
+    )
+}
+
+fn reaction_items_expression() -> Frag {
+    Frag::raw(
+        "ARRAY_AGG(DISTINCT CASE WHEN issue_reactions.deleted_at IS NULL \
+         AND issue_reactions.id IS NOT NULL THEN \
+         JSONB_BUILD_OBJECT('reaction', issue_reactions.reaction, 'actor_details', \
+           JSONB_BUILD_OBJECT('id', issue_reactions.actor_id, 'first_name', r_actor.first_name, \
+             'last_name', r_actor.last_name, 'avatar', r_actor.avatar, \
+             'avatar_url', CASE WHEN r_actor.avatar_asset_id IS NOT NULL \
+               THEN ('/api/assets/v2/static/' || (r_actor.avatar_asset_id)::varchar || '/') \
+               ELSE r_actor.avatar END, \
+             'display_name', r_actor.display_name)) ELSE NULL END) \
+         FILTER (WHERE issue_reactions.deleted_at IS NULL AND issue_reactions.id IS NOT NULL)",
+    )
 }
 
 /// The joins the array and jsonb aggregates need, in Django's order.
@@ -349,16 +401,47 @@ fn aggregate_joins() -> Vec<Join> {
     ]
 }
 
+/// The base joins plus `aggregate_joins()`, reusing an alias the base already
+/// joined (Django's join reuse: `order_by=labels__name` and the `label_ids`
+/// aggregate share one `issue_labels` join).
+fn joins_with_aggregates(base: &FilterBuilder) -> Vec<Join> {
+    let mut joins = base.joins.to_joins();
+    for join in aggregate_joins() {
+        if !joins.iter().any(|existing| existing.alias == join.alias) {
+            joins.push(join);
+        }
+    }
+    joins
+}
+
+fn joins_with_aggregates_and_intake(base: &FilterBuilder) -> Vec<Join> {
+    let mut joins = joins_with_aggregates(base);
+    if !joins
+        .iter()
+        .any(|existing| existing.alias == "intake_issues")
+    {
+        joins.push(Join::left(
+            "intake_issues",
+            "intake_issues",
+            Frag::raw("(issues.id = intake_issues.issue_id)"),
+        ));
+    }
+    joins
+}
+
 /// The ordered projection's SQL, with the extra sort columns [`Ordering`] needs
 /// when the page is `DISTINCT`.
-fn projected_fields(base: &FilterBuilder, ordering: &Ordering) -> Vec<Frag> {
-    let mut fields: Vec<Frag> = projection(None)
+fn projected_fields(
+    group: Option<GroupField>,
+    sub: Option<GroupField>,
+    ordering: &Ordering,
+) -> Vec<Frag> {
+    let mut fields: Vec<Frag> = projection(group, sub)
         .into_iter()
         .map(|(key, expression)| aliased(expression, key))
         .collect();
     fields.push(aliased(ordering.expression.clone(), "__order_key"));
     fields.push(aliased(Frag::raw("issues.created_at"), "__created_at"));
-    let _ = base;
     fields
 }
 
@@ -382,25 +465,128 @@ fn page_order(ordering: &Ordering) -> Vec<Frag> {
     ]
 }
 
+/// The `GROUP BY` of a page that has aggregate annotations: the primary key,
+/// every projected column of another table that is not functionally dependent
+/// on it (`states.group`) and the raw through column of each m2m group field
+/// (`plane/utils/paginator.py` puts `Window.get_group_by_cols()`' partition
+/// columns there; the issue columns collapse into the primary key on
+/// Postgres).
+fn group_by_columns(group: Option<GroupField>, sub: Option<GroupField>) -> Vec<String> {
+    let mut columns = vec!["issues.id".to_owned(), "states.group".to_owned()];
+    for field in [group, sub].into_iter().flatten() {
+        if field.mapper().is_some() {
+            let column = field.expression().sql;
+            if !columns.contains(&column) {
+                columns.push(column);
+            }
+        }
+    }
+    columns
+}
+
 fn page_statement(base: &FilterBuilder, ordering: &Ordering, limit: i64, offset: i64) -> Select {
     let mut select = Select::new("issues");
-    select.joins = base.joins.to_joins();
-    select.joins.extend(aggregate_joins());
+    select.joins = joins_with_aggregates(base);
     select.predicate = Some(base.predicate.clone());
     select.distinct = true;
-    select.projection = projected_fields(base, ordering);
+    select.projection = projected_fields(None, None, ordering);
     // Django 5.2's aggregate grouping: the primary key plus every projected
     // column not functionally dependent on it (`states.group`).
-    select.group_by = vec!["issues.id".to_owned(), "states.group".to_owned()];
+    select.group_by = group_by_columns(None, None);
     select.order_by = page_order(ordering);
     select.limit = Some(limit + 1);
     select.offset = Some(offset);
     select
 }
 
-/// `queryset.count()` — the windowed count collapses to one row per issue
-/// (`GROUP BY issues.id` in Django's count), so `COUNT(DISTINCT issues.id)`
-/// over the same predicate is the same number.
+/// The grouped page: a window over the joined rows, filtered on the per-group
+/// row number (`GroupedOffsetPaginator.get_result`,
+/// `paginator.py:250-277`; `SubGroupedOffsetPaginator.get_result`,
+/// `:457-485`).
+///
+/// One extra row per partition is fetched so `next_page_results` needs no
+/// second round trip; the caller counts the extra rows per partition.
+fn grouped_page_statement(
+    base: &FilterBuilder,
+    ordering: &Ordering,
+    group: GroupField,
+    sub: Option<GroupField>,
+    limit: i64,
+    offset: i64,
+) -> Select {
+    let mut inner = Select::new("issues");
+    inner.joins = joins_with_aggregates(base);
+    inner.predicate = Some(base.predicate.clone());
+    inner.distinct = true;
+    let mut projection = projected_fields(Some(group), sub, ordering);
+    let mut row_number = Frag::raw("ROW_NUMBER() OVER (PARTITION BY ");
+    row_number.push(group.expression());
+    if let Some(sub) = sub {
+        row_number.push_raw(", ");
+        row_number.push(sub.expression());
+    }
+    row_number.push_raw(" ORDER BY ");
+    // A window specification cannot reference a select-list alias, so this one
+    // repeats the expressions Django puts there (`paginator.py:255-269,461-472`).
+    for (index, expression) in ordering.paginator_order().into_iter().enumerate() {
+        if index > 0 {
+            row_number.push_raw(", ");
+        }
+        row_number.push(expression);
+    }
+    row_number.push_raw(") AS \"row_number\"");
+    projection.push(row_number);
+    inner.projection = projection;
+    inner.group_by = group_by_columns(Some(group), sub);
+    inner.order_by = page_order(ordering);
+    let inner = inner.to_frag();
+    let stop = offset + limit + 1;
+    let mut outer = Select::from_frag(Frag {
+        sql: format!("({}) AS \"qualify\"", inner.sql),
+        params: inner.params,
+    });
+    outer.projection = vec![Frag::raw("*")];
+    // `< stop + 1` fetches the extra row that answers
+    // `queryset.filter(row_number__gte=stop).exists()`.
+    outer.predicate = Some(
+        Frag::raw(format!("\"row_number\" > {offset}"))
+            .and(Frag::raw(format!("\"row_number\" < {}", stop + 1))),
+    );
+    outer.order_by = page_order(ordering);
+    outer
+}
+
+/// `queryset.count()` on the windowed grouped query
+/// (`GroupedOffsetPaginator.get_result`, `paginator.py:278-280`).
+///
+/// The outer `COUNT(*)` runs over the query's selected columns, which are
+/// grouped by the primary key and every m2m group column. The window annotation
+/// is masked out of Django's count, so what remains is one row per
+/// (issue, group[, sub group]) — see the module docs.
+fn hits_statement(base: &FilterBuilder, group: GroupField, sub: Option<GroupField>) -> Select {
+    let mut inner = Select::new("issues");
+    inner.joins = joins_with_aggregates(base);
+    inner.predicate = Some(base.predicate.clone());
+    inner.distinct = true;
+    inner.projection = vec![Frag::raw("issues.id"), group.expression()];
+    if let Some(sub) = sub {
+        inner.projection.push(sub.expression());
+    }
+    inner.group_by = vec!["issues.id".to_owned(), group.expression().sql];
+    if let Some(sub) = sub {
+        inner.group_by.push(sub.expression().sql);
+    }
+    let inner = inner.to_frag();
+    let mut outer = Select::from_frag(Frag {
+        sql: format!("({}) AS \"subquery\"", inner.sql),
+        params: inner.params,
+    });
+    outer.projection = vec![Frag::raw("COUNT(*)")];
+    outer
+}
+
+/// `queryset.count()` for the ungrouped page: the windowed query collapses to
+/// one row per issue (`GROUP BY issues.id` from the array annotations).
 fn total_statement(base: &FilterBuilder) -> Select {
     let mut select = Select::new("issues");
     select.joins = base.joins.to_joins();
@@ -437,7 +623,8 @@ async fn ungrouped_page(
     let rows = fetch(client, select).await?;
     let fetched = rows.len();
     let rows = &rows[..fetched.min(window.row_limit() as usize)];
-    let results = render_rows(rows)?;
+    let specs = field_specs(None, None);
+    let results = render_rows(rows, &specs)?;
     let total = count(client, total_statement(base)).await?;
     let body = envelope_bytes(
         None,
@@ -451,121 +638,104 @@ async fn ungrouped_page(
     Ok(ok(body))
 }
 
-/// The one-group page (`GroupedOffsetPaginator`) for a non-m2m group field.
+/// The grouped page (`GroupedOffsetPaginator` / `SubGroupedOffsetPaginator`).
+#[allow(clippy::too_many_arguments)]
 async fn grouped_page(
     client: &Client,
     query: &SpaceQuery<'_>,
     base: &FilterBuilder,
-    group: GroupField,
     window: &OffsetWindow,
+    group: GroupField,
+    sub: Option<GroupField>,
+    group_fields: &[String],
+    sub_fields: Option<&[String]>,
 ) -> Result<ViewResponse, ViewError> {
-    let mut inner = Select::new("issues");
-    inner.joins = base.joins.to_joins();
-    inner.joins.extend(aggregate_joins());
-    inner.predicate = Some(base.predicate.clone());
-    inner.distinct = true;
-    let mut projection = projected_fields(base, query.ordering);
-    let mut row_number = Frag::raw("ROW_NUMBER() OVER (PARTITION BY ");
-    row_number.push(group.expression());
-    row_number.push_raw(" ORDER BY ");
-    // A window specification cannot reference a select-list alias, so this one
-    // repeats the expressions Django puts there (`paginator.py:255-269`).
-    for (index, expression) in query.ordering.paginator_order().into_iter().enumerate() {
-        if index > 0 {
-            row_number.push_raw(", ");
-        }
-        row_number.push(expression);
-    }
-    row_number.push_raw(") AS \"row_number\"");
-    projection.push(row_number);
-    inner.projection = projection;
-    inner.group_by = vec!["issues.id".to_owned(), "states.group".to_owned()];
-    inner.order_by = page_order(query.ordering);
-    let inner = inner.to_frag();
-    let mut outer = Select::from_frag(Frag {
-        sql: format!("({}) AS \"qualify\"", inner.sql),
-        params: inner.params,
-    });
-    outer.projection = vec![Frag::raw("*")];
-    outer.predicate = Some(
-        Frag::raw(format!("\"row_number\" > {}", window.offset))
-            .and(Frag::raw(format!("\"row_number\" < {}", window.stop()))),
+    let select = grouped_page_statement(
+        base,
+        query.ordering,
+        group,
+        sub,
+        window.row_limit(),
+        window.offset,
     );
-    outer.order_by = vec![Frag::raw("\"__created_at\" DESC NULLS LAST")];
-    let rows = fetch(client, outer).await?;
-    let fetched = rows.len();
-    let rows = &rows[..fetched.min(window.row_limit() as usize)];
+    let rows = fetch(client, select).await?;
+    let specs = field_specs(Some(group), sub);
+    let group_index = field_index(&specs, group.as_str());
+    let sub_index = sub.and_then(|field| specs.iter().position(|spec| spec.key == field.as_str()));
 
-    // The group keys come from `issue_group_values` (`space/utils/grouper.py`),
-    // i.e. the model managers, not from the page.
-    let keys = match group_values::values(&GroupValuesRequest {
-        field: group,
-        workspace_slug: query.workspace_slug,
-        project_id: query.project_id,
-        user: None,
-        issues: None,
-    }) {
-        Ok(GroupValues::Static(values)) => values,
-        Ok(GroupValues::Query { sql, append_none }) => {
-            let fetched = sql.query(client).await.map_err(ViewError::from)?;
-            let mut values = Vec::with_capacity(fetched.len() + 1);
-            for row in &fetched {
-                values.push(render_group_value(row, 0, group)?);
+    // Count the rows per partition: the first `limit` rows are the page, an
+    // extra row means a later page exists for that group
+    // (`queryset.filter(row_number__gte=stop).exists()`).
+    let limit = window.row_limit();
+    let mut seen: Vec<(String, Option<String>, i64)> = Vec::new();
+    let mut has_results = false;
+    let mut kept: Vec<DecodedRow> = Vec::new();
+    for row in &rows {
+        let decoded = decode_row(row, &specs, group_index, sub_index)?;
+        let count = match seen
+            .iter_mut()
+            .find(|(key, sub_key, _)| *key == decoded.group_key && *sub_key == decoded.sub_key)
+        {
+            Some((_, _, count)) => {
+                *count += 1;
+                *count
             }
-            if append_none {
-                values.push("None".to_owned());
+            None => {
+                seen.push((decoded.group_key.clone(), decoded.sub_key.clone(), 1));
+                1
             }
-            values
-        }
-        Err(error) => return map_query_error(error),
-    };
-    let keys = dedupe(keys);
-
-    let totals = group_totals(client, base, group).await?;
-    let mut grouped: Vec<(String, Vec<Vec<u8>>)> =
-        keys.iter().map(|key| (key.clone(), Vec::new())).collect();
-    for row in rows {
-        let key = render_group_value(row, group_index(group), group)?;
-        if let Some(slot) = grouped.iter_mut().find(|(existing, _)| *existing == key) {
-            slot.1.push(render_row(row)?);
-        }
-    }
-
-    let mut results: Vec<(String, Vec<u8>)> = Vec::with_capacity(grouped.len());
-    let mut page_count = 0usize;
-    for (key, values) in grouped {
-        page_count += values.len();
-        let raw = totals
-            .iter()
-            .find(|(existing, _)| *existing == key)
-            .map(|(_, count)| *count);
-        // `__get_total_dict`: an existing zero-count group reports 1; an absent
-        // group reports 0 (`paginator.py:307-314,548-556`).
-        let total_results = match raw {
-            Some(0) => 1,
-            Some(count) => count,
-            None => 0,
         };
-        let mut value = Vec::new();
-        value.extend_from_slice(b"{\"results\":");
-        value.extend_from_slice(&raw_array(&values));
-        value.extend_from_slice(b",\"total_results\":");
-        value.extend_from_slice(&value_bytes(&Json::Int(total_results)));
-        value.push(b'}');
-        results.push((key, value));
+        if count > limit {
+            has_results = true;
+            continue;
+        }
+        kept.push(decoded);
     }
-    let hits = count(client, total_statement(base)).await?;
-    let max_group = totals.iter().map(|(_, count)| *count).max().unwrap_or(0);
+
+    let hits = count(client, hits_statement(base, group, sub)).await?;
+    let group_totals = group_totals(client, base, group).await?;
+    let sub_totals = match sub {
+        Some(sub) => sub_group_totals(client, base, group, sub).await?,
+        None => Vec::new(),
+    };
+
+    let results = if kept.is_empty() {
+        Vec::new()
+    } else {
+        shape_results(
+            group,
+            sub,
+            &kept,
+            &specs,
+            group_fields,
+            sub_fields.unwrap_or(&[]),
+            &group_totals,
+            &sub_totals,
+        )?
+    };
+    let page_count = kept.len();
+
+    // `max_hits`: the largest group's *raw* count (before the zero-to-one
+    // adjustment), 0 when the page is empty (`paginator.py:283-290,500-506`).
+    let max_group = group_totals
+        .iter()
+        .map(|(_, count)| *count)
+        .max()
+        .unwrap_or(0);
     let total_pages = if page_count == 0 {
         0
     } else {
-        ceil_div(max_group, window.row_limit())
+        ceil_div(max_group, limit)
     };
+    // `next_page_results` is `queryset.filter(row_number__gte=stop).exists()`,
+    // which the per-partition extra row above answers without a second query.
+    let next = Cursor::new(limit, window.page_index + 1, false, has_results);
+    let prev = Cursor::new(limit, window.page_index - 1, true, window.page_index > 0);
     let body = envelope_bytes(
         Some(group),
-        None,
+        sub,
         hits,
-        window.cursors(fetched),
+        (next, prev),
         page_count,
         total_pages,
         raw_object(&results),
@@ -573,52 +743,131 @@ async fn grouped_page(
     Ok(ok(body))
 }
 
-/// The projection index of the group column, for the fields this module
-/// accepts (see `projection`'s order).
-fn group_index(group: GroupField) -> usize {
-    match group {
-        GroupField::StateId => 2,
-        GroupField::CycleId => 11,
-        GroupField::CreatedBy => 12,
-        GroupField::ProjectId => 9,
-        GroupField::Priority => 5,
-        GroupField::TargetDate => 7,
-        GroupField::StartDate => 6,
-        _ => 0,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-
-/// The `issue_on_results` row as DRF bytes, in the projection's key order.
-fn render_rows(rows: &[tokio_postgres::Row]) -> Result<Vec<Vec<u8>>, ViewError> {
-    rows.iter().map(render_row).collect()
-}
-
-fn render_row(row: &tokio_postgres::Row) -> Result<Vec<u8>, ViewError> {
-    let fields = decode_fields();
-    let mut out = Vec::with_capacity(1024);
-    out.push(b'{');
-    for (index, (key, kind)) in fields.iter().enumerate() {
-        if index > 0 {
-            out.push(b',');
+/// `issue_group_values` (`space/utils/grouper.py:145-213`).
+async fn group_keys(
+    client: &Client,
+    query: &SpaceQuery<'_>,
+    field: GroupField,
+) -> Result<Vec<String>, ViewError> {
+    let request = GroupValuesRequest {
+        field,
+        workspace_slug: query.workspace_slug,
+        project_id: query.project_id,
+        user: None,
+        // The public view passes `filters=` but no `queryset=`, so the
+        // issue-derived fields are the Python `AttributeError` (500).
+        issues: None,
+    };
+    let plan = match group_values::values(&request) {
+        Ok(plan) => plan,
+        // The only error `issue_group_values` raises without a queryset is the
+        // Python `AttributeError` for the issue-derived fields (a 500).
+        Err(error) => return Err(ViewError::Unknown(error.to_string())),
+    };
+    match plan {
+        GroupValues::Static(values) => Ok(dedupe(values)),
+        GroupValues::Query { sql, append_none } => {
+            let fetched = sql.query(client).await.map_err(ViewError::from)?;
+            let mut values = Vec::with_capacity(fetched.len() + 1);
+            for row in &fetched {
+                values.push(render_group_value(row, 0, field)?);
+            }
+            if append_none {
+                values.push("None".to_owned());
+            }
+            Ok(dedupe(values))
         }
-        out.push(b'"');
-        out.extend_from_slice(key.as_bytes());
-        out.extend_from_slice(b"\":");
-        push_value(&mut out, row, index, *kind)?;
     }
-    out.push(b'}');
-    Ok(out)
 }
+
+/// `COUNT(DISTINCT issues.id) FILTER (count_filter)` per group
+/// (`paginator.py:299-305,502-519`).
+async fn group_totals(
+    client: &Client,
+    base: &FilterBuilder,
+    group: GroupField,
+) -> Result<Vec<(String, i64)>, ViewError> {
+    let mut select = Select::new("issues");
+    select.joins = joins_with_aggregates_and_intake(base);
+    select.predicate = Some(base.predicate.clone());
+    select.distinct = true;
+    select.projection = vec![
+        group.expression(),
+        Frag::raw(
+            "COUNT(DISTINCT issues.id) FILTER (WHERE ((intake_issues.status = 1 \
+             OR intake_issues.status = -1 OR intake_issues.status = 2 \
+             OR intake_issues.id IS NULL) AND issues.archived_at IS NULL \
+             AND NOT issues.is_draft))",
+        ),
+    ];
+    select.group_by = vec!["1".to_owned()];
+    let sql = select.into_sql();
+    let rows = sql.query(client).await.map_err(ViewError::from)?;
+    let mut totals: Vec<(String, i64)> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let key = render_group_value(row, 0, group)?;
+        let count: i64 = read(row, 1)?;
+        match totals.iter_mut().find(|(existing, _)| *existing == key) {
+            Some((_, existing)) => *existing += count,
+            None => totals.push((key, count)),
+        }
+    }
+    Ok(totals)
+}
+
+/// `__get_subgroup_total_queryset` (`paginator.py:508-519`): raw counts with
+/// no zero-to-one adjustment.
+async fn sub_group_totals(
+    client: &Client,
+    base: &FilterBuilder,
+    group: GroupField,
+    sub: GroupField,
+) -> Result<Vec<(String, String, i64)>, ViewError> {
+    let mut select = Select::new("issues");
+    select.joins = joins_with_aggregates_and_intake(base);
+    select.predicate = Some(base.predicate.clone());
+    select.distinct = true;
+    select.projection = vec![
+        group.expression(),
+        sub.expression(),
+        Frag::raw(
+            "COUNT(DISTINCT issues.id) FILTER (WHERE ((intake_issues.status = 1 \
+             OR intake_issues.status = -1 OR intake_issues.status = 2 \
+             OR intake_issues.id IS NULL) AND issues.archived_at IS NULL \
+             AND NOT issues.is_draft))",
+        ),
+    ];
+    select.group_by = vec!["1".to_owned(), "2".to_owned()];
+    let sql = select.into_sql();
+    let rows = sql.query(client).await.map_err(ViewError::from)?;
+    let mut totals: Vec<(String, String, i64)> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let group_key = render_group_value(row, 0, group)?;
+        let sub_key = render_group_value(row, 1, sub)?;
+        let count: i64 = read(row, 2)?;
+        totals.push((group_key, sub_key, count));
+    }
+    Ok(totals)
+}
+
+fn dedupe(values: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Decoding and shaping
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
 enum Kind {
     Uuid,
     OptUuid,
     Text,
+    OptText,
     Float,
     Int,
     OptDate,
@@ -626,90 +875,75 @@ enum Kind {
     JsonArray,
 }
 
-fn decode_fields() -> Vec<(&'static str, Kind)> {
-    vec![
-        ("id", Kind::Uuid),
-        ("name", Kind::Text),
-        ("state_id", Kind::OptUuid),
-        ("sort_order", Kind::Float),
-        ("estimate_point", Kind::OptUuid),
-        ("priority", Kind::Text),
-        ("start_date", Kind::OptDate),
-        ("target_date", Kind::OptDate),
-        ("sequence_id", Kind::Int),
-        ("project_id", Kind::Uuid),
-        ("parent_id", Kind::OptUuid),
-        ("cycle_id", Kind::OptUuid),
-        ("created_by", Kind::OptUuid),
-        ("state__group", Kind::Text),
-        ("assignee_ids", Kind::UuidArray),
-        ("label_ids", Kind::UuidArray),
-        ("module_ids", Kind::UuidArray),
-        ("vote_items", Kind::JsonArray),
-        ("reaction_items", Kind::JsonArray),
-    ]
-}
-
-fn push_value(
-    out: &mut Vec<u8>,
-    row: &tokio_postgres::Row,
-    index: usize,
+struct FieldSpec {
+    key: &'static str,
     kind: Kind,
-) -> Result<(), ViewError> {
-    match kind {
-        Kind::Uuid => out.extend_from_slice(&value_bytes(&Json::uuid(read(row, index)?))),
-        Kind::OptUuid => out.extend_from_slice(&value_bytes(&Json::opt_uuid(read(row, index)?))),
-        Kind::Text => {
-            out.extend_from_slice(&value_bytes(&Json::string(read::<String>(row, index)?)))
-        }
-        Kind::Float => out.extend_from_slice(&value_bytes(&Json::Float(read::<f64>(row, index)?))),
-        Kind::Int => out.extend_from_slice(&value_bytes(&Json::Int(i64::from(read::<i32>(
-            row, index,
-        )?)))),
-        Kind::OptDate => out.extend_from_slice(&value_bytes(&Json::opt_date(read(row, index)?))),
-        Kind::UuidArray => {
-            let mut ids: Vec<Uuid> = read(row, index)?;
-            ids.sort();
-            out.extend_from_slice(&Json::Array(ids.into_iter().map(Json::uuid).collect()).to_drf());
-        }
-        Kind::JsonArray => push_json_array(out, row, index)?,
-    }
-    Ok(())
+    /// Whether the column is in the `SELECT` list. The membership array of an
+    /// m2m group field is **not** selected (`issue_on_results` removes it), but
+    /// `process_results` writes it back into each row, at the end of the dict
+    /// (`paginator.py:352,579-605`).
+    selected: bool,
 }
 
-/// `ARRAY_AGG(DISTINCT <jsonb>)`: `NULL` when the aggregate's `FILTER` matched
-/// no row (Django's `None`), otherwise a JSON array in the aggregate's order.
-fn push_json_array(
-    out: &mut Vec<u8>,
-    row: &tokio_postgres::Row,
-    index: usize,
-) -> Result<(), ViewError> {
-    let items: Option<Vec<JsonText>> = read(row, index)?;
-    let Some(items) = items else {
-        out.extend_from_slice(b"null");
-        return Ok(());
-    };
-    out.push(b'[');
-    for (position, item) in items.iter().enumerate() {
-        if position > 0 {
-            out.push(b',');
+fn field_specs(group: Option<GroupField>, sub: Option<GroupField>) -> Vec<FieldSpec> {
+    // The raw columns the m2m group fields append (`labels__id`, …) are
+    // optional UUIDs; so are the fields the fallback arm catches.
+    let mut specs: Vec<FieldSpec> = projection(group, sub)
+        .into_iter()
+        .map(|(key, _)| FieldSpec {
+            key,
+            kind: match key {
+                "id" | "project_id" => Kind::Uuid,
+                "state_id" | "parent_id" | "cycle_id" | "created_by" | "estimate_point" => {
+                    Kind::OptUuid
+                }
+                "name" | "priority" => Kind::Text,
+                "state__group" => Kind::OptText,
+                "sort_order" => Kind::Float,
+                "sequence_id" => Kind::Int,
+                "start_date" | "target_date" => Kind::OptDate,
+                "assignee_ids" | "label_ids" | "module_ids" => Kind::UuidArray,
+                "vote_items" | "reaction_items" => Kind::JsonArray,
+                _ => Kind::OptUuid,
+            },
+            selected: true,
+        })
+        .collect();
+    // `result[self.FIELD_MAPPER[…]]` (group first, then sub group): the key is
+    // appended to the row dict by the paginator, after every selected field.
+    for field in [group, sub].into_iter().flatten() {
+        if let Some(mapper) = field.mapper() {
+            specs.push(FieldSpec {
+                key: mapper,
+                kind: Kind::UuidArray,
+                selected: false,
+            });
         }
-        plane_serde::transcode_json(Dialect::Drf, item.as_str(), out)
-            .map_err(|error| ViewError::Unknown(error.to_string()))?;
     }
-    out.push(b']');
-    Ok(())
+    specs
 }
 
-/// One scalar rendered at depth 1: `JSONRenderer.render(None)` is the empty
-/// body only at the document's top level (`plane-serde`'s DRF dialect), so a
-/// field value is wrapped in a one-element array and the brackets dropped.
-fn value_bytes(value: &Json) -> Vec<u8> {
-    let wrapped = Json::Array(vec![value.clone()]).to_drf();
-    wrapped
-        .get(1..wrapped.len().saturating_sub(1))
-        .map(<[u8]>::to_vec)
-        .unwrap_or_default()
+fn field_index(specs: &[FieldSpec], key: &str) -> Option<usize> {
+    specs.iter().position(|spec| spec.key == key)
+}
+
+enum Cell {
+    Uuid(Uuid),
+    OptUuid(Option<Uuid>),
+    Text(String),
+    OptText(Option<String>),
+    Float(f64),
+    Int(i64),
+    OptDate(Option<NaiveDate>),
+    UuidArray(Vec<Uuid>),
+    JsonArray(Option<Vec<JsonText>>),
+}
+
+struct DecodedRow {
+    cells: Vec<Cell>,
+    id: String,
+    group_key: String,
+    sub_key: Option<String>,
 }
 
 fn read<T>(row: &tokio_postgres::Row, index: usize) -> Result<T, ViewError>
@@ -719,7 +953,558 @@ where
     row.try_get(index).map_err(ViewError::from)
 }
 
-/// `str(value)` for one group-value or page row cell.
+fn decode_row(
+    row: &tokio_postgres::Row,
+    specs: &[FieldSpec],
+    group_index: Option<usize>,
+    sub_index: Option<usize>,
+) -> Result<DecodedRow, ViewError> {
+    let mut cells = Vec::with_capacity(specs.len());
+    for (index, spec) in specs.iter().enumerate() {
+        if !spec.selected {
+            cells.push(Cell::UuidArray(Vec::new()));
+            continue;
+        }
+        cells.push(match spec.kind {
+            Kind::Uuid => Cell::Uuid(read(row, index)?),
+            Kind::OptUuid => Cell::OptUuid(read(row, index)?),
+            Kind::Text => Cell::Text(read(row, index)?),
+            Kind::OptText => Cell::OptText(read(row, index)?),
+            Kind::Float => Cell::Float(read(row, index)?),
+            Kind::Int => Cell::Int(i64::from(read::<i32>(row, index)?)),
+            Kind::OptDate => Cell::OptDate(read(row, index)?),
+            Kind::UuidArray => {
+                let mut ids: Vec<Uuid> = read(row, index)?;
+                ids.sort();
+                Cell::UuidArray(ids)
+            }
+            Kind::JsonArray => Cell::JsonArray(read(row, index)?),
+        });
+    }
+    let id_index = field_index(specs, "id")
+        .ok_or_else(|| ViewError::Unknown("issue list has no id column".to_owned()))?;
+    let id = key_of_cell(&cells[id_index]);
+    let group_key = match group_index {
+        Some(index) => key_of_cell(&cells[index]),
+        None => String::new(),
+    };
+    let sub_key = sub_index.map(|index| key_of_cell(&cells[index]));
+    Ok(DecodedRow {
+        cells,
+        id,
+        group_key,
+        sub_key,
+    })
+}
+
+fn key_of_cell(cell: &Cell) -> String {
+    match cell {
+        Cell::Uuid(value) => value.to_string(),
+        Cell::OptUuid(Some(value)) => value.to_string(),
+        Cell::OptUuid(None) => "None".to_owned(),
+        Cell::Text(value) => value.clone(),
+        Cell::OptText(Some(value)) => value.clone(),
+        Cell::OptText(None) => "None".to_owned(),
+        Cell::Float(value) => value.to_string(),
+        Cell::Int(value) => value.to_string(),
+        Cell::OptDate(Some(value)) => value.to_string(),
+        Cell::OptDate(None) => "None".to_owned(),
+        Cell::UuidArray(_) | Cell::JsonArray(_) => "None".to_owned(),
+    }
+}
+
+fn value_bytes(value: &Json) -> Vec<u8> {
+    let wrapped = Json::Array(vec![value.clone()]).to_drf();
+    wrapped
+        .get(1..wrapped.len().saturating_sub(1))
+        .map(<[u8]>::to_vec)
+        .unwrap_or_default()
+}
+
+/// One cell's value, with an optional paginator override.
+#[derive(Clone)]
+enum Override {
+    /// `list(result_group_mapping[...])` sorted (D16 compares it as a multiset).
+    Array(Vec<String>),
+    /// The raw group column, normalised to the group the row is filed under.
+    Key(String),
+}
+
+fn push_cell(out: &mut Vec<u8>, cell: &Cell) -> Result<(), ViewError> {
+    match cell {
+        Cell::Uuid(value) => out.extend_from_slice(&value_bytes(&Json::uuid(*value))),
+        Cell::OptUuid(value) => out.extend_from_slice(&value_bytes(&Json::opt_uuid(*value))),
+        Cell::Text(value) => out.extend_from_slice(&value_bytes(&Json::string(value.clone()))),
+        Cell::OptText(value) => {
+            out.extend_from_slice(&value_bytes(&Json::opt_string(value.clone())))
+        }
+        Cell::Float(value) => out.extend_from_slice(&value_bytes(&Json::Float(*value))),
+        Cell::Int(value) => out.extend_from_slice(&value_bytes(&Json::Int(*value))),
+        Cell::OptDate(Some(value)) => out.extend_from_slice(&value_bytes(&Json::Date(*value))),
+        Cell::OptDate(None) => out.extend_from_slice(b"null"),
+        Cell::UuidArray(ids) => {
+            let array = Json::Array(ids.iter().map(|id| Json::uuid(*id)).collect());
+            out.extend_from_slice(&value_bytes(&array));
+        }
+        Cell::JsonArray(None) => out.extend_from_slice(b"null"),
+        Cell::JsonArray(Some(items)) => {
+            out.push(b'[');
+            for (position, item) in items.iter().enumerate() {
+                if position > 0 {
+                    out.push(b',');
+                }
+                plane_serde::transcode_json(Dialect::Drf, item.as_str(), out)
+                    .map_err(|error| ViewError::Unknown(error.to_string()))?;
+            }
+            out.push(b']');
+        }
+    }
+    Ok(())
+}
+
+fn push_override(out: &mut Vec<u8>, over: &Override) {
+    match over {
+        Override::Array(values) => {
+            let array = Json::Array(
+                values
+                    .iter()
+                    .map(|value| Json::string(value.clone()))
+                    .collect(),
+            );
+            out.extend_from_slice(&value_bytes(&array));
+        }
+        Override::Key(key) => {
+            if key == "None" {
+                out.extend_from_slice(b"null");
+            } else {
+                out.extend_from_slice(&value_bytes(&Json::string(key.clone())));
+            }
+        }
+    }
+}
+
+fn render_row(
+    row: &DecodedRow,
+    specs: &[FieldSpec],
+    overrides: &[(usize, Override)],
+) -> Result<Vec<u8>, ViewError> {
+    let mut out = Vec::with_capacity(1024);
+    out.push(b'{');
+    for (index, spec) in specs.iter().enumerate() {
+        if index > 0 {
+            out.push(b',');
+        }
+        out.push(b'"');
+        out.extend_from_slice(spec.key.as_bytes());
+        out.extend_from_slice(b"\":");
+        match overrides.iter().find(|(slot, _)| *slot == index) {
+            Some((_, over)) => push_override(&mut out, over),
+            None => push_cell(&mut out, &row.cells[index])?,
+        }
+    }
+    out.push(b'}');
+    Ok(out)
+}
+
+fn render_rows(
+    rows: &[tokio_postgres::Row],
+    specs: &[FieldSpec],
+) -> Result<Vec<Vec<u8>>, ViewError> {
+    rows.iter()
+        .map(|row| {
+            let decoded = decode_row(row, specs, None, None)?;
+            render_row(&decoded, specs, &[])
+        })
+        .collect()
+}
+
+/// The group ids of each issue, in first-appearance order, for one m2m group
+/// field (`result_group_mapping` in the Python).
+fn accumulate_groups(rows: &[DecodedRow], index: usize) -> Vec<(String, Vec<String>)> {
+    let mut per_issue: Vec<(String, Vec<String>)> = Vec::new();
+    for row in rows {
+        let key = key_of_cell(&row.cells[index]);
+        match per_issue
+            .iter_mut()
+            .find(|(existing, _)| *existing == row.id)
+        {
+            Some((_, keys)) => {
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+            None => per_issue.push((row.id.clone(), vec![key])),
+        }
+    }
+    per_issue
+}
+
+fn fully_annotated_array(keys: &[String]) -> Vec<String> {
+    if keys.iter().any(|key| key == "None") {
+        Vec::new()
+    } else {
+        let mut keys = keys.to_vec();
+        keys.sort();
+        keys
+    }
+}
+
+fn array_override(
+    specs: &[FieldSpec],
+    field: GroupField,
+    group_map: &[(String, Vec<String>)],
+    id: &str,
+) -> Option<(usize, Override)> {
+    let mapper = field.mapper()?;
+    let index = field_index(specs, mapper)?;
+    let keys = group_map
+        .iter()
+        .find(|(existing, _)| existing == id)
+        .map(|(_, keys)| keys.clone())
+        .unwrap_or_default();
+    Some((index, Override::Array(fully_annotated_array(&keys))))
+}
+
+/// The `results` half of the envelope (`process_results`,
+/// `paginator.py:334-389,549-632`).
+#[allow(clippy::too_many_arguments)]
+fn shape_results(
+    group: GroupField,
+    sub: Option<GroupField>,
+    rows: &[DecodedRow],
+    specs: &[FieldSpec],
+    group_fields: &[String],
+    _sub_fields: &[String],
+    group_totals: &[(String, i64)],
+    sub_totals: &[(String, String, i64)],
+) -> Result<Vec<(String, Vec<u8>)>, ViewError> {
+    let group_index = field_index(specs, group.as_str())
+        .ok_or_else(|| ViewError::Unknown("issue list has no group column".to_owned()))?;
+    let sub_index = sub.and_then(|field| field_index(specs, field.as_str()));
+    let group_is_m2m = group.mapper().is_some();
+    let sub_is_m2m = sub.is_some_and(|field| field.mapper().is_some());
+    let multi = group_is_m2m || sub_is_m2m;
+
+    if sub.is_none() && !multi {
+        return single_group(rows, specs, group_fields, group_index, group_totals);
+    }
+    if sub.is_none() {
+        return single_multi_group(rows, specs, group, group_index, group_totals);
+    }
+    let sub = sub.ok_or_else(|| ViewError::Unknown("missing sub group".to_owned()))?;
+    let sub_index = sub_index
+        .ok_or_else(|| ViewError::Unknown("issue list has no sub group column".to_owned()))?;
+    if multi {
+        multi_sub_group(
+            rows,
+            specs,
+            group,
+            sub,
+            group_fields,
+            group_index,
+            sub_index,
+            group_totals,
+            sub_totals,
+        )
+    } else {
+        plain_sub_group(
+            rows,
+            specs,
+            group_fields,
+            group_index,
+            sub_index,
+            group_totals,
+            sub_totals,
+        )
+    }
+}
+
+fn group_total(group_totals: &[(String, i64)], key: &str) -> i64 {
+    match group_totals.iter().find(|(existing, _)| existing == key) {
+        Some((_, 0)) => 1,
+        Some((_, count)) => *count,
+        None => 0,
+    }
+}
+
+fn single_group(
+    rows: &[DecodedRow],
+    specs: &[FieldSpec],
+    group_fields: &[String],
+    group_index: usize,
+    group_totals: &[(String, i64)],
+) -> Result<Vec<(String, Vec<u8>)>, ViewError> {
+    // `__query_grouper` indexes the precomputed dict without checking, so a
+    // row whose group is not in `issue_group_values` is a `KeyError` (500).
+    for row in rows {
+        let key = key_of_cell(&row.cells[group_index]);
+        if !group_fields.contains(&key) {
+            return Err(ViewError::Unknown(format!(
+                "KeyError: '{key}' (group_by value not in issue_group_values)"
+            )));
+        }
+    }
+    let mut out = Vec::with_capacity(group_fields.len());
+    for key in group_fields {
+        let matching: Vec<&DecodedRow> = rows
+            .iter()
+            .filter(|row| key_of_cell(&row.cells[group_index]) == *key)
+            .collect();
+        let mut rendered = Vec::with_capacity(matching.len());
+        for row in matching {
+            rendered.push(render_row(row, specs, &[])?);
+        }
+        out.push((
+            key.clone(),
+            group_object(&rendered, group_total(group_totals, key)),
+        ));
+    }
+    Ok(out)
+}
+
+fn single_multi_group(
+    rows: &[DecodedRow],
+    specs: &[FieldSpec],
+    group: GroupField,
+    group_index: usize,
+    group_totals: &[(String, i64)],
+) -> Result<Vec<(String, Vec<u8>)>, ViewError> {
+    let per_issue = accumulate_groups(rows, group_index);
+    // The Python's result dict only holds the groups the page touched, and its
+    // order is the set order; sorted here (D16).
+    // group key -> the page's (issue id, rendered row)
+    let mut groups: Vec<GroupRows> = Vec::new();
+    for row in rows {
+        let keys = per_issue
+            .iter()
+            .find(|(existing, _)| *existing == row.id)
+            .map(|(_, keys)| keys.clone())
+            .unwrap_or_default();
+        let mut overrides: Vec<(usize, Override)> = Vec::new();
+        if let Some(entry) = array_override(specs, group, &per_issue, &row.id) {
+            overrides.push(entry);
+        }
+        for key in &keys {
+            let row_overrides = overrides.clone();
+            // `__result_already_added`: the first row of an issue wins.
+            let duplicate = groups
+                .iter()
+                .find(|(existing, _)| existing == key)
+                .is_some_and(|(_, entries)| entries.iter().any(|(id, _)| *id == row.id));
+            if duplicate {
+                continue;
+            }
+            let rendered = render_row(
+                row,
+                specs,
+                &row_overrides_with(row_overrides, group_index, key),
+            )?;
+            match groups.iter_mut().find(|(existing, _)| existing == key) {
+                Some((_, entries)) => entries.push((row.id.clone(), rendered)),
+                None => groups.push((key.clone(), vec![(row.id.clone(), rendered)])),
+            }
+        }
+    }
+    groups.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut out = Vec::with_capacity(groups.len());
+    for (key, entries) in groups {
+        let rendered: Vec<Vec<u8>> = entries.into_iter().map(|(_, rendered)| rendered).collect();
+        let total = match group_totals.iter().find(|(existing, _)| *existing == key) {
+            Some((_, 0)) => Json::Int(1),
+            Some((_, count)) => Json::Int(*count),
+            // `__query_multi_grouper` uses `total_group_dict.get(...)`, so a
+            // group that is not in the totals renders `null`.
+            None => Json::Null,
+        };
+        out.push((key, multi_group_object(&rendered, total)));
+    }
+    Ok(out)
+}
+
+type GroupRows = (String, Vec<(String, Vec<u8>)>);
+
+fn row_overrides_with(
+    mut overrides: Vec<(usize, Override)>,
+    group_index: usize,
+    key: &str,
+) -> Vec<(usize, Override)> {
+    overrides.push((group_index, Override::Key(key.to_owned())));
+    overrides
+}
+
+fn multi_group_object(rendered: &[Vec<u8>], total: Json) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"{\"results\":");
+    out.extend_from_slice(&raw_array(rendered));
+    out.extend_from_slice(b",\"total_results\":");
+    out.extend_from_slice(&value_bytes(&total));
+    out.push(b'}');
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn multi_sub_group(
+    rows: &[DecodedRow],
+    specs: &[FieldSpec],
+    group: GroupField,
+    sub: GroupField,
+    group_fields: &[String],
+    group_index: usize,
+    sub_index: usize,
+    group_totals: &[(String, i64)],
+    sub_totals: &[(String, String, i64)],
+) -> Result<Vec<(String, Vec<u8>)>, ViewError> {
+    let group_map = if group.mapper().is_some() {
+        accumulate_groups(rows, group_index)
+    } else {
+        Vec::new()
+    };
+    let sub_map = if sub.mapper().is_some() {
+        accumulate_groups(rows, sub_index)
+    } else {
+        Vec::new()
+    };
+    let mut out = Vec::with_capacity(group_fields.len());
+    for key in group_fields {
+        let mut cells: Vec<(&String, Vec<Vec<u8>>)> = Vec::new();
+        let mut sub_keys: Vec<&String> = sub_totals
+            .iter()
+            .filter(|(existing, _, _)| existing == key)
+            .map(|(_, sub_key, _)| sub_key)
+            .collect();
+        // The Python's cell order is the order Postgres returns the group rows
+        // (`__get_subgroup_total_queryset` has no ORDER BY); the harness sorts
+        // it, and so does this.
+        sub_keys.sort();
+        sub_keys.dedup();
+        for sub_key in sub_keys {
+            cells.push((sub_key, Vec::new()));
+        }
+        for row in rows {
+            if key_of_cell(&row.cells[group_index]) != *key {
+                continue;
+            }
+            let sub_key = key_of_cell(&row.cells[sub_index]);
+            let Some((_, cell)) = cells.iter_mut().find(|(existing, _)| **existing == sub_key)
+            else {
+                continue;
+            };
+            let mut overrides: Vec<(usize, Override)> = Vec::new();
+            if group.mapper().is_some()
+                && let Some(entry) = array_override(specs, group, &group_map, &row.id)
+            {
+                overrides.push(entry);
+            }
+            if sub.mapper().is_some()
+                && let Some(entry) = array_override(specs, sub, &sub_map, &row.id)
+            {
+                overrides.push(entry);
+            }
+            cell.push(render_row(row, specs, &overrides)?);
+        }
+        let mut rendered_cells: Vec<(String, Vec<u8>)> = Vec::with_capacity(cells.len());
+        for (sub_key, rendered) in cells {
+            let total = sub_totals
+                .iter()
+                .find(|(existing, existing_sub, _)| existing == key && existing_sub == sub_key)
+                .map(|(_, _, count)| *count)
+                .unwrap_or(0);
+            rendered_cells.push((sub_key.clone(), group_object(&rendered, total)));
+        }
+        out.push((
+            key.clone(),
+            nested_group_object(&rendered_cells, group_total(group_totals, key)),
+        ));
+    }
+    Ok(out)
+}
+
+fn plain_sub_group(
+    rows: &[DecodedRow],
+    specs: &[FieldSpec],
+    group_fields: &[String],
+    group_index: usize,
+    sub_index: usize,
+    group_totals: &[(String, i64)],
+    sub_totals: &[(String, String, i64)],
+) -> Result<Vec<(String, Vec<u8>)>, ViewError> {
+    // `SubGroupedOffsetPaginator.__query_grouper` indexes both dictionaries
+    // without checking, so an unknown group or sub-group is a `KeyError` (500).
+    for row in rows {
+        let key = key_of_cell(&row.cells[group_index]);
+        if !group_fields.contains(&key) {
+            return Err(ViewError::Unknown(format!(
+                "KeyError: '{key}' (group_by value not in issue_group_values)"
+            )));
+        }
+        let sub_key = key_of_cell(&row.cells[sub_index]);
+        if !sub_totals
+            .iter()
+            .any(|(existing, existing_sub, _)| *existing == key && *existing_sub == sub_key)
+        {
+            return Err(ViewError::Unknown(format!(
+                "KeyError: '{sub_key}' (sub_group_by value not in the group totals)"
+            )));
+        }
+    }
+    let mut out = Vec::with_capacity(group_fields.len());
+    for key in group_fields {
+        let mut sub_keys: Vec<&String> = sub_totals
+            .iter()
+            .filter(|(existing, _, _)| existing == key)
+            .map(|(_, sub_key, _)| sub_key)
+            .collect();
+        sub_keys.sort();
+        sub_keys.dedup();
+        let mut rendered_cells: Vec<(String, Vec<u8>)> = Vec::with_capacity(sub_keys.len());
+        for sub_key in sub_keys {
+            let matching: Vec<&DecodedRow> = rows
+                .iter()
+                .filter(|row| {
+                    key_of_cell(&row.cells[group_index]) == *key
+                        && key_of_cell(&row.cells[sub_index]) == *sub_key
+                })
+                .collect();
+            let mut rendered = Vec::with_capacity(matching.len());
+            for row in matching {
+                rendered.push(render_row(row, specs, &[])?);
+            }
+            let total = sub_totals
+                .iter()
+                .find(|(existing, existing_sub, _)| existing == key && existing_sub == sub_key)
+                .map(|(_, _, count)| *count)
+                .unwrap_or(0);
+            rendered_cells.push((sub_key.clone(), group_object(&rendered, total)));
+        }
+        out.push((
+            key.clone(),
+            nested_group_object(&rendered_cells, group_total(group_totals, key)),
+        ));
+    }
+    Ok(out)
+}
+
+fn group_object(rendered: &[Vec<u8>], total: i64) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"{\"results\":");
+    out.extend_from_slice(&raw_array(rendered));
+    out.extend_from_slice(b",\"total_results\":");
+    out.extend_from_slice(&value_bytes(&Json::Int(total)));
+    out.push(b'}');
+    out
+}
+
+fn nested_group_object(cells: &[(String, Vec<u8>)], total: i64) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"{\"results\":");
+    out.extend_from_slice(&raw_object(cells));
+    out.extend_from_slice(b",\"total_results\":");
+    out.extend_from_slice(&value_bytes(&Json::Int(total)));
+    out.push(b'}');
+    out
+}
+
+/// `str(value)` for one group-value row cell.
 fn render_group_value(
     row: &tokio_postgres::Row,
     index: usize,
@@ -740,52 +1525,6 @@ fn render_group_value(
     Ok(value.unwrap_or_else(|| "None".to_owned()))
 }
 
-/// `COUNT(DISTINCT issues.id) FILTER (count_filter)` per group
-/// (`paginator.py:299-305,502-519`).
-async fn group_totals(
-    client: &Client,
-    base: &FilterBuilder,
-    group: GroupField,
-) -> Result<Vec<(String, i64)>, ViewError> {
-    let mut select = Select::new("issues");
-    select.joins = base.joins.to_joins();
-    // The count filter's `issue_intake` join (`issue.py:203-210`).
-    select.joins.push(Join::left(
-        "intake_issues",
-        "intake_issues",
-        Frag::raw("(issues.id = intake_issues.issue_id)"),
-    ));
-    select.predicate = Some(base.predicate.clone());
-    select.distinct = true;
-    select.projection = vec![
-        group.expression(),
-        Frag::raw(
-            "COUNT(DISTINCT issues.id) FILTER (WHERE ((intake_issues.status = 1 \
-             OR intake_issues.status = -1 OR intake_issues.status = 2 \
-             OR intake_issues.id IS NULL) AND issues.archived_at IS NULL \
-             AND NOT issues.is_draft))",
-        ),
-    ];
-    select.group_by = vec!["1".to_owned()];
-    let sql = select.into_sql();
-    let rows = sql.query(client).await.map_err(ViewError::from)?;
-    let mut totals = Vec::with_capacity(rows.len());
-    for row in &rows {
-        let key = render_group_value(row, 0, group)?;
-        let count: i64 = read(row, 1)?;
-        totals.push((key, count));
-    }
-    Ok(totals)
-}
-
-fn dedupe(values: Vec<String>) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    values
-        .into_iter()
-        .filter(|value| seen.insert(value.clone()))
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // The envelope, with pre-rendered `results`
 // ---------------------------------------------------------------------------
@@ -795,10 +1534,7 @@ fn envelope_bytes(
     group_by: Option<GroupField>,
     sub_group_by: Option<GroupField>,
     hits: i64,
-    cursors: (
-        plane_query::paginator::Cursor,
-        plane_query::paginator::Cursor,
-    ),
+    cursors: (Cursor, Cursor),
     count: usize,
     total_pages: i64,
     results: Vec<u8>,

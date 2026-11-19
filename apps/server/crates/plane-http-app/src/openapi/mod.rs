@@ -42,21 +42,19 @@
 //!   `routes.json`'s `renderer_classes`, and adds `Vary: Accept` because the
 //!   view offers more than one renderer (`rest_framework/views.py:443-446`).
 //! * `Content-Disposition: inline; filename="The Plane REST API.<suffix>"`
-//!   (`drf_spectacular/views.py:100-104`).
+//!   (`drf_spectacular/views.py:100-104`), with ` (<version>)` inserted when
+//!   `?version=` is present.
 //! * The two HTML pages: `text/html; charset=utf-8`, and the swagger page's
 //!   `Cross-Origin-Opener-Policy: unsafe-none` header
 //!   (`drf_spectacular/views.py:155-158`). The `schema_url` in both pages is
 //!   `/api/schema/` with `?lang=`/`?version=` appended when the request has
-//!   them (`drf_spectacular/plumbing.py:1290-1303`); no translations are
-//!   installed, so `lang` changes only that URL.
+//!   them (`drf_spectacular/plumbing.py:1290-1303`). The pages themselves do
+//!   not translate anything; the schema route does (`translations`).
 //!
-//! ## Not ported, explicitly
-//!
-//! `?version=` on the **schema** route regenerates the document with a
-//! different `info.version` and `Content-Disposition` filename
-//! (`drf_spectacular/views.py:96-114`). The port has the committed document
-//! only, so it refuses the request instead of serving the wrong bytes. No
-//! Plane client uses the parameter.
+//! `?lang=` and `?version=` on the **schema** route are served from the
+//! committed document: `lang` replaces the one translatable string
+//! ([`translations`]) and `version` rewrites `info.version` and the filename
+//! ([`schema`]).
 
 use http::Method;
 use plane_core::error::ApiError;
@@ -64,6 +62,7 @@ use plane_drf::error::ViewError;
 use plane_drf::registry::{Registry, RegistryError};
 
 pub mod schema;
+pub mod translations;
 pub mod ui;
 
 /// Register the three drf-spectacular views' `GET`.

@@ -276,3 +276,191 @@ steps:
     headers:
       Host: plane-fixture.test
       X-Forwarded-For: 198.51.100.54
+
+  # --- route 248's grouped paginator variants -----------------------------
+  # The public board lists through `GroupedOffsetPaginator` /
+  # `SubGroupedOffsetPaginator` (`plane/space/views/issue.py:180-240`). These
+  # steps cover every variant: a plain group, a plain sub-group, each m2m group
+  # field, an m2m sub-group and a second page of a grouped list (the cursors are
+  # per group: `ROW_NUMBER() OVER (PARTITION BY …)`,
+  # `plane/utils/paginator.py:250-277,457-485`).
+  - name: public-extra-issues-group-state
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-group-state-page-two
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `order_by` is not `-created_at`, so the page's outer ordering matters
+  # (`paginator.py:271-275`).
+  - name: public-extra-issues-group-state-order-priority
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      order_by: "priority"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # An aggregate ordering annotation puts the query in `GROUP BY issues.id`.
+  - name: public-extra-issues-group-state-order-labels
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      order_by: "labels__name"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-group-state-group
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "state__group"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The three m2m group fields: membership arrays, a raw group column and the
+  # (issue, group) count (`paginator.py:334-389`).
+  - name: public-extra-issues-group-labels
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-group-labels-page-two
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      per_page: "2"
+      cursor: "2:1:0"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-group-assignees
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "assignees__id"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-group-modules
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "issue_module__module_id"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # Sub-grouped pages, including the two mixed m2m/non-m2m shapes
+  # (`paginator.py:549-632`).
+  - name: public-extra-issues-subgroup-labels-assignees
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      sub_group_by: "assignees__id"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-subgroup-state-priority
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      sub_group_by: "priority"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-subgroup-labels-state-group
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      sub_group_by: "state__group"
+      per_page: "3"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  - name: public-extra-issues-subgroup-state-assignees
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "state_id"
+      sub_group_by: "assignees__id"
+      per_page: "3"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # `paginate`'s allowlist check (`paginator.py:690-696`).
+  - name: public-extra-issues-group-invalid
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "not_a_field"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
+  # The board lookup runs before `paginate` (`issue.py:113-179`), so an unknown
+  # anchor is the 404 even with an invalid `per_page`.
+  - name: public-extra-issues-unknown-anchor-bad-per-page
+    method: GET
+    path: "/api/public/anchor/no-such-anchor/issues/"
+    query:
+      per_page: "abc"
+    jar: anon26
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.55
+  # An m2m group with an aggregate ordering annotation: the `issue_labels`
+  # join is shared by the grouper and `MIN(labels.name)`.
+  - name: public-extra-issues-group-labels-order-labels
+    method: GET
+    path: "/api/public/anchor/{{anchor_alpha}}/issues/"
+    query:
+      group_by: "labels__id"
+      order_by: "labels__name"
+      per_page: "2"
+    jar: admin
+    headers:
+      Host: plane-fixture.test
+      Cookie: "session-id={{session_admin}}"
