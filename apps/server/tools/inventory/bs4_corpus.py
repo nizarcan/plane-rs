@@ -30,12 +30,16 @@ import sys
 
 SERVER = pathlib.Path(__file__).resolve().parents[2]
 
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
 import bs4  # noqa: E402
 from bs4 import BeautifulSoup  # noqa: E402
 
 # Load `plane/utils/html_processor.py` by path: importing the `plane` package
 # boots celery and needs the dev environment, which this generator must not.
-_HTML_PROCESSOR = SERVER.parent / "api" / "plane" / "utils" / "html_processor.py"
+_HTML_PROCESSOR = _oracle_api_dir() / "plane" / "utils" / "html_processor.py"
 _spec = importlib.util.spec_from_file_location("plane_html_processor", _HTML_PROCESSOR)
 _html_processor = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_html_processor)

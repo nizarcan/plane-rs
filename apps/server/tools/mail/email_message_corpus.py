@@ -44,7 +44,12 @@ import sys
 HERE = pathlib.Path(__file__).resolve()
 SERVER_ROOT = HERE.parents[2]  # apps/server
 REPO_ROOT = HERE.parents[4]  # repository root
-API_ROOT = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_ROOT = _oracle_api_dir()
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
 os.environ.setdefault("SECRET_KEY", "email-corpus-not-a-secret")

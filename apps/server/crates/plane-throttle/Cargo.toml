@@ -28,6 +28,8 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+# The Django oracle (apps/api at the UPSTREAM.toml pin).
+plane-oracle = { path = "../plane-oracle" }
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

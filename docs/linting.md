@@ -94,9 +94,19 @@ If the commit fails due to lint errors, fix them before committing.
 
 [oxfmt](https://oxc.rs/docs/guide/usage/formatter) formats the repo using [.oxfmtrc.json](../.oxfmtrc.json) (print width 120, Tailwind class sorting). Run `pnpm check:format` to check and `pnpm fix:format` to apply. CI runs `check:format` on every pull request.
 
-## Python (apps/api)
+## Rust (apps/server)
 
-The backend is linted with [Ruff](https://docs.astral.sh/ruff/) using [apps/api/ruff.toml](../apps/api/ruff.toml). Run `uv run ruff check .` from `apps/api`; CI runs the same command on pull requests that touch `apps/api`.
+The backend is formatted with `cargo fmt` and linted with `cargo clippy` (warnings
+are errors). From `apps/server`:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+
+The testkit workspace has its own manifest: add
+`--manifest-path crates/plane-testkit/Cargo.toml` for it. CI runs all of these
+in `.github/workflows/server-ci.yml`.
 
 ## Reference Files
 

@@ -27,7 +27,11 @@ ROOT = os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     )
 )
-API = os.path.join(ROOT, "apps", "api")
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, os.path.join(ROOT, "apps", "server", "tools", "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API = str(_oracle_api_dir())
 sys.path.insert(0, API)
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
 os.environ.setdefault(

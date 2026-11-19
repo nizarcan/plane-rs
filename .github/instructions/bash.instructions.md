@@ -35,7 +35,7 @@ We use **Turbo** for build system orchestration.
 
 ## Project Structure
 
-- `apps/`: Contains application services (admin, api, live, proxy, space, web). `apps/api` (Django, managed with uv) and `apps/proxy` (Caddy) are excluded from the pnpm workspace.
+- `apps/`: Contains the Rust backend (`server`) and the frontends (`admin`, `live`, `proxy`, `space`, `web`). `apps/server` is a Cargo workspace, not a pnpm package; `apps/proxy` (Caddy) is excluded from the pnpm workspace. Upstream's Django backend (`apps/api`) is not in this repository: `tools/upstream/oracle.sh` fetches it at the pin in `UPSTREAM.toml`.
 - `packages/`: Contains shared packages and libraries.
 - `deployments/`: Deployment configurations.
 
@@ -53,7 +53,6 @@ We use **Turbo** for build system orchestration.
 
 ## Docker
 
-- Local development uses `docker-compose-local.yml`.
-- `docker-compose.yml` builds every service from the local Dockerfiles (for testing a full build).
-- Self-hosting configs for releases live in `deployments/` (`cli`, `aio`, `swarm`, `kubernetes`).
-- Backend tests run in `docker-compose-test.yml` (see `apps/api/tests/RUNNING_TESTS.md`).
+- `docker-compose.yml` runs the release-shaped stack; the dev stack for the Rust backend is `apps/server/dev/compose.yml` (`apps/server/dev/up.sh`).
+- Self-hosting configs for releases live in `deployments/` (`cli`, `aio`, `swarm`, `kubernetes`) and `charts/plane-rs`.
+- Backend tests run natively (`cargo test --workspace` in `apps/server`); the differential harness needs the dev stack and the oracle (see `apps/server/AGENTS.md`).

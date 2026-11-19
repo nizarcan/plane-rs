@@ -6,17 +6,17 @@ anywhere in the stack.
 
 ```sh
 # everything: build, fresh, upgrade, clean up
-apps/api/.venv/bin/python apps/server/tools/cutover/exit_check.py all
+"$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/cutover/exit_check.py all
 
 # one path (the images are reused from the local Docker cache)
-apps/api/.venv/bin/python apps/server/tools/cutover/exit_check.py fresh
-apps/api/.venv/bin/python apps/server/tools/cutover/exit_check.py upgrade
+"$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/cutover/exit_check.py fresh
+"$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/cutover/exit_check.py upgrade
 
 # leave the stack and the run directory for inspection
-apps/api/.venv/bin/python apps/server/tools/cutover/exit_check.py all --keep
+"$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/cutover/exit_check.py all --keep
 
 # only the static no-`apps/api/bin` / compose-config checks
-apps/api/.venv/bin/python apps/server/tools/cutover/exit_check.py static
+"$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/cutover/exit_check.py static
 ```
 
 The script exits 0 only when every required step passes; it prints `PASS`,

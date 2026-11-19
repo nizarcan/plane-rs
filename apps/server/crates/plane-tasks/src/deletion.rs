@@ -723,11 +723,12 @@ mod tests {
 
     #[test]
     fn the_hard_delete_steps_are_the_python_order() {
-        let source = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../../apps/api/plane/bgtasks/deletion_task.py"
-        ))
-        .expect("deletion_task.py is in the checkout");
+        // The Python task lives in the oracle (`apps/api` at the UPSTREAM.toml
+        // pin), not in this checkout; `plane_oracle` locates its cache.
+        let source = std::fs::read_to_string(
+            plane_oracle::require_api().join("plane/bgtasks/deletion_task.py"),
+        )
+        .expect("deletion_task.py is in the oracle");
         let mut previous = 0;
         for label in HARD_DELETE_STEPS {
             let class = match *label {

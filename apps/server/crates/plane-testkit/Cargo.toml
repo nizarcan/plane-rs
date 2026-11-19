@@ -40,6 +40,10 @@ hyper = { version = "1.12.0", features = ["client", "http1", "http2", "server"] 
 hyper-util = { version = "0.1.21", features = ["http1", "server", "tokio"] }
 lapin = "4.12.3"
 pbkdf2 = "0.12.2"
+# The Django oracle (apps/api at the UPSTREAM.toml pin) for the task runner and
+# the SMTP listener. A path dependency on a member of the server workspace is
+# fine: this workspace's feature unification is what DECISIONS.md D15 isolates.
+plane-oracle = { path = "../plane-oracle" }
 percent-encoding = "2.3.2"
 regex = "1.12.2"
 reqwest = { version = "0.13.5", default-features = false, features = [

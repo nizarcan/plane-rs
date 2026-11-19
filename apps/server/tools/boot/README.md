@@ -25,7 +25,7 @@ From `apps/server/`, with the dev stack up and these binaries built:
 
 ```bash
 cargo build -p plane-admin
-apps/api/.venv/bin/python tools/boot/compare_boot.py
+"$(tools/upstream/oracle.sh python)" tools/boot/compare_boot.py
 ```
 
 It uses its own databases `t_p8boot_boot_a` / `t_p8boot_boot_b`, Redis DBs 7/8,
@@ -70,11 +70,12 @@ serves it with the same gunicorn/uvicorn worker as `dev/django-serve.sh`. The
 scenario's steps all check `expect_status: 200`, so a 404 from an uncollected
 root fails instead of comparing two empty bodies.
 
-Keep the embedded copies in sync after touching `apps/api/plane/static/*`:
+Keep the embedded copies in sync after the oracle's `plane/static/*` changes
+(a pin move):
 
 ```bash
-apps/api/.venv/bin/python tools/boot/static_files.py --check
-apps/api/.venv/bin/python tools/boot/gen_instance_config.py --check
+"$(tools/upstream/oracle.sh python)" tools/boot/static_files.py --check
+"$(tools/upstream/oracle.sh python)" tools/boot/gen_instance_config.py --check
 ```
 
 `--write` regenerates them. Both assets are embedded at compile time, and the

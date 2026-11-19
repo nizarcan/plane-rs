@@ -20,8 +20,8 @@
 # template database are encrypted with it, so rotating the key requires
 # `bootstrap.sh --force`.
 #
-# DJANGO_SETTINGS_MODULE matches what apps/api/Dockerfile.api serves and what
-# apps/api/manage.py, plane/wsgi.py, plane/asgi.py and plane/celery.py default
+# DJANGO_SETTINGS_MODULE matches what the upstream image served and what
+# the oracle's manage.py, plane/wsgi.py, plane/asgi.py and plane/celery.py default
 # to: plane.settings.production. The stack runs in that mode (DEBUG=0) so the
 # dev server behaves like the real one.
 #
@@ -94,7 +94,7 @@ _plane_env_pairs=(
   # Read by bin/docker-entrypoint-api.sh; django-serve.sh honours it too.
   "GUNICORN_WORKERS=1"
 
-  # Match the image: no .pyc files in the (tracked) apps/api tree, unbuffered
+  # Match the image: no .pyc files in the oracle tree, unbuffered
   # output so logs stream while serving.
   "PYTHONDONTWRITEBYTECODE=1"
   "PYTHONUNBUFFERED=1"

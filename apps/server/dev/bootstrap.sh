@@ -53,7 +53,7 @@ done
 
 require_cmd docker
 [[ -x "$PLANE_DJANGO_PYTHON" ]] ||
-  die "Django virtualenv not found at $PLANE_DJANGO_PYTHON (the orchestrator creates it with uv)"
+  die "Django oracle not ready at $PLANE_DJANGO_PYTHON; run apps/server/tools/upstream/oracle.sh fetch"
 
 # Fixed for every bootstrap so a rebuilt template is comparable. The command
 # does not persist it (register_instance only validates that it is non-empty),

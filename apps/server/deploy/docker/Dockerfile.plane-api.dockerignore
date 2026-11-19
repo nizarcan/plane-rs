@@ -5,8 +5,8 @@
 # Dockerfile-specific ignore file for `Dockerfile.plane-api`. BuildKit looks
 # for `<Dockerfile>.dockerignore` next to the Dockerfile and uses it instead of
 # the context's `.dockerignore`, so the repository root can be the build context
-# (the Rust binary embeds one `apps/api` template, see the Dockerfile) without
-# uploading `apps/server/target/` (tens of gigabytes) or the Django virtualenv.
+# without uploading `apps/server/target/` (tens of gigabytes), local dev state
+# or the unrelated frontends.
 #
 # Patterns are matched against the context root; a `*` does not cross `/`.
 
@@ -29,7 +29,3 @@ apps/server/deploy
 apps/server/docs
 apps/server/*.md
 apps/server/crates/plane-testkit
-
-# Django is out except for the single template `csrf.rs` embeds.
-apps/api/*
-!apps/api/templates

@@ -46,14 +46,18 @@ use serde_json::{Value as Json, json};
 use uuid::Uuid;
 
 /// `apps/server/crates/plane-auth` → `apps/api/.venv/bin/python`.
-const PYTHON: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../api/.venv/bin/python");
+fn django_python() -> std::path::PathBuf {
+    plane_oracle::python()
+}
 /// `apps/server/tools/auth/magic_interop.py`.
 const SCRIPT: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../tools/auth/magic_interop.py"
 );
 /// The Django project root.
-const DJANGO_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../api");
+fn django_root() -> std::path::PathBuf {
+    plane_oracle::require_api()
+}
 
 static INTEROP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -115,15 +119,15 @@ fn python(url: &str, job: Json, name: &str) -> Json {
     ));
     std::fs::write(&job_path, serde_json::to_vec(&job).expect("job")).expect("write interop job");
 
-    let output = Command::new(PYTHON)
+    let output = Command::new(django_python())
         .arg(SCRIPT)
         .arg("--job")
         .arg(&job_path)
         .arg("--out")
         .arg(&out_path)
-        .current_dir(DJANGO_ROOT)
+        .current_dir(django_root())
         .env("REDIS_URL", url)
-        .env("PYTHONPATH", DJANGO_ROOT)
+        .env("PYTHONPATH", django_root())
         .env("SKIP_ENV_VAR", "0")
         .env("EMAIL_HOST", "127.0.0.1")
         .output()

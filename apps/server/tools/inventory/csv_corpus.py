@@ -33,7 +33,12 @@ import pathlib
 import sys
 
 SERVER = pathlib.Path(__file__).resolve().parents[2]
-CSV_UTILS = SERVER.parent / "api" / "plane" / "utils" / "csv_utils.py"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+CSV_UTILS = _oracle_api_dir() / "plane" / "utils" / "csv_utils.py"
 OUT = SERVER / "crates/plane-core/tests/golden/csv-writer.json"
 
 

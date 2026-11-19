@@ -29,8 +29,8 @@ source "$PLANE_DEV_DIR/lib.sh"
 REPO_ROOT="$(cd "$PLANE_DEV_DIR/../../.." && pwd)"
 SERVER_DIR="$REPO_ROOT/apps/server"
 TOOLS_DIR="$SERVER_DIR/tools/celery"
-API_DIR="$REPO_ROOT/apps/api"
-PYTHON="$API_DIR/.venv/bin/python"
+API_DIR="$PLANE_API_DIR"          # the oracle (tools/upstream/oracle.sh)
+PYTHON="$PLANE_DJANGO_PYTHON"
 
 SUFFIX="$$"
 DB="t_celery_w${SUFFIX}"

@@ -7,14 +7,14 @@
 #   docker build -f apps/server/deploy/docker/Dockerfile.plane-api \
 #     -t plane-api:latest .
 #
-# The build context is the repository root, because `plane-api` embeds one file
-# from `apps/api` at compile time (`bins/plane-api/src/middleware/csrf.rs:42`
-# `include_str!("../../../../../../apps/api/templates/csrf_failure.html")`) and
-# cargo resolves that path from the real tree layout. The Dockerfile's own
-# ignore file, `Dockerfile.plane-api.dockerignore`, is what keeps the
-# multi-gigabyte `apps/server/target/`, the Django virtualenv and the rest of
-# the repository out of the context: BuildKit reads `<Dockerfile>.dockerignore`
-# in preference to the context's `.dockerignore`.
+# The build context is the repository root (the release workflow builds from
+# there); the workspace lives under `apps/server`. Django is not part of the
+# context: the one template the binary embeds is checked in at
+# `bins/plane-api/assets/csrf_failure.html`. The Dockerfile's own ignore file,
+# `Dockerfile.plane-api.dockerignore`, keeps the multi-gigabyte
+# `apps/server/target/` and the rest of the repository out of the context:
+# BuildKit reads `<Dockerfile>.dockerignore` in preference to the context's
+# `.dockerignore`.
 #
 # The release profile is the workspace's (`apps/server/Cargo.toml`): fat LTO,
 # one codegen unit, `panic = "abort"`, symbols stripped. That is the binary
@@ -69,7 +69,6 @@ COPY apps/server/vendor ./vendor
 # pages (`crates/plane-http-app/src/openapi/`), so the `deploy/openapi`
 # directory is a compile-time input of the api binary.
 COPY apps/server/deploy/openapi ./deploy/openapi
-COPY apps/api/templates/csrf_failure.html /build/apps/api/templates/csrf_failure.html
 
 # The benchmark VM has 2 vCPUs and ~1.9 GB of RAM shared with the database
 # containers, so the default is conservative. Raise it with

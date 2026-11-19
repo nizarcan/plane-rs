@@ -33,7 +33,9 @@
 set -euo pipefail
 
 SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYTHON="${PLANE_PYTHON:-$SERVER_DIR/../../apps/api/.venv/bin/python}"
+# shellcheck source=../upstream/oracle.sh
+source "$SERVER_DIR/tools/upstream/oracle.sh"
+PYTHON="${PLANE_PYTHON:-$(oracle_python)}"
 BASE_PORT="${FAKE_SMTP_PORT:-18410}"
 LOG_DIR="$SERVER_DIR/target/smtp-scenarios"
 

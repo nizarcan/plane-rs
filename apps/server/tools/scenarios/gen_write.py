@@ -124,7 +124,11 @@ def bootstrap_env() -> None:
     }
     for key, value in defaults.items():
         os.environ.setdefault(key, value)
-    sys.path.insert(0, str(REPO_ROOT / "apps" / "api"))
+    # The Django oracle (apps/api at the UPSTREAM.toml pin).
+    sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+    from oracle import api_dir as _oracle_api_dir
+
+    sys.path.insert(0, str(_oracle_api_dir()))
 
 
 def load_fixture() -> dict:

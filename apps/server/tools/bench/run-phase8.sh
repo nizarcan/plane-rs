@@ -82,7 +82,7 @@ SCENARIOS=(reads-users-me reads-project reads-issues reads-cycles reads-mixed)
 WRITE_SCENARIO="writes-mixed"
 DIFFTEST="$PLANE_SERVER_DIR/target/release/difftest"
 SYSTEM_PYTHON="$(command -v python3)"
-COMMIT="6bff715d1d"
+COMMIT="$(git -C "$PLANE_REPO_ROOT" rev-parse --short=10 HEAD 2>/dev/null || echo unknown)"
 BENCH_DATE="2026-11-19"
 LATENCY_DURATION=30
 MIXED_LATENCY_DURATION=70
@@ -330,9 +330,15 @@ build_images() {
     [[ -x "$DIFFTEST" ]] || die "$DIFFTEST is missing"
     return
   fi
-  if ! docker image inspect "$DJANGO_IMAGE" >/dev/null 2>&1; then
-    die "$DJANGO_IMAGE is missing; build it from apps/api/Dockerfile.api first"
-  fi
+  # Django is not in this checkout: build the bench image from the oracle
+  # (`apps/api` at the UPSTREAM.toml pin, see tools/upstream/oracle.sh). Docker
+  # keys its cache on the context's content, so an unchanged pin reuses the
+  # layers; the image keeps its historical tag so BENCH.md's numbers stay
+  # comparable. `--no-build` above only requires the image to exist.
+  note "building $DJANGO_IMAGE from the oracle at $PLANE_API_DIR"
+  docker build --progress=plain \
+    -f "$PLANE_API_DIR/Dockerfile.api" \
+    -t "$DJANGO_IMAGE" "$PLANE_API_DIR" 2>&1 | tee "$out/build-django-image.log"
   note "building $API_IMAGE (multi-stage, release profile)"
   docker build --progress=plain \
     --build-arg CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" \

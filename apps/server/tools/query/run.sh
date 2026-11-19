@@ -11,7 +11,7 @@
 #
 # The database is the `PLANE_DB` variable the dev scripts already use
 # (apps/server/dev/django-env.sh), so this never touches a database other than
-# the one the caller names. The interpreter is apps/api/.venv/bin/python, called
+# the one the caller names. The interpreter is the oracle's (`tools/upstream/oracle.sh`), called
 # directly so concurrent agents never trigger a `uv sync`.
 set -euo pipefail
 
@@ -27,13 +27,12 @@ source "$PLANE_DEV_DIR/django-env.sh"
 }
 
 [[ -x "$PLANE_DJANGO_PYTHON" ]] || {
-  echo "Django virtualenv not found at $PLANE_DJANGO_PYTHON" >&2
+  echo "Django oracle not ready at $PLANE_DJANGO_PYTHON; run tools/upstream/oracle.sh fetch" >&2
   exit 1
 }
 
-# `plane` is a package under apps/api; manage.py works because it is run from
-# there. Put it on the path instead of changing directory, so relative paths in
-# the caller's arguments keep working.
+# `plane` is a package in the oracle's apps/api; put it on the path instead of
+# changing directory, so relative paths in the caller's arguments keep working.
 export PYTHONPATH="$PLANE_API_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 exec "$PLANE_DJANGO_PYTHON" "$@"

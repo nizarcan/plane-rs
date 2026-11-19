@@ -66,7 +66,13 @@ from typing import Any, Iterable
 SCRIPT_PATH = Path(__file__).resolve()
 SERVER_DIR = SCRIPT_PATH.parents[2]
 REPO_ROOT = SCRIPT_PATH.parents[4]
-API_DIR = REPO_ROOT / "apps" / "api"
+
+# Django is not in this tree: the oracle is `apps/api` at the UPSTREAM.toml pin,
+# materialised by tools/upstream/oracle.sh. Its path is never hard-coded here.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 
 HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options", "trace")
 HTTP_METHODS_UPPER = tuple(method.upper() for method in HTTP_METHODS)

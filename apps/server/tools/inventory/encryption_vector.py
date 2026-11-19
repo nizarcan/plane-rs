@@ -30,7 +30,12 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parents[4]
-API_DIR = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 
 # Fixed, obviously-fake inputs. These are not secrets and must never be reused.
 SECRET_KEY = "plane-rs-fernet-vector-not-a-real-secret"

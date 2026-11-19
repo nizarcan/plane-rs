@@ -28,9 +28,8 @@ cloned from `plane_tpl` for the worker demo.
 ## Regenerating the golden file
 
 ```sh
-cd apps/api
-.venv/bin/python ../../apps/server/tools/celery/record.py
-cd ../server
+cd apps/server
+"$(tools/upstream/oracle.sh python)" tools/celery/record.py
 cargo test -p plane-jobs          # golden + URL + repr tests
 ```
 

@@ -1,0 +1,67 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# The upstream commit this repository corresponds to.
+#
+# plane-rs is a fork: the Rust services under apps/server replace the Django
+# backend that upstream ships under apps/api; the browser frontends and shared
+# packages are upstream's, verbatim where [verbatim] lists them. This file is
+# the single source of truth for *which* upstream commit that is. Every tool
+# reads the commit here; nothing else hard-codes it.
+#
+# The Django backend is not in this tree. tools/upstream/oracle.sh fetches
+# apps/api at `upstream.commit` into a per-user cache and builds its
+# virtualenv; that materialised tree is "the oracle" every parity proof runs
+# against. UPGRADING.md describes how to move the pin.
+
+schema = 1
+
+[upstream]
+# Clone URL used for `git fetch` (CI and hosts without an SSH key). `remote`
+# is the name and URL a developer checkout usually has.
+repository = "https://github.com/makeplane/plane.git"
+remote = "git@github.com:makeplane/plane.git"
+remote_name = "upstream"
+branch = "preview"
+commit = "290383d7f92fa8995ea2adbd12442220b3b9b525"
+describe = "v1.5.0-rc2-1-g290383d7f9"
+date = "2026-11-13"
+# Versions pinned by that commit, recorded so `oracle.sh --check` can prove the
+# cached virtualenv really is the pin's.
+django = "5.2.17"
+python = "3.12"
+uv = "0.12.21"
+
+[oracle]
+# Path inside the upstream tree that the oracle materialises.
+subdir = "apps/api"
+# Entry point the tools run, relative to the materialised `subdir`.
+manage = "manage.py"
+
+# Directories taken from `upstream.commit` without changes. Do not edit them in
+# this repository: changes belong upstream first, then a pin move (UPGRADING.md).
+# `tools/upstream/diff.py --check-verbatim` (CI) fails if any of these differs
+# from the pin.
+[verbatim]
+paths = [
+  "apps/web",
+  "apps/space",
+  "apps/admin",
+  "apps/live",
+  "packages",
+]
+
+# Upstream files this fork edits. A pin move must three-way merge the target's
+# change into our version (base: `upstream.commit`, ours: HEAD, theirs: target);
+# never copy the target file over ours. `diff.py` marks these in its report and
+# `--check-verbatim` checks that the upstream side is still the file we based
+# our edit on.
+[modified]
+"apps/proxy/Caddyfile.ce" = "D36: cutover proxy sends /api/*, /auth/* and /static/* to plane-api:8000 (upstream sends the first two to api:8000 and serves /static from web)."
+"apps/proxy/Caddyfile.aio.ce" = "D36: the all-in-one proxy sends /api/*, /auth/* and /static/* to plane-api:8000; upstream's AIO never served /static/*."
+
+# What this fork replaces, keyed by the upstream path. apps/server holds the
+# Rust port of every route, task, schedule and migration in apps/api.
+[replaced]
+"apps/api" = "apps/server"

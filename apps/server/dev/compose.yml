@@ -5,9 +5,8 @@
 # Local development infrastructure for the Rust rewrite (see apps/server/AGENTS.md).
 #
 # Every port is bound to 127.0.0.1 only. The Docker VM has 2 CPUs and ~2 GB of
-# memory, so each service has a hard memory limit. This stack is independent of
-# docker-compose-local.yml and docker-compose-test.yml: never run those at the
-# same time as this one.
+# memory, so each service has a hard memory limit. This is the backend's local
+# stack; do not run the release-shaped `docker-compose.yml` at the same time.
 #
 # Start and stop it through apps/server/dev/up.sh and down.sh; those scripts use
 # the project name below and wait for every healthcheck.

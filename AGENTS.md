@@ -1,59 +1,94 @@
-# Agent Development Guide
+# Agent guide for plane-rs
+
+plane-rs is a fork of [Plane](https://github.com/makeplane/plane). The browser
+frontends are upstream's; the backend is a Rust reimplementation of the Django
+application that upstream ships. The commit this repository corresponds to is
+in `UPSTREAM.toml`; `UPGRADING.md` is how it moves.
+
+`apps/server/AGENTS.md` is the detailed guide for the backend (dev stack,
+ports, resource discipline, Rust conventions, verification commands). Read it
+before touching anything under `apps/server/`. This file is the map.
+
+## What lives where
+
+| Path | What it is | Can you edit it? |
+| --- | --- | --- |
+| `apps/server/` | The Rust backend: Cargo workspace, crates, binaries, tools, scenarios, decision log, ledger | Yes — that is the work |
+| `apps/web`, `apps/space`, `apps/admin`, `apps/live`, `packages/` | Upstream frontends and shared packages at the commit in `UPSTREAM.toml` | **No.** They are taken verbatim; changes belong upstream, then a pin move |
+| `apps/proxy` | Upstream Caddy configs; `Caddyfile.ce`/`Caddyfile.aio.ce` carry the D36/Phase 8 routes | Only those two files, as `[modified]` in `UPSTREAM.toml`; three-way merge on a pin move, never copy the target over |
+| `apps/api` | Upstream's Django backend | **Not in this repository.** It exists only as *the oracle* (see below) |
+| `UPSTREAM.toml` | Repository URL, commit, describe, date, verbatim paths, what replaces `apps/api` | Only through `UPGRADING.md` |
+| `UPGRADING.md` | Procedure for moving the pin, including schema upgrade steps | Yes, when the procedure changes |
+| `charts/`, `deployments/` | Helm chart and deployment files for the Rust services | Yes |
+| `PLAYBOOK.md`, `RUST_REWRITE.md` | The method and the original brief (historical) | Treat as reference |
+
+## The oracle
+
+Every parity proof runs against Django at the pinned commit, not against a copy
+in this tree. `apps/server/tools/upstream/oracle.sh` exports `apps/api` from
+`UPSTREAM.toml`'s commit into
+`${PLANE_RS_ORACLE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/plane-rs/oracle/<commit>}`
+and builds its virtualenv from the commit's own `uv.lock`:
+
+```bash
+apps/server/tools/upstream/oracle.sh fetch     # idempotent; a stamp file guards it
+apps/server/tools/upstream/oracle.sh check     # exit 1 when the cache is stale
+apps/server/tools/upstream/oracle.sh api-dir   # the materialised apps/api
+apps/server/tools/upstream/oracle.sh python    # its interpreter
+```
+
+`tools/upstream/oracle.py` is the same locator for Python tools; the Rust tests
+use `crates/plane-oracle`. No tool reads `apps/api` from the checkout, and no
+path outside `UPSTREAM.toml` hard-codes the commit. `tools/upstream/diff.py
+<ref>` classifies what changed upstream and regenerates the route/task
+inventories against the target oracle.
 
 ## Commands
 
-- `pnpm dev` - Start all dev servers (web:3000, admin:3001, space:3002, live:3100); the API runs in Docker via `docker-compose-local.yml` on :8000
-- `pnpm build` - Build all packages and apps
-- `pnpm check` - Run all checks (format, lint, types)
-- `pnpm check:lint` - OxLint across all packages
-- `pnpm check:types` - TypeScript type checking
-- `pnpm fix` - Auto-fix format and lint issues
-- `pnpm turbo run <command> --filter=<package>` - Target specific package/app
+Frontends (unchanged from upstream):
 
-## Code Style
+```bash
+pnpm install
+pnpm dev                      # web:3000, admin:3001, space:3002, live:3100
+pnpm check                    # format, lint, types
+pnpm fix
+```
 
-- **Imports**: Use `workspace:*` for internal packages, `catalog:` for external deps
-- **TypeScript**: Strict mode enabled, all files must be typed
-- **Formatting**: oxfmt, run `pnpm fix:format`
-- **Linting**: OxLint with shared `.oxlintrc.json` config
-- **Naming**: camelCase for variables/functions, PascalCase for components/types
-- **Error Handling**: Use try-catch with proper error types, log errors appropriately
-- **State Management**: MobX stores live in each app's `store/` folder (`apps/web/store`, `apps/space/store`, `apps/admin/store`); stores shared across apps go in `packages/shared-state`
-- **Testing**: All features require unit tests, use existing test framework per package
-- **Components**: Primitives come from the published `@makeplane/propel` npm package (`@makeplane/propel/components/*`, `elements/*`, `icons`); composite/Plane-specific components live in `@plane/blocks` (`packages/blocks`, subpath imports only, e.g. `@plane/blocks/toast`)
+Backend (from `apps/server/`, see `apps/server/AGENTS.md` for the full list):
 
-## Backend dependencies (uv)
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
+cargo test --workspace --manifest-path crates/plane-testkit/Cargo.toml
+cargo run --manifest-path crates/plane-testkit/Cargo.toml --bin difftest -- selftest
+```
 
-`apps/api` dependencies are managed with [uv](https://docs.astral.sh/uv/): declared in `apps/api/pyproject.toml`, pinned in `apps/api/uv.lock` (commit both). Groups: `dev` and `test` (installed by default; they use `psycopg-binary`), `production` (gunicorn + the source-built `psycopg-c`; production image and migration-check only). Lint config lives in `apps/api/ruff.toml`.
+The differential harness needs the dev stack (`apps/server/dev/up.sh`) and the
+oracle. The generators under `apps/server/tools/` are run with the oracle's
+interpreter; each documents its `--check` and its environment.
 
-- uv must be exactly the `required-version` in `apps/api/pyproject.toml` (`uv self update <version>`); bump it together with the uv image in both Dockerfiles
-- Set up a local env: `cd apps/api && uv sync`
-- Inside the dev/test containers, always pass `--inexact` (`uv sync --inexact`): uv targets the image's system Python there, and an exact sync would uninstall pip
-- Add/upgrade a dependency: `uv add <pkg>==<version>` (or `--group test`/`--group dev`), or edit `pyproject.toml` and run `uv lock`
-- Run tools: `uv run python manage.py ...`, `uv run ruff check .`
+## Rules that do not bend
 
-## Migrations
-
-- Generate migrations with `uv run python manage.py makemigrations <app> -n <name>`. The command also rewrites `apps/api/migrations_lockfile.txt`; commit it with the migration and never edit it by hand
-- A merge conflict in the lockfile means another PR added a migration to the same app first: merge `preview`, delete your migration, and run `makemigrations` again
-- `migration-check.yml` fails a PR that touches migrations when the lockfile does not match the migration graph
-
-## Backend tests (Docker)
-
-The Django/pytest suite for `apps/api` runs in an isolated stack defined by `docker-compose-test.yml` at the repo root.
-
-Prereq (once): `./setup.sh` — generates `apps/api/.env` from `.env.example`.
-
-- Full suite: `docker compose -f docker-compose-test.yml up --build --abort-on-container-exit --exit-code-from api-tests`
-- Subset: `docker compose -f docker-compose-test.yml run --rm --build api-tests pytest -m unit`
-- Teardown: `docker compose -f docker-compose-test.yml down -v`
-
-See `apps/api/tests/RUNNING_TESTS.md` for the full walkthrough and troubleshooting; see `apps/api/plane/tests/TESTING_GUIDE.md` for test conventions and fixtures.
-
-## Translations
-
-Strings live in `packages/i18n/src/locales/<lang>/<namespace>.json`; `en` is the source of truth and every locale must have the same keys. Use the `translate` skill when changing locale files, and run `pnpm --filter=@plane/i18n sync:check` (CI runs it with `--ci`).
+1. **Do not edit the verbatim upstream paths.** A frontend or `packages/` change
+   is an upstream change followed by a pin move (`UPGRADING.md`).
+2. **Do not add Django back to the tree.** There is no `apps/api` to edit; read
+   the oracle, and never make a tool fall back to a path that does not exist.
+3. **`UPSTREAM.toml` moves only with a complete port and full verification.**
+   Every tool reads the commit from it; a stale pin is a false proof.
+4. **Same contract.** API responses, database rows, tasks, schedules, cookies,
+   headers, mail and side effects must match the oracle. When in doubt, the
+   oracle wins; port reachable bugs and record them.
+5. **No secrets in tracked files.** `.env` files are generated; the only test
+   material allowed by `.gitleaks.toml` is listed there with a reason.
+6. **Never commit, stash, reset or push** as a worker agent; the orchestrator
+   does that. Never touch the owner's containers or change server-wide
+   settings. Record the PID of every process you start and kill only those.
+7. **Licence headers.** New `.rs`, `.py`, `.sh` and `.ts` files start with
+   `COPYRIGHT.txt` (AGPL-3.0-only).
 
 ## Pull requests
 
-Open PRs against `preview`. New `.py`, `.ts` and `.tsx` files need the `COPYRIGHT.txt` header (checked in CI, see `COPYRIGHT_CHECK.md`).
+Open PRs against the default branch. New `.py`, `.ts` and `.tsx` files need the
+header from `COPYRIGHT.txt` (see `COPYRIGHT_CHECK.md`); the backend's CI is
+`.github/workflows/server-ci.yml` and includes a gitleaks scan.

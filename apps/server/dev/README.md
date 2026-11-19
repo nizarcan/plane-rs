@@ -1,13 +1,15 @@
 # Local dev stack for the Rust rewrite
 
-Infrastructure and helpers for running Django (`apps/api`) and, later, the Rust
-services against one throwaway local stack. Everything here binds to
+Infrastructure and helpers for running the Rust services and the Django oracle
+(`apps/api` at the `UPSTREAM.toml` pin, fetched by
+`tools/upstream/oracle.sh`) against one throwaway local stack. Everything here binds to
 `127.0.0.1` on the ports reserved in `apps/server/AGENTS.md`; nothing touches the
 machine's unrelated containers (5432, 6379, 9000, 9001, 9092, 6390).
 
 The Docker VM has 2 CPUs and about 2 GB of memory, so the stack is deliberately
-lean: Postgres 384 MB, RabbitMQ 320 MB, MinIO 256 MB, Valkey 64 MB. Never start
-`docker-compose-local.yml` or `docker-compose-test.yml` alongside it.
+lean: Postgres 384 MB, RabbitMQ 320 MB, MinIO 256 MB, Valkey 64 MB. This is the
+only local stack for backend work; do not start the release-shaped
+`docker-compose.yml` alongside it.
 
 ## Ports and services
 
@@ -44,8 +46,8 @@ executed.
 | `down.sh` | Stops and removes the containers, keeps the named volumes. `--purge` also deletes the volumes (next start is empty; `bootstrap.sh --force` is then required). |
 | `status.sh` | Prints `docker compose ps`, a health summary, and the connection endpoints. Exits 1 unless all four services are healthy, so it can gate other scripts. |
 | `django-env.sh` | Prints (when executed) or exports (when sourced) the environment Django needs. See the table below. |
-| `django.sh <args>` | Runs `apps/api/.venv/bin/python manage.py <args>` from `apps/api` with that environment. |
-| `django-serve.sh <port>` | Serves Django in the foreground exactly as `apps/api/bin/docker-entrypoint-api.sh` does after its setup steps: gunicorn 23 with one `uvicorn.workers.UvicornWorker`, `plane.asgi:application`, bound to `127.0.0.1:<port>`, access log on stderr. No `--max-requests`, no registration/collectstatic. |
+| `django.sh <args>` | Runs the oracle's `manage.py <args>` from its `apps/api` with that environment (`tools/upstream/oracle.sh fetch` first). |
+| `django-serve.sh <port>` | Serves the oracle in the foreground exactly as upstream's API entrypoint does after its setup steps: gunicorn 23 with one `uvicorn.workers.UvicornWorker`, `plane.asgi:application`, bound to `127.0.0.1:<port>`, access log on stderr. No `--max-requests`, no registration/collectstatic. |
 | `proxy.sh up\|down\|reload\|status` | Runs the coexistence proxy in a `caddy:2.11.4-alpine` container named `plane-rs-dev-proxy` on `127.0.0.1:18080`. Rust-owned routes go to `host.docker.internal:18100`, `/api/*`, `/auth/*` and `/static/*` to Django on 18000, `/uploads/*` to MinIO on 59000, `/spaces/*`, `/god-mode/*`, `/live/*` and everything else to the frontend dev servers. It lives in the compose `proxy` profile, so `up.sh`/`down.sh` leave it alone. `up`/`reload` regenerate the gitignored `dev/run/rust-routes.caddy`; the committed `deploy/caddy/rust-routes.caddy` is only written by running `gen_caddy.py` deliberately. |
 | `mq-vhost.sh <vhost>` | Creates a RabbitMQ vhost and grants `plane` configure/write/read on it. Idempotent. `--delete [--force]` removes it; the shared `plane` vhost needs `--force`. |
 | `bootstrap.sh [--force]` | Builds the `plane_tpl` template database. Does nothing if it already exists, unless `--force` drops and rebuilds it. |
@@ -104,8 +106,8 @@ source apps/server/dev/django-env.sh
 
 ## What `bootstrap.sh` puts in `plane_tpl`
 
-The template mirrors what `apps/api/bin/docker-entrypoint-api.sh` does on a fresh
-instance, restricted to database state:
+The template mirrors what upstream's API entrypoint does on a fresh instance,
+restricted to database state (the entrypoint script is in the oracle):
 
 1. `CREATE DATABASE plane_tpl`
 2. `manage.py migrate`
@@ -134,8 +136,8 @@ rebuilt after new Django migrations (`bootstrap.sh --force`).
 
 ## Environment set by `django-env.sh`
 
-`DJANGO_SETTINGS_MODULE=plane.settings.production` matches `manage.py`, `wsgi.py`,
-`asgi.py`, `celery.py` and `apps/api/Dockerfile.api`'s entrypoint. `DEBUG=0`
+`DJANGO_SETTINGS_MODULE=plane.settings.production` matches the oracle's
+`manage.py`, `wsgi.py`, `asgi.py`, `celery.py` and its image entrypoint. `DEBUG=0`
 keeps the served behaviour (caching, error pages) close to a real deployment.
 
 | Variable | Why |
@@ -153,26 +155,21 @@ keeps the served behaviour (caching, error pages) close to a real deployment.
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET_NAME`, `AWS_S3_ENDPOINT_URL`, `AWS_REGION` | object storage and `create_bucket`; MinIO ignores the region but SigV4 needs one |
 | `SIGNED_URL_EXPIRATION` | presigned upload/download lifetime |
 | `GUNICORN_WORKERS=1` | read by `django-serve.sh`; small enough for the memory budget |
-| `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED` | no `.pyc` churn in `apps/api`, streaming logs |
+| `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED` | no `.pyc` churn in the oracle tree, streaming logs |
 | `ENABLE_DRF_SPECTACULAR=0` | pinned off so a caller's shell cannot slow every command down |
 | `PLANE_DB`, `PLANE_REDIS_DB`, `PLANE_MQ_VHOST` | the isolation knobs, passed through |
 | (`SCOUT_MONITOR`, `SCOUT_KEY` unset) | `production.py` installs `scout_apm`; any non-empty value would try to report |
 
-`django-env.sh` does not modify `apps/api`: the only files it causes Django to
-write are `apps/api/logs/` and Python caches, both already gitignored generated
-artefacts.
+`django-env.sh` does not modify the oracle: the only files it causes Django to
+write are `logs/` and Python caches inside the cache directory, both generated
+artefacts of the cache.
 
-### gunicorn
+### gunicorn and the oracle
 
-`apps/api/.venv` is synced with the `dev` and `test` groups, but gunicorn lives
-in the `production` group. If `django-serve.sh` reports that gunicorn is
-missing, add only that package to the existing venv (do not re-sync the whole
-environment):
-
-```bash
-cd apps/api
-uvx --from 'uv==0.12.21' uv pip install --python .venv/bin/python 'gunicorn==23.0.0'
-```
+`tools/upstream/oracle.sh fetch` syncs the oracle's venv with the `dev` and
+`test` groups and then installs the pinned `gunicorn` from the production group,
+because `django-serve.sh` needs it. If the script reports the oracle is not
+ready, run the fetch (or `fetch --force` to rebuild the tree and venv).
 
 ## Coexistence proxy
 

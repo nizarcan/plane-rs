@@ -73,7 +73,12 @@ import sys
 HERE = pathlib.Path(__file__).resolve()
 SERVER_ROOT = HERE.parents[2]  # apps/server
 REPO_ROOT = HERE.parents[4]  # repository root
-API_ROOT = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_ROOT = _oracle_api_dir()
 OUT_DIR = SERVER_ROOT / "deploy" / "openapi"
 
 # The schema itself is DB-independent; these values are deliberately dead so a

@@ -35,9 +35,9 @@ shift || true
 ((port >= 1 && port <= 65535)) || die "port must be between 1 and 65535, got '$port'"
 
 [[ -x "$PLANE_DJANGO_PYTHON" ]] ||
-  die "Django virtualenv not found at $PLANE_DJANGO_PYTHON (the orchestrator creates it with uv)"
+  die "Django oracle not ready at $PLANE_DJANGO_PYTHON; run apps/server/tools/upstream/oracle.sh fetch"
 [[ -x "$PLANE_GUNICORN" ]] ||
-  die "gunicorn not found at $PLANE_GUNICORN; install the production group into the venv (see dev/README.md)"
+  die "gunicorn not found at $PLANE_GUNICORN; re-run apps/server/tools/upstream/oracle.sh fetch --force"
 
 cd "$PLANE_API_DIR"
 note "serving plane.asgi:application on http://127.0.0.1:$port"

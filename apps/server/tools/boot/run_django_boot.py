@@ -23,7 +23,11 @@ import os
 import sys
 from pathlib import Path
 
-API_DIR = Path(__file__).resolve().parent.parent.parent.parent / "api"
+SERVER_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 os.chdir(API_DIR)
 sys.path.insert(0, str(API_DIR))
 

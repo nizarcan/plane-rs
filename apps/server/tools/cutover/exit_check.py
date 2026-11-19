@@ -18,7 +18,7 @@ Two paths, one script:
 
 Plus the static check: no deployment file mentions `apps/api/bin`.
 
-    apps/api/.venv/bin/python apps/server/tools/cutover/exit_check.py all
+    "$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/cutover/exit_check.py all
 
 The stack is defined in `compose.yml`: project `plane-cutover`, containers
 named `plane-cutover-*`, host ports 18500-18519 only, and no frontend images.
@@ -60,8 +60,15 @@ import requests
 HERE = Path(__file__).resolve().parent
 SERVER = HERE.parent.parent
 REPO = SERVER.parent.parent
-API = REPO / "apps" / "api"
-DJANGO = API / ".venv" / "bin" / "python"
+
+# The upgrade path restores a database migrated by Django at the pinned commit;
+# that Django is the oracle (apps/api at the UPSTREAM.toml pin), not this tree.
+sys.path.insert(0, str(SERVER / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import python as _oracle_python  # noqa: E402
+
+API = _oracle_api_dir()
+DJANGO = _oracle_python()
 
 PROJECT = "plane-cutover"
 COMPOSE = HERE / "compose.yml"

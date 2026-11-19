@@ -26,6 +26,13 @@
 
 Meet [Plane](https://plane.so/), an open-source project management tool to track issues, run ~sprints~ cycles, and manage product roadmaps without the chaos of managing the tool itself. 🧘‍♀️
 
+> **This is plane-rs.** A fork of Plane whose backend is a Rust reimplementation
+> of upstream's Django API. The frontends are upstream's, verbatim, and the
+> commit this repository corresponds to is in [`UPSTREAM.toml`](./UPSTREAM.toml).
+> Start with [`AGENTS.md`](./AGENTS.md) for the repository map and
+> [`apps/server/AGENTS.md`](./apps/server/AGENTS.md) for the backend; moving the
+> upstream pin is [`UPGRADING.md`](./UPGRADING.md).
+
 > Plane is evolving every day. Your suggestions, ideas, and reported bugs help us immensely. Do not hesitate to join in the conversation on [Forum](https://forum.plane.so) or raise a GitHub issue. We read everything and respond to most.
 
 ## 🚀 Installation

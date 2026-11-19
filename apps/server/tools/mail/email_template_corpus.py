@@ -34,7 +34,11 @@ import django
 from django.conf import settings
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-API_DIR = os.path.join(REPO_ROOT, "apps", "api")
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, os.path.join(REPO_ROOT, "apps", "server", "tools", "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = str(_oracle_api_dir())
 OUT_PATH = os.path.join(
     REPO_ROOT, "apps", "server", "crates", "plane-mail", "tests", "golden", "email_templates.json"
 )

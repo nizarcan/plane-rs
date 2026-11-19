@@ -43,7 +43,9 @@ use serde_json::Value;
 use uuid::Uuid;
 
 /// `apps/server/crates/plane-throttle` → `apps/api/.venv/bin/python`.
-const PYTHON: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../api/.venv/bin/python");
+fn django_python() -> std::path::PathBuf {
+    plane_oracle::python()
+}
 /// `apps/server/tools/throttle/interop.py`.
 const SCRIPT: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -51,7 +53,9 @@ const SCRIPT: &str = concat!(
 );
 /// The Django project root, used as the child's working directory and its
 /// `sys.path` entry.
-const DJANGO_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../api");
+fn django_root() -> std::path::PathBuf {
+    plane_oracle::require_api()
+}
 
 /// A TTL may drift by this much between the Python run and the Rust run; the
 /// write itself is `PX <duration*1000>` on both sides.
@@ -397,9 +401,9 @@ fn python_trace(
     )
     .expect("write scenario");
 
-    let mut command = Command::new(PYTHON);
+    let mut command = Command::new(django_python());
     command
-        .current_dir(DJANGO_ROOT)
+        .current_dir(django_root())
         .arg(SCRIPT)
         .arg(&path)
         .arg("--from-index")

@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 #
-# Run the upstream contract suite (apps/api/plane/tests/contract) through the
-# mixed-backend plugin in apps/server/tools/contract.
+# Run the upstream contract suite (the oracle's plane/tests/contract) through
+# the mixed-backend plugin in apps/server/tools/contract. The oracle is
+# `apps/api` at the UPSTREAM.toml pin; fetch it with tools/upstream/oracle.sh.
 #
 #   ./run.sh --backend django          # baseline: everything in-process
 #   ./run.sh --backend mixed           # ROUTES.md owners decide per request
@@ -29,6 +30,13 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 SERVER_DIR="$REPO_ROOT/apps/server"
+
+# The contract suite, its pytest.ini and its virtualenv come from the oracle:
+# apps/api at the commit pinned in UPSTREAM.toml (tools/upstream/oracle.sh).
+# shellcheck source=../upstream/oracle.sh
+source "$SERVER_DIR/tools/upstream/oracle.sh"
+API_DIR="$(oracle_api_dir)"
+API_PYTHON="$(oracle_python)"
 
 backend="${PLANE_RS_CONTRACT_BACKEND:-mixed}"
 build=1
@@ -145,7 +153,7 @@ declare -a targets=("plane/tests/contract")
 declare -a config_args=()
 if [[ "$smoke" == "1" ]]; then
   targets=("$SERVER_DIR/tools/contract/smoke")
-  config_args=(-c "$REPO_ROOT/apps/api/pytest.ini")
+  config_args=(-c "$API_DIR/pytest.ini")
 fi
 for arg in "${pytest_args[@]:-}"; do
   case "$arg" in
@@ -172,5 +180,5 @@ if ((${#pytest_args[@]})); then
   argv+=("${pytest_args[@]}")
 fi
 
-cd "$REPO_ROOT/apps/api"
-exec .venv/bin/python -m pytest "${argv[@]}"
+cd "$API_DIR"
+exec "$API_PYTHON" -m pytest "${argv[@]}"

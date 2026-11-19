@@ -68,7 +68,7 @@ done
 
 require_cmd docker
 [[ -x "$PLANE_DJANGO_PYTHON" ]] ||
-  die "Django virtualenv not found at $PLANE_DJANGO_PYTHON (the orchestrator creates it with uv)"
+  die "Django oracle not ready at $PLANE_DJANGO_PYTHON; run apps/server/tools/upstream/oracle.sh fetch"
 [[ -f "$PLANE_DEV_ENV_FILE" ]] ||
   die "$PLANE_DEV_ENV_FILE is missing; run dev/bootstrap.sh first so SECRET_KEY exists"
 [[ -f "$BUILD_SCRIPT" ]] || die "fixture builder not found at $BUILD_SCRIPT"
@@ -177,7 +177,7 @@ Fixture template '$FIXTURE_DB' is ready.
   datistemplate/allowconn $flags
 
 Read scenarios are generated from the manifest and the route inventory:
-  apps/api/.venv/bin/python apps/server/tools/scenarios/gen_read.py
+  "$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/scenarios/gen_read.py
 
 Run one group against Django only:
   cd apps/server

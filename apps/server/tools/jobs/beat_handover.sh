@@ -22,6 +22,13 @@ SERVER="$(cd "$HERE/../.." && pwd)"
 REPO="$(cd "$SERVER/../.." && pwd)"
 cd "$SERVER"
 
+# The side that still runs Django (the Celery beat) is the oracle at the
+# UPSTREAM.toml pin, not a tree in this checkout.
+# shellcheck source=../upstream/oracle.sh
+source "$SERVER/tools/upstream/oracle.sh"
+API_DIR="$(oracle_api_dir)"
+API_PYTHON="$(oracle_python)"
+
 PG_URL="${PLANE_JOBS_PG_URL:-postgresql://plane:plane@127.0.0.1:55432}"
 RABBIT_HTTP="${PLANE_JOBS_RABBIT_HTTP:-http://127.0.0.1:55673}"
 TEST_DB="t_rsjobs_handover"
@@ -79,8 +86,8 @@ log "migrating plane_jobs"
 ANCHOR=$(date +%s)
 log "inserting a ${INTERVAL}s PeriodicTask anchored at $ANCHOR through Django's ORM"
 (
-  cd "$REPO/apps/api"
-  .venv/bin/python - "$ANCHOR" "$INTERVAL" <<'PY'
+  cd "$API_DIR"
+  "$API_PYTHON" - "$ANCHOR" "$INTERVAL" <<'PY'
 import sys
 from datetime import datetime, timezone
 
@@ -145,8 +152,8 @@ PY
 
 log "starting the real Celery beat (DatabaseScheduler)"
 (
-  cd "$REPO/apps/api"
-  exec .venv/bin/celery -A plane beat -l info \
+  cd "$API_DIR"
+  exec "$API_DIR/.venv/bin/celery" -A plane beat -l info \
     --schedule "$SERVER/target/rsjobs-handover-celerybeat-schedule"
 ) >"$SERVER/target/jobs-celery-beat.log" 2>&1 &
 CELERY_PID=$!

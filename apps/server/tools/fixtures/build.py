@@ -87,7 +87,12 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve()
 SERVER_DIR = SCRIPT.parents[2]
 REPO_ROOT = SCRIPT.parents[4]
-API_DIR = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 DEFAULT_MANIFEST = SERVER_DIR / "scenarios" / "fixtures" / "fix_tpl.json"
 TEMPLATE_DB = "plane_fix_tpl"
 

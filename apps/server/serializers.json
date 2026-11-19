@@ -1,6 +1,6 @@
 {
   "generated_from": {
-    "commit": "101a2f2754af8c604a402cc088de02136f18706c",
+    "commit": "469ed581aab30f68cbe87161f42715b418a07848",
     "django_version": "5.2.17",
     "drf_version": "3.18.3",
     "settings_module": "plane.settings.production",
@@ -106700,6 +106700,39 @@
   ],
   "views": [
     {
+      "view": "drf_spectacular.views.SpectacularAPIView",
+      "paths": [
+        "/api/schema/"
+      ],
+      "file": "apps/api/.venv/lib/python3.12/site-packages/drf_spectacular/views.py",
+      "kind": "class",
+      "serializer_class": null,
+      "get_serializer_class": null,
+      "calls": []
+    },
+    {
+      "view": "drf_spectacular.views.SpectacularRedocView",
+      "paths": [
+        "/api/schema/redoc/"
+      ],
+      "file": "apps/api/.venv/lib/python3.12/site-packages/drf_spectacular/views.py",
+      "kind": "class",
+      "serializer_class": null,
+      "get_serializer_class": null,
+      "calls": []
+    },
+    {
+      "view": "drf_spectacular.views.SpectacularSwaggerView",
+      "paths": [
+        "/api/schema/swagger-ui/"
+      ],
+      "file": "apps/api/.venv/lib/python3.12/site-packages/drf_spectacular/views.py",
+      "kind": "class",
+      "serializer_class": null,
+      "get_serializer_class": null,
+      "calls": []
+    },
+    {
       "view": "plane.api.views.asset.GenericAssetEndpoint",
       "paths": [
         "/api/v1/workspaces/{slug}/assets/",
@@ -113351,7 +113384,7 @@
       "manual": 23
     },
     "fields": 2888,
-    "views": 274,
+    "views": 277,
     "views_with_explicit_calls": 141
   }
 }

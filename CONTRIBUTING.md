@@ -33,23 +33,24 @@ This helps us triage and manage issues more efficiently.
 
 ### Requirements
 
-- Docker Engine installed and running. `docker-compose-local.yml` runs the API, its workers and the backing services: Postgres 15, Valkey 7.2 (Redis-compatible), RabbitMQ 3.13 and S3-compatible object storage
+- Docker Engine installed and running. `docker-compose.yml` runs the Rust services and the backing services: Postgres 15, Valkey 7.2 (Redis-compatible) and S3-compatible object storage
 - Node.js 22.22.0 or newer (pinned in `.node-version` and `.mise.toml`)
 - pnpm, activated through Corepack (`corepack enable pnpm`); the version is pinned in `package.json`
-- Python 3.12 and [uv](https://docs.astral.sh/uv/) (only needed to run the API outside Docker)
+- Rust 1.99 with `cargo`, and [uv](https://docs.astral.sh/uv/) (the oracle's Django environment is managed by `tools/upstream/oracle.sh`; it needs `uvx`)
 - **Memory**: Minimum **12 GB RAM** recommended
   > ⚠️ Running the project on a system with only 8 GB RAM may lead to setup failures or memory crashes (especially during Docker container build/start or dependency install). Use cloud environments like GitHub Codespaces or upgrade local RAM if possible.
 
 ### Setup the project
 
-The project is a monorepo, with backend api and frontend in a single repo.
-
-The backend is a django project which is kept inside apps/api
+The project is a monorepo, with the Rust backend and the frontends in a single
+repo. This is plane-rs, a fork: the frontends are upstream Plane's, the backend
+is the Rust workspace in `apps/server`. Upstream's Django backend is not in the
+tree; it is fetched as the oracle at the commit in `UPSTREAM.toml`.
 
 1. Clone the repo
 
 ```bash
-git clone https://github.com/makeplane/plane.git [folder-name]
+git clone https://github.com/nizarcan/plane-rs.git [folder-name]
 cd [folder-name]
 chmod +x setup.sh
 ```
@@ -60,19 +61,26 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-`setup.sh` copies each service’s `.env.example` to `.env` (root, `apps/api`, `apps/web`, `apps/admin`, `apps/space`, `apps/live`), generates a Django `SECRET_KEY` for the API and object-storage (MinIO) credentials shared by the root and API env files, then enables pnpm through Corepack and runs `pnpm install`. Review those files if you need custom values; the defaults work with the local Docker Compose stack.
+`setup.sh` copies the root `.env.example` to `.env`, generates a `SECRET_KEY`
+and object-storage (MinIO) credentials, copies the frontends' env examples,
+then enables pnpm through Corepack and runs `pnpm install`. Review `.env` if you
+need custom values; the defaults work with the local Compose stack.
 
 #### Environment variables
 
-If these are missing or wrong, the API and supporting services fail to connect on first run. Defaults come from `apps/api/.env.example` and `apps/live/.env.example` (copied by `setup.sh`):
+If these are missing or wrong, the services fail to connect on first run. The
+Rust services read the root `.env`; the names are upstream's, so an existing
+Plane environment can be used unchanged (`apps/server/ENV.md` has the list).
 
-| Variable       | Where                             | Purpose                                        | Local Docker default                                               |
-| -------------- | --------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
-| `DATABASE_URL` | `apps/api/.env`                   | Postgres connection for the Django API         | `postgresql://plane:plane@plane-db:5432/plane`                     |
-| `REDIS_URL`    | `apps/api/.env`, `apps/live/.env` | Redis/Valkey for cache, sessions, and realtime | API: `redis://plane-redis:6379/` · Live: `redis://localhost:6379/` |
-| `PORT`         | `apps/live/.env`                  | Port the live (collab) server listens on       | `3100`                                                             |
+| Variable       | Where              | Purpose                                        | Local Docker default                                               |
+| -------------- | ------------------ | ---------------------------------------------- | ------------------------------------------------------------------ |
+| `DATABASE_URL` | `.env`             | Postgres connection for the Rust services      | `postgresql://plane:plane@plane-db:5432/plane`                     |
+| `REDIS_URL`    | `.env`, `apps/live/.env` | Redis/Valkey for cache, sessions, and realtime | `redis://plane-redis:6379/` · Live: `redis://localhost:6379/` |
+| `PORT`         | `apps/live/.env`   | Port the live (collab) server listens on       | `3100`                                                             |
 
-Related values used to build those URLs (also in `apps/api/.env.example`): `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `REDIS_HOST`, `REDIS_PORT`.
+Related values used to build those URLs (`POSTGRES_USER`, `POSTGRES_PASSWORD`,
+`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `REDIS_HOST`, `REDIS_PORT`)
+are in the root `.env.example`.
 
 Local app ports after a successful start:
 
@@ -85,7 +93,7 @@ Local app ports after a successful start:
 3. Start the containers
 
 ```bash
-docker compose -f docker-compose-local.yml up
+docker compose up -d
 ```
 
 4. Start web apps:
@@ -109,14 +117,14 @@ If you would like to _implement_ it, an issue with your proposal must be submitt
 To ensure consistency throughout the source code, please keep these rules in mind as you are working:
 
 - All features or bug fixes must be tested by one or more specs (unit-tests).
-- We lint with [OxLint](https://oxc.rs/docs/guide/usage/linter) using the shared `.oxlintrc.json` and format with [oxfmt](https://oxc.rs/docs/guide/usage/formatter) using `.oxfmtrc.json` (see [docs/linting.md](./docs/linting.md)). The backend in `apps/api` is linted with [Ruff](https://docs.astral.sh/ruff/) using `apps/api/ruff.toml`.
-- See [AGENTS.md](./AGENTS.md) for the full command reference, code style, backend dependency (uv), migration and backend test workflows.
+- We lint with [OxLint](https://oxc.rs/docs/guide/usage/linter) using the shared `.oxlintrc.json` and format with [oxfmt](https://oxc.rs/docs/guide/usage/formatter) using `.oxfmtrc.json` (see [docs/linting.md](./docs/linting.md)). The Rust backend is formatted with `cargo fmt` and linted with `cargo clippy -- -D warnings`.
+- See [AGENTS.md](./AGENTS.md) for the repository map and [apps/server/AGENTS.md](./apps/server/AGENTS.md) for the backend's dev stack, conventions and verification commands.
 
 ## Submitting a pull request
 
-1. Branch off `preview` and open your pull request against `preview`.
-2. Before pushing, run `pnpm check` (format, lint and types). For backend changes, also run `uv run ruff check .` in `apps/api` and the backend tests (`docker compose -f docker-compose-test.yml up --build --abort-on-container-exit --exit-code-from api-tests`, see [apps/api/tests/RUNNING_TESTS.md](./apps/api/tests/RUNNING_TESTS.md)).
-3. If you add a Django migration, generate it with `makemigrations` and commit the updated `apps/api/migrations_lockfile.txt` with it (see [AGENTS.md](./AGENTS.md#migrations)).
+1. Branch off the default branch and open your pull request against it.
+2. Before pushing, run `pnpm check` (format, lint and types). For backend changes, also run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` and `cargo test --workspace` in `apps/server`.
+3. Schema changes that reach an existing installation need a `plane-migrator` upgrade step; follow [UPGRADING.md](./UPGRADING.md), do not edit a released step.
 4. New source files need the copyright header from `COPYRIGHT.txt` (see [COPYRIGHT_CHECK.md](./COPYRIGHT_CHECK.md)).
 5. Fill in the pull request template: description, type of change, screenshots for UI changes, and the test scenarios you ran.
 

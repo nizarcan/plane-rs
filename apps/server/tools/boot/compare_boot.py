@@ -9,7 +9,7 @@ For each step in `apps/api/bin/docker-entrypoint-api.sh:3-33` and each command i
 `plane-api`'s boot function) on clone B, then compare the observable effects:
 rows, Redis keys, the bucket, the SMTP transcript and the command output.
 
-    apps/api/.venv/bin/python tools/boot/compare_boot.py
+    "$(tools/upstream/oracle.sh python)" tools/boot/compare_boot.py
 
 Uses only `t_p8boot_boot_a` / `t_p8boot_boot_b`, Redis DBs 3 and 4, the bucket
 `p8boot-boot`, the fake GitHub on 18420 and one `fake_smtp.py` listener at a
@@ -47,8 +47,14 @@ from botocore.exceptions import ClientError
 
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = SERVER_DIR.parent.parent
-API_DIR = REPO_ROOT / "apps" / "api"
-API_PYTHON = API_DIR / ".venv" / "bin" / "python"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import python as _oracle_python  # noqa: E402
+
+API_DIR = _oracle_api_dir()
+API_PYTHON = _oracle_python()
 ADMIN = SERVER_DIR / "target" / "debug" / "plane-admin"
 MIGRATOR = SERVER_DIR / "target" / "debug" / "plane-migrator"
 TOOLS = SERVER_DIR / "tools"
@@ -56,16 +62,23 @@ GITHUB = TOOLS / "boot" / "fake_github.py"
 FAKE_SMTP = TOOLS / "mail" / "fake_smtp.py"
 COMPARE_SMTP = TOOLS / "mail" / "compare_smtp_logs.py"
 
-A_DB = "t_p8boot_boot_a"
-B_DB = "t_p8boot_boot_b"
-A_REDIS = 3
-B_REDIS = 4
-BUCKET = "p8boot-boot"
-GITHUB_PORT = 18420
-SMTP_LOG_A = Path("/tmp/p8boot-smtp-a.jsonl")
-SMTP_LOG_B = Path("/tmp/p8boot-smtp-b.jsonl")
-SMTP_PORT_A = Path("/tmp/p8boot-smtp-a.port")
-SMTP_PORT_B = Path("/tmp/p8boot-smtp-b.port")
+# The defaults are the telemetry branch's Redis DBs (3/4) and the original
+# single-agent names. Concurrent agents override every resource
+# (`P8BOOT_A_DB`, `P8BOOT_B_DB`, `P8BOOT_A_REDIS`, `P8BOOT_B_REDIS`,
+# `P8BOOT_BUCKET`, `P8BOOT_GITHUB_PORT`), because the boot check creates and
+# drops databases by fixed name, flushes Redis DBs and binds ports; two runs
+# sharing them terminate each other's connections. The SMTP files are keyed by
+# database name so two runs cannot read each other's transcript either.
+A_DB = os.environ.get("P8BOOT_A_DB", "t_p8boot_boot_a")
+B_DB = os.environ.get("P8BOOT_B_DB", "t_p8boot_boot_b")
+A_REDIS = int(os.environ.get("P8BOOT_A_REDIS", "3"))
+B_REDIS = int(os.environ.get("P8BOOT_B_REDIS", "4"))
+BUCKET = os.environ.get("P8BOOT_BUCKET", "p8boot-boot")
+GITHUB_PORT = int(os.environ.get("P8BOOT_GITHUB_PORT", "18420"))
+SMTP_LOG_A = Path(f"/tmp/p8boot-smtp-a-{A_DB}.jsonl")
+SMTP_LOG_B = Path(f"/tmp/p8boot-smtp-b-{B_DB}.jsonl")
+SMTP_PORT_A = Path(f"/tmp/p8boot-smtp-a-{A_DB}.port")
+SMTP_PORT_B = Path(f"/tmp/p8boot-smtp-b-{B_DB}.port")
 
 USER_ID = "6f1e7a52-2f5e-4c4a-9d38-2c0e2a9b6a11"
 USER_EMAIL = "p8boot-user@example.test"

@@ -25,10 +25,10 @@ From the repository root:
 apps/server/dev/mkdb.sh t_perms_fixture --replace
 
 PLANE_DB=t_perms_fixture apps/server/tools/permissions/run.sh \
-  apps/api/.venv/bin/python apps/server/tools/permissions/fixture.py
+  "$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/permissions/fixture.py
 
 PLANE_DB=t_perms_fixture apps/server/tools/permissions/run.sh \
-  apps/api/.venv/bin/python apps/server/tools/permissions/oracle.py
+  "$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/permissions/oracle.py
 
 cd apps/server
 PLANE_RS_TEST_DATABASE_URL=postgresql://plane:plane@127.0.0.1:55432/t_perms_fixture \

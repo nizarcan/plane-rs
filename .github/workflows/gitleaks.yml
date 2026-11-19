@@ -1,0 +1,37 @@
+name: Secret scan
+
+# Scans every commit and every push with gitleaks. The allowlist in
+# .gitleaks.toml is path- and rule-scoped to the committed test material the
+# parity proofs need (golden tokens, codec vectors, fixtures, the SSRF test
+# key, dev-stack curl credentials); anything else is a finding.
+#
+# Full history is fetched because the scan is `gitleaks git`: a secret removed
+# from the working tree but still in a commit must fail too.
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan the history with the committed configuration
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            -w "$GITHUB_WORKSPACE" \
+            zricethezav/gitleaks:latest \
+            git --config .gitleaks.toml --no-banner --redact --verbose "$GITHUB_WORKSPACE"

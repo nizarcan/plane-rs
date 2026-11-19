@@ -616,7 +616,11 @@ def build() -> dict[str, object]:
 if __name__ == "__main__":
     import os
 
-    sys.path.insert(0, str(SERVER_DIR.parents[1] / "apps" / "api"))
+    # The Django oracle (apps/api at the UPSTREAM.toml pin).
+    sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+    from oracle import api_dir as _oracle_api_dir
+
+    sys.path.insert(0, str(_oracle_api_dir()))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
     import django
 

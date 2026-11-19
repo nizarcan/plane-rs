@@ -25,7 +25,8 @@
 //! `request.POST`/multipart lookup and the reason strings) is
 //! `plane_auth::csrf`; this module is the middleware's request/response wiring.
 //!
-//! The template is embedded from `apps/api/templates/csrf_failure.html` at build
+//! The template is embedded from `assets/csrf_failure.html` (a byte copy of the
+//! oracle's `apps/api/templates/csrf_failure.html`) at build
 //! time, so upstream edits are picked up on rebuild instead of drifting.
 
 use axum::http::Method;
@@ -40,7 +41,9 @@ use crate::response::Resp;
 
 /// The template Django renders for a rejection.
 const CSRF_FAILURE_TEMPLATE: &str =
-    include_str!("../../../../../../apps/api/templates/csrf_failure.html");
+    // Byte-identical copy of the oracle's
+    // `apps/api/templates/csrf_failure.html`; see `assets/README.md`.
+    include_str!("../../assets/csrf_failure.html");
 
 /// `CsrfViewMiddleware.process_request`: adopt a valid `csrftoken` cookie or
 /// replace a malformed one (`csrf.py:400-414`).

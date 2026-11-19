@@ -24,7 +24,11 @@ import os
 import sys
 from pathlib import Path
 
-API = Path(__file__).resolve().parents[3] / "api"
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API = _oracle_api_dir()
 sys.path.insert(0, str(API))
 # A self-contained bootstrap, like the other generators: production settings
 # read these four even though this script only calls a pure function, and the

@@ -16,7 +16,12 @@ import os
 import pickle
 import sys
 
-API_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "api"))
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, os.path.join(TOOLS_DIR, "..", "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = str(_oracle_api_dir())
 sys.path.insert(0, API_DIR)
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "plane.settings.production"

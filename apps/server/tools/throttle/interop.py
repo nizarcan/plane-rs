@@ -223,7 +223,15 @@ def main(argv):
 
     # `manage.py` puts the project root on `sys.path`; a script started by path
     # does not, so add it explicitly (default: the cwd, as documented above).
-    sys.path.insert(0, os.environ.get("PLANE_DJANGO_ROOT") or os.getcwd())
+    if os.environ.get("PLANE_DJANGO_ROOT"):
+        django_root = os.environ["PLANE_DJANGO_ROOT"]
+    else:
+        # The oracle at the UPSTREAM.toml pin; see tools/upstream/oracle.py.
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "upstream"))
+        from oracle import api_dir as _oracle_api_dir
+
+        django_root = str(_oracle_api_dir())
+    sys.path.insert(0, django_root)
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
     import django
 

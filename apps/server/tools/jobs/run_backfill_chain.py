@@ -18,6 +18,13 @@ Usage (with the dev environment sourced and `PLANE_DB` pointing at the clone):
 
 import os
 import sys
+from pathlib import Path
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+sys.path.insert(0, str(_oracle_api_dir()))
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plane.settings.production")
 

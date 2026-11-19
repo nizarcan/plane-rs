@@ -1,6 +1,7 @@
 # Contract suite on a mixed Django + Rust backend
 
-The contract half of the Phase 3 exit check: run `apps/api/plane/tests/contract`
+The contract half of the Phase 3 exit check: run the oracle's
+`apps/api/plane/tests/contract`
 **unchanged** while every request whose method + path is owned by `rust` in
 `apps/server/ROUTES.md` goes over real HTTP to a `plane-api` instance. Everything
 else stays in-process in Django, as it is today.
@@ -23,7 +24,7 @@ cd apps/server/tools/contract
 # 1. Which contract files can reach a Rust-owned route at all (dry, no test
 #    runs). Prints one path per line; the detail (method, template, group) goes
 #    to stderr.
-apps/api/.venv/bin/python dry_routing.py > /tmp/selected.txt
+"$(apps/server/tools/upstream/oracle.sh python)" dry_routing.py > /tmp/selected.txt
 
 # 2. Baseline once, on exactly that set: everything in-process through the
 #    plugin. Must match plain upstream (see "Baseline" below).
@@ -193,9 +194,10 @@ command without `-p pytest_plane_contract` (and a throwaway database, because
 pytest-django would otherwise use its default `test_` prefix):
 
 ```sh
-cd apps/api
-PLANE_DB=t_rsct_plain PLANE_REDIS_DB=1 PLANE_MQ_VHOST=t_rsct_plain \
-  DJANGO_SETTINGS_MODULE=plane.settings.test .venv/bin/python -m pytest plane/tests/contract -q
+API="$(apps/server/tools/upstream/oracle.sh api-dir)"
+PY="$(apps/server/tools/upstream/oracle.sh python)"
+(cd "$API" && PLANE_DB=t_rsct_plain PLANE_REDIS_DB=1 PLANE_MQ_VHOST=t_rsct_plain \
+  DJANGO_SETTINGS_MODULE=plane.settings.test "$PY" -m pytest plane/tests/contract -q)
 ```
 
 ## Limitations

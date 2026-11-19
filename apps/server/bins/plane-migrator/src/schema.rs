@@ -10,10 +10,12 @@
 //! * **fresh install** — `public` is empty and no marker exists: apply the
 //!   embedded `pg_dump` in one transaction and insert the `django_migrations`
 //!   rows it was taken with, so a rollback to the Python image still works;
-//! * **upgrade** — `public.django_migrations` exists: its `(app, name)` set must
-//!   equal the baseline's exactly. Missing rows mean the database is older than
-//!   this binary and the Django migrator has to run first; extra rows mean the
-//!   database is newer and this binary refuses to downgrade it;
+//! * **upgrade** — `public.django_migrations` exists: a database at an older
+//!   released baseline is carried forward by the ordered [`UpgradeStep`]s that
+//!   start at its marker (or, without a marker, at its recognised migration
+//!   set); each step runs in one transaction and records its rows. Missing rows
+//!   no step covers mean the database is older than any release this binary
+//!   knows; extra rows mean it is newer, and this binary refuses to downgrade;
 //! * **already migrated** — `plane_jobs.meta.django_baseline` holds this
 //!   binary's baseline id: only the idempotent `plane_jobs` DDL runs.
 //!
@@ -34,6 +36,8 @@ use std::collections::BTreeSet;
 
 use tokio_postgres::Client;
 
+use crate::upgrade::{UPGRADE_STEPS, UpgradeStep};
+
 /// The advisory lock every migrator takes: `hashtextextended('plane-migrator',
 /// 0)` computed on PostgreSQL 15.7. A literal, so a second binary version
 /// computes the same key.
@@ -52,12 +56,18 @@ pub const DJANGO_MIGRATIONS: &str = include_str!("../../../deploy/schema/django_
 pub const BASELINE_ID: &str = "db:0125_reset_project_deploy_board_identity,license:0006_instance_is_current_version_deprecated";
 
 /// What the migrator did. Printed by `main`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// Empty `public`: the baseline was applied in this run.
     FreshInstall { migrations: usize },
     /// `django_migrations` matched the baseline exactly.
     Upgrade { migrations: usize },
+    /// An older baseline was carried forward by ordered upgrade steps.
+    Upgraded {
+        from: String,
+        to: String,
+        steps: usize,
+    },
     /// The marker named this binary's baseline; only idempotent DDL ran.
     AlreadyCurrent,
 }
@@ -71,8 +81,8 @@ pub enum SchemaError {
     Queue(#[from] plane_jobs::queue::QueueError),
     #[error(
         "the database has {missing} migration(s) this binary does not know: {examples}. \
-         It is older than the pin; run Django's migrator first \
-         (apps/api/bin/docker-entrypoint-migrator.sh:5, `python manage.py migrate`)"
+         It is older than this release and no released upgrade step covers it; \
+         restore the plane-rs release that created it, or add the step (UPGRADING.md)"
     )]
     OlderThanBaseline { missing: usize, examples: String },
     #[error(
@@ -83,13 +93,14 @@ pub enum SchemaError {
     NewerThanBaseline { extra: usize, examples: String },
     #[error(
         "the public schema is not empty but has no django_migrations table; \
-         refusing to guess. Create the database with plane-migrator or migrate it \
-         with Django first (apps/api/bin/docker-entrypoint-migrator.sh:5)"
+         refusing to guess. Create the database with plane-migrator, or restore \
+         the release that created it (UPGRADING.md)"
     )]
     NonEmptyWithoutMigrations,
     #[error(
-        "plane_jobs.meta.django_baseline is {found:?} but this binary expects {expected:?}; \
-         the database was created by another plane-migrator version"
+        "plane_jobs.meta.django_baseline is {found:?} but this binary knows {expected:?}; \
+         no released upgrade step starts there. Refusing to guess; restore the release \
+         that created the database or add the missing step (UPGRADING.md)"
     )]
     DifferentBaseline { found: String, expected: String },
 }
@@ -98,12 +109,22 @@ pub enum SchemaError {
 /// database is [`Outcome::AlreadyCurrent`] (or [`Outcome::Upgrade`] if the
 /// marker was removed by hand) and touches no Django table.
 pub async fn migrate(client: &mut Client) -> Result<Outcome, SchemaError> {
+    migrate_with_steps(client, UPGRADE_STEPS).await
+}
+
+/// The state machine with an explicit step list. `migrate` passes the released
+/// steps; the database-backed test passes one synthetic step to prove the
+/// ordered upgrade path without editing the release manifest.
+pub async fn migrate_with_steps(
+    client: &mut Client,
+    steps: &[UpgradeStep],
+) -> Result<Outcome, SchemaError> {
     // Session-level: held for the whole run, released by `unlock` or by the
     // connection closing. `pg_advisory_lock` waits for a competing migrator.
     client
         .query_one("SELECT pg_advisory_lock($1)", &[&ADVISORY_LOCK_KEY])
         .await?;
-    let outcome = migrate_locked(client).await;
+    let outcome = migrate_locked(client, steps).await;
     // A failed run must still release the lock before the error is reported;
     // `main` then closes the connection, which would release it anyway.
     let _ = client
@@ -112,18 +133,38 @@ pub async fn migrate(client: &mut Client) -> Result<Outcome, SchemaError> {
     outcome
 }
 
-async fn migrate_locked(client: &mut Client) -> Result<Outcome, SchemaError> {
+async fn migrate_locked(
+    client: &mut Client,
+    steps: &[UpgradeStep],
+) -> Result<Outcome, SchemaError> {
     let expected = expected_migrations();
+    let states = cumulative_states(steps, &expected);
+    let latest = states.last().cloned().unwrap_or_else(|| expected.clone());
+    let latest_id = steps.last().map(|step| step.to).unwrap_or(BASELINE_ID);
 
     if let Some(found) = marker(client).await? {
-        if found != BASELINE_ID {
-            return Err(SchemaError::DifferentBaseline {
-                found,
-                expected: BASELINE_ID.to_string(),
-            });
+        if found == latest_id {
+            plane_jobs::migrate(client).await?;
+            return Ok(Outcome::AlreadyCurrent);
         }
-        plane_jobs::migrate(client).await?;
-        return Ok(Outcome::AlreadyCurrent);
+        match steps.iter().position(|step| step.from == found) {
+            Some(index) => {
+                apply_steps(client, &steps[index..]).await?;
+                plane_jobs::migrate(client).await?;
+                write_marker(client, latest_id).await?;
+                return Ok(Outcome::Upgraded {
+                    from: found,
+                    to: latest_id.to_string(),
+                    steps: steps.len() - index,
+                });
+            }
+            None => {
+                return Err(SchemaError::DifferentBaseline {
+                    found,
+                    expected: baseline_ids(steps).join(" or "),
+                });
+            }
+        }
     }
 
     let has_migrations = client
@@ -135,14 +176,36 @@ async fn migrate_locked(client: &mut Client) -> Result<Outcome, SchemaError> {
         .get::<_, bool>(0);
     if has_migrations {
         let actual = read_migrations(client).await?;
-        let missing: Vec<String> = expected.difference(&actual).cloned().collect();
+        if actual == latest {
+            plane_jobs::migrate(client).await?;
+            write_marker(client, latest_id).await?;
+            return Ok(Outcome::Upgrade {
+                migrations: latest.len(),
+            });
+        }
+        // A database created before the marker existed: recognise the state by
+        // its migration rows and run the remaining steps.
+        if let Some(index) = states.iter().position(|state| state == &actual)
+            && index < steps.len()
+        {
+            let from = steps[index].from.to_string();
+            apply_steps(client, &steps[index..]).await?;
+            plane_jobs::migrate(client).await?;
+            write_marker(client, latest_id).await?;
+            return Ok(Outcome::Upgraded {
+                from,
+                to: latest_id.to_string(),
+                steps: steps.len() - index,
+            });
+        }
+        let missing: Vec<String> = latest.difference(&actual).cloned().collect();
         if !missing.is_empty() {
             return Err(SchemaError::OlderThanBaseline {
                 missing: missing.len(),
                 examples: examples(&missing),
             });
         }
-        let extra: Vec<String> = actual.difference(&expected).cloned().collect();
+        let extra: Vec<String> = actual.difference(&latest).cloned().collect();
         if !extra.is_empty() {
             return Err(SchemaError::NewerThanBaseline {
                 extra: extra.len(),
@@ -150,9 +213,9 @@ async fn migrate_locked(client: &mut Client) -> Result<Outcome, SchemaError> {
             });
         }
         plane_jobs::migrate(client).await?;
-        write_marker(client).await?;
+        write_marker(client, latest_id).await?;
         return Ok(Outcome::Upgrade {
-            migrations: expected.len(),
+            migrations: latest.len(),
         });
     }
 
@@ -162,7 +225,9 @@ async fn migrate_locked(client: &mut Client) -> Result<Outcome, SchemaError> {
 
     // A `CREATE DATABASE` copies `public` from template1, and the dump itself
     // starts with `CREATE SCHEMA public`; dropping the empty schema first is
-    // what makes the dump apply unchanged.
+    // what makes the dump apply unchanged. The baseline is regenerated at every
+    // pin, so it already contains the steps' schema and rows: a fresh install
+    // never replays them.
     let transaction = client.transaction().await?;
     transaction
         .batch_execute("DROP SCHEMA IF EXISTS public CASCADE")
@@ -177,10 +242,66 @@ async fn migrate_locked(client: &mut Client) -> Result<Outcome, SchemaError> {
     transaction.commit().await?;
 
     plane_jobs::migrate(client).await?;
-    write_marker(client).await?;
+    write_marker(client, latest_id).await?;
     Ok(Outcome::FreshInstall {
-        migrations: expected.len(),
+        migrations: latest.len(),
     })
+}
+
+/// `states[k]` is the migration set with steps `k..` not yet applied, so
+/// `states[0]` is the oldest known database and the last state is the baseline.
+fn cumulative_states(steps: &[UpgradeStep], baseline: &BTreeSet<String>) -> Vec<BTreeSet<String>> {
+    let mut states = vec![BTreeSet::new(); steps.len() + 1];
+    let mut current = baseline.clone();
+    states[steps.len()] = current.clone();
+    for index in (0..steps.len()).rev() {
+        for (app, name) in steps[index].migrations {
+            current.remove(&format!("{app}\t{name}"));
+        }
+        states[index] = current.clone();
+    }
+    states
+}
+
+/// Every `from` this binary can start an upgrade at, for the refusal message.
+fn baseline_ids(steps: &[UpgradeStep]) -> Vec<String> {
+    let mut ids: Vec<String> = steps.iter().map(|step| step.from.to_string()).collect();
+    ids.push(
+        steps
+            .last()
+            .map(|step| step.to)
+            .unwrap_or(BASELINE_ID)
+            .to_string(),
+    );
+    ids
+}
+
+/// Apply steps in order, one transaction each, recording their migration rows.
+async fn apply_steps(client: &mut Client, steps: &[UpgradeStep]) -> Result<(), SchemaError> {
+    for step in steps {
+        let transaction = client.transaction().await?;
+        transaction.batch_execute(step.sql).await?;
+        // `django_migrations` carries no unique constraint (Django relies on
+        // its own history), so guard the insert explicitly; a step rerun after
+        // a crash between the SQL and the commit is then still a no-op.
+        let statement = transaction
+            .prepare(
+                "INSERT INTO public.django_migrations (app, name, applied) \
+                 SELECT $1::varchar, $2::varchar, now() WHERE NOT EXISTS ( \
+                   SELECT 1 FROM public.django_migrations \
+                   WHERE app = $1::varchar AND name = $2::varchar)",
+            )
+            .await?;
+        for (app, name) in step.migrations {
+            transaction.execute(&statement, &[app, name]).await?;
+        }
+        transaction.commit().await?;
+        eprintln!(
+            "plane-migrator: applied upgrade step {} ({} -> {})",
+            step.id, step.from, step.to
+        );
+    }
+    Ok(())
 }
 
 /// `plane_jobs.meta.django_baseline`, when `plane_jobs.meta` exists.
@@ -201,12 +322,12 @@ async fn marker(client: &Client) -> Result<Option<String>, SchemaError> {
     Ok(row.map(|row| row.get(0)))
 }
 
-async fn write_marker(client: &Client) -> Result<(), SchemaError> {
+async fn write_marker(client: &Client, baseline: &str) -> Result<(), SchemaError> {
     client
         .execute(
             "INSERT INTO plane_jobs.meta (key, value) VALUES ('django_baseline', $1) \
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-            &[&BASELINE_ID],
+            &[&baseline],
         )
         .await?;
     Ok(())
@@ -307,6 +428,170 @@ mod tests {
                 "{leaf} is not in the baseline's django_migrations rows"
             );
         }
+    }
+
+    /// A synthetic step's rows must already be in the refreshed baseline (that
+    /// is what "regenerate the baseline at the new pin" means). A step whose
+    /// migration is absent would leave a fresh install and an upgraded one on
+    /// different `django_migrations` sets.
+    #[test]
+    fn released_steps_are_part_of_the_baseline() {
+        let expected = expected_migrations();
+        for step in UPGRADE_STEPS {
+            assert!(!step.sql.trim().is_empty(), "step {} has no SQL", step.id);
+            for (app, name) in step.migrations {
+                assert!(
+                    expected.contains(&format!("{app}\t{name}")),
+                    "step {} records {app}.{name}, which is not in \
+                     deploy/schema/django_migrations.txt",
+                    step.id
+                );
+            }
+        }
+        // The chain's last `to` is the marker a fresh install writes.
+        if let Some(last) = UPGRADE_STEPS.last() {
+            assert_eq!(
+                last.to, BASELINE_ID,
+                "the last step must end at the baseline"
+            );
+        }
+    }
+
+    fn scratch_database_name() -> String {
+        format!("t_migrator_step_{}", std::process::id())
+    }
+
+    fn with_database(url: &str, database: &str) -> String {
+        let base = url.rsplit_once('/').map(|(base, _)| base).unwrap_or(url);
+        format!("{base}/{database}")
+    }
+
+    async fn connect(url: &str) -> tokio_postgres::Client {
+        let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls)
+            .await
+            .expect("connect to the test database");
+        tokio::spawn(connection);
+        client
+    }
+
+    /// Proves the ordered upgrade path with two synthetic steps: a database at
+    /// the released baseline is carried to the second step's marker, records
+    /// the steps' `django_migrations` rows, and a rerun is a no-op.
+    #[tokio::test]
+    async fn ordered_steps_upgrade_an_existing_baseline() {
+        let Some(url) = std::env::var("PLANE_RS_TEST_DATABASE_URL").ok() else {
+            if std::env::var("PLANE_RS_REQUIRE_DB_TESTS").as_deref() == Ok("1") {
+                panic!("PLANE_RS_REQUIRE_DB_TESTS=1 but PLANE_RS_TEST_DATABASE_URL is unset");
+            }
+            eprintln!("migrator upgrade test: PLANE_RS_TEST_DATABASE_URL is unset; skipping");
+            return;
+        };
+        let scratch = scratch_database_name();
+        let admin = connect(&with_database(&url, "postgres")).await;
+        // `CREATE DATABASE` cannot share a transaction with the drop, and the
+        // simple query protocol wraps a multi-statement string in one.
+        admin
+            .batch_execute(&format!(
+                "DROP DATABASE IF EXISTS \"{scratch}\" WITH (FORCE)"
+            ))
+            .await
+            .expect("drop a leftover scratch database");
+        admin
+            .batch_execute(&format!("CREATE DATABASE \"{scratch}\""))
+            .await
+            .expect("create the scratch database");
+
+        let mut client = connect(&with_database(&url, &scratch)).await;
+
+        // A fresh install at the released baseline, as an existing deployment
+        // created before this release would be.
+        let fresh = migrate_with_steps(&mut client, &[]).await.expect("fresh");
+        assert!(matches!(fresh, Outcome::FreshInstall { .. }));
+        let mid = "db:9999_synthetic_step_one,license:0006_instance_is_current_version_deprecated";
+        let last = "db:9999_synthetic_step_two,license:0006_instance_is_current_version_deprecated";
+        let steps = [
+            UpgradeStep {
+                id: "test-0001",
+                from: BASELINE_ID,
+                to: mid,
+                sql: "CREATE TABLE public.upgrade_step_one (id integer PRIMARY KEY)",
+                migrations: &[("db", "9999_synthetic_step_one")],
+            },
+            UpgradeStep {
+                id: "test-0002",
+                from: mid,
+                to: last,
+                sql: "CREATE TABLE public.upgrade_step_two (id integer PRIMARY KEY)",
+                migrations: &[("db", "9999_synthetic_step_two")],
+            },
+        ];
+
+        let outcome = migrate_with_steps(&mut client, &steps)
+            .await
+            .expect("upgrade");
+        match outcome {
+            Outcome::Upgraded {
+                from,
+                to,
+                steps: applied,
+            } => {
+                assert_eq!(from, BASELINE_ID);
+                assert_eq!(to, last);
+                assert_eq!(applied, 2);
+            }
+            other => panic!("expected an ordered upgrade, got {other:?}"),
+        }
+
+        for table in ["upgrade_step_one", "upgrade_step_two"] {
+            let row = client
+                .query_one(
+                    "SELECT to_regclass($1) IS NOT NULL",
+                    &[&format!("public.{table}")],
+                )
+                .await
+                .expect("relation lookup");
+            assert!(row.get::<_, bool>(0), "{table} was not created");
+        }
+        let recorded = client
+            .query(
+                "SELECT name FROM public.django_migrations WHERE name LIKE '9999_synthetic_step_%' \
+                 ORDER BY name",
+                &[],
+            )
+            .await
+            .expect("migration rows");
+        let names: Vec<String> = recorded.iter().map(|row| row.get(0)).collect();
+        assert_eq!(
+            names,
+            vec![
+                "9999_synthetic_step_one".to_string(),
+                "9999_synthetic_step_two".to_string()
+            ]
+        );
+        let marker_row = client
+            .query_one(
+                "SELECT value FROM plane_jobs.meta WHERE key = 'django_baseline'",
+                &[],
+            )
+            .await
+            .expect("marker");
+        assert_eq!(marker_row.get::<_, String>(0), last);
+
+        // Idempotent: the marker names the last step.
+        assert!(matches!(
+            migrate_with_steps(&mut client, &steps)
+                .await
+                .expect("second run"),
+            Outcome::AlreadyCurrent
+        ));
+
+        drop(client);
+        admin
+            .batch_execute(&format!(
+                "DROP DATABASE IF EXISTS \"{scratch}\" WITH (FORCE)"
+            ))
+            .await
+            .expect("drop the scratch database");
     }
 
     #[test]

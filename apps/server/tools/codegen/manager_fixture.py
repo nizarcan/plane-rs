@@ -51,7 +51,11 @@ from typing import Any
 SCRIPT_PATH = Path(__file__).resolve()
 SERVER_DIR = SCRIPT_PATH.parents[2]
 REPO_ROOT = SCRIPT_PATH.parents[4]
-API_DIR = REPO_ROOT / "apps" / "api"
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 GOLDEN = SERVER_DIR / "crates" / "plane-db" / "tests" / "golden" / "managers.json"
 MARKER_SLUG = "models-manager-fixture"
 UUID_NAMESPACE = uuid.UUID("9b3a6b8e-6a4c-5d1e-8f2a-0c7d5e4b3a21")

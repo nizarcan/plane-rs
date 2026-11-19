@@ -6,6 +6,14 @@ rewrite: a ported route is not done until the same scenario produces the same
 status, headers, bodies, database diff, Redis diff and Celery messages on Django
 and on `plane-api`.
 
+The Django target is **the oracle**: `apps/api` at the commit in `UPSTREAM.toml`,
+materialised by `tools/upstream/oracle.sh` under the home cache. Fetch it before
+the first run (`apps/server/tools/upstream/oracle.sh fetch`); `django-serve.sh`
+starts from it, so no scenario has a copy of Django in the checkout. While moving
+the pin, `PLANE_RS_UPSTREAM_COMMIT=<target>` and
+`PLANE_RS_ORACLE_DIR=<cache>/oracle/<target>` make both targets use the target
+commit (`UPGRADING.md`).
+
 The harness is its own cargo workspace (`crates/plane-testkit`), so it is built
 by manifest path. Its build output still lands in `apps/server/target`, which is
 why `./target/debug/difftest` works from `apps/server`.
@@ -290,8 +298,8 @@ step (a non-member session, `expect_status: 403`) and the expected create/update
 
 ```bash
 cd apps/server
-../api/.venv/bin/python tools/scenarios/gen_write.py --orders 223,224      # stickies
-../api/.venv/bin/python tools/scenarios/gen_write.py --group stickies -v   # and show skipped fields
+"$(tools/upstream/oracle.sh python)" tools/scenarios/gen_write.py --orders 223,224      # stickies
+"$(tools/upstream/oracle.sh python)" tools/scenarios/gen_write.py --group stickies -v   # and show skipped fields
 ```
 
 The generator knows serializer *fields*, not view rules: review the body (a

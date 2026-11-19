@@ -18,7 +18,7 @@ Every serializer module in `plane.app.serializers`, `plane.api.serializers`, `pl
 | manual | 23 |
 | **total** | **227** |
 
-2888 readable fields, 16 write-only fields recorded for Phase 5, 274 views mapped.
+2888 readable fields, 16 write-only fields recorded for Phase 5, 277 views mapped.
 
 ## Rust runtime
 
@@ -4940,6 +4940,9 @@ Every unique view in `routes.json`. `serializer_class` is the class attribute; `
 
 | View | Routes | `serializer_class` | `get_serializer_class` | Explicit calls |
 | --- | ---: | --- | --- | --- |
+| `drf_spectacular.views.SpectacularAPIView` | 1 |  |  |  |
+| `drf_spectacular.views.SpectacularRedocView` | 1 |  |  |  |
+| `drf_spectacular.views.SpectacularSwaggerView` | 1 |  |  |  |
 | `plane.api.views.asset.GenericAssetEndpoint` | 2 |  |  |  |
 | `plane.api.views.asset.UserAssetEndpoint` | 2 |  |  |  |
 | `plane.api.views.asset.UserServerAssetEndpoint` | 2 |  |  |  |

@@ -38,7 +38,12 @@ from pathlib import Path
 SCRIPT_PATH = Path(__file__).resolve()
 SERVER_DIR = SCRIPT_PATH.parents[2]
 REPO_ROOT = SCRIPT_PATH.parents[4]
-API_DIR = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 CORPUS = SERVER_DIR / "crates" / "plane-http-public" / "tests" / "golden" / "lxml_html.jsonl"
 
 # Shapes `@plane/editor` writes, then the malformed inputs a client can send.
