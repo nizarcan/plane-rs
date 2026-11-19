@@ -177,16 +177,48 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
             "bins/plane-api/src/middleware/extensions.rs:56 (APITokenLogMiddleware)",
         )],
     ),
-    // Not Rust-owned yet: the handler is ported and `difftest task` proves it,
-    // but `page_version_task` is still a Django task (set A) whose
-    // `PageVersion.objects...first().delete()` publishes this task through
-    // `.delay()` (`plane/bgtasks/page_version_task.py:74`). D25 keeps the task
-    // on Celery until that producer is Rust.
+    // Step A3's version/description tasks: five call sites, all in
+    // `plane-http-app` (`TASKS.md:727-739`).
+    (
+        "plane.bgtasks.issue_description_version_task.issue_description_version_task",
+        &[
+            Producer::RustHttp("plane/app/views/issue/base.py:484 (create)"),
+            Producer::RustHttp("plane/app/views/issue/base.py:710 (update)"),
+            Producer::RustHttp("plane/app/views/intake/base.py:294 (intake create)"),
+            Producer::RustHttp("plane/app/views/intake/base.py:456 (intake update)"),
+        ],
+    ),
+    (
+        "plane.bgtasks.page_transaction_task.page_transaction",
+        &[
+            Producer::RustHttp("plane/app/views/page/base.py:160 (PageViewSet.create)"),
+            Producer::RustHttp("plane/app/views/page/base.py:204 (PageViewSet.partial_update)"),
+            Producer::RustHttp("plane/app/views/page/base.py:558 (PagesDescriptionViewSet)"),
+            Producer::RustHttp("plane/app/views/page/base.py:610 (PageDuplicateEndpoint)"),
+        ],
+    ),
+    (
+        "plane.bgtasks.page_version_task.track_page_version",
+        &[Producer::RustHttp(
+            "plane/app/views/page/base.py:565 (PagesDescriptionViewSet)",
+        )],
+    ),
+    // Step A3 moved `track_page_version` to Rust. Its trim
+    // (`page_version_task.py:72-74`) is the only publish of this task outside
+    // the Rust HTTP hooks, and it is unreachable: both write branches raise
+    // `AttributeError: 'Page' object has no attribute 'description'`
+    // (`:55`, `:63`) before reaching the delete. The Python task body can no
+    // longer run because no producer publishes it, so D25's producer rule is
+    // satisfied and the task moves with A3. The Rust handler reproduces the
+    // observable effect: no row change and no publish
+    // (`plane-tasks/src/versions.rs`).
     (
         "plane.bgtasks.deletion_task.soft_delete_related_objects",
         &[
             Producer::RustHttp("plane-http-app::write::publish_soft_delete_cascade (H03 sites)"),
-            Producer::Celery("plane/bgtasks/page_version_task.py:74"),
+            Producer::RustTask(
+                "plane-tasks/src/versions.rs (track_page_version trim; unreachable upstream)",
+            ),
         ],
     ),
 ];

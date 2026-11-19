@@ -272,6 +272,10 @@ fn cdata_end(text: &str, element: &str) -> Option<usize> {
 /// `html.unescape` (`Lib/html/__init__.py:78-120`, CPython 3.12.13) for one
 /// run of data.
 ///
+/// Byte-identical to CPython's, and also the decoder `HTMLParser` applies to
+/// every tag attribute value (`html/parser.py:434-435`), which is what
+/// `page_transaction`'s component ids go through.
+///
 /// The reference grammar is the module's `_charref` regex:
 ///
 /// ```text
@@ -288,7 +292,7 @@ fn cdata_end(text: &str, element: &str) -> Option<usize> {
 ///
 /// The tables are generated from the interpreter
 /// (`tools/descriptions/gen_html_entities.py`), not transcribed.
-fn unescape(text: &str) -> String {
+pub fn unescape(text: &str) -> String {
     if !text.contains('&') {
         return text.to_owned();
     }
