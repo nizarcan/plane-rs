@@ -47,6 +47,9 @@ chrono = { version = "0.4.42", default-features = false, features = [
   "clock",
 ] }
 chrono-tz = "0.10"
+# The `plane-admin` operator CLI's subcommand grammar (`bins/plane-admin`).
+# Pinned to the version `plane-testkit` uses; only the binary enables `derive`.
+clap = "4.6.7"
 deadpool-postgres = "0.14.2"
 # `getaddrinfo`/`getnameinfo` wrappers for `socket.getfqdn()` (SMTP EHLO and
 # Message-ID, DECISIONS.md D23). Safe API over the same libc calls CPython

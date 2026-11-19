@@ -583,7 +583,17 @@ fn normalise_diff(diff: &mut DbDiff, _started: DateTime<Utc>) {
                 }
             }
         }
+        // The rows are keyed by primary key, and two sides insert independent
+        // random UUIDs, so their primary-key order is not an effect. Compare
+        // each list as a multiset: sort the rows now that the ids are `<ID>`.
+        table.inserted.sort_by_cached_key(canonical_row);
+        table.deleted.sort_by_cached_key(canonical_row);
+        table.updated.sort_by_cached_key(canonical_row);
     }
+}
+
+fn canonical_row(row: &serde_json::Value) -> String {
+    serde_json::to_string(row).unwrap_or_default()
 }
 
 /// A timestamp becomes `<TS>`; a date (`archived_at`, `target_date`) is left
@@ -671,4 +681,44 @@ pub fn default_paths() -> (PathBuf, PathBuf) {
         root.join("apps/server/target/debug/plane-worker"),
         root.join("apps/server/target/debug/plane-migrator"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{DbDiff, TableDiff};
+
+    fn diff_with_two_inserts(first: &str, second: &str) -> DbDiff {
+        let mut table = TableDiff::default();
+        table.inserted.push(serde_json::json!({
+            "id": first,
+            "created_at": "2026-11-19T10:00:00+00:00",
+            "name": "a",
+        }));
+        table.inserted.push(serde_json::json!({
+            "id": second,
+            "created_at": "2026-11-19T10:00:00+00:00",
+            "name": "b",
+        }));
+        let mut diff = DbDiff::default();
+        diff.tables.insert("page_logs".to_string(), table);
+        diff
+    }
+
+    #[test]
+    fn independently_inserted_rows_compare_as_a_multiset() {
+        // The two sides generate independent uuid4 primary keys; the diff is
+        // keyed by pk, so the lists arrive in different orders.
+        let mut django = diff_with_two_inserts(
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+        );
+        let mut rust = diff_with_two_inserts(
+            "ffffffff-ffff-ffff-ffff-ffffffffffff",
+            "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        );
+        normalise_diff(&mut django, Utc::now());
+        normalise_diff(&mut rust, Utc::now());
+        assert_eq!(django, rust);
+    }
 }

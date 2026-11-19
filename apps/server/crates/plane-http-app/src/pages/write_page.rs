@@ -897,8 +897,8 @@ async fn publish_page_transaction(
         ("page_id", TaskArg::uuid(page_id)),
     ];
     let message = plane_jobs::celery::Message::new(task, Vec::new(), kwargs);
-    crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await?;
+    let job = plane_jobs::queue::Job::from_message(&message);
+    crate::common::jobs::dispatch_task(ctx, task, &message, job).await?;
     Ok(())
 }
 

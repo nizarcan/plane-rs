@@ -35,6 +35,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 # Deterministic UUIDs. The first byte encodes the fixture group so a reader can
 # see at a glance which fixture a row belongs to.
 U = "11111111-1111-1111-1111-111111111111"
+U2 = "11111111-1111-1111-1111-111111111112"
 W1 = "22222222-2222-2222-2222-222222222222"
 W2 = "22222222-2222-2222-2222-222222222223"
 PROJECT = "33333333-3333-3333-3333-333333333333"
@@ -49,10 +50,13 @@ ISSUE3 = "55555555-5555-5555-5555-555555555553"
 INTAKE = "66666666-6666-6666-6666-666666666666"
 INTAKE_ISSUE = "77777777-7777-7777-7777-777777777771"
 CYCLE = "88888888-8888-8888-8888-888888888881"
+CYCLE2 = "88888888-8888-8888-8888-888888888883"
 MODULE = "88888888-8888-8888-8888-888888888882"
+MODULE2 = "88888888-8888-8888-8888-888888888884"
 PAGE = "99999999-9999-9999-9999-999999999991"
 PAGE2 = "99999999-9999-9999-9999-999999999992"
 LABEL = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1"
+LABEL2 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2"
 VIEW = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1"
 WEBHOOK = "cccccccc-cccc-cccc-cccc-ccccccccccc1"
 ESTIMATE = "dddddddd-dddd-dddd-dddd-dddddddddd01"
@@ -861,12 +865,486 @@ def build_unsnooze(now):
     del now
 
 
+def build_description_versions(now):
+    """Issues and versions for every `issue_description_version_task` branch."""
+    from plane.db.models import (
+        Issue,
+        IssueDescriptionVersion,
+        Project,
+        State,
+        User,
+        Workspace,
+    )
+
+    user = User.objects.create(
+        id=U,
+        username="p8a3",
+        email="p8a3@example.com",
+        first_name="",
+        last_name="",
+        user_timezone="UTC",
+    )
+    other = User.objects.create(
+        id=U2,
+        username="p8a3-other",
+        email="p8a3-other@example.com",
+        first_name="",
+        last_name="",
+        user_timezone="UTC",
+    )
+    workspace = Workspace.objects.create(
+        id=W1, name="P8A3", slug="p8a3-description", owner=user, timezone="UTC"
+    )
+    project = Project.objects.create(
+        id=PROJECT,
+        name="P8A3",
+        identifier="P8A3",
+        workspace=workspace,
+        created_by=user,
+    )
+    state = State.objects.create(
+        id=STATE_BACKLOG,
+        name="Backlog",
+        color="#ffffff",
+        project=project,
+        workspace=workspace,
+        created_by=user,
+    )
+
+    def issue(index, html, **kwargs):
+        return Issue.objects.create(
+            id=f"55555555-5555-5555-5555-{index:012d}",
+            name=f"Description {index}",
+            project=project,
+            workspace=workspace,
+            state=state,
+            description_html=html,
+            description_json={"type": "doc", "index": index},
+            created_by=user,
+            **kwargs,
+        )
+
+    # A: no version at all (create branch).
+    issue(1, "<p>a</p>")
+    # B: same owner, inside the 600 s window (update branch).
+    issue(2, "<p>b</p>")
+    # C: same owner, outside the window (create branch).
+    issue(3, "<p>c</p>")
+    # D: another owner, inside the window (create branch); its
+    # `description_binary` proves the bytea copy on create.
+    issue(4, "<p>d</p>", description_binary=b"\x01\x02")
+    # E: the argument's description_html equals the row (no-op branch).
+    issue(5, "<p>unchanged</p>")
+    # F: soft-deleted, so `Issue.objects.get` misses it.
+    issue(6, "<p>f</p>", deleted_at=now)
+
+    def version(record_id, issue_row, owner, html, **kwargs):
+        row = IssueDescriptionVersion.objects.create(
+            id=record_id,
+            issue=issue_row,
+            project=project,
+            workspace=workspace,
+            owned_by=owner,
+            description_html=html,
+            description_json={"version": record_id},
+            created_by=user,
+            **kwargs,
+        )
+        IssueDescriptionVersion.objects.filter(id=row.id).update(created_by_id=user.id)
+        return row
+
+    version(uuid_tail(1), Issue.objects.get(
+        id="55555555-5555-5555-5555-000000000002"
+    ), user, "<p>old-b</p>")
+    version(uuid_tail(2), Issue.objects.get(
+        id="55555555-5555-5555-5555-000000000003"
+    ), user, "<p>old-c</p>")
+    version(uuid_tail(3), Issue.objects.get(
+        id="55555555-5555-5555-5555-000000000004"
+    ), other, "<p>old-d</p>")
+    version(uuid_tail(4), Issue.objects.get(
+        id="55555555-5555-5555-5555-000000000005"
+    ), user, "<p>unchanged</p>")
+    version(uuid_tail(5), Issue.all_objects.get(
+        id="55555555-5555-5555-5555-000000000006"
+    ), user, "<p>f</p>")
+
+    # The window is measured against the run, not against generation time.
+    # B and D are 300 s old (inside), C is an hour old (outside), E is inside
+    # and its issue text matches.
+    for index in (1, 3, 4):
+        IssueDescriptionVersion.objects.filter(id=uuid_tail(index)).update(
+            last_saved_at=now - timedelta(seconds=300)
+        )
+    IssueDescriptionVersion.objects.filter(id=uuid_tail(2)).update(
+        last_saved_at=now - timedelta(hours=1)
+    )
+
+
+def build_page_versions(now):
+    """Pages for every `track_page_version` branch (all no-ops upstream)."""
+    from plane.db.models import Page, PageVersion, User, Workspace
+
+    user = User.objects.create(
+        id=U,
+        username="p8a3",
+        email="p8a3@example.com",
+        first_name="",
+        last_name="",
+        user_timezone="UTC",
+    )
+    workspace = Workspace.objects.create(
+        id=W1, name="P8A3", slug="p8a3-page", owner=user, timezone="UTC"
+    )
+    changed = Page.objects.create(
+        id=PAGE,
+        name="Changed",
+        workspace=workspace,
+        owned_by=user,
+        description_html="<p>changed</p>",
+        created_by=user,
+    )
+    same = Page.objects.create(
+        id=PAGE2,
+        name="Same",
+        workspace=workspace,
+        owned_by=user,
+        description_html="<p>same</p>",
+        created_by=user,
+    )
+    many = Page.objects.create(
+        id="99999999-9999-9999-9999-999999999993",
+        name="Many",
+        workspace=workspace,
+        owned_by=user,
+        description_html="<p>many</p>",
+        created_by=user,
+    )
+    deleted = Page.objects.create(
+        id="99999999-9999-9999-9999-999999999994",
+        name="Deleted",
+        workspace=workspace,
+        owned_by=user,
+        description_html="<p>deleted</p>",
+        created_by=user,
+        deleted_at=now,
+    )
+
+    def version(record_id, page, html, index):
+        row = PageVersion.objects.create(
+            id=record_id,
+            page=page,
+            workspace=workspace,
+            owned_by=user,
+            description_html=html,
+            description_json={"index": index},
+            created_by=user,
+        )
+        PageVersion.objects.filter(id=row.id).update(
+            created_by_id=user.id,
+            created_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc)
+            + timedelta(hours=index),
+        )
+        return row
+
+    version(uuid_tail(10), same, "<p>same</p>", 0)
+    for index in range(25):
+        version(uuid_tail(100 + index), many, f"<p>v{index}</p>", index)
+    version(uuid_tail(11), deleted, "<p>deleted</p>", 0)
+    PageVersion.objects.filter(id__in=[uuid_tail(100 + index) for index in range(25)]).update(
+        last_saved_at=now - timedelta(hours=1)
+    )
+
+
+def build_page_transactions(now):
+    """Pages and `PageLog` rows for `page_transaction`."""
+    from plane.db.models import Page, PageLog, User, Workspace
+
+    user = User.objects.create(
+        id=U,
+        username="p8a3",
+        email="p8a3@example.com",
+        first_name="",
+        last_name="",
+        user_timezone="UTC",
+    )
+    workspace = Workspace.objects.create(
+        id=W1, name="P8A3", slug="p8a3-transaction", owner=user, timezone="UTC"
+    )
+    page = Page.objects.create(
+        id=PAGE,
+        name="One",
+        workspace=workspace,
+        owned_by=user,
+        created_by=user,
+    )
+    other = Page.objects.create(
+        id=PAGE2,
+        name="Two",
+        workspace=workspace,
+        owned_by=user,
+        created_by=user,
+    )
+    empty = Page.objects.create(
+        id="99999999-9999-9999-9999-999999999993",
+        name="Empty",
+        workspace=workspace,
+        owned_by=user,
+        created_by=user,
+    )
+    deleted = Page.objects.create(
+        id="99999999-9999-9999-9999-999999999994",
+        name="Deleted",
+        workspace=workspace,
+        owned_by=user,
+        created_by=user,
+        deleted_at=now,
+    )
+
+    def log(page_row, index, transaction=None, deleted_at=None):
+        row = PageLog.objects.create(
+            id=uuid_tail(700 + index),
+            transaction=uuid_tail(800 + (index if transaction is None else transaction)),
+            page=page_row,
+            workspace=workspace,
+            entity_identifier=uuid_tail(900 + index),
+            entity_name="user",
+            created_by=user,
+            deleted_at=deleted_at,
+        )
+        PageLog.objects.filter(id=row.id).update(created_by_id=user.id)
+        return row
+
+    # T1 (800…01): live on page 1, removed by the "remove" case.
+    log(page, 1)
+    # T2 (800…02): soft-deleted, so the manager never sees it.
+    log(page, 2, deleted_at=now)
+    # T3 (800…03): live on page 2 only.
+    log(other, 3)
+    # T4 (800…04): live on both pages; removing it on page 1 deletes both,
+    # because the filter has no page_id.
+    log(page, 4)
+    log(other, 6, transaction=4)
+    # T5 (800…05): already logged; an old and new HTML that both contain it
+    # must not insert a second row (unique (page, transaction)).
+    log(page, 5)
+
+
+def build_backfill(now):
+    """Issues for the two `plane-admin` version backfills."""
+    from plane.db.models import (
+        Cycle,
+        CycleIssue,
+        Issue,
+        IssueActivity,
+        IssueAssignee,
+        IssueLabel,
+        Label,
+        Module,
+        ModuleIssue,
+        Project,
+        ProjectMember,
+        State,
+        User,
+        Workspace,
+    )
+
+    user = User.objects.create(
+        id=U,
+        username="p8a3",
+        email="p8a3@example.com",
+        first_name="",
+        last_name="",
+        user_timezone="UTC",
+    )
+    admin = User.objects.create(
+        id=U2,
+        username="p8a3-admin",
+        email="p8a3-admin@example.com",
+        first_name="",
+        last_name="",
+        user_timezone="UTC",
+    )
+    workspace = Workspace.objects.create(
+        id=W1, name="P8A3", slug="p8a3-backfill", owner=user, timezone="UTC"
+    )
+    project = Project.objects.create(
+        id=PROJECT,
+        name="Backfill",
+        identifier="BF",
+        workspace=workspace,
+        created_by=user,
+    )
+    empty_project = Project.objects.create(
+        id=PROJECT2,
+        name="No admin",
+        identifier="BF2",
+        workspace=workspace,
+        created_by=user,
+    )
+    backlog = State.objects.create(
+        id=STATE_BACKLOG,
+        name="Backlog",
+        color="#ffffff",
+        project=project,
+        workspace=workspace,
+        created_by=user,
+        default=True,
+    )
+    triage = State.objects.create(
+        id=STATE_TRIAGE,
+        name="Triage",
+        color="#ffffff",
+        group="triage",
+        is_triage=True,
+        project=project,
+        workspace=workspace,
+        created_by=user,
+    )
+    empty_state = State.objects.create(
+        id=STATE_DONE,
+        name="Done",
+        color="#ffffff",
+        project=empty_project,
+        workspace=workspace,
+        created_by=user,
+    )
+    # One project admin (role 20) and one ordinary member, both live. The
+    # fallback must pick `admin` even though `user` is older.
+    ProjectMember.objects.create(
+        id=uuid_tail(1), project=project, workspace=workspace, member=user, role=5,
+        created_by=user,
+    )
+    ProjectMember.objects.create(
+        id=uuid_tail(2), project=project, workspace=workspace, member=admin, role=20,
+        created_by=user,
+    )
+
+    label1 = Label.objects.create(
+        id=LABEL, name="Bug", project=project, workspace=workspace, created_by=user
+    )
+    label2 = Label.objects.create(
+        id=LABEL2, name="Feature", project=project, workspace=workspace, created_by=user
+    )
+    module1 = Module.objects.create(
+        id=MODULE, name="M1", project=project, workspace=workspace, created_by=user
+    )
+    module2 = Module.objects.create(
+        id=MODULE2, name="M2", project=project, workspace=workspace, created_by=user
+    )
+    cycle1 = Cycle.objects.create(
+        id=CYCLE, name="C1", project=project, workspace=workspace, owned_by=user,
+        created_by=user,
+    )
+    cycle2 = Cycle.objects.create(
+        id=CYCLE2, name="C2", project=project, workspace=workspace, owned_by=user,
+        created_by=user,
+    )
+
+    def issue(index, project_row, state, **kwargs):
+        return Issue.objects.create(
+            id=f"55555555-5555-5555-5555-{index:012d}",
+            name=f"Backfill {index}",
+            project=project_row,
+            workspace=workspace,
+            state=state,
+            description_html=f"<p>d{index}</p>",
+            description_json={"index": index},
+            description_stripped=f"d{index}",
+            sequence_id=index,
+            sort_order=100.0 + index,
+            priority="high" if index % 2 else "none",
+            **kwargs,
+        )
+
+    # `Issue.objects.create` goes through `BaseModel.save`, which nulls the
+    # audit users outside a request, so the columns are set afterwards.
+    # 1: updated_by wins, cycle links (two -> the oldest wins), two
+    # assignees, one label, two modules, two activities (the newest wins).
+    one = issue(1, project, backlog)
+    issue(2, project, backlog)
+    issue(3, project, backlog)
+    issue(4, project, backlog, deleted_at=now)
+    issue(5, empty_project, empty_state)
+    issue(6, project, triage)
+    issue(7, project, backlog, start_date="2026-02-01", target_date="2026-03-01",
+          completed_at=datetime(2026, 1, 15, tzinfo=dt_timezone.utc),
+          archived_at=datetime(2026, 1, 20, tzinfo=dt_timezone.utc).date(),
+          external_source="github", external_id="ext-7", is_draft=False)
+
+    for index, cycle in ((0, cycle1), (1, cycle2)):
+        CycleIssue.objects.create(
+            id=uuid_tail(10 + index), cycle=cycle, issue=one, project=project,
+            workspace=workspace, created_by=user,
+        )
+    CycleIssue.objects.filter(id=uuid_tail(10)).update(
+        created_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc)
+    )
+    CycleIssue.objects.filter(id=uuid_tail(11)).update(
+        created_at=datetime(2026, 1, 2, tzinfo=dt_timezone.utc)
+    )
+    for index, assignee in enumerate((U, U2)):
+        IssueAssignee.objects.create(
+            id=uuid_tail(20 + index), issue=one, assignee_id=assignee, project=project,
+            workspace=workspace, created_by=user,
+        )
+    IssueLabel.objects.create(
+        id=uuid_tail(30), issue=one, label=label1, project=project, workspace=workspace,
+        created_by=user,
+    )
+    IssueLabel.objects.create(
+        id=uuid_tail(31),
+        issue=Issue.objects.get(id="55555555-5555-5555-5555-000000000002"),
+        label=label2,
+        project=project,
+        workspace=workspace,
+        created_by=user,
+    )
+    for index, module in enumerate((module1, module2)):
+        ModuleIssue.objects.create(
+            id=uuid_tail(40 + index), module=module, issue=one, project=project,
+            workspace=workspace, created_by=user,
+        )
+    for index in range(2):
+        IssueActivity.objects.create(
+            id=uuid_tail(50 + index), issue=one, project=project, workspace=workspace,
+            actor=user, field="state", verb="updated", created_by=user,
+        )
+        IssueActivity.objects.filter(id=uuid_tail(50 + index)).update(
+            created_at=datetime(2026, 1, 1 + index, tzinfo=dt_timezone.utc)
+        )
+    # Audit users, in the combinations `get_owner_id` distinguishes.
+    Issue.objects.filter(id="55555555-5555-5555-5555-000000000001").update(
+        created_by_id=U, updated_by_id=U2
+    )
+    # 2: no audit users at all -> the project admin (U2) wins.
+    Issue.objects.filter(id="55555555-5555-5555-5555-000000000003").update(
+        created_by_id=U2, updated_by_id=None
+    )
+    Issue.objects.filter(
+        id__in=[f"55555555-5555-5555-5555-{index:012d}" for index in (4, 6, 7)]
+    ).update(created_by_id=U)
+    # 5: no audit users and no project admin -> skipped by the backfill.
+
+    # Batch order is `created_at ASC`; make it explicit and independent of
+    # insertion time.
+    for index in range(1, 8):
+        Issue.objects.filter(id=f"55555555-5555-5555-5555-{index:012d}").update(
+            created_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc)
+            + timedelta(hours=index)
+        )
+
+
 BUILDERS = {
     "cleanup": build_cleanup,
     "soft-cascade": build_soft_cascade,
     "hard-delete": build_hard_delete,
     "automation": build_automation,
     "unsnooze": build_unsnooze,
+    "description-version": build_description_versions,
+    "page-version": build_page_versions,
+    "page-transaction": build_page_transactions,
+    "backfill": build_backfill,
 }
 
 
@@ -948,6 +1426,27 @@ RELATIVE = {
     "automation": [
         ("issues", f"55555555-5555-5555-5555-{6:012d}", "updated_at",
          "now() - interval '1 day'"),
+    ],
+    "description-version": [
+        ("issue_description_versions", uuid_tail(1), "last_saved_at",
+         "now() - interval '5 minutes'"),
+        ("issue_description_versions", uuid_tail(3), "last_saved_at",
+         "now() - interval '5 minutes'"),
+        ("issue_description_versions", uuid_tail(4), "last_saved_at",
+         "now() - interval '5 minutes'"),
+        ("issue_description_versions", uuid_tail(2), "last_saved_at",
+         "now() - interval '1 hour'"),
+        ("issues", f"55555555-5555-5555-5555-{6:012d}", "deleted_at", "now()"),
+    ],
+    "page-version": [
+        ("pages", "99999999-9999-9999-9999-999999999994", "deleted_at", "now()"),
+    ],
+    "page-transaction": [
+        ("pages", "99999999-9999-9999-9999-999999999994", "deleted_at", "now()"),
+        ("page_logs", uuid_tail(702), "deleted_at", "now()"),
+    ],
+    "backfill": [
+        ("issues", f"55555555-5555-5555-5555-{4:012d}", "deleted_at", "now()"),
     ],
 }
 
@@ -1033,6 +1532,44 @@ TOUCHED = {
         "issues",
         "issue_sequences",
         "intake_issues",
+    ],
+    "description-version": [
+        "users",
+        "workspaces",
+        "projects",
+        "states",
+        "issues",
+        "issue_sequences",
+        "issue_description_versions",
+    ],
+    "page-version": [
+        "users",
+        "workspaces",
+        "pages",
+        "page_versions",
+    ],
+    "page-transaction": [
+        "users",
+        "workspaces",
+        "pages",
+        "page_logs",
+    ],
+    "backfill": [
+        "users",
+        "workspaces",
+        "projects",
+        "project_members",
+        "states",
+        "labels",
+        "cycles",
+        "modules",
+        "issues",
+        "issue_sequences",
+        "cycle_issues",
+        "module_issues",
+        "issue_assignees",
+        "issue_labels",
+        "issue_activities",
     ],
 }
 

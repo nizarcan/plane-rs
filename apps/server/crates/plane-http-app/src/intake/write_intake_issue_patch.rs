@@ -1104,7 +1104,8 @@ async fn publish_description_version(
     let task = plane_jobs::celery::task_name::ISSUE_DESCRIPTION_VERSION_TASK;
     let message =
         tasks::issue_description_version_task(updated_issue, issue_id.to_owned(), user_id, false);
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+    let job = plane_jobs::queue::Job::from_message(&message);
+    jobs::dispatch_task(ctx, task, &message, job).await?;
     Ok(())
 }
 

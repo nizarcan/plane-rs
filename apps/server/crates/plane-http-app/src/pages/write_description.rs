@@ -282,7 +282,8 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
                 Some(old_description_html.clone()),
                 TaskArg::uuid(page_id),
             );
-            jobs::dispatch_task(ctx, task, &message, Job::new(task)).await?;
+            let job = Job::from_message(&message);
+            jobs::dispatch_task(ctx, task, &message, job).await?;
         }
 
         // `track_page_version.delay(…)` on every valid call (`base.py:565-569`).
@@ -292,7 +293,8 @@ pub fn partial_update<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
             TaskArg::json_text(existing_instance),
             user,
         );
-        jobs::dispatch_task(ctx, task, &message, Job::new(task)).await?;
+        let job = Job::from_message(&message);
+        jobs::dispatch_task(ctx, task, &message, job).await?;
 
         Ok(ViewResponse::raw(
             200,

@@ -34,6 +34,10 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.issue_automation_task.archive_and_close_old_issues",
     "plane.bgtasks.issue_automation_task.unsnooze_expired_intake_issues",
     "plane.bgtasks.logger_task.process_logs",
+    "plane.bgtasks.issue_description_version_task.issue_description_version_task",
+    "plane.bgtasks.page_transaction_task.page_transaction",
+    "plane.bgtasks.page_version_task.track_page_version",
+    "plane.bgtasks.deletion_task.soft_delete_related_objects",
 ];
 
 /// A task's owner.

@@ -141,10 +141,10 @@ pub async fn publish_soft_delete_cascade(
         pk,
         None,
     );
-    // Phase 4's routing API: this task is Celery-owned during coexistence, so
-    // this publishes the same byte-identical message `.delay()` does.
-    crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await?;
+    // Rust-owned since Phase 8 set A3, so the queue payload is the Celery
+    // `(args, kwargs)` (`CUTOVER.md` §2 "Payload equivalence").
+    let job = plane_jobs::queue::Job::from_message(&message);
+    crate::common::jobs::dispatch_task(ctx, task, &message, job).await?;
     Ok(())
 }
 

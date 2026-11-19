@@ -1247,7 +1247,9 @@ consulted by `route::dispatch` and by the worker's handler registry.
 | `hard_delete` (10) | Rust | no retries; `plane-tasks::deletion`, reproduces the upstream `DO_NOTHING` `IntegrityError` (see §6 of the cutover plan) |
 | `archive_and_close_old_issues`, `unsnooze_expired_intake_issues` (19, 20) | Rust | no retries; `plane-tasks::automation`; archive/close publishes `issue_activity` through `dispatch` |
 | `process_logs` (27) | Rust | no retries; `plane-tasks::logs`; `APITokenLogMiddleware` enqueues with `dispatch` |
-| `soft_delete_related_objects` (9) | Celery | handler ported (`plane-tasks::deletion`) but **not** switched: `page_version_task` (set A) still publishes it from Django (`plane/bgtasks/page_version_task.py:74`), so D25 keeps it on Celery |
+| `soft_delete_related_objects` (9) | Rust | no retries; handler in `plane-tasks::deletion`. Moved with set A3: its only non-Rust producer was `track_page_version`'s trim (`plane/bgtasks/page_version_task.py:74`), which is unreachable because the task raises `AttributeError` on `page.description` at `:55`/`:63` before reaching it |
+| `issue_description_version_task`, `page_transaction`, `track_page_version` (23, 30, 31) | Rust | no retries; `plane-tasks::versions`. `track_page_version` reproduces the upstream no-op: `Page` has no `description` attribute, so both write branches raise and log (`page_version_task.py:55,63`) and no version row or cascade is produced |
+| the two version backfills (`sync_issue_version`, `sync_issue_description_version`, 21/25) | no queue owner | `plane-admin` subcommands `sync-issue-version` / `sync-issue-description-version`; command-only, never enqueued (`plans/CUTOVER.md` §1 line 72) |
 
 A **schedule** has the same split in `plane_jobs.schedules.owner`.
 `plane-jobs/src/beat.rs::RUST_SCHEDULES` lists the entries whose task is

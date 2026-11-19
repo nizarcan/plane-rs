@@ -1533,7 +1533,10 @@ pub(crate) async fn publish_description_version(
         user_id,
         is_creating,
     );
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+    // The task is Rust-owned (Phase 8 A3), so the queue payload is the Celery
+    // `(args, kwargs)` (`CUTOVER.md` §2 "Payload equivalence").
+    let job = plane_jobs::queue::Job::from_message(&message);
+    jobs::dispatch_task(ctx, task, &message, job).await?;
     Ok(())
 }
 
