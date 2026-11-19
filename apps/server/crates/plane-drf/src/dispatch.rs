@@ -568,7 +568,14 @@ impl Runtime {
                 return Ok(response);
             }
             return self
-                .metadata(route, &effective_permissions, client, &auth.user, &kwargs)
+                .metadata(
+                    route,
+                    request,
+                    &effective_permissions,
+                    client,
+                    &auth.user,
+                    &kwargs,
+                )
                 .await;
         }
 
@@ -689,6 +696,7 @@ impl Runtime {
     async fn metadata(
         &self,
         route: &RoutePolicy,
+        request: &ViewRequest<'_>,
         permissions: &[plane_permissions::PermissionClass],
         client: &deadpool_postgres::Client,
         user: &RequestUser,
@@ -720,11 +728,46 @@ impl Runtime {
             }
         }
         match metadata::determine(route, &allowed) {
-            Ok(metadata) => Ok(DrfResponse::new(
-                200,
-                Some(APPLICATION_JSON),
-                metadata.render()?,
-            )),
+            Ok(metadata) => {
+                // `SimpleMetadata` is a normal `Response`, so `finalize_response`
+                // renders it with the renderer content negotiation selected in
+                // `initial()`. Every Plane route offers `JSONRenderer` except the
+                // three drf-spectacular views, whose first renderer is YAML
+                // (`drf_spectacular/views.py:45-49`); those must negotiate too, and
+                // their JSON renderers indent by four (`:100-105`).
+                if route.renderer_classes.len() > 1 {
+                    let specs =
+                        negotiate::renderer_specs(&route.renderer_classes).ok_or_else(|| {
+                            MetadataError::Invalid("unsupported renderers".to_owned())
+                        })?;
+                    let renderer =
+                        negotiate::select_renderer_from(&specs, request).map_err(ViewError::Api)?;
+                    return match renderer.format {
+                        "yaml" => Ok(DrfResponse::new(
+                            200,
+                            Some(match renderer.media_type {
+                                "application/yaml" => "application/yaml; charset=utf-8",
+                                _ => "application/vnd.oai.openapi; charset=utf-8",
+                            }),
+                            metadata.render_yaml(),
+                        )),
+                        "json" => Ok(DrfResponse::new(
+                            200,
+                            Some(renderer.media_type),
+                            metadata.render_json(Some(4))?,
+                        )),
+                        _ => Err(ViewError::from(MetadataError::Invalid(format!(
+                            "metadata has no renderer for format {:?}",
+                            renderer.format
+                        )))),
+                    };
+                }
+                Ok(DrfResponse::new(
+                    200,
+                    Some(APPLICATION_JSON),
+                    metadata.render()?,
+                ))
+            }
             Err(MetadataError::ActionsFailed(error)) => Err(ViewError::Unknown(error)),
             Err(error) => Err(ViewError::from(error)),
         }

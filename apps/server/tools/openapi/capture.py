@@ -16,6 +16,12 @@ What is written
 * `v1.yaml` -- `GET /api/schema/` (the view's default renderer).
 * `v1.json` -- `GET /api/schema/?format=json`.
 * `swagger-ui.html`, `redoc.html` -- the two HTML pages.
+* `translations.json` -- the `?lang=` table: the one translatable message
+  (`rest_framework/schemas/utils.py:31-40`), its translation for every locale
+  directory that defines one, and a probe oracle for the resolver.
+* `version-scalars.json` -- the YAML and JSON `info.version` scalars for a
+  corpus of `?version=` values, recorded from PyYAML/`json.dumps` with the
+  renderers' own dumper configuration.
 * `manifest.json` -- status and the ordered headers of each response, so the
   header contract is recorded next to the bodies. Django's test client keeps
   `Set-Cookie` out of `response.headers` (it exposes `response.cookies`), so the
@@ -23,7 +29,11 @@ What is written
   scenario compares it on the wire (`volatile_cookies: csrftoken`).
 
 The Rust port (`crates/plane-http-app/src/openapi/`) embeds these files and
-serves them from the three routes when `ENABLE_DRF_SPECTACULAR=1`.
+serves them from the three routes when `ENABLE_DRF_SPECTACULAR=1`. The two
+transform tables are applied to the committed bytes for `?lang=`/`?version=`;
+`capture.py --check` regenerates them and fails on any difference, and two
+full-schema renders (`de`, `ar`) assert that the table is the whole difference
+between the default and a translated document.
 
 Determinism
 -----------
@@ -80,8 +90,10 @@ import django  # noqa: E402
 
 django.setup()
 
+from django.conf import settings  # noqa: E402
 from django.test import Client  # noqa: E402
 from django.test.utils import override_settings  # noqa: E402
+from django.utils import translation  # noqa: E402
 from rest_framework.settings import api_settings  # noqa: E402
 
 # `(file name, path, query)` in the order the views are documented.
@@ -99,6 +111,111 @@ CASES: list[tuple[str, str, dict[str, str]]] = [
 # placeholder in the committed artefact and by a real token at request time in
 # the Rust handler.
 CSRF_TOKEN_PLACEHOLDER = "__CSRF_TOKEN__"
+
+# The DRF `UUIDField` help text is the only translatable string in the v1
+# document: it appears three times, once per `Sticky` URL parameter
+# (`rest_framework/fields.py`'s `UUIDField.help_text`, rendered by
+# drf-spectacular as the parameter description). `translation.override(lang)`
+# (`drf_spectacular/views.py:82-88`) translates it, which changes the document.
+# `rest_framework/schemas/utils.py:31-40` composes the parameter description
+# from two translated strings; the model name is the only interpolation.
+UUID_HELP_TEMPLATE = "A {value_type} identifying this {name}."
+UUID_HELP_VALUE_TYPE = "UUID string"
+UUID_MODEL_NAME = "Sticky"
+
+# Request `?lang=` values the Rust resolver must agree with Django on: the
+# language itself, regional and encoding variants, a language with no
+# translation and a few that only resolve through gettext's `_expand_lang`.
+LANG_PROBES = [
+    "",
+    "en",
+    "en-us",
+    "en-GB",
+    "de",
+    "de-DE",
+    "de_AT",
+    "de.UTF-8",
+    "DE",
+    "de-CH",
+    "de-DE-x",
+    "fr",
+    "fr-FR",
+    "fr-CA",
+    "fr-be",
+    "pt",
+    "pt-PT",
+    "pt-BR",
+    "pt-br-x",
+    "zh",
+    "zh-CN",
+    "zh-Hans",
+    "zh-hant",
+    "es",
+    "es-419",
+    "es-PR",
+    "es-MX",
+    "ar-EG",
+    "ar-DZ",
+    "fa-IR",
+    "kk",
+    "ko-KR",
+    "tr-TR",
+    "sr-latn",
+    "xx",
+    "xx-yy",
+    "ja",
+    "hi",
+    "nb",
+    "no",
+]
+
+# Version strings whose YAML/JSON scalars are recorded from Python's own
+# renderers. The Rust emitter (`crates/plane-drf/src/yaml.rs`) is checked
+# against these.
+VERSION_CASES = [
+    "1",
+    "2.0",
+    "0.0.1",
+    "abc",
+    "a b",
+    "a:b",
+    "a: b",
+    "a: b: c",
+    "#x",
+    "x #y",
+    "-1",
+    "+1",
+    "1e3",
+    "true",
+    "null",
+    "none",
+    "yes",
+    "0",
+    "1.5",
+    "100%",
+    "a,b",
+    "{x}",
+    "[x]",
+    "&x",
+    "*x",
+    "!x",
+    "|x",
+    ">x",
+    "@x",
+    "`x",
+    "?x",
+    "%x",
+    "a\\b",
+    'a"b',
+    "a'b",
+    "é",
+    "日本",
+    "a\tb",
+    "a\nb",
+    "a\n\nb",
+    "x\n y",
+    " x ",
+]
 _CSRF_TOKEN_RE = re.compile(r'(request\.headers\["X-CSRFTOKEN"\] = ")[A-Za-z0-9]{64}(")')
 
 
@@ -115,6 +232,106 @@ def mask_csrf_token(body: bytes) -> tuple[bytes, bool]:
     if count not in (0, 1):
         raise SystemExit(f"expected at most one CSRF token in the page, found {count}")
     return masked.encode("utf-8"), bool(count)
+
+
+def _candidate_languages() -> list[str]:
+    """Every locale directory an installed app (or Django) ships.
+
+    The catalog that translates the UUID help text is DRF's, but the merged
+    Django translation includes every app's `locale/` directory. Enumerating
+    them keeps the table complete if a later serializer uses a Plane string.
+    """
+    import django
+    import rest_framework
+
+    roots = [
+        pathlib.Path(django.__file__).parent / "conf" / "locale",
+        pathlib.Path(rest_framework.__file__).parent / "locale",
+    ]
+    for app_config in django.apps.apps.get_app_configs():
+        localedir = pathlib.Path(app_config.path) / "locale"
+        if localedir.is_dir():
+            roots.append(localedir)
+    codes = {code for code, _ in settings.LANGUAGES}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        codes.update(path.name for path in root.iterdir() if path.is_dir())
+    return sorted(codes)
+
+
+def _help_text(lang: str | None) -> str:
+    with translation.override(lang):
+        return translation.gettext(UUID_HELP_TEMPLATE).format(
+            value_type=translation.gettext(UUID_HELP_VALUE_TYPE),
+            name=UUID_MODEL_NAME,
+        )
+
+
+def _translated_help_text(lang: str | None) -> str | None:
+    """The UUID help text Django renders under `translation.override(lang)`."""
+    translated = _help_text(lang)
+    return None if translated == _help_text(None) else translated
+
+
+def translations() -> dict:
+    """The `?lang=` table and the probe oracle."""
+    languages: dict[str, str] = {}
+    for code in _candidate_languages():
+        normalized = code.replace("_", "-").lower()
+        translated = _translated_help_text(code)
+        if translated is not None:
+            languages[normalized] = translated
+    probes = {lang: _translated_help_text(lang or None) for lang in LANG_PROBES}
+    return {
+        "source": _help_text(None),
+        "languages": languages,
+        "probes": probes,
+        "probes_why": (
+            "Every value must resolve to the same string Django's "
+            "translation.override() produces; null means the source string."
+        ),
+    }
+
+
+def version_scalars() -> dict:
+    """`info.version`'s YAML and JSON scalars for the corpus, from Python."""
+    from yaml import SafeDumper, dump
+
+    class Dumper(SafeDumper):
+        def ignore_aliases(self, data):
+            return True
+
+    def multiline_str_representer(dumper, data):
+        scalar = dumper.represent_str(data)
+        scalar.style = "|" if "\n" in data else None
+        return scalar
+
+    Dumper.add_representer(str, multiline_str_representer)
+    cases = []
+    for version in VERSION_CASES:
+        value = f"0.0.1 ({version})"
+        document = dump(
+            {"info": {"version": value}},
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+            Dumper=Dumper,
+        )
+        marker = "  version: "
+        line = next(line for line in document.splitlines() if line.startswith(marker))
+        first = line[len(marker):]
+        # A block scalar continues on the following lines.
+        block = document.split(marker, 1)[1]
+        yaml_scalar = first if "\n" not in value else first + "\n" + block.partition("\n")[2].rstrip("\n")
+        cases.append(
+            {
+                "version": version,
+                "yaml": yaml_scalar,
+                "json": json.dumps(value, ensure_ascii=False),
+            }
+        )
+    return {"cases": cases}
 
 
 def render() -> tuple[dict[str, bytes], dict]:
@@ -161,6 +378,27 @@ def render() -> tuple[dict[str, bytes], dict]:
                     "headers": [[key, value] for key, value in response.headers.items()],
                 }
             )
+        # Model check: the document for a translated language is the base
+        # document with the one translatable string replaced. Two languages are
+        # enough to catch an upstream message change; `translations.json`'s
+        # probes pin the resolver.
+        for code in ("de", "ar"):
+            translated = _translated_help_text(code)
+            if translated is None:
+                raise SystemExit(f"expected {code} to translate the UUID help text")
+            expected = bodies["v1.yaml"].replace(_help_text(None).encode(), translated.encode())
+            response = client.get("/api/schema/", {"lang": code})
+            if response.content != expected:
+                raise SystemExit(
+                    f"lang={code} is not the base document with the UUID help text "
+                    "replaced; the translation table model is stale"
+                )
+    bodies["translations.json"] = (
+        json.dumps(translations(), indent=2, ensure_ascii=False) + "\n"
+    ).encode()
+    bodies["version-scalars.json"] = (
+        json.dumps(version_scalars(), indent=2, ensure_ascii=False) + "\n"
+    ).encode()
     return bodies, manifest
 
 

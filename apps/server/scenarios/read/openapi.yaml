@@ -17,13 +17,12 @@
 #   `crates/plane-http-app/src/openapi/schema.rs` serves the same committed
 #   bytes for the JSON renderers, `negotiate::select_renderer_from` is unit
 #   tested over the four renderer specs, and `tools/openapi/check.py` verifies
-#   the committed JSON document against Django.
-# * `?lang=de` on the schema route: Django runs the generator under
-#   `translation.override("de")`, which translates DRF's own strings, so the
-#   document really differs from the committed default-language artefact. The
-#   Rust handler refuses it explicitly instead of serving the wrong language
-#   (an upstream client never sends it; the two HTML pages do accept it and
-#   are covered below).
+#   the committed JSON document against Django. The `?version=` JSON body is
+#   pinned by `version-scalars.json` instead of a step for the same reason.
+# * `?lang=` and `?version=` are covered in the appended steps: Django runs
+#   generation under `translation.override("de")` and rewrites `info.version`,
+#   and the Rust handler applies the same two transforms to the committed
+#   bytes (`translations.json` and `version-scalars.json` pin them).
 # * `HEAD /api/schema/`: the harness tries to gunzip the (empty) HEAD body of a
 #   response that advertises `Content-Encoding: gzip`, and fails the step on
 #   both targets. That framing is the generic pipeline's, not this route's.
@@ -109,3 +108,73 @@ steps:
       Host: plane-fixture.test
       X-Forwarded-For: 198.51.100.72
       Accept: text/html
+
+  # --- `?version=` and `?lang=` (drf-spectacular regen) -------------------
+  # `_get_version_parameter` has no allow-list in Plane, so every non-empty
+  # value reaches the generator: `info.version` becomes `0.0.1 (<version>)`
+  # and the `Content-Disposition` filename gains ` (<version>)`
+  # (`drf_spectacular/views.py:96-114`, `plumbing.py:493-499`).
+  - name: schema-version-1
+    method: GET
+    path: "/api/schema/"
+    query:
+      version: "1"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.73
+  # The JSON renderer gets the same `info.version` change; it is not a step
+  # here because the harness's name-keyed `background_color` rule fires on
+  # JSON-Schema `properties` (see the file header), and `schema.rs`'s corpus
+  # test pins the JSON scalar instead.
+  # `translation.override("de")` translates DRF's UUID help text; `xx` has no
+  # catalog and leaves the document untouched. Both are the view's own 200:
+  # an unknown language is not an error (`drf_spectacular/views.py:82-88`).
+  - name: schema-lang-de
+    method: GET
+    path: "/api/schema/"
+    query:
+      lang: "de"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.75
+  - name: schema-lang-unknown
+    method: GET
+    path: "/api/schema/"
+    query:
+      lang: "xx"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.76
+  # Both parameters at once; the filename carries only the version.
+  - name: schema-lang-and-version
+    method: GET
+    path: "/api/schema/"
+    query:
+      lang: "pt-br"
+      version: "abc"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.77
+  # `OPTIONS` is DRF's `SimpleMetadata`, rendered by the view's negotiated
+  # renderer: YAML by default, the four-space JSON renderer for
+  # `Accept: application/json` (`rest_framework/views.py:531-538`,
+  # `drf_spectacular/renderers.py:78-83`).
+  - name: schema-options-yaml
+    method: OPTIONS
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.78
+  - name: schema-options-json
+    method: OPTIONS
+    path: "/api/schema/"
+    jar: anon1
+    headers:
+      Host: plane-fixture.test
+      X-Forwarded-For: 198.51.100.79
+      Accept: application/json
