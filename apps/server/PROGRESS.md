@@ -2036,7 +2036,9 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `difftest task` compares DB rows only (Redis/S3/SMTP capture to add).
 
    Running: the orchestrator's verification of `90724f9c00` (gates 248 and the schema
-   rows); Phase 8 set D. Then the final benchmark and the environment
+   rows); Phase 8 set D (`rs/p8-d`: tasks 3–7, 9, 10, 19, 20, 27 + the
+   `recent_visited_task` publish correction; 18010/18110, Redis 3/4) and set C
+   (`rs/p8-c`: tasks 1, 8, 14, 15, 16, 35, 44, 46; 18020/18120, Redis 5/6). Then the final benchmark and the environment
    revert (see "In flight").
    - Open question for the owner: Phases 8 (cutover, all tasks off Celery) and 9 (live) —
      in scope or not.
