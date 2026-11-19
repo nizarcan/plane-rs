@@ -2440,6 +2440,11 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      back to 320M, restart policy `no` (its compose values); Colima back to 2 CPU / 2 GiB
      and `vmif` started; the three frontend `.env` files (pointing at the dev proxy
      `127.0.0.1:18080`, written 2026-11-17) moved to `dev/run/orch/frontend-env-backup/`.
+     After the restart: the owner's `cc-cost` containers came back on their own and `vmif` was
+     started. The three `mcp_excalidraw` containers were `--rm` (no longer exist after the VM
+     stop); the owner's MCP client starts new ones on demand. The `plane-rs-dev` stack is
+     stopped (restart policy `no`); RabbitMQ had been OOM-killed at its 320M compose limit
+     just before, so start it fresh with `docker compose -f dev/compose.yml up -d`.
 
    **Done through Phase 8.** Open: the owner's `push_instance_metrics` decision (off behind
    `PUSH_INSTANCE_METRICS_ENABLED`, D34) and the follow-ups listed in the Phase 8 entries.
