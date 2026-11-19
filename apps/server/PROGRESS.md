@@ -2122,6 +2122,22 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      on Django. ROUTES.md: **392 rows Rust**; Django keeps only `/robots.txt` and `/`
      (health, never routed to the API by Caddy).
 
-   Running: set C part 3 (`rs/p8-c`: task 1 gaps, then 8, 46, the tracked case runner; 18020/18120,
-   Redis 5/6), set A3 (`rs/p8-a3`: tasks 23, 30, 31, then 9, and the `plane-admin`
-   backfills; 18010/18110, Redis 3/4).
+   - **Set C part 3 on its branch (`5f0d4ab3e5`).** Task 1's POST filters now follow
+     Django's POST semantics (a literal `"None"` is a `ValidationError`, not `IS NULL`,
+     which is GET-only, `issue_filters.py:135-158`; `null` items dropped, all-null →
+     `EmptyResultSet`, strings iterated by character, `logged_by` `FieldError`,
+     module-segment `KeyError`). Task 8 `copy_s3_objects_of_description_and_assets`
+     switched (D29, bs4 port, 66 cases). `tools/jobs/run-task-cases.sh` + `task-cases.txt`
+     (21 set C cases pass). 1347 tests, testkit 204.
+     - **Held from `rust-rewrite`:** task 1 uses `EXISTS` where Django's LEFT JOINs count an
+       issue once per matching label/assignee/cycle/module row (upstream bug to port).
+     - The orchestrator merged `rust-rewrite` (set D, flips) into `rs/p8-c`; 10 files
+       conflict (`task.rs` 10 blocks). Part 4 resolves them (files only; the
+       orchestrator commits), fixes task 1's duplication, ports 46.
+     - Upstream kept: `WORKSPACE_LOGO`/`PROJECT_COVER` copies pass both ids → `TypeError`
+       mid-copy; copied rows' `created_by`/`updated_by` always nulled; the issue's
+       `save()` nulls its audit columns and replaces a null state with the default.
+
+   Running: set C part 4 (`rs/p8-c`: the merge, task 1 duplication, 46; 18020/18120,
+   Redis 5/6, contract Redis 15), set A3 (`rs/p8-a3`: tasks 23, 30, 31, then 9, and the
+   `plane-admin` backfills; 18010/18110, Redis 3/4).

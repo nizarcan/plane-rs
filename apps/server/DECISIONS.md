@@ -627,6 +627,22 @@ workspace `Cargo.toml` and upgrade deliberately.
 - The pipeline logs the cause of every 500 it renders at target `plane.exception`
   (no secrets), as Django's `log_exception` does.
 
+## D29. `copy_s3_objects_of_description_and_assets` reproduces `str(BeautifulSoup(html, "html.parser"))` (decided 2026-11-19)
+
+- The task rewrites `image-component@src` and stores the bs4-serialised HTML, so
+  `crates/plane-tasks/src/bs4.rs` ports CPython 3.12's `html.parser` (tokenizer incl.
+  RAWTEXT/RCDATA and close branches) and bs4 4.12.3's `HTMLParserTreeBuilder` with the
+  `"minimal"` formatter: attributes sorted and re-quoted, `class`-like values re-joined,
+  void tags as `<br/>`, doctype suffix, whitespace-only text collapsed outside
+  `pre`/`textarea`, comments/PIs/CDATA rendered. `strip_tags` is `feed()` only (EOF
+  leftovers dropped).
+- Oracle: `tools/inventory/bs4_corpus.py` records the cases (editor HTML plus malformed
+  input) from the pinned venv, and `bs4_entities.py` the entity table; both have
+  `--check`.
+- `difftest task` gains `--live-url` (the task's `convert-document` POST) and per-case
+  HTTP-body normalisers, and compares S3 listings sorted after normalisation, so a
+  fresh uuid key is a one-shot value.
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the
