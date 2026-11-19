@@ -66,10 +66,66 @@ pub struct TaskCase {
     /// Capture the task's outbound SMTP through `tools/mail/fake_smtp.py`.
     #[serde(default)]
     pub smtp: Option<SmtpCase>,
+    /// Raw Redis entries written to both sides' logical databases before the
+    /// baseline snapshot. `send_email_notification` reads the base API URL
+    /// from a raw redis-py key (`<issue_id>`) that only `issue_activity`
+    /// writes, so a case must seed it.
+    #[serde(default)]
+    pub redis: Vec<RedisSeed>,
+    /// Run the case as the Nth attempt of a retrying task. `None` runs the
+    /// single delivery Django's `task.apply()` and the worker's first claim
+    /// make (attempt 1); the field also switches the run to one job, because a
+    /// retry scheduled at `now()` would otherwise be claimed again by the same
+    /// `--once` process.
+    #[serde(default)]
+    pub attempts: Option<AttemptsCase>,
     /// Normalisers for the case's SQL rows and S3 keys, and for the values the
     /// whole-schema database diff prints.
     #[serde(default)]
     pub normalize: Vec<Normalize>,
+}
+
+/// One raw Redis entry a case writes before the run.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedisSeed {
+    pub key: String,
+    pub value: String,
+    /// `EX` seconds; `None` leaves the key without an expiry.
+    #[serde(default)]
+    pub ttl: Option<i64>,
+}
+
+/// A retrying task's attempt number plus the queue policy the enqueue path
+/// applies.
+///
+/// The policy is `plane_jobs::policy::policy(task)`, reproduced here rather
+/// than linked: `plane-testkit` is a separate workspace and must not pull the
+/// queue crate into its feature set. A wrong value is observable — attempt
+/// `max_retries + 1` has to stop retrying and run the task's failure branch on
+/// both sides — so the case file states the policy the production path uses
+/// and the run proves the handler behaves as if it had been applied.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttemptsCase {
+    /// 1-based attempt number. Django gets `request.retries = number - 1`; the
+    /// worker's job row is inserted with `attempts = number - 1` so its claim
+    /// increments it to `number`.
+    pub number: i32,
+    /// Retries after the first attempt (`0` = dead on first failure).
+    #[serde(default)]
+    pub max_retries: i32,
+    /// The retry delay bound, in seconds.
+    #[serde(default)]
+    pub retry_backoff_seconds: i32,
+    /// Pick the delay uniformly from `[0, retry_backoff_seconds]`.
+    #[serde(default)]
+    pub retry_jitter: bool,
+    /// The attempt must consume itself by retrying: Django ends in `RETRY`
+    /// with a countdown, and B's row ends `failed` with a `run_at` that far
+    /// ahead. Both delays must fall inside `[0, retry_backoff_seconds]`.
+    #[serde(default)]
+    pub expect_retry: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -167,6 +223,16 @@ pub struct FakeResponse {
     /// Binary body (a favicon fixture); `body` and this are exclusive.
     #[serde(default)]
     pub body_base64: Option<String>,
+    /// Close the connection after reading the request, without a response:
+    /// the deterministic way to drive a transport failure (a webhook delivery
+    /// that must retry or deactivate) inside the harness.
+    #[serde(default)]
+    pub drop: bool,
+    /// Wait this long before answering, for a read-timeout branch. The
+    /// recorder answers each connection on its own task, so one slow response
+    /// does not hold up the other side.
+    #[serde(default)]
+    pub delay_ms: Option<u64>,
 }
 
 impl FakeResponse {
@@ -187,6 +253,44 @@ fn default_status() -> u16 {
 pub struct Normalize {
     pub pattern: String,
     pub replacement: String,
+}
+
+/// The run's S3 bucket names, one per side.
+///
+/// A case cannot name them: `--s3-bucket-a/-b` are the caller's, and every
+/// value that embeds a bucket (a presigned export URL, a copied object key)
+/// differs by name alone. The comparison replaces each side's own bucket with
+/// `<BUCKET>` before applying the case's normalisers, so a fixture no longer
+/// has to hard-code an agent's bucket prefix (D26).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SideBuckets<'a> {
+    pub a: Option<&'a str>,
+    pub b: Option<&'a str>,
+}
+
+impl<'a> SideBuckets<'a> {
+    /// The replacement applied to a bucket name.
+    pub const PLACEHOLDER: &'static str = "<BUCKET>";
+
+    /// Normalise one value that belongs to side A.
+    #[must_use]
+    pub fn a(&self, case: &TaskCase, value: &str) -> String {
+        normalise_side(case, value, self.a)
+    }
+
+    /// Normalise one value that belongs to side B.
+    #[must_use]
+    pub fn b(&self, case: &TaskCase, value: &str) -> String {
+        normalise_side(case, value, self.b)
+    }
+}
+
+fn normalise_side(case: &TaskCase, value: &str, bucket: Option<&str>) -> String {
+    let replaced = match bucket.filter(|bucket| !bucket.is_empty()) {
+        Some(bucket) if value.contains(bucket) => value.replace(bucket, SideBuckets::PLACEHOLDER),
+        _ => value.to_string(),
+    };
+    case.normalize_text(&replaced)
 }
 
 impl TaskCase {
@@ -232,16 +336,18 @@ impl TaskCase {
 pub fn compare_rows(
     case: &TaskCase,
     label: &str,
+    buckets: SideBuckets<'_>,
     a: &[Vec<String>],
     b: &[Vec<String>],
 ) -> Result<()> {
-    let normalize = |rows: &[Vec<String>]| -> Vec<Vec<String>> {
-        rows.iter()
-            .map(|row| row.iter().map(|cell| case.normalize_text(cell)).collect())
-            .collect()
-    };
-    let a = normalize(a);
-    let b = normalize(b);
+    let normalize =
+        |rows: &[Vec<String>], normalise: &dyn Fn(&str) -> String| -> Vec<Vec<String>> {
+            rows.iter()
+                .map(|row| row.iter().map(|cell| normalise(cell)).collect())
+                .collect()
+        };
+    let a = normalize(a, &|cell| buckets.a(case, cell));
+    let b = normalize(b, &|cell| buckets.b(case, cell));
     if a == b {
         println!("PASS: sql {label}: {} row(s) identical", a.len());
         return Ok(());
@@ -258,18 +364,24 @@ pub fn compare_rows(
 }
 
 /// Compare the two buckets' listings.
-pub fn compare_objects(case: &TaskCase, a: &[ObservedObject], b: &[ObservedObject]) -> Result<()> {
-    let normalize = |objects: &[ObservedObject]| -> Vec<ObservedObject> {
-        objects
-            .iter()
-            .map(|object| ObservedObject {
-                key: case.normalize_text(&object.key),
-                ..object.clone()
-            })
-            .collect()
-    };
-    let mut a = normalize(a);
-    let mut b = normalize(b);
+pub fn compare_objects(
+    case: &TaskCase,
+    buckets: SideBuckets<'_>,
+    a: &[ObservedObject],
+    b: &[ObservedObject],
+) -> Result<()> {
+    let normalize =
+        |objects: &[ObservedObject], key: &dyn Fn(&str) -> String| -> Vec<ObservedObject> {
+            objects
+                .iter()
+                .map(|object| ObservedObject {
+                    key: key(&object.key),
+                    ..object.clone()
+                })
+                .collect()
+        };
+    let mut a = normalize(a, &|key| buckets.a(case, key));
+    let mut b = normalize(b, &|key| buckets.b(case, key));
     // A one-shot key (a task that copies an object to a fresh uuid) is
     // normalised to a placeholder whose sort position depends on the raw uuid;
     // compare the normalised listings in a stable order.
@@ -592,6 +704,7 @@ impl RecordedRequest {
 /// Compare the requests each side made, in order.
 pub fn compare_requests(
     case: &TaskCase,
+    buckets: SideBuckets<'_>,
     a: &[RecordedRequest],
     b: &[RecordedRequest],
 ) -> Result<()> {
@@ -599,21 +712,26 @@ pub fn compare_requests(
     // an object embeds the fresh asset id in its `convert-document` payload,
     // and that id is legitimately different on each side.
     let http = case.http.as_ref();
-    let normalize = |request: &RecordedRequest| RecordedRequest {
+    let normalize = |request: &RecordedRequest, side: &dyn Fn(&str) -> String| RecordedRequest {
         method: request.method.clone(),
         path: request.path.clone(),
         query: request.query.clone(),
         user_agent: request.user_agent.clone(),
-        body: http.map_or_else(
-            || request.body.clone(),
-            |http| {
-                http.normalize_text(&String::from_utf8_lossy(&request.body))
-                    .into_bytes()
-            },
-        ),
+        body: match http {
+            Some(http) => http
+                .normalize_text(&String::from_utf8_lossy(&request.body))
+                .into_bytes(),
+            None => side(&String::from_utf8_lossy(&request.body)).into_bytes(),
+        },
     };
-    let a: Vec<RecordedRequest> = a.iter().map(normalize).collect();
-    let b: Vec<RecordedRequest> = b.iter().map(normalize).collect();
+    let a: Vec<RecordedRequest> = a
+        .iter()
+        .map(|r| normalize(r, &|v| buckets.a(case, v)))
+        .collect();
+    let b: Vec<RecordedRequest> = b
+        .iter()
+        .map(|r| normalize(r, &|v| buckets.b(case, v)))
+        .collect();
     if a == b {
         println!("PASS: http: {} request(s) identical", a.len());
         return Ok(());
@@ -760,7 +878,17 @@ async fn serve(
         headers: BTreeMap::new(),
         body: String::new(),
         body_base64: None,
+        drop: false,
+        delay_ms: None,
     });
+    if response.drop {
+        // Drop without writing a byte: requests raises `RemoteDisconnected`,
+        // hyper an incomplete message; both are the caller's transport error.
+        return Ok(());
+    }
+    if let Some(delay) = response.delay_ms {
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+    }
     let body = response.body_bytes()?;
     let reason = match response.status {
         200 => "OK",
@@ -812,6 +940,8 @@ mod tests {
             s3: None,
             http: None,
             smtp: None,
+            redis: Vec::new(),
+            attempts: None,
             normalize: vec![
                 Normalize {
                     pattern: "[0-9a-f]{8}".to_string(),
@@ -824,6 +954,43 @@ mod tests {
             ],
         };
         assert_eq!(case.normalize_text("deadbeefdeadbeef"), "<Y>");
+    }
+
+    #[test]
+    fn side_buckets_are_normalised_before_the_case_rules() {
+        let case = TaskCase {
+            task: None,
+            sql: Vec::new(),
+            s3: None,
+            http: None,
+            smtp: None,
+            redis: Vec::new(),
+            attempts: None,
+            normalize: vec![Normalize {
+                pattern: "token=[a-z]+".to_string(),
+                replacement: "token=<TOK>".to_string(),
+            }],
+        };
+        let buckets = SideBuckets {
+            a: Some("t_p8b_alpha_a"),
+            b: Some("t_p8b_alpha_b"),
+        };
+        let url = "https://s3/t_p8b_alpha_a/store/key?token=abc";
+        assert_eq!(
+            buckets.a(&case, url),
+            "https://s3/<BUCKET>/store/key?token=<TOK>"
+        );
+        // A's name on B's side is not this side's bucket and stays literal.
+        assert_eq!(
+            buckets.b(&case, url),
+            "https://s3/t_p8b_alpha_a/store/key?token=<TOK>"
+        );
+        // An empty bucket name never matches every string.
+        let empty = SideBuckets {
+            a: Some(""),
+            b: None,
+        };
+        assert_eq!(empty.a(&case, "plain"), "plain");
     }
 
     #[test]

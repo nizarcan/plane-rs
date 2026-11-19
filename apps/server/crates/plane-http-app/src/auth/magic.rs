@@ -458,7 +458,7 @@ async fn user_exists(client: &Client, email: &str) -> Result<bool, ViewError> {
 /// `magic_link.delay(...)` through the ownership router (Celery today).
 async fn publish(ctx: &ViewCtx<'_>, message: &Message) -> Result<(), ViewError> {
     let task = task_name::MAGIC_LINK;
-    jobs::dispatch_task(ctx, task, message, Job::new(task)).await?;
+    jobs::dispatch_task(ctx, task, message, Job::from_message(message)).await?;
     Ok(())
 }
 

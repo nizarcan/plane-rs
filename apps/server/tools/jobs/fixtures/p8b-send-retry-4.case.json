@@ -1,0 +1,37 @@
+{
+  "task": "plane.bgtasks.webhook_task.webhook_send_task",
+  "sql": [
+    {
+      "label": "webhooks",
+      "query": "SELECT id::text, is_active::text FROM webhooks ORDER BY id::text"
+    },
+    {
+      "label": "webhook_logs",
+      "query": "SELECT webhook::text, COALESCE(event_type, 'NULL'), COALESCE(request_method, 'NULL'), COALESCE(response_status, 'NULL'), COALESCE(response_headers, 'NULL'), COALESCE(response_body, 'NULL'), retry_count::text FROM webhook_logs ORDER BY webhook::text, retry_count"
+    }
+  ],
+  "http": {
+    "responses": {
+      "/hook-one": {
+        "drop": true
+      }
+    }
+  },
+  "attempts": {
+    "number": 4,
+    "max_retries": 5,
+    "retry_backoff_seconds": 600,
+    "retry_jitter": true,
+    "expect_retry": true
+  },
+  "normalize": [
+    {
+      "pattern": "X-Plane-Delivery': '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'",
+      "replacement": "X-Plane-Delivery': '<UUID>'"
+    },
+    {
+      "pattern": "^(?:\\('Connection aborted\\.', RemoteDisconnected\\('Remote end closed connection without response'\\)\\)|error sending request for url \\(http://127\\.0\\.0\\.1:\\d+/hook-one\\))$",
+      "replacement": "<TRANSPORT>"
+    }
+  ]
+}

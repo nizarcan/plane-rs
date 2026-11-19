@@ -18,6 +18,8 @@ use serde_json::Value;
 use tokio_postgres::GenericClient;
 use uuid::Uuid;
 
+use crate::payload::Payload;
+
 /// The notify channel `enqueue` raises and the worker listens on.
 pub const NOTIFY_CHANNEL: &str = "plane_jobs_jobs";
 
@@ -25,7 +27,9 @@ pub const NOTIFY_CHANNEL: &str = "plane_jobs_jobs";
 /// expects. `plane-migrator` (through [`migrate`]) writes it and
 /// `plane-bootstrap::wait::wait_for_migrations` compares the stored value
 /// against this constant; bump it here only, never in a consumer.
-pub const SCHEMA_VERSION: &str = "2";
+///
+/// v3: `payload` is `json` (order-preserving) instead of `jsonb`.
+pub const SCHEMA_VERSION: &str = "3";
 
 const MIGRATION: &str = r#"
 CREATE SCHEMA IF NOT EXISTS plane_jobs;
@@ -33,7 +37,7 @@ CREATE SCHEMA IF NOT EXISTS plane_jobs;
 CREATE TABLE IF NOT EXISTS plane_jobs.jobs (
     id uuid PRIMARY KEY,
     task text NOT NULL,
-    payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+    payload json NOT NULL DEFAULT '{}'::json,
     state text NOT NULL DEFAULT 'queued'
         CHECK (state IN ('queued', 'running', 'done', 'failed', 'dead')),
     attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -107,6 +111,8 @@ pub enum QueueError {
     Url(#[from] plane_db::url::DatabaseUrlError),
     #[error("no database connection is available for the job queue")]
     NoDatabase,
+    #[error("the queued payload is unreadable: {0}")]
+    Payload(String),
 }
 
 /// A job that should run once. `max_retries = 0` means dead on first failure,
@@ -115,7 +121,12 @@ pub enum QueueError {
 #[derive(Clone, Debug)]
 pub struct Job {
     pub task: String,
+    /// The `serde_json` view of the payload (sorted keys).
     pub payload: Value,
+    /// The exact JSON text `from_message` built, in the producer's key order.
+    /// `None` for a hand-built payload, which [`Job::payload_text`] renders
+    /// from the `serde_json` value.
+    payload_text: Option<String>,
     pub dedupe_key: Option<String>,
     pub run_at: Option<DateTime<Utc>>,
     pub max_retries: i32,
@@ -130,6 +141,7 @@ impl Job {
         Self {
             task: task.into(),
             payload: Value::Object(serde_json::Map::new()),
+            payload_text: None,
             dedupe_key: None,
             run_at: None,
             max_retries: 0,
@@ -141,7 +153,18 @@ impl Job {
     #[must_use]
     pub fn payload(mut self, payload: Value) -> Self {
         self.payload = payload;
+        self.payload_text = None;
         self
+    }
+
+    /// The payload text the queue stores: the producer's text when the job
+    /// came from a Celery message, otherwise the `serde_json` rendering of
+    /// the hand-built value (sorted keys, as the old `jsonb` column stored).
+    #[must_use]
+    pub fn payload_text(&self) -> String {
+        self.payload_text.clone().unwrap_or_else(|| {
+            serde_json::to_string(&self.payload).unwrap_or_else(|_| "{}".to_string())
+        })
     }
 
     #[must_use]
@@ -222,13 +245,64 @@ impl Job {
         {
             object.insert("uuid_kwargs".to_string(), serde_json::json!(uuid_kwargs));
         }
+        // The same payload, ordered: the Python values are built directly from
+        // the typed arguments (a `Map` is a `PyDict` in call order), and
+        // `serde_json` writes that order into the text the queue stores.
+        let ordered = ordered_payload(message);
+        let text = serde_json::to_string(&ordered).unwrap_or_else(|_| "{}".to_string());
         let mut job = Self::new(message.task()).payload(payload);
+        job.payload_text = Some(text);
         let policy = crate::policy::policy(message.task());
         job.max_retries = policy.max_retries;
         job.retry_backoff_seconds = policy.retry_backoff_seconds;
         job.retry_jitter = policy.retry_jitter;
+        // `countdown=` / an `eta` published by the call site becomes the job's
+        // due instant (`plans/CUTOVER.md` §2: `countdown` → `Job.run_at`). The
+        // Celery message resolves the same countdown against its own publish
+        // instant, a few microseconds earlier.
+        if let Some(seconds) = message.countdown() {
+            job.run_at = Some(chrono::Utc::now() + chrono::TimeDelta::seconds(seconds));
+        }
         job
     }
+}
+
+/// `{"args": […], "kwargs": {…}, "uuid_…": […]}`, in the message's order.
+#[cfg(feature = "celery")]
+fn ordered_payload(message: &crate::celery::Message) -> plane_serde::pyjson::Value {
+    use crate::celery::args::TaskArg;
+    use plane_serde::pyjson::{PyDict, PyStr, Value as PyValue};
+
+    let mut kwargs = PyDict::with_capacity(message.kwargs().len());
+    for (key, value) in message.kwargs() {
+        kwargs.insert(PyStr::new(key), value.python_pyvalue());
+    }
+    let uuid_args: Vec<PyValue> = message
+        .args()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            matches!(value, TaskArg::Uuid(_)).then_some(PyValue::from(index as i64))
+        })
+        .collect();
+    let uuid_kwargs: Vec<PyValue> = message
+        .kwargs()
+        .iter()
+        .filter_map(|(key, value)| matches!(value, TaskArg::Uuid(_)).then_some(PyValue::from(*key)))
+        .collect();
+    let mut payload = PyDict::with_capacity(4);
+    payload.insert(
+        PyStr::new("args"),
+        PyValue::List(message.args().iter().map(TaskArg::python_pyvalue).collect()),
+    );
+    payload.insert(PyStr::new("kwargs"), PyValue::Dict(kwargs));
+    if !uuid_args.is_empty() {
+        payload.insert(PyStr::new("uuid_args"), PyValue::List(uuid_args));
+    }
+    if !uuid_kwargs.is_empty() {
+        payload.insert(PyStr::new("uuid_kwargs"), PyValue::List(uuid_kwargs));
+    }
+    PyValue::Dict(payload)
 }
 
 /// A claimed row. `attempts` includes the attempt that is about to run.
@@ -236,7 +310,7 @@ impl Job {
 pub struct ClaimedJob {
     pub id: Uuid,
     pub task: String,
-    pub payload: Value,
+    pub payload: Payload,
     pub attempts: i32,
     pub max_retries: i32,
     pub retry_backoff_seconds: i32,
@@ -256,6 +330,33 @@ pub enum Failure {
 /// a process starts; it never touches a Django table.
 pub async fn migrate<C: GenericClient + Sync>(client: &C) -> Result<(), QueueError> {
     client.batch_execute(MIGRATION).await?;
+    // v2 -> v3: `payload` was `jsonb`, which stores object keys sorted; the
+    // queue now keeps the producer's text and key order in `json`. The cast
+    // re-renders rows queued before the upgrade (they keep jsonb's order),
+    // and is skipped when the column is already `json`.
+    let column = client
+        .query_opt(
+            "SELECT data_type FROM information_schema.columns \
+             WHERE table_schema = 'plane_jobs' AND table_name = 'jobs' \
+               AND column_name = 'payload'",
+            &[],
+        )
+        .await?;
+    if column
+        .as_ref()
+        .and_then(|row| row.try_get::<_, String>(0).ok())
+        .as_deref()
+        == Some("jsonb")
+    {
+        client
+            .batch_execute(
+                "ALTER TABLE plane_jobs.jobs ALTER COLUMN payload DROP DEFAULT; \
+                 ALTER TABLE plane_jobs.jobs ALTER COLUMN payload TYPE json \
+                     USING payload::json; \
+                 ALTER TABLE plane_jobs.jobs ALTER COLUMN payload SET DEFAULT '{}'::json;",
+            )
+            .await?;
+    }
     client
         .execute(
             "INSERT INTO plane_jobs.meta (key, value) VALUES ('schema_version', $1) \
@@ -286,7 +387,7 @@ pub async fn enqueue<C: GenericClient + Sync>(
             &[
                 &id,
                 &job.task,
-                &job.payload,
+                &plane_db::JsonText::new(job.payload_text()),
                 &job.dedupe_key,
                 &job.run_at,
                 &job.max_retries,
@@ -337,17 +438,19 @@ pub async fn claim<C: GenericClient + Sync>(
                  updated_at = now() \
              FROM picked p \
              WHERE j.id = p.id \
-             RETURNING j.id, j.task, j.payload, j.attempts, j.max_retries, \
+             RETURNING j.id, j.task, j.payload::text, j.attempts, j.max_retries, \
                        j.retry_backoff_seconds, j.retry_jitter",
             &[&worker_id, &lease_seconds, &limit],
         )
         .await?;
     rows.into_iter()
         .map(|row| {
+            let text: String = row.try_get(2)?;
             Ok(ClaimedJob {
                 id: row.try_get(0)?,
                 task: row.try_get(1)?,
-                payload: row.try_get(2)?,
+                payload: Payload::from_text(&text)
+                    .map_err(|error| QueueError::Payload(error.to_string()))?,
                 attempts: row.try_get(3)?,
                 max_retries: row.try_get(4)?,
                 retry_backoff_seconds: row.try_get(5)?,

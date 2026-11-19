@@ -388,7 +388,7 @@ pub fn comment_create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResp
             ctx,
             model.task(),
             &model,
-            plane_jobs::queue::Job::new(model.task()),
+            plane_jobs::queue::Job::from_message(&model),
         )
         .await?;
 
@@ -481,7 +481,7 @@ pub fn comment_partial_update<'a>(
             ctx,
             model.task(),
             &model,
-            plane_jobs::queue::Job::new(model.task()),
+            plane_jobs::queue::Job::from_message(&model),
         )
         .await?;
 

@@ -1,0 +1,5 @@
+{
+  "task": "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
+  "sql": [],
+  "smtp": {}
+}

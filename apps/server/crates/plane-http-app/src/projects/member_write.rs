@@ -634,7 +634,7 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
                 ctx,
                 task.task(),
                 &task,
-                plane_jobs::queue::Job::new(task.task()),
+                plane_jobs::queue::Job::from_message(&task),
             )
             .await?;
         }

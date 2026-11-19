@@ -70,8 +70,8 @@ use crate::db::{DbAdmin, DbDiff, diff_snapshots};
 use crate::redis::{RedisAdmin, RedisDiff, RedisSnapshotter, diff_snapshots as redis_diff};
 use crate::s3::S3Admin;
 use crate::task_case::{
-    Recorder, SmtpCase, TaskCase, compare_objects, compare_requests, compare_rows,
-    compare_smtp_logs,
+    AttemptsCase, Recorder, SideBuckets, SmtpCase, TaskCase, compare_objects, compare_requests,
+    compare_rows, compare_smtp_logs,
 };
 use crate::util::{repo_root, validate_identifier};
 use anyhow::{Context, Result, bail};
@@ -164,6 +164,35 @@ impl TaskOptions {
     }
 }
 
+/// Split a fixture into positional and keyword arguments.
+///
+/// `{"args": [...], "kwargs": {...}}` (only those two keys, `args` an array)
+/// is a positional call; anything else is a keyword-argument object.
+fn split_call(
+    value: &serde_json::Value,
+) -> (
+    Vec<serde_json::Value>,
+    serde_json::Map<String, serde_json::Value>,
+) {
+    let object = value.as_object().cloned().unwrap_or_default();
+    let is_positional = object.get("args").is_some_and(serde_json::Value::is_array)
+        && object.keys().all(|key| key == "args" || key == "kwargs");
+    if !is_positional {
+        return (Vec::new(), object);
+    }
+    let args = object
+        .get("args")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let kwargs = object
+        .get("kwargs")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    (args, kwargs)
+}
+
 /// Replace `{{http}}` in every string of the kwargs with the recorder URL.
 fn substitute(value: &mut serde_json::Value, http: &str) {
     match value {
@@ -233,25 +262,34 @@ impl SmtpCapture {
         let python = root.join("apps/api/.venv/bin/python");
         let dir = std::env::temp_dir().join(format!("plane-difftest-smtp-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
-        let start_one = |port: u16, name: &str| -> Result<SmtpListener> {
+        // Port 0: the kernel picks a free port, so two `difftest task` runs
+        // (another agent's and this one's) never deliver into each other's
+        // listener. The script writes the bound port to `--port-file`; the
+        // HTTP recorder already binds `127.0.0.1:0` the same way.
+        let start_one = |name: &str| -> Result<SmtpListener> {
             let path = dir.join(format!("{name}.jsonl"));
             let _ = std::fs::remove_file(&path);
+            let port_path = dir.join(format!("{name}.port"));
+            let _ = std::fs::remove_file(&port_path);
             let child = std::process::Command::new(&python)
                 .arg(&script)
                 .arg("--port")
-                .arg(port.to_string())
+                .arg("0")
+                .arg("--port-file")
+                .arg(&port_path)
                 .arg("--output")
                 .arg(&path)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
                 .spawn()
-                .with_context(|| format!("starting fake_smtp.py on {port}"))?;
+                .with_context(|| format!("starting fake_smtp.py for {name}"))?;
+            let port = wait_for_port_file(&port_path)?;
             Ok(SmtpListener { child, path, port })
         };
         let _ = case;
-        let a = start_one(18418, "a")?;
-        let b = start_one(18419, "b")?;
+        let a = start_one("a")?;
+        let b = start_one("b")?;
         Ok(Self { a, b })
     }
 
@@ -294,6 +332,26 @@ impl Drop for SmtpCapture {
     fn drop(&mut self) {
         let _ = self.finish();
     }
+}
+
+/// The port `fake_smtp.py` bound, read from the file it writes after `bind`.
+///
+/// The child writes the file before it starts serving, so a short poll is
+/// enough; a missing file after the budget is a start-up failure, not a hang.
+fn wait_for_port_file(path: &std::path::Path) -> Result<u16> {
+    for _ in 0..200 {
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(port) = text.trim().parse::<u16>()
+            && port != 0
+        {
+            return Ok(port);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    bail!(
+        "fake_smtp.py did not write its bound port to {}",
+        path.display()
+    )
 }
 
 /// Run one differential task case.
@@ -346,6 +404,11 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         Some(recorder) => value.replace("{{http}}", recorder.url()),
         None => value.clone(),
     });
+    // A task whose call sites are positional (`forgot_password`, `magic_link`,
+    // the e-mail tasks) writes `{"args": [...], "kwargs": {...}}`; the plain
+    // object form stays the keyword-argument shorthand. Split after the
+    // `{{http}}` substitution above, so both forms carry the recorder URL.
+    let (call_args, call_kwargs) = split_call(&kwargs);
     let s3 = match case.as_ref().and_then(|case| case.s3.as_ref()) {
         Some(s3_case) => {
             let (Some(bucket_a), Some(bucket_b)) =
@@ -379,6 +442,21 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
         }
         None => None,
     };
+    // A case with an `http` block (or `--live-url`) drives a loopback fake
+    // server, which a worker built without the `difftest` feature blocks. That
+    // failure looks like a plausible database diff (`titl: None`), so refuse
+    // the case up front instead of reporting it as a mismatch.
+    if case.as_ref().is_some_and(|case| case.http.is_some()) || options.live_url.is_some() {
+        let worker = worker_path(options);
+        if !worker_supports_difftest(&worker)? {
+            bail!(
+                "{} was built without the `difftest` feature; this case drives a loopback \
+                 server and would fail silently. Rebuild it: \
+                 CARGO_PROFILE_DEV_DEBUG=0 cargo build -p plane-worker --features difftest",
+                worker.display()
+            );
+        }
+    }
     let mut smtp = match case.as_ref().and_then(|case| case.smtp.as_ref()) {
         Some(smtp_case) => Some(SmtpCapture::start(smtp_case)?),
         None => None,
@@ -399,6 +477,12 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
 
     // Both databases start from the same migrated template plus the same
     // fixture. Recreate them so a previous failed run cannot leak rows.
+    let setup = setup.map(|sql| match &recorder {
+        // A webhook fixture stores its target URL in a row, so the fake HTTP
+        // server's base URL has to reach the setup SQL as well as the kwargs.
+        Some(recorder) => sql.replace("{{http}}", recorder.url()),
+        None => sql,
+    });
     prepare_database(
         &admin,
         &options.template_db,
@@ -424,7 +508,8 @@ pub async fn run(options: &TaskOptions) -> Result<()> {
 
     let outcome = execute(
         options,
-        &kwargs,
+        &call_args,
+        &call_kwargs,
         &admin,
         &rabbit,
         Captures {
@@ -484,12 +569,19 @@ struct Captures<'a> {
 
 async fn execute(
     options: &TaskOptions,
-    kwargs: &serde_json::Value,
+    call_args: &[serde_json::Value],
+    call_kwargs: &serde_json::Map<String, serde_json::Value>,
     admin: &DbAdmin,
     rabbit: &RabbitAdmin,
     captures: Captures<'_>,
 ) -> Result<()> {
     let case = captures.case;
+    // A case cannot name the caller's buckets; both sides' own bucket names
+    // become `<BUCKET>` before the case's normalisers run (D26).
+    let buckets = SideBuckets {
+        a: options.s3_bucket_a.as_deref(),
+        b: options.s3_bucket_b.as_deref(),
+    };
     let recorder = captures.recorder;
     let bucket_a = captures.s3.map(|s3| s3.bucket_a.as_str());
     let bucket_b = captures.s3.map(|s3| s3.bucket_b.as_str());
@@ -509,20 +601,60 @@ async fn execute(
     let mut redis_b = redis_side(&options.b_db, options.b_redis_db, &options.vhost).await?;
     redis_a.0.flush_db(options.a_redis_db).await?;
     redis_b.0.flush_db(options.b_redis_db).await?;
+    if let Some(case) = case {
+        for seed in &case.redis {
+            redis_a
+                .0
+                .set_raw(
+                    options.a_redis_db,
+                    &seed.key,
+                    seed.value.as_bytes(),
+                    seed.ttl,
+                )
+                .await?;
+            redis_b
+                .0
+                .set_raw(
+                    options.b_redis_db,
+                    &seed.key,
+                    seed.value.as_bytes(),
+                    seed.ttl,
+                )
+                .await?;
+        }
+    }
     let before_redis_a = redis_a.1.snapshot().await?.snapshot;
     let before_redis_b = redis_b.1.snapshot().await?.snapshot;
 
     let started: DateTime<Utc> = Utc::now();
     let before_a = admin.snapshot(&options.a_db, &catalog).await?.snapshot;
+    let attempts = case.and_then(|case| case.attempts.as_ref());
     let http_start = recorder.map_or(0, Recorder::request_count);
-    let django = run_django(options, kwargs, bucket_a, live_url).await?;
+    let django = run_django(
+        options,
+        call_args,
+        call_kwargs,
+        bucket_a,
+        live_url,
+        attempts,
+    )
+    .await?;
     // Capture immediately: later requests append to the same log.
     let django_http = recorder.map(|recorder| recorder.slice(http_start));
     let messages_a = drain_messages(rabbit, &drain, &options.vhost).await?;
     let after_redis_a = redis_a.1.snapshot().await?.snapshot;
     let before_b = admin.snapshot(&options.b_db, &catalog).await?.snapshot;
     let rust_start = recorder.map_or(0, Recorder::request_count);
-    let worker = run_worker(options, kwargs, admin, bucket_b, live_url).await?;
+    let worker = run_worker(
+        options,
+        call_args,
+        call_kwargs,
+        admin,
+        bucket_b,
+        live_url,
+        attempts,
+    )
+    .await?;
     let rust_http = recorder.map(|recorder| recorder.slice(rust_start));
     let messages_b = drain_messages(rabbit, &drain, &options.vhost).await?;
     let jobs_b = rust_jobs(admin, &options.b_db, &worker.job_id).await?;
@@ -539,8 +671,8 @@ async fn execute(
         .map(message_to_outgoing)
         .collect::<Vec<_>>();
     outgoing_b.extend(jobs_b.iter().map(job_to_outgoing));
-    normalise_outgoing(&mut outgoing_a);
-    normalise_outgoing(&mut outgoing_b);
+    normalise_outgoing(&mut outgoing_a, case);
+    normalise_outgoing(&mut outgoing_b, case);
     // `python_value` decodes a `uuid.UUID` envelope, which is the transport's
     // representation of the same Python value; a task still delivered through
     // Celery on both sides is additionally compared as raw JSON, so an
@@ -570,8 +702,20 @@ async fn execute(
 
     let mut diff_a = diff_snapshots(&before_a, &after_a);
     let mut diff_b = diff_snapshots(&before_b, &after_b);
-    normalise_diff(&mut diff_a, started, case, &known_uuids(&before_a));
-    normalise_diff(&mut diff_b, started, case, &known_uuids(&before_b));
+    normalise_diff(
+        &mut diff_a,
+        started,
+        case,
+        &known_uuids(&before_a),
+        options.s3_bucket_a.as_deref(),
+    );
+    normalise_diff(
+        &mut diff_b,
+        started,
+        case,
+        &known_uuids(&before_b),
+        options.s3_bucket_b.as_deref(),
+    );
     if diff_a != diff_b {
         print_diff("django", &diff_a);
         print_diff("rust", &diff_b);
@@ -603,7 +747,7 @@ async fn execute(
                 a.len(),
                 b.len()
             );
-            compare_rows(case, &query.label, &a, &b)?;
+            compare_rows(case, &query.label, buckets, &a, &b)?;
         }
     }
 
@@ -646,10 +790,10 @@ async fn execute(
 
     if let Some(s3) = captures.s3 {
         let (a, b) = s3.observe().await?;
-        compare_objects(case.expect("S3 capture requires a case"), &a, &b)?;
+        compare_objects(case.expect("S3 capture requires a case"), buckets, &a, &b)?;
     }
     if let (Some(a), Some(b)) = (django_http, rust_http) {
-        compare_requests(case.expect("http capture requires a case"), &a, &b)?;
+        compare_requests(case.expect("http capture requires a case"), buckets, &a, &b)?;
     }
     Ok(())
 }
@@ -818,8 +962,17 @@ fn job_to_outgoing(row: &tokio_postgres::Row) -> Outgoing {
 
 /// `epoch=int(timezone.now().timestamp())` is the only argument a task
 /// publishes that carries the clock (`issue_automation_task.py:82,145`).
-fn normalise_outgoing(outgoing: &mut [Outgoing]) {
+///
+/// The case's `normalize` rules apply to every outgoing argument string too.
+/// A webhook delivery failure publishes its transport error as the
+/// deactivation e-mail's `reason`, and the two HTTP stacks' messages differ by
+/// design (D9); the case masks that one string rather than the whole argument.
+fn normalise_outgoing(outgoing: &mut [Outgoing], case: Option<&TaskCase>) {
     for entry in outgoing {
+        if let Some(case) = case {
+            normalise_published_strings(&mut entry.args, case);
+            normalise_published_strings(&mut entry.kwargs, case);
+        }
         let Some(kwargs) = entry.kwargs.as_object_mut() else {
             continue;
         };
@@ -835,6 +988,25 @@ fn normalise_outgoing(outgoing: &mut [Outgoing]) {
             normalise_activity_payload(&mut value);
             kwargs.insert("issue_activities_created".to_string(), value);
         }
+    }
+}
+
+/// Apply the case's regex rules to every string inside a published argument
+/// (objects, arrays and string values).
+fn normalise_published_strings(value: &mut serde_json::Value, case: &TaskCase) {
+    match value {
+        serde_json::Value::String(text) => *text = case.normalize_text(text),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                normalise_published_strings(item, case);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                normalise_published_strings(item, case);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -862,14 +1034,19 @@ struct DjangoOutcome {
     status: String,
     exc_type: String,
     result: String,
+    /// Celery's `Retry.when` (a jittered countdown in seconds), when the
+    /// single-attempt run ended in `RETRY`.
+    countdown: Option<f64>,
 }
 
 /// A = `task.apply()` in the real Django, with the dev stack's environment.
 async fn run_django(
     options: &TaskOptions,
-    kwargs: &serde_json::Value,
+    call_args: &[serde_json::Value],
+    call_kwargs: &serde_json::Map<String, serde_json::Value>,
     bucket: Option<&str>,
     live_url: Option<&str>,
+    attempts: Option<&AttemptsCase>,
 ) -> Result<DjangoOutcome> {
     let root = repo_root();
     let env = dev_env(
@@ -880,10 +1057,17 @@ async fn run_django(
         live_url,
         true,
     )?;
-    let output = Command::new(root.join("apps/api/.venv/bin/python"))
+    let mut command = Command::new(root.join("apps/api/.venv/bin/python"));
+    command
         .arg(root.join("apps/server/tools/jobs/run_django_task.py"))
         .arg(&options.task)
-        .arg(serde_json::to_string(kwargs)?)
+        .arg(serde_json::to_string(call_kwargs)?)
+        .arg(serde_json::to_string(call_args)?);
+    if let Some(attempts) = attempts {
+        // `request.retries` is 0-based; the case names attempts from 1.
+        command.arg((attempts.number - 1).to_string());
+    }
+    let output = command
         .current_dir(root.join("apps/api"))
         .env_clear()
         .env("PYTHONPATH", root.join("apps/api"))
@@ -919,7 +1103,41 @@ async fn run_django(
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        countdown: result.get("countdown").and_then(serde_json::Value::as_f64),
     };
+    if let Some(attempts) = attempts {
+        if attempts.expect_retry {
+            if outcome.status != "RETRY" {
+                bail!(
+                    "Django task was expected to retry on attempt {} but ended with {}: {}",
+                    attempts.number,
+                    outcome.status,
+                    outcome.result
+                );
+            }
+            let countdown = outcome.countdown.ok_or_else(|| {
+                anyhow::anyhow!("Django ended in RETRY without a numeric countdown")
+            })?;
+            if countdown < 0.0 || countdown > f64::from(attempts.retry_backoff_seconds) {
+                bail!(
+                    "Django retry countdown {countdown}s is outside [0, {}]",
+                    attempts.retry_backoff_seconds
+                );
+            }
+            println!(
+                "django: RETRY countdown={countdown}s (policy 0-{}s)",
+                attempts.retry_backoff_seconds
+            );
+        } else if outcome.status != "SUCCESS" {
+            bail!(
+                "Django task ended with {} on attempt {}: {}",
+                outcome.status,
+                attempts.number,
+                outcome.result
+            );
+        }
+        return Ok(outcome);
+    }
     match &options.expect_django_failure {
         None => {
             if outcome.status != "SUCCESS" {
@@ -951,19 +1169,40 @@ struct WorkerOutcome {
     job_id: String,
 }
 
+/// The worker binary a run will use.
+fn worker_path(options: &TaskOptions) -> PathBuf {
+    options
+        .worker
+        .clone()
+        .unwrap_or_else(|| repo_root().join("apps/server/target/debug/plane-worker"))
+}
+
+/// Whether `worker` was compiled with the `difftest` feature.
+///
+/// The worker answers `--difftest-feature` with `difftest-feature=enabled` or
+/// `difftest-feature=disabled` and exits without starting. A binary that
+/// predates the flag prints nothing, which is treated as "without".
+fn worker_supports_difftest(worker: &std::path::Path) -> Result<bool> {
+    let output = std::process::Command::new(worker)
+        .arg("--difftest-feature")
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("probing {} for the difftest feature", worker.display()))?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim() == "difftest-feature=enabled")
+}
+
 /// B = insert a job row, then `plane-worker --once` in a fresh process.
 async fn run_worker(
     options: &TaskOptions,
-    kwargs: &serde_json::Value,
+    call_args: &[serde_json::Value],
+    call_kwargs: &serde_json::Map<String, serde_json::Value>,
     admin: &DbAdmin,
     bucket: Option<&str>,
     live_url: Option<&str>,
+    attempts: Option<&AttemptsCase>,
 ) -> Result<WorkerOutcome> {
     let root = repo_root();
-    let worker = options
-        .worker
-        .clone()
-        .unwrap_or_else(|| root.join("apps/server/target/debug/plane-worker"));
+    let worker = worker_path(options);
     let env = dev_env(
         &options.b_db,
         options.b_redis_db,
@@ -990,15 +1229,29 @@ async fn run_worker(
         );
     }
 
-    let payload = serde_json::json!({"args": [], "kwargs": kwargs});
+    let payload = serde_json::json!({"args": call_args, "kwargs": call_kwargs});
     let client = admin.connect(&options.b_db).await?;
     let id = uuid::Uuid::new_v4().to_string();
     // `tokio-postgres` is built without its `uuid`/`serde_json` features in
     // this workspace (feature isolation), so the two generated values are
     // inlined with SQL quoting rather than bound.
+    // A retry case starts the row at `number - 1`: `claim` increments it, so
+    // the handler sees the case's attempt number. The retry policy is the one
+    // the production enqueue path applies (`plane-jobs::policy`), stated by
+    // the case because the harness cannot link the queue crate.
+    let (attempts_before, max_retries, backoff, jitter) = match attempts {
+        Some(attempts) => (
+            attempts.number - 1,
+            attempts.max_retries,
+            attempts.retry_backoff_seconds,
+            attempts.retry_jitter,
+        ),
+        None => (0, 0, 0, false),
+    };
     let insert = format!(
-        "INSERT INTO plane_jobs.jobs (id, task, payload, max_retries) \
-         VALUES ('{id}'::uuid, '{}', '{}'::jsonb, 0)",
+        "INSERT INTO plane_jobs.jobs \
+         (id, task, payload, max_retries, retry_backoff_seconds, retry_jitter, attempts) \
+         VALUES ('{id}'::uuid, '{}', '{}'::json, {max_retries}, {backoff}, {jitter}, {attempts_before})",
         sql_literal(&options.task),
         sql_literal(&payload.to_string()),
     );
@@ -1029,13 +1282,46 @@ async fn run_worker(
 
     let row = client
         .query_one(
-            &format!("SELECT state, last_error FROM plane_jobs.jobs WHERE id = '{id}'::uuid"),
+            &format!(
+                "SELECT state, last_error, attempts, \
+                        EXTRACT(EPOCH FROM (run_at - updated_at))::float8 \
+                 FROM plane_jobs.jobs WHERE id = '{id}'::uuid"
+            ),
             &[],
         )
         .await
         .context("reading the job row")?;
     let state: String = row.try_get(0)?;
     let last_error: Option<String> = row.try_get(1)?;
+    let job_attempts: i32 = row.try_get(2)?;
+    let run_ahead: f64 = row.try_get(3)?;
+    if let Some(attempts) = attempts {
+        if job_attempts != attempts.number {
+            bail!(
+                "Rust job ran as attempt {job_attempts}, not the case's {}",
+                attempts.number
+            );
+        }
+        if attempts.expect_retry {
+            if state != "failed" {
+                bail!(
+                    "Rust job was expected to schedule a retry on attempt {} but ended in state \
+                     {state}: {}",
+                    attempts.number,
+                    last_error.unwrap_or_else(|| "no error recorded".to_string())
+                );
+            }
+            let bound = f64::from(attempts.retry_backoff_seconds);
+            if run_ahead < -0.001 || run_ahead > bound {
+                bail!("Rust retry is scheduled {run_ahead}s ahead, outside [0, {bound}]");
+            }
+            println!(
+                "rust: RETRY run_at=+{run_ahead}s (policy 0-{bound}s), last_error={:?}",
+                last_error.unwrap_or_default()
+            );
+            return Ok(WorkerOutcome { state, job_id: id });
+        }
+    }
     match &options.expect_worker_failure {
         None => {
             if state != "done" {
@@ -1145,12 +1431,20 @@ fn normalise_value(
     value: &mut serde_json::Value,
     case: Option<&TaskCase>,
     known: &std::collections::HashSet<String>,
+    bucket: Option<&str>,
 ) {
     normalise_timestamp(value);
     let Some(text) = value.as_str() else {
         return;
     };
-    let mut out = case.map_or_else(|| text.to_string(), |case| case.normalize_text(text));
+    // The caller's bucket name, not the case's: see `SideBuckets`.
+    let text = match bucket.filter(|bucket| !bucket.is_empty()) {
+        Some(bucket) if text.contains(bucket) => std::borrow::Cow::Owned(
+            text.replace(bucket, crate::task_case::SideBuckets::PLACEHOLDER),
+        ),
+        _ => std::borrow::Cow::Borrowed(text),
+    };
+    let mut out = case.map_or_else(|| text.to_string(), |case| case.normalize_text(&text));
     out = UUID_TEXT
         .replace_all(&out, |found: &regex::Captures<'_>| {
             if known.contains(found.get(0).map_or("", |m| m.as_str())) {
@@ -1177,6 +1471,7 @@ fn normalise_diff(
     _started: DateTime<Utc>,
     case: Option<&TaskCase>,
     known: &std::collections::HashSet<String>,
+    bucket: Option<&str>,
 ) {
     for table in diff.tables.values_mut() {
         for row in table.inserted.iter_mut().chain(table.deleted.iter_mut()) {
@@ -1187,7 +1482,7 @@ fn normalise_diff(
                     } else if column == "epoch" {
                         *value = serde_json::json!("<EPOCH>");
                     } else {
-                        normalise_value(value, case, known);
+                        normalise_value(value, case, known, bucket);
                     }
                 }
             }
@@ -1206,7 +1501,7 @@ fn normalise_diff(
                                 if column == "epoch" {
                                     *value = serde_json::json!("<EPOCH>");
                                 } else {
-                                    normalise_value(value, case, known);
+                                    normalise_value(value, case, known, bucket);
                                 }
                             }
                         }
@@ -1348,6 +1643,29 @@ pub fn default_paths() -> (PathBuf, PathBuf) {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    /// The probe is what keeps a default-build worker from turning an HTTP
+    /// case into a plausible database diff (D26/D29).
+    #[test]
+    fn the_worker_probe_reads_the_feature_answer() {
+        let dir = std::env::temp_dir().join(format!("plane-worker-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let script = dir.join("enabled");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nif [ \"$1\" = \"--difftest-feature\" ]; then echo difftest-feature=enabled; fi\n",
+        )
+        .expect("script");
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        assert!(worker_supports_difftest(&script).expect("probe"));
+
+        let plain = dir.join("disabled");
+        std::fs::write(&plain, "#!/bin/sh\nexit 0\n").expect("script");
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        assert!(!worker_supports_difftest(&plain).expect("probe"));
+    }
+
     use std::collections::BTreeMap;
 
     use super::*;
@@ -1387,12 +1705,14 @@ mod tests {
             Utc::now(),
             None,
             &std::collections::HashSet::new(),
+            None,
         );
         normalise_diff(
             &mut rust,
             Utc::now(),
             None,
             &std::collections::HashSet::new(),
+            None,
         );
         assert_eq!(django, rust);
     }
@@ -1434,8 +1754,26 @@ mod tests {
     }
 
     #[test]
+    fn a_bound_port_is_read_back_from_the_port_file() {
+        let path = std::env::temp_dir().join(format!(
+            "plane-difftest-port-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |value| value.as_nanos())
+        ));
+        std::fs::write(&path, "54321").expect("write port file");
+        assert_eq!(wait_for_port_file(&path).expect("port"), 54321);
+        // An unreadable file is a start-up failure, not a hang.
+        std::fs::write(&path, "not a port").expect("write port file");
+        assert!(wait_for_port_file(&path).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn a_celery_owned_wire_difference_is_still_a_difference() {
-        let task = "plane.bgtasks.webhook_task.webhook_send_task";
+        // Never ported (owner decision 5), so its wire form is compared.
+        let task = "plane.license.bgtasks.telemetry_metrics.push_instance_metrics";
         let id = "00000000-0000-0000-0000-000000000020";
         let envelope = serde_json::json!({
             "__type__": "uuid",
@@ -1446,7 +1784,7 @@ mod tests {
         assert_ne!(raw_celery_payloads(&[a]), raw_celery_payloads(&[b]));
         // A Rust-owned delivery is excluded from the wire comparison.
         let owned = message(
-            "plane.bgtasks.workspace_seed_task.workspace_seed",
+            "plane.bgtasks.webhook_task.webhook_send_task",
             serde_json::json!([]),
             serde_json::json!({}),
         );

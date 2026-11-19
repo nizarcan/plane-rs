@@ -532,7 +532,9 @@ workspace `Cargo.toml` and upgrade deliberately.
   and QUIT), with switches for every failure branch the endpoint distinguishes
   (`quit-error` and `delay` included). `tools/mail/run-smtp-scenario.sh` +
   `compare_smtp_logs.py` compare both backends' transcripts, masking only
-  `Date:` and the Message-ID local part. Ports 18410-18419 are reserved for it.
+  `Date:` and the Message-ID local part. The scenario wrapper uses ports 18410/18411;
+  `difftest task` binds `127.0.0.1:0` and reads the chosen port from `--port-file`, so
+  concurrent harness runs can't deliver into each other's listener (amended with set B).
 
 ## D24. E-mail templates: minijinja 3.1.0 over embedded copies of Django's templates (decided 2026-11-19)
 
@@ -759,6 +761,25 @@ workspace `Cargo.toml` and upgrade deliberately.
   where Django's `int(code)` raises out of the command (`create_bucket.py:37`);
   `test-email`'s 30 s timeout bounds the connect only, where Python bounds every
   socket operation.
+
+## D35. Queue payloads are `json`, so dict key order survives between tasks (decided 2026-11-19)
+
+- `plane_jobs.jobs.payload` was `jsonb`, which sorts object keys, so a Python dict's
+  insertion order was lost between Rust tasks. It is user-visible: the actor and comment
+  order in `send_email_notification`'s e-mail, the webhook request body (which had
+  needed a per-serializer reorder).
+- The column is now `json` (exact text). `Job::from_message` builds the ordered text
+  from the typed `TaskArg`s; `queue::claim` reads `payload::text` and decodes it into
+  `plane_jobs::payload::Payload`, which holds the ordered `pyjson` value beside the
+  usual `serde_json` view (handlers keep reading the latter through `Deref`; handlers
+  whose output depends on order read `Payload::py*`). The rest of the workspace's
+  `serde_json` is unchanged. The webhook delivery's input reorder is removed.
+- `plane_jobs::queue::SCHEMA_VERSION` is `"3"`; `migrate` converts an existing `jsonb`
+  column in place (`USING payload::json`), and rows queued before that keep jsonb's
+  order. A Django → Rust upgrade creates the table fresh, so no queued row is affected.
+- Proven by `p8b-en-send-order` (two actors in non-uuid order, SMTP bytes equal) and
+  `p8b-send-order` (unsorted `event_data`/`activity`, recorder body and
+  `webhook_logs.request_body` equal).
 
 ## Open owner decisions
 

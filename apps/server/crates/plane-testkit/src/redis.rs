@@ -177,6 +177,32 @@ impl RedisAdmin {
 
     /// Open a dedicated connection used for repeated snapshots of one
     /// logical database.
+    /// `SET key value [EX seconds]` on a raw connection: the bytes a test
+    /// fixture wants in place before the baseline snapshot. Unlike
+    /// `apply_fixture`, nothing is pickled or prefixed — this is the redis-py
+    /// view of the database (`issue_activity`'s origin key and
+    /// `send_email_notification`'s base-URL key are written that way).
+    pub async fn set_raw(
+        &self,
+        index: i64,
+        key: &str,
+        value: &[u8],
+        ttl_seconds: Option<i64>,
+    ) -> Result<()> {
+        let mut connection = self.connect(index).await?;
+        let ttl = ttl_seconds.map(|ttl| ttl.to_string());
+        let mut args: Vec<&[u8]> = vec![b"SET", key.as_bytes(), value];
+        if let Some(ttl) = &ttl {
+            args.push(b"EX");
+            args.push(ttl.as_bytes());
+        }
+        let reply = connection.command(&args).await?;
+        if reply.as_status() != Some("OK") {
+            bail!("Redis SET {key:?} returned {reply:?}");
+        }
+        Ok(())
+    }
+
     pub async fn snapshotter(&self, index: i64) -> Result<RedisSnapshotter> {
         Ok(RedisSnapshotter {
             index,

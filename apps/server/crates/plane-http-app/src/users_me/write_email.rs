@@ -129,7 +129,7 @@ pub fn generate_code<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespo
 
             let task = task_name::SEND_EMAIL_UPDATE_MAGIC_CODE;
             let message = tasks::send_email_update_magic_code(new_email.clone(), token);
-            jobs::dispatch_task(ctx, task, &message, Job::new(task)).await?;
+            jobs::dispatch_task(ctx, task, &message, Job::from_message(&message)).await?;
             Ok::<(), ViewError>(())
         }
         .await;
@@ -275,7 +275,7 @@ pub fn update_email<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewRespon
                 vec![recipient.map_or(TaskArg::Null, TaskArg::str)],
                 Vec::new(),
             );
-            jobs::dispatch_task(ctx, task, &message, Job::new(task)).await?;
+            jobs::dispatch_task(ctx, task, &message, Job::from_message(&message)).await?;
         }
 
         // `UserMeSerializer(user).data` (`:274-276`), from the in-memory row,

@@ -49,7 +49,21 @@ pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.bgtasks.storage_metadata_task.get_asset_object_metadata",
     "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
     "plane.bgtasks.workspace_seed_task.workspace_seed",
+    "plane.bgtasks.webhook_task.model_activity",
+    "plane.bgtasks.webhook_task.webhook_activity",
+    "plane.bgtasks.webhook_task.webhook_send_task",
+    "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+    "plane.bgtasks.forgot_password_task.forgot_password",
+    "plane.bgtasks.magic_link_code_task.magic_link",
+    "plane.bgtasks.project_add_user_email_task.project_add_user_email",
+    "plane.bgtasks.user_activation_email_task.user_activation_email",
+    "plane.bgtasks.user_deactivation_email_task.user_deactivation_email",
+    "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
+    "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
+    "plane.bgtasks.workspace_invitation_task.workspace_invitation",
     "plane.bgtasks.issue_activities_task.issue_activity",
+    "plane.bgtasks.email_notification_task.stack_email_notification",
+    "plane.bgtasks.email_notification_task.send_email_notification",
     "plane.bgtasks.notification_task.notifications",
 ];
 
@@ -137,9 +151,11 @@ pub fn take_plane_jobs(diff: &mut DbDiff) -> Vec<TransportJob> {
 ///
 /// `a` is what Django's producer published to RabbitMQ, `b` is what B's
 /// producer inserted into `plane_jobs.jobs`. Each side must deliver the same
-/// multiset of `(task, canonical args, canonical kwargs)`; object key order is
-/// not part of the payload (`jsonb` reorders it on B, Python keeps insertion
-/// order on A), so objects are canonicalised by key.
+/// multiset of `(task, canonical args, canonical kwargs)`; the *set* of
+/// deliveries is what a scenario asserts. Object key order is preserved by the
+/// queue now (`compare_transports` still canonicalises keys because a task's
+/// consumer, not the transport, decides whether the order is observable; the
+/// `difftest task` e-mail/webhook cases pin it where it is).
 #[must_use]
 pub fn compare_transports(a: &[TransportJob], b: &[TransportJob]) -> Vec<Difference> {
     let mut unused: Vec<Option<&TransportJob>> = b.iter().map(Some).collect();
@@ -297,7 +313,8 @@ mod tests {
                     "user_id": {"__type__": "uuid", "__value__": {"hex": id.replace('-', "")}},
                 }),
             ),
-            empty_message("plane.bgtasks.webhook_task.webhook_send_task"),
+            // Never ported (owner decision 5), so it stays Celery-owned.
+            empty_message("plane.license.bgtasks.telemetry_metrics.push_instance_metrics"),
         ];
         let owned = take_owned_messages(&mut messages);
         assert_eq!(owned.len(), 1);
@@ -309,7 +326,8 @@ mod tests {
         let jobs = vec![TransportJob {
             task: "plane.bgtasks.recent_visited_task.recent_visited_task".to_string(),
             args: serde_json::json!([]),
-            // `jsonb` reorders keys; equality is by key, not by order.
+            // Equality is by key: the transport comparison is order-insensitive
+            // (the order-sensitive e-mail/webhook cases are `difftest task`).
             kwargs: serde_json::json!({"user_id": id, "slug": "acme"}),
         }];
         assert!(compare_transports(&owned, &jobs).is_empty());

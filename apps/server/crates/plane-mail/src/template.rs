@@ -50,6 +50,34 @@ const TEMPLATES: &[(&str, &str)] = &[
         "emails/test_email.html",
         include_str!("../templates/test_email.html.j2"),
     ),
+    (
+        "emails/notifications/webhook-deactivate.html",
+        include_str!("../templates/webhook_deactivate.html.j2"),
+    ),
+    (
+        "emails/notifications/issue-updates.html",
+        include_str!("../templates/issue_updates.html.j2"),
+    ),
+    (
+        "emails/notifications/project_addition.html",
+        include_str!("../templates/project_addition.html.j2"),
+    ),
+    (
+        "emails/invitations/workspace_invitation.html",
+        include_str!("../templates/workspace_invitation.html.j2"),
+    ),
+    (
+        "emails/user/user_activation.html",
+        include_str!("../templates/user_activation.html.j2"),
+    ),
+    (
+        "emails/user/user_deactivation.html",
+        include_str!("../templates/user_deactivation.html.j2"),
+    ),
+    (
+        "emails/user/email_updated.html",
+        include_str!("../templates/email_updated.html.j2"),
+    ),
 ];
 
 /// The rendering error a task reports as a handler failure.
@@ -113,7 +141,22 @@ pub fn environment() -> &'static Environment<'static> {
         // Django templates default to HTML autoescaping for `render_to_string`
         // (`django/template/backends/django.py:47-53` sets autoescape=True).
         environment.set_auto_escape_callback(|_| AutoEscape::Html);
+        // Django's variable resolution never fails: `a.b.c` on a missing `b`
+        // is `string_if_invalid` (""), and a deep template such as
+        // `issue-updates.html` relies on that (`update.changes.blocking…`
+        // when the update has no `blocking` key). `minijinja`'s default
+        // lenient behaviour still rejects an attribute access *on* undefined,
+        // so the chainable behaviour is the Django-compatible one.
+        environment.set_undefined_behavior(minijinja::UndefinedBehavior::Chainable);
         environment.set_formatter(python_formatter);
+        // `issue-updates.html` uses three Django filters that Jinja has no
+        // equivalent for: `slice` (Django's is a Python slice spec, Jinja's
+        // partitions a list), `add` (int addition with a string argument) and
+        // `striptags` (`django.utils.html.strip_tags`). They are registered
+        // for the whole environment because the templates are Django's.
+        environment.add_filter("slice", django_slice);
+        environment.add_filter("add", django_add);
+        environment.add_filter("striptags", django_striptags);
         for (name, source) in TEMPLATES {
             environment
                 .add_template_owned((*name).to_string(), (*source).to_string())
@@ -122,6 +165,114 @@ pub fn environment() -> &'static Environment<'static> {
         environment
     });
     &ENVIRONMENT
+}
+
+/// `django.template.defaultfilters.slice` (`defaultfilters.py:1068-1082`): a
+/// Python slice spec (`":2"`, `"1:"`, `"-2:"`, `"::2"`), not Jinja's list
+/// partitioner. A spec that does not parse, or a value Python cannot slice,
+/// returns the value unchanged.
+fn django_slice(value: Value, spec: Value) -> Value {
+    let spec = python_str(&spec);
+    let mut parts = spec.split(':');
+    let parse = |part: Option<&str>| -> Option<Option<i64>> {
+        match part {
+            // A missing component is Python's `None` bound, not a failure.
+            None | Some("") => Some(None),
+            Some(text) => text.trim().parse::<i64>().ok().map(Some),
+        }
+    };
+    let Some(start) = parse(parts.next()) else {
+        return value;
+    };
+    let Some(stop) = parse(parts.next()) else {
+        return value;
+    };
+    let step = match parse(parts.next()) {
+        Some(step) => step,
+        None => return value,
+    };
+    if parts.next().is_some() {
+        return value;
+    }
+    if let Some(text) = value.as_str() {
+        let chars: Vec<char> = text.chars().collect();
+        let Some((begin, end, stride)) = python_slice_indices(chars.len(), start, stop, step)
+        else {
+            return value;
+        };
+        let mut out = String::new();
+        let mut index = begin;
+        while (stride > 0 && index < end) || (stride < 0 && index > end) {
+            out.push(chars[index as usize]);
+            index += stride;
+        }
+        return Value::from(out);
+    }
+    let Ok(items) = value.try_iter() else {
+        return value;
+    };
+    let items: Vec<Value> = items.collect();
+    let Some((begin, end, stride)) = python_slice_indices(items.len(), start, stop, step) else {
+        return value;
+    };
+    let mut out = Vec::new();
+    let mut index = begin;
+    while (stride > 0 && index < end) || (stride < 0 && index > end) {
+        out.push(items[index as usize].clone());
+        index += stride;
+    }
+    Value::from(out)
+}
+
+/// `slice.indices(len)`: the concrete `(start, stop, step)` a Python slice
+/// selects, or `None` for a zero step (a `ValueError` Django catches).
+fn python_slice_indices(
+    length: usize,
+    start: Option<i64>,
+    stop: Option<i64>,
+    step: Option<i64>,
+) -> Option<(i64, i64, i64)> {
+    let step = step.unwrap_or(1);
+    if step == 0 {
+        return None;
+    }
+    let length = length as i64;
+    let adjust = |value: i64| -> i64 {
+        if value < 0 {
+            (value + length).max(if step > 0 { 0 } else { -1 })
+        } else {
+            value.min(if step > 0 { length } else { length - 1 })
+        }
+    };
+    let start = start.map_or_else(|| if step > 0 { 0 } else { length - 1 }, adjust);
+    let stop = stop.map_or_else(|| if step > 0 { length } else { -1 }, adjust);
+    Some((start, stop, step))
+}
+
+/// `django.template.defaultfilters.add` (`defaultfilters.py:1471-1479`):
+/// `int(value) + int(arg)`, falling back to `value + arg` (strings, lists)
+/// and then to the empty string.
+fn django_add(value: Value, arg: Value) -> Value {
+    let as_int = |value: &Value| -> Option<i64> { python_str(value).trim().parse::<i64>().ok() };
+    if let (Some(left), Some(right)) = (as_int(&value), as_int(&arg)) {
+        return Value::from(left + right);
+    }
+    if let (Some(left), Some(right)) = (value.as_str(), arg.as_str()) {
+        return Value::from(format!("{left}{right}"));
+    }
+    if let (Ok(left), Ok(right)) = (value.try_iter(), arg.try_iter()) {
+        let mut items: Vec<Value> = left.collect();
+        items.extend(right);
+        return Value::from(items);
+    }
+    Value::from("")
+}
+
+/// `django.template.defaultfilters.striptags` (`defaultfilters.py:1817-1820`)
+/// = `django.utils.html.strip_tags`, already ported for the plain-text body
+/// (`plane_mail::plain_text`).
+fn django_striptags(value: Value) -> Value {
+    Value::from(crate::plain_text::strip_tags(&python_str(&value)))
 }
 
 /// Django's `render_value_in_context` (`django/template/base.py:1015-1028`):
@@ -167,7 +318,11 @@ fn write_django_escaped(out: &mut minijinja::Output, text: &str) -> Result<(), m
 /// Python `str()` for the JSON values a template context carries.
 fn python_str(value: &Value) -> String {
     match value.kind() {
-        ValueKind::Undefined | ValueKind::None => "None".to_string(),
+        // Django's `string_if_invalid` is the empty string: a name the context
+        // does not define renders nothing, while a defined `None` renders
+        // "None" (`render_value_in_context`).
+        ValueKind::Undefined => String::new(),
+        ValueKind::None => "None".to_string(),
         ValueKind::Bool => {
             if value == &Value::from(true) {
                 "True".to_string()

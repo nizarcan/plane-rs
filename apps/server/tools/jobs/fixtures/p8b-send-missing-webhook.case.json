@@ -1,0 +1,15 @@
+{
+  "task": "plane.bgtasks.webhook_task.webhook_send_task",
+  "sql": [
+    {
+      "label": "webhooks",
+      "query": "SELECT id::text, url, is_active::text, secret_key FROM webhooks ORDER BY id::text"
+    }
+  ],
+  "normalize": [
+    {
+      "pattern": "X-Plane-Delivery': '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'",
+      "replacement": "X-Plane-Delivery': '<UUID>'"
+    }
+  ]
+}

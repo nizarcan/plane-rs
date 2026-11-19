@@ -2314,8 +2314,20 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        lock; `avatar_url` `None` interpolated; HTML left in `Subject:`; receiver order
        from `set()`; the retry raises a bare `RequestException()`.
 
-   Running: the orchestrator's verification of `d9eedf323e` (incl. baseline,
-   `verify_migrator`, `compare_boot`, both beat scripts); set B part 3 (`rs/p8-b`: the
-   A2 merge, order-preserving queue payloads, ephemeral SMTP ports; 18020/18120, Redis
-   5/6, contract Redis 15); deployment + exit check (`rs/p8-deploy`, §5; Redis 7/8,
-   contract Redis 9).
+   - **Phase 8 set B merged (`b74a5d6a0c`, verification after `d9eedf323e`'s).** Part 3:
+     resolved the A2 merge into one `drain_n`/`PLANE_RS_JOB_ONCE_JOBS`, one bs4
+     `matching_attribute_values` API, one `run_django_task.py` (stdout capture, positional
+     args, single-attempt tracer); queue payloads are `json` and keep dict order (D35,
+     schema 3); `difftest task` SMTP listeners on ephemeral ports (D23 amended). Tests that
+     used a now Rust-owned task as their Celery example use `push_instance_metrics`.
+     Agent: **292/292 task cases** (a1 63, a2 82, a3 46, b 50, c 31, d 20), `plane-jobs` DB
+     test 8/8, read 52/52, write 75/75, `auth-session` 12/12, OAuth 57/57 + 52/52, SMTP,
+     contract 984/2, 1411 tests, testkit 213. Beat scripts held for the orchestrator.
+     - Orchestrator's merge into `rust-rewrite`: two conflicts, `SCHEMA_VERSION` (now `"3"`,
+       boot set's doc kept) and the template list (union).
+     - **Every Phase 8 task in `plans/CUTOVER.md` §1 is now Rust-owned**, except the
+       command-only ones in `plane-admin` (D31) and `push_instance_metrics` (open owner
+       question, D34).
+
+   Running: the orchestrator's verification of `d9eedf323e`, then of `b74a5d6a0c`;
+   deployment + exit check (`rs/p8-deploy`, §5; Redis 7/8, contract Redis 9).

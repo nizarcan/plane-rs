@@ -1382,8 +1382,13 @@ pub fn destroy<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, V
                 new_identifier: None,
             },
         );
-        crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-            .await?;
+        crate::common::jobs::dispatch_task(
+            ctx,
+            task,
+            &message,
+            plane_jobs::queue::Job::from_message(&message),
+        )
+        .await?;
 
         // `DeployBoard.objects.filter(...).delete()` and
         // `UserFavorite.objects.filter(...).delete()` (`:415-418`) — H04.
@@ -1902,8 +1907,13 @@ async fn publish_activity(
             slug: slug.to_owned(),
             origin: base_host(ctx)?,
         });
-    crate::common::jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task))
-        .await?;
+    crate::common::jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await?;
     Ok(())
 }
 

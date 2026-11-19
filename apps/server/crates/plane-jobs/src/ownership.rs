@@ -56,9 +56,29 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.work_item_link_task.crawl_work_item_link_title",
     // Phase 8 set C: WorkspaceViewSet.create (route 186) is a Rust route.
     "plane.bgtasks.workspace_seed_task.workspace_seed",
+    // Phase 8 set B: the webhook chain moves in its producer order.
+    "plane.bgtasks.webhook_task.model_activity",
+    "plane.bgtasks.webhook_task.webhook_activity",
+    "plane.bgtasks.webhook_task.webhook_send_task",
+    "plane.bgtasks.webhook_task.send_webhook_deactivation_email",
+    // Phase 8 set B: the auth and user e-mails. Every producer is a Rust route
+    // or the Rust auth adapter (`PRODUCERS` below).
+    "plane.bgtasks.forgot_password_task.forgot_password",
+    "plane.bgtasks.magic_link_code_task.magic_link",
+    "plane.bgtasks.project_add_user_email_task.project_add_user_email",
+    "plane.bgtasks.user_activation_email_task.user_activation_email",
+    "plane.bgtasks.user_deactivation_email_task.user_deactivation_email",
+    "plane.bgtasks.user_email_update_task.send_email_update_magic_code",
+    "plane.bgtasks.user_email_update_task.send_email_update_confirmation",
+    "plane.bgtasks.workspace_invitation_task.workspace_invitation",
     // Phase 8 set A1: every producer is a Rust HTTP route, the Rust
     // `archive_and_close_old_issues`, or `transfer_cycle_issues`.
     "plane.bgtasks.issue_activities_task.issue_activity",
+    // Phase 8 set B: 13 is published only by 12, which is published only by
+    // the beat entry `check-every-five-minutes-to-send-email-notifications`
+    // (`beat::RUST_SCHEDULES`).
+    "plane.bgtasks.email_notification_task.stack_email_notification",
+    "plane.bgtasks.email_notification_task.send_email_notification",
     // Phase 8 set A2: its only producer is the Rust `issue_activity` handler's
     // `notification=True` re-publish (`issue_activities_task.py:1632-1645`).
     "plane.bgtasks.notification_task.notifications",
@@ -114,8 +134,13 @@ mod tests {
 
     #[test]
     fn default_is_celery() {
+        // `push_instance_metrics` is never ported (owner decision 5,
+        // `RUST_REWRITE.md:237`), so it stays a Celery-owned task for good.
         assert_eq!(
-            owner_with("plane.bgtasks.webhook_task.webhook_send_task", &[]),
+            owner_with(
+                "plane.license.bgtasks.telemetry_metrics.push_instance_metrics",
+                &[]
+            ),
             Owner::Celery
         );
         assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);
