@@ -2198,6 +2198,13 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
      SSRF guard silently changes the crawl result; both harness fixes assigned to set
      B); **128 files / 6085 steps clean in one pass**; OAuth 57/57 + 52/52; SMTP clean;
      contract **984/2** (new baseline).
+   - **Phase 8 set A1 merged (`8406d7a925`, verification running).** Resolution round:
+     one `plane_jobs` replay in the contract plugin (set C's watermark design); UUID hints
+     in `Job::from_message` so `issue_activity` re-publishes `notifications` with kombu
+     UUID envelopes like Django (no normaliser; D25 amended); A1's 63 cases in
+     `task-cases.txt` as set `a1`; bucket pattern broadened to `p8*`. Agent: 160/160 task
+     cases (a1, a3, c, d), 1387 tests, testkit 210, write 75/75, read 51/51 + OAuth, contract
+     984/2.
    - **Phase 8 set A1 on its branch (`e6a0c0937e`, not merged).** `issue_activity`
      switched: 27 builders, 63 `difftest task` cases (DB, Redis, published messages);
      31 producers in 19 files moved to `Job::from_message`; `difftest task` diffs Redis;
@@ -2216,7 +2223,7 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        `state_id` + `state` in one update append two rows; a bad `epoch` fails after
        partial bumps.
 
-   Running: the orchestrator's verification of `33dd7bcc24`, set A1 (`rs/p8-a1`:
-   `issue_activity`; 18010/18110, Redis 3/4, contract Redis 11), set B (`rs/p8-b`: tasks
+   Running: the orchestrator's verification of `8406d7a925`, set A2 (`rs/p8-a2`:
+   `notifications`; 18010/18110, Redis 3/4, contract Redis 11), set B (`rs/p8-b`: tasks
    12, 13, 17, 28, 32, 36–43, 45; 18020/18120, Redis 5/6, contract Redis 15, SMTP
    18410–18417).
