@@ -24,6 +24,7 @@
 pub mod automation;
 pub mod cleanup;
 pub mod deletion;
+pub mod issue_activity;
 pub mod logs;
 pub mod model_graph;
 pub mod recent_visited;
@@ -136,6 +137,7 @@ pub fn registry(context: Arc<TaskContext>) -> TaskRegistry {
     automation::register(&mut registry, Arc::clone(&context));
     logs::register(&mut registry, Arc::clone(&context));
     versions::register(&mut registry, Arc::clone(&context));
+    issue_activity::register(&mut registry, Arc::clone(&context));
     registry
 }
 
@@ -156,6 +158,7 @@ pub const REGISTERED_TASKS: &[&str] = &[
     versions::ISSUE_DESCRIPTION_VERSION,
     versions::PAGE_TRANSACTION,
     versions::TRACK_PAGE_VERSION,
+    issue_activity::ISSUE_ACTIVITY,
 ];
 
 /// Publish a task the way the Python call site's `.delay()` does.

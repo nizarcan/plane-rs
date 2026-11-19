@@ -43,6 +43,7 @@ pub const RUST_OWNED_TASKS: &[&str] = &[
     "plane.bgtasks.page_transaction_task.page_transaction",
     "plane.bgtasks.page_version_task.track_page_version",
     "plane.bgtasks.deletion_task.soft_delete_related_objects",
+    "plane.bgtasks.issue_activities_task.issue_activity",
 ];
 
 /// Whether `task` is published to `plane_jobs` rather than to RabbitMQ.
@@ -289,7 +290,7 @@ mod tests {
                     "user_id": {"__type__": "uuid", "__value__": {"hex": id.replace('-', "")}},
                 }),
             ),
-            empty_message("plane.bgtasks.issue_activities_task.issue_activity"),
+            empty_message("plane.bgtasks.notification_task.notifications"),
         ];
         let owned = take_owned_messages(&mut messages);
         assert_eq!(owned.len(), 1);

@@ -256,7 +256,7 @@ pub fn create<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 
@@ -384,7 +384,7 @@ pub fn patch<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vie
             ctx,
             activity.task(),
             &activity,
-            plane_jobs::queue::Job::new(activity.task()),
+            plane_jobs::queue::Job::from_message(&activity),
         )
         .await?;
 

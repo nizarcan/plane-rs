@@ -1292,7 +1292,7 @@ pub fn delete<'a>(ctx: &'a ViewCtx<'a>) -> BoxFuture<'a, Result<ViewResponse, Vi
             ctx,
             task,
             &message,
-            plane_jobs::queue::Job::new(task),
+            plane_jobs::queue::Job::from_message(&message),
         )
         .await?;
         // `cycle.delete()` — H03 then the cascade task.
@@ -2554,7 +2554,7 @@ pub(crate) async fn publish_issue_activity(
         ctx,
         task,
         &message,
-        plane_jobs::queue::Job::new(task),
+        plane_jobs::queue::Job::from_message(&message),
     )
     .await
     .map(|_| ())

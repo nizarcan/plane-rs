@@ -38,6 +38,7 @@ pub const RUST_TASKS: &[&str] = &[
     "plane.bgtasks.page_transaction_task.page_transaction",
     "plane.bgtasks.page_version_task.track_page_version",
     "plane.bgtasks.deletion_task.soft_delete_related_objects",
+    "plane.bgtasks.issue_activities_task.issue_activity",
 ];
 
 /// A task's owner.
@@ -91,7 +92,7 @@ mod tests {
     #[test]
     fn default_is_celery() {
         assert_eq!(
-            owner_with("plane.bgtasks.issue_activities_task.issue_activity", &[]),
+            owner_with("plane.bgtasks.notification_task.notifications", &[]),
             Owner::Celery
         );
         assert_eq!(owner_with("plane.bgtasks.unknown", &[]), Owner::Celery);

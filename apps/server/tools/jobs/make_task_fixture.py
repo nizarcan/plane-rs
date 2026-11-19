@@ -67,6 +67,47 @@ def uuid_tail(index: int) -> str:
     return f"eeeeeeee-eeee-eeee-eeee-{index:012d}"
 
 
+# Set A1 (`issue_activity`) ids. Every id a builder hands to `is_valid_uuid`
+# must be version 4 (`plane/utils/uuid.py:9-14`), so these are not shared with
+# the older fixtures, whose third group is not `4`.
+A1_U = "11111111-1111-4111-8111-111111111111"
+A1_U2 = "11111111-1111-4111-8111-111111111112"
+A1_U3 = "11111111-1111-4111-8111-111111111113"
+A1_W = "22222222-2222-4222-8222-222222222222"
+A1_PROJECT = "33333333-3333-4333-8333-333333333333"
+A1_PROJECT2 = "33333333-3333-4333-8333-333333333334"
+A1_PROJECT_DELETED = "33333333-3333-4333-8333-333333333335"
+A1_STATE_BACKLOG = "44444444-4444-4444-8444-444444444441"
+A1_STATE_DONE = "44444444-4444-4444-8444-444444444442"
+A1_STATE_CANCELLED = "44444444-4444-4444-8444-444444444443"
+A1_STATE_TRIAGE = "44444444-4444-4444-8444-444444444444"
+A1_STATE_OTHER = "44444444-4444-4444-8444-444444444445"
+A1_ISSUE1 = "55555555-5555-4555-8555-000000000001"
+A1_ISSUE2 = "55555555-5555-4555-8555-000000000002"
+A1_ISSUE3 = "55555555-5555-4555-8555-000000000003"
+A1_ISSUE4 = "55555555-5555-4555-8555-000000000004"
+A1_ISSUE_DELETED = "55555555-5555-4555-8555-000000000005"
+A1_INTAKE = "66666666-6666-4666-8666-666666666666"
+A1_LABEL = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"
+A1_LABEL2 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"
+A1_LABEL3 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3"
+A1_CYCLE = "88888888-8888-4888-8888-888888888881"
+A1_CYCLE2 = "88888888-8888-4888-8888-888888888882"
+A1_MODULE = "88888888-8888-4888-8888-888888888883"
+A1_COMMENT = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"
+A1_REACTION = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1"
+A1_COMMENT_REACTION = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2"
+A1_VOTE = "cccccccc-cccc-4ccc-8ccc-ccccccccccc3"
+A1_ESTIMATE = "dddddddd-dddd-4ddd-8ddd-dddddddddd01"
+A1_ESTIMATE_POINT = "dddddddd-dddd-4ddd-8ddd-dddddddddd02"
+A1_LINK = "99999999-9999-4999-8999-999999999991"
+A1_ACTIVITY_OLD = "12121212-1212-4212-8212-121212121212"
+
+
+def a1_tail(index: int) -> str:
+    return f"eeeeeeee-eeee-4eee-8eee-{index:012d}"
+
+
 def build_cleanup(now):
     """Rows the five cleanup tasks select and must leave alone."""
     from plane.db.models import (
@@ -1130,6 +1171,269 @@ def build_page_transactions(now):
     log(page, 5)
 
 
+def build_issue_activity(now):
+    """The graph every `issue_activity` builder reads or writes.
+
+    Every id a builder feeds to `is_valid_uuid` is version 4: that helper
+    accepts only v4 (`plane/utils/uuid.py:9-14`), so a v3/v5 fixture id would
+    make the task return before doing anything (`issue_activities_task.py:1567`).
+    """
+    from plane.db.models import (
+        Cycle,
+        Description,
+        Estimate,
+        EstimatePoint,
+        Intake,
+        IntakeIssue,
+        Issue,
+        IssueActivity,
+        IssueAssignee,
+        IssueComment,
+        IssueLabel,
+        IssueLink,
+        IssueReaction,
+        CommentReaction,
+        IssueVote,
+        Label,
+        Module,
+        Project,
+        ProjectMember,
+        State,
+        User,
+        Workspace,
+        WorkspaceMember,
+    )
+
+    actor = User.objects.create(
+        id=A1_U,
+        username="p8a1",
+        email="p8a1@example.com",
+        display_name="P8A1 User",
+        first_name="P8A1",
+        last_name="User",
+        user_timezone="UTC",
+    )
+    other = User.objects.create(
+        id=A1_U2,
+        username="p8a1-other",
+        email="p8a1-other@example.com",
+        display_name="P8A1 Other",
+        first_name="Other",
+        user_timezone="UTC",
+    )
+    guest = User.objects.create(
+        id=A1_U3,
+        username="p8a1-guest",
+        email="p8a1-guest@example.com",
+        display_name="P8A1 Guest",
+        user_timezone="UTC",
+    )
+    workspace = Workspace.objects.create(
+        id=A1_W, name="P8A1", slug="p8a1-issue-activity", owner=actor, timezone="UTC"
+    )
+    WorkspaceMember.objects.create(workspace=workspace, member=actor, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=other, role=20)
+    WorkspaceMember.objects.create(workspace=workspace, member=guest, role=5)
+    project = Project.objects.create(
+        id=A1_PROJECT,
+        name="Issue activity",
+        identifier="P8A1",
+        workspace=workspace,
+        created_by=actor,
+    )
+    project2 = Project.objects.create(
+        id=A1_PROJECT2,
+        name="Other project",
+        identifier="P8A2",
+        workspace=workspace,
+        created_by=actor,
+    )
+    deleted_project = Project.objects.create(
+        id=A1_PROJECT_DELETED,
+        name="Deleted project",
+        identifier="P8A3",
+        workspace=workspace,
+        created_by=actor,
+    )
+    ProjectMember.objects.create(project=project, workspace=workspace, member=actor, role=20)
+    ProjectMember.objects.create(project=project, workspace=workspace, member=other, role=20)
+    ProjectMember.objects.create(project=project, workspace=workspace, member=guest, role=5)
+    ProjectMember.objects.create(project=project2, workspace=workspace, member=other, role=20)
+
+    backlog = State.objects.create(
+        id=A1_STATE_BACKLOG,
+        name="Backlog",
+        color="#ffffff",
+        project=project,
+        workspace=workspace,
+        created_by=actor,
+        default=True,
+    )
+    done = State.objects.create(
+        id=A1_STATE_DONE,
+        name="Done",
+        color="#ffffff",
+        group="completed",
+        project=project,
+        workspace=workspace,
+        created_by=actor,
+    )
+    State.objects.create(
+        id=A1_STATE_CANCELLED,
+        name="Cancelled",
+        color="#ffffff",
+        group="cancelled",
+        project=project,
+        workspace=workspace,
+        created_by=actor,
+    )
+    State.objects.create(
+        id=A1_STATE_TRIAGE,
+        name="Triage",
+        color="#ffffff",
+        group="triage",
+        is_triage=True,
+        project=project,
+        workspace=workspace,
+        created_by=actor,
+    )
+    State.objects.create(
+        id=A1_STATE_OTHER,
+        name="Other backlog",
+        color="#ffffff",
+        project=project2,
+        workspace=workspace,
+        created_by=actor,
+    )
+
+    label = Label.objects.create(
+        id=A1_LABEL, name="Bug", project=project, workspace=workspace, created_by=actor
+    )
+    label2 = Label.objects.create(
+        id=A1_LABEL2, name="Feature", project=project, workspace=workspace, created_by=actor
+    )
+    Label.objects.create(
+        id=A1_LABEL3, name="Elsewhere", project=project2, workspace=workspace, created_by=actor
+    )
+
+    def issue(record_id, name, project_row, state, **kwargs):
+        return Issue.objects.create(
+            id=record_id,
+            name=name,
+            project=project_row,
+            workspace=workspace,
+            state=state,
+            description_html=f"<p>{name}</p>",
+            description_json={"type": "doc"},
+            created_by=actor,
+            **kwargs,
+        )
+
+    issue1 = issue(A1_ISSUE1, "Issue one", project, backlog)
+    issue2 = issue(A1_ISSUE2, "Issue two", project, done)
+    issue3 = issue(A1_ISSUE3, "Issue three", project, backlog)
+    issue4 = issue(A1_ISSUE4, "Issue four", project2, State.objects.get(id=A1_STATE_OTHER))
+    issue_deleted = issue(A1_ISSUE_DELETED, "Deleted issue", project, backlog)
+    Issue.objects.filter(id=A1_ISSUE_DELETED).update(deleted_at=now)
+    # A stable `created_at` makes `create_issue_activity`'s `created_at =
+    # issue.created_at` visible in the comparison.
+    Issue.objects.filter(id__in=[A1_ISSUE1, A1_ISSUE2, A1_ISSUE3, A1_ISSUE4]).update(
+        created_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc),
+        created_by_id=A1_U,
+    )
+
+    IssueLabel.objects.create(
+        id=a1_tail(1), issue=issue1, label=label, project=project, workspace=workspace,
+        created_by=actor,
+    )
+    IssueAssignee.objects.create(
+        id=a1_tail(2), issue=issue1, assignee=actor, project=project, workspace=workspace,
+        created_by=actor,
+    )
+
+    estimate = Estimate.objects.create(
+        id=A1_ESTIMATE, name="Points", type="points", project=project, workspace=workspace,
+        created_by=actor,
+    )
+    point = EstimatePoint.objects.create(
+        id=A1_ESTIMATE_POINT, estimate=estimate, key=1, value="3", project=project,
+        workspace=workspace, created_by=actor,
+    )
+    Issue.objects.filter(id=A1_ISSUE2).update(estimate_point=point)
+
+    cycle = Cycle.objects.create(
+        id=A1_CYCLE, name="Cycle one", project=project, workspace=workspace, owned_by=actor,
+        created_by=actor,
+    )
+    Cycle.objects.create(
+        id=A1_CYCLE2, name="Cycle two", project=project, workspace=workspace, owned_by=actor,
+        created_by=actor,
+    )
+    del cycle
+
+    Module.objects.create(
+        id=A1_MODULE, name="Module one", project=project, workspace=workspace, created_by=actor
+    )
+
+    intake = Intake.objects.create(
+        id=A1_INTAKE, name="Intake", project=project, workspace=workspace, created_by=actor
+    )
+    IntakeIssue.objects.create(
+        id=a1_tail(3), intake=intake, issue=issue1, status=1, project=project,
+        workspace=workspace, created_by=actor,
+    )
+
+    comment = IssueComment.objects.create(
+        id=A1_COMMENT, issue=issue1, project=project, workspace=workspace, actor=actor,
+        comment_html="<p>comment</p>", created_by=actor,
+    )
+    Description.objects.filter(id=comment.description_id).update(
+        created_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc)
+    )
+
+    IssueLink.objects.create(
+        id=A1_LINK, issue=issue1, url="https://example.com/link", title="Link", project=project,
+        workspace=workspace, created_by=actor,
+    )
+    IssueReaction.objects.create(
+        id=A1_REACTION, issue=issue1, actor=actor, reaction="👍", project=project,
+        workspace=workspace, created_by=actor,
+    )
+    CommentReaction.objects.create(
+        id=A1_COMMENT_REACTION, comment=comment, actor=actor, reaction="❤️", project=project,
+        workspace=workspace, created_by=actor,
+    )
+    IssueVote.objects.create(
+        id=A1_VOTE, issue=issue1, actor=actor, vote=1, project=project, workspace=workspace,
+        created_by=actor,
+    )
+
+    # The description activity `track_description` may refresh instead of
+    # inserting (`issue_activities_task.py:89-96`).
+    activity = IssueActivity.objects.create(
+        id=A1_ACTIVITY_OLD,
+        issue=issue1,
+        project=project,
+        workspace=workspace,
+        actor=actor,
+        verb="updated",
+        field="description",
+        comment="updated the description to",
+        old_value="<p>old</p>",
+        new_value="<p>Issue one</p>",
+    )
+    IssueActivity.objects.filter(id=A1_ACTIVITY_OLD).update(
+        created_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc),
+        updated_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc),
+        created_by_id=actor.id,
+    )
+
+    # The project-deleted case: `Project.objects.get` raises DoesNotExist
+    # because the default manager filters `deleted_at IS NULL`.
+    Project.objects.filter(id=A1_PROJECT_DELETED).update(deleted_at=now)
+    del issue3, issue4, deleted_project, done, label2, other, guest
+
+
 def build_backfill(now):
     """Issues for the two `plane-admin` version backfills."""
     from plane.db.models import (
@@ -1345,6 +1649,7 @@ BUILDERS = {
     "page-version": build_page_versions,
     "page-transaction": build_page_transactions,
     "backfill": build_backfill,
+    "issue-activity": build_issue_activity,
 }
 
 
@@ -1447,6 +1752,10 @@ RELATIVE = {
     ],
     "backfill": [
         ("issues", f"55555555-5555-5555-5555-{4:012d}", "deleted_at", "now()"),
+    ],
+    "issue-activity": [
+        ("projects", A1_PROJECT_DELETED, "deleted_at", "now()"),
+        ("issues", A1_ISSUE_DELETED, "deleted_at", "now()"),
     ],
 }
 
@@ -1553,6 +1862,32 @@ TOUCHED = {
         "workspaces",
         "pages",
         "page_logs",
+    ],
+    "issue-activity": [
+        "users",
+        "workspaces",
+        "workspace_members",
+        "projects",
+        "project_members",
+        "states",
+        "labels",
+        "estimates",
+        "estimate_points",
+        "issues",
+        "issue_sequences",
+        "issue_labels",
+        "issue_assignees",
+        "descriptions",
+        "issue_comments",
+        "cycles",
+        "modules",
+        "intakes",
+        "intake_issues",
+        "issue_links",
+        "issue_reactions",
+        "comment_reactions",
+        "issue_votes",
+        "issue_activities",
     ],
     "backfill": [
         "users",

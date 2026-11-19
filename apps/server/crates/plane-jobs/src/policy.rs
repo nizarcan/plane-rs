@@ -221,6 +221,32 @@ pub const PRODUCERS: &[(&str, &[Producer])] = &[
             ),
         ],
     ),
+    // Set A1 moves the activity engine. Its 78 call sites are the three HTTP
+    // surfaces (all Rust since Phase 7) plus two Rust task paths:
+    // `issue_automation_task` and `cycle_transfer_issues`
+    // (`plane/utils/cycle_transfer_issues.py:461`, now
+    // `plane-http-app/src/cycles/write_transfer.rs`). Every enqueue goes
+    // through `plane_jobs::celery::tasks::issue_activity`; the view files are
+    // listed by group because `TASKS.md:631-712` already enumerates them one
+    // by one.
+    (
+        "plane.bgtasks.issue_activities_task.issue_activity",
+        &[
+            Producer::RustHttp(
+                "plane/app/views/{issue,cycle,module,intake,estimate,comment,link,reaction,vote,draft,workspace,sub_issue} (app API)",
+            ),
+            Producer::RustHttp(
+                "plane/api/views/{issue,cycle,module,intake,comment,link,relation} (v1)",
+            ),
+            Producer::RustHttp(
+                "plane/space/views/{issue,comment,reaction,vote,intake} (public API)",
+            ),
+            Producer::RustHttp(
+                "plane-http-app/src/cycles/write_transfer.rs (transfer_cycle_issues)",
+            ),
+            Producer::RustTask("plane-tasks/src/automation.rs (archive/close)"),
+        ],
+    ),
 ];
 
 /// The producers recorded for `task`, or `None` when the table has no row.

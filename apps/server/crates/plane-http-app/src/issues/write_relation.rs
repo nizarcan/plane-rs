@@ -521,6 +521,12 @@ async fn publish_activity(
     );
     let message = tasks::issue_activity(IssueActivityCall::view(base, queries::base_host(ctx)?));
     let task = plane_jobs::celery::task_name::ISSUE_ACTIVITY;
-    jobs::dispatch_task(ctx, task, &message, plane_jobs::queue::Job::new(task)).await?;
+    jobs::dispatch_task(
+        ctx,
+        task,
+        &message,
+        plane_jobs::queue::Job::from_message(&message),
+    )
+    .await?;
     Ok(())
 }
