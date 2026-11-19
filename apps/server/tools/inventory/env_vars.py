@@ -42,7 +42,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 REPO_ROOT = HERE.parents[4]  # repository root
-API_DIR = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import display_path as _oracle_display_path  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 PLANE_DIR = API_DIR / "plane"
 OUT_PATH = HERE.parent / "env_vars.json"
 
@@ -125,7 +131,9 @@ def scan_python(path: Path) -> list[dict]:
         print(f"warning: cannot parse {path}: {exc}", file=sys.stderr)
         return []
 
-    rel = str(path.relative_to(REPO_ROOT))
+    # Oracle files keep the `apps/api/...` spelling the inventory has always
+    # used, although the tree now lives in the cache.
+    rel = _oracle_display_path(path)
     found: list[dict] = []
 
     def default_segment(node: ast.AST | None) -> str | None:
@@ -202,7 +210,7 @@ def scan_python(path: Path) -> list[dict]:
 
 def scan_shell(path: Path) -> list[dict]:
     text = path.read_text(encoding="utf-8")
-    rel = str(path.relative_to(REPO_ROOT))
+    rel = _oracle_display_path(path)
     found: list[dict] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.lstrip()
@@ -252,7 +260,7 @@ def scan_shell(path: Path) -> list[dict]:
 
 def scan_dockerfile(path: Path) -> list[dict]:
     text = path.read_text(encoding="utf-8")
-    rel = str(path.relative_to(REPO_ROOT))
+    rel = _oracle_display_path(path)
     found: list[dict] = []
     continuation = ""
     for lineno, raw in enumerate(text.splitlines(), start=1):
@@ -324,10 +332,10 @@ def collect() -> dict:
     return {
         "generated_by": "apps/server/tools/inventory/env_vars.py",
         "scanned": {
-            "python_root": str(PLANE_DIR.relative_to(REPO_ROOT)),
+            "python_root": _oracle_display_path(PLANE_DIR),
             "python_files": len(python_files),
-            "shell_globs": [str((API_DIR / "bin").relative_to(REPO_ROOT) / "*.sh")],
-            "dockerfiles": [str((API_DIR / "Dockerfile.api").relative_to(REPO_ROOT))],
+            "shell_globs": [_oracle_display_path(API_DIR / "bin") + "/*.sh"],
+            "dockerfiles": [_oracle_display_path(API_DIR / "Dockerfile.api")],
             "excluded_dirs": sorted(SKIP_DIR_NAMES),
         },
         "counts": {

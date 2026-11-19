@@ -259,7 +259,7 @@ impl SmtpCapture {
     fn start(case: &SmtpCase) -> Result<Self> {
         let root = repo_root();
         let script = root.join("apps/server/tools/mail/fake_smtp.py");
-        let python = root.join("apps/api/.venv/bin/python");
+        let python = plane_oracle::python();
         let dir = std::env::temp_dir().join(format!("plane-difftest-smtp-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         // Port 0: the kernel picks a free port, so two `difftest task` runs
@@ -1057,7 +1057,7 @@ async fn run_django(
         live_url,
         true,
     )?;
-    let mut command = Command::new(root.join("apps/api/.venv/bin/python"));
+    let mut command = Command::new(plane_oracle::python());
     command
         .arg(root.join("apps/server/tools/jobs/run_django_task.py"))
         .arg(&options.task)
@@ -1068,9 +1068,9 @@ async fn run_django(
         command.arg((attempts.number - 1).to_string());
     }
     let output = command
-        .current_dir(root.join("apps/api"))
+        .current_dir(plane_oracle::api_dir())
         .env_clear()
-        .env("PYTHONPATH", root.join("apps/api"))
+        .env("PYTHONPATH", plane_oracle::api_dir())
         .envs(&env)
         .stdin(Stdio::null())
         .output()

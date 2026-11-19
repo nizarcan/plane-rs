@@ -1,0 +1,114 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Gitleaks configuration for plane-rs.
+#
+# The rewrite's parity proofs need committed test material that looks like a
+# secret: golden tokens recorded from Django, CSRF/JWT/session codec vectors,
+# fixture sessions, a throwaway TLS key for the SSRF-pinning test. Every entry
+# below is path-scoped and rule-scoped; nothing outside these files is
+# allowlisted, and no real credential is committed anywhere (`.env` files are
+# gitignored; the dev stack's throwaway `plane`/`access-key` values live only in
+# `.env.example`).
+#
+# `targetRules` keeps an entry from suppressing a *different* detector on the
+# same file. Run it exactly as CI does:
+#
+#   docker run --rm -v "$HOME:$HOME" -w "$PWD" zricethezav/gitleaks:latest \
+#     git --config .gitleaks.toml --log-opts "<first>..HEAD" --no-banner .
+
+title = "plane-rs"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Golden reset-token corpus recorded from Django's PasswordResetTokenGenerator (2,260 tokens; see apps/server/tools/auth/record_corpora.py)."
+paths = ['''^apps/server/crates/plane-auth/tests/golden/reset_tokens\.json$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "zxcvbn password corpus recorded from Python zxcvbn (51 passwords that trip the generic-api-key entropy heuristic)."
+paths = ['''^apps/server/tools/auth/zxcvbn_corpus\.json$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "HTTP_CONTRACT.md session, CSRF, API-token and throttle codec vectors (the exact bytes the two backends must agree on)."
+paths = ['''^apps/server/HTTP_CONTRACT\.md$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Recorded fixture database rows (sessions, tokens, encrypted instance configuration) used by the differential scenarios."
+paths = [
+  '''^apps/server/scenarios/fixtures/fix_tpl\.json$''',
+  '''^apps/server/scenarios/policy-probe\.yaml$''',
+  '''^apps/server/scenarios/policy-smoke\.yaml$''',
+  '''^apps/server/scenarios/v1-token-log\.yaml$''',
+  '''^apps/server/scenarios/read/users-me\.yaml$''',
+  '''^apps/server/scenarios/write/api-tokens\.yaml$''',
+  '''^apps/server/scenarios/write/assets-legacy\.yaml$''',
+  '''^apps/server/scenarios/write/auth-session-reset\.yaml$''',
+  '''^apps/server/scenarios/write/drafts\.yaml$''',
+  '''^apps/server/scenarios/write/labels\.yaml$''',
+  '''^apps/server/scenarios/write/project-members\.yaml$''',
+]
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "CSRF, session-cookie and reset-token test vectors in the Rust implementations, the probe scripts that record them and the harness selftest. Fixed, obviously fake values asserted byte for byte."
+paths = [
+  '''^apps/server/bins/plane-api/src/middleware/csrf\.rs$''',
+  '''^apps/server/crates/plane-auth/src/csrf\.rs$''',
+  '''^apps/server/crates/plane-auth/src/auth_flow/reset_token\.rs$''',
+  '''^apps/server/crates/plane-testkit/src/csrf\.rs$''',
+  '''^apps/server/crates/plane-testkit/src/normalize\.rs$''',
+  '''^apps/server/crates/plane-testkit/src/session\.rs$''',
+  '''^apps/server/tools/contract/csrf_token_vector\.py$''',
+  '''^apps/server/tools/contract/probe_session_cookie\.py$''',
+  '''^apps/server/tools/contract/session_codec\.py$''',
+]
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Fernet/encryption test vector for the instance-configuration scheme (SECRET_KEY and ciphertext are throwaway values)."
+paths = [
+  '''^apps/server/ENV\.md$''',
+  '''^apps/server/crates/plane-core/src/config\.rs$''',
+]
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Webhook HMAC and throttle-pickle test vectors (fixed inputs and expected signatures/bytes)."
+paths = [
+  '''^apps/server/crates/plane-http-app/src/webhooks/render\.rs$''',
+  '''^apps/server/tools/throttle/interop\.py$''',
+]
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Vendored zxcvbn 3.1.1's built-in password/word dictionaries (upstream test data, not credentials)."
+paths = [
+  '''^apps/server/vendor/zxcvbn/src/lib\.rs$''',
+  '''^apps/server/vendor/zxcvbn/src/matching/mod\.rs$''',
+]
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "JWT codec vectors (fixed keys and claims; see crates/plane-auth/src/jwt.rs tests)."
+paths = ['''^apps/server/crates/plane-auth/src/jwt\.rs$''']
+targetRules = ["jwt"]
+
+[[allowlists]]
+description = "Throwaway self-signed key for the SSRF pinning test's TLS server (crates/plane-net/tests/fixtures/README.txt); never trusted outside that test."
+paths = ['''^apps/server/crates/plane-net/tests/fixtures/pinned\.test\.key$''']
+targetRules = ["private-key"]
+
+[[allowlists]]
+description = "Documented throwaway `plane:plane` credentials in local dev-stack curl commands for the RabbitMQ management API and the Celery worker (docker-compose dev services only)."
+paths = [
+  '''^apps/server/tools/jobs/beat_handover\.sh$''',
+  '''^apps/server/tools/jobs/beat_exactly_once\.sh$''',
+  '''^apps/server/tools/celery/live_worker\.sh$''',
+]
+targetRules = ["curl-auth-user"]

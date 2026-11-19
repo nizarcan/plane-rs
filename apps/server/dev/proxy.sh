@@ -72,7 +72,7 @@ EOF
 
 generate_snippet() {
   [[ -x "$PLANE_DJANGO_PYTHON" ]] ||
-    die "python not found at $PLANE_DJANGO_PYTHON (the orchestrator creates apps/api/.venv)"
+    die "python not found at $PLANE_DJANGO_PYTHON; run apps/server/tools/upstream/oracle.sh fetch"
   local args=(--out "$PROXY_SNIPPET")
   if [[ -n "${PLANE_RS_OWNERS_FILE:-}" ]]; then
     args+=(--owners-file "$PLANE_RS_OWNERS_FILE")

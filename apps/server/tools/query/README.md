@@ -28,7 +28,7 @@ apps/server/dev/dropdb.sh t_query_fixture
 ```
 
 `run.sh` sources the same environment as `apps/server/dev/django.sh` (Django
-settings, `DATABASE_URL`, `SECRET_KEY`) and runs `apps/api/.venv/bin/python`
+settings, `DATABASE_URL`, `SECRET_KEY`) and runs the oracle's interpreter
 directly, so concurrent agents never trigger a `uv sync`.
 
 ## Files

@@ -8,14 +8,16 @@
 //! (`plans/CUTOVER.md` §4):
 //!
 //! 1. the Django baseline: a fresh install applies the embedded `pg_dump` and
-//!    its `django_migrations` rows; an existing database must carry exactly
-//!    the baseline's migration set (older and newer are both refused);
-//! 2. the Rust-owned `plane_jobs` schema, which must not appear in
-//!    `apps/api/migrations_lockfile.txt`.
+//!    its `django_migrations` rows; an existing database is carried forward
+//!    by the released upgrade steps (`upgrade.rs`) or refused when its
+//!    migration set matches no release this binary knows;
+//! 2. the Rust-owned `plane_jobs` schema, which must not appear in the
+//!    oracle's `apps/api/migrations_lockfile.txt`.
 //!
 //! It is deliberately separate from Django's `manage.py migrate`.
 
 mod schema;
+mod upgrade;
 
 use anyhow::Context;
 use plane_core::config::{Role, Settings};
@@ -45,6 +47,12 @@ fn main() -> anyhow::Result<()> {
             schema::Outcome::Upgrade { migrations } => {
                 println!(
                     "plane-migrator: baseline matched ({migrations} migrations); \
+                     plane_jobs schema is up to date"
+                );
+            }
+            schema::Outcome::Upgraded { from, to, steps } => {
+                println!(
+                    "plane-migrator: applied {steps} upgrade step(s): {from} -> {to}; \
                      plane_jobs schema is up to date"
                 );
             }

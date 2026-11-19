@@ -29,7 +29,12 @@ import sys
 from pathlib import Path
 
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
-API_DIR = SERVER_DIR.parent.parent / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 SOURCES = [
     API_DIR / "plane" / "utils" / "instance_config_variables" / "core.py",
     API_DIR / "plane" / "utils" / "instance_config_variables" / "extended.py",

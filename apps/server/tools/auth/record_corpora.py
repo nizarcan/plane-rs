@@ -35,6 +35,13 @@ import random
 import string
 import sys
 import urllib.parse
+from pathlib import Path
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+sys.path.insert(0, str(_oracle_api_dir()))
 
 import django
 from django.conf import settings
@@ -65,7 +72,7 @@ def configure():
 
 
 def load_path_validator():
-    path = os.path.join(REPO, "apps", "api", "plane", "utils", "path_validator.py")
+    path = os.path.join(str(_oracle_api_dir()), "plane", "utils", "path_validator.py")
     spec = importlib.util.spec_from_file_location("plane_path_validator", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -646,7 +653,9 @@ def long_window_cases(rng, words):
 
 
 def zxcvbn_corpus():
-    path = os.path.join(REPO, "apps", "api", "plane", "authentication", "utils", "password.py")
+    path = os.path.join(
+        str(_oracle_api_dir()), "plane", "authentication", "utils", "password.py"
+    )
     spec = importlib.util.spec_from_file_location("plane_password", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

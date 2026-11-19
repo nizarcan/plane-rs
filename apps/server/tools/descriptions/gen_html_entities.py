@@ -21,6 +21,7 @@ fails when the committed file is stale, the way the other generators do.
 
 import html
 import html.entities
+import subprocess
 import sys
 from pathlib import Path
 
@@ -82,12 +83,29 @@ def render() -> str:
     return "".join(lines)
 
 
+def format_rust(source: str) -> str:
+    """Run rustfmt, so `--check` compares the same bytes `cargo fmt` expects."""
+    try:
+        result = subprocess.run(
+            ["rustfmt", "--edition", "2024", "--emit", "stdout"],
+            input=source,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        raise SystemExit("rustfmt not found; install the toolchain cargo uses")
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f"rustfmt failed:\n{error.stderr}")
+    return result.stdout
+
+
 def main(argv: list[str]) -> int:
     target = (
         Path(__file__).resolve().parents[2]
         / "crates/plane-db/src/hooks/html_entities.rs"
     )
-    rendered = render()
+    rendered = format_rust(render())
     if "--check" in argv:
         current = target.read_text() if target.exists() else ""
         if current != rendered:

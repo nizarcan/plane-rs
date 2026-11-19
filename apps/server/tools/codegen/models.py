@@ -86,7 +86,12 @@ from typing import Any
 SCRIPT_PATH = Path(__file__).resolve()
 SERVER_DIR = SCRIPT_PATH.parents[2]
 REPO_ROOT = SCRIPT_PATH.parents[4]
-API_DIR = REPO_ROOT / "apps" / "api"
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import display_path as _oracle_display_path  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 MODELS_JSON = SERVER_DIR / "models.json"
 RUST_MODELS_DIR = SERVER_DIR / "crates" / "plane-db" / "src" / "models"
 
@@ -242,10 +247,10 @@ def rust_module_path(model: Any) -> str:
 
 
 def repo_path(path: Path) -> str:
-    try:
-        return path.resolve().relative_to(REPO_ROOT).as_posix()
-    except ValueError:
-        return path.as_posix()
+    # Oracle files render as `apps/api/...`, this checkout's files relative to
+    # the repository root: generated sources keep the same citations they had
+    # before apps/api moved to the cache.
+    return _oracle_display_path(path)
 
 
 # ---------------------------------------------------------------------------

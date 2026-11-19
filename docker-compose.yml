@@ -51,7 +51,7 @@ services:
         DOCKER_BUILDKIT: 1
     restart: always
     env_file:
-      - ./apps/api/.env
+      - ./.env
     depends_on:
       plane-db:
         condition: service_started
@@ -74,7 +74,7 @@ services:
     # configuration with SECRET_KEY and reads DATABASE_URL, REDIS_URL, AWS_*,
     # WEB_URL, LIVE_URL and WEBHOOK_ALLOWED_* for the task handlers.
     env_file:
-      - ./apps/api/.env
+      - ./.env
     depends_on:
       plane-db:
         condition: service_started
@@ -94,7 +94,7 @@ services:
         DOCKER_BUILDKIT: 1
     restart: always
     env_file:
-      - ./apps/api/.env
+      - ./.env
     depends_on:
       plane-db:
         condition: service_started
@@ -114,7 +114,7 @@ services:
         DOCKER_BUILDKIT: 1
     restart: no
     env_file:
-      - ./apps/api/.env
+      - ./.env
     depends_on:
       plane-db:
         condition: service_started

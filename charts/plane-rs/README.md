@@ -235,7 +235,7 @@ database:
 
 `plane-migrator` compares `django_migrations` with the embedded baseline:
 equal → `baseline matched` and the `plane_jobs` schema is created if missing;
-fewer rows → it refuses and names `apps/api/bin/docker-entrypoint-migrator.sh`;
+fewer rows → it refuses and names the release/upgrade-step route (`UPGRADING.md`);
 more rows → it refuses as a downgrade; a non-empty `public` without
 `django_migrations` → it refuses. The Django tables stay in place; nothing is
 dropped. `django_celery_beat_*` tables stay in the baseline (empty and unused).

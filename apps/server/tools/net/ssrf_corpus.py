@@ -49,7 +49,12 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-API_ROOT = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_ROOT = _oracle_api_dir()
 CORPUS_DIR = REPO_ROOT / "apps" / "server" / "crates" / "plane-net" / "tests" / "golden"
 
 # The import of `plane` registers Celery and constructs a Redis client from

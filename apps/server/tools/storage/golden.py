@@ -69,7 +69,12 @@ from freezegun import freeze_time
 # loudly if the source of truth changes.
 _INLINE_SAFE = frozenset(["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"])
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_COMMON_PY = _REPO_ROOT / "apps" / "api" / "plane" / "settings" / "common.py"
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(_REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+_API_ROOT = _oracle_api_dir()
+_COMMON_PY = _API_ROOT / "plane" / "settings" / "common.py"
 _INLINE_LINE = (
     "# The only MIME types ever served inline (S3Storage.generate_presigned_url pins the\n"
     "# type on the response). Everything else, including SVG and HTML, downloads.\n"
@@ -88,7 +93,7 @@ django.setup()
 
 # The virtualenv is not installed as a package: `plane` is imported from the
 # Django source tree, with the interpreter that owns its dependencies.
-sys.path.insert(0, str(_REPO_ROOT / "apps" / "api"))
+sys.path.insert(0, str(_API_ROOT))
 
 from plane.settings.storage import S3Storage  # noqa: E402
 

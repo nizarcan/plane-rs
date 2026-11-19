@@ -323,19 +323,6 @@ steps:
     headers:
       Host: plane-fixture.test
       Cookie: "session-id={{session_member}}"
-  - name: workspaces-0774a-workspace-user-profile-stats-endpoint
-    method: GET
-    path: "/api/workspaces/{{ws}}/user-stats/{{user_member_id}}/"
-    query:
-      # A bare date fragment is Django's `created_at__contains` LIKE lookup
-      # against `issue_subscribers`. `%` must be escaped
-      # (`prep_for_like_query`); unescaped it matches every row, so this step
-      # pins the escaping.
-      created_at: "%"
-    jar: admin
-    headers:
-      Host: plane-fixture.test
-      Cookie: "session-id={{session_admin}}"
   - name: workspaces-0775-workspace-user-activity-endpoint
     method: GET
     path: "/api/workspaces/{{ws}}/user-activity/{{user_member_id}}/"

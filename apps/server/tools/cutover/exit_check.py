@@ -60,8 +60,15 @@ import requests
 HERE = Path(__file__).resolve().parent
 SERVER = HERE.parent.parent
 REPO = SERVER.parent.parent
-API = REPO / "apps" / "api"
-DJANGO = API / ".venv" / "bin" / "python"
+
+# The upgrade path restores a database migrated by Django at the pinned commit;
+# that Django is the oracle (apps/api at the UPSTREAM.toml pin), not this tree.
+sys.path.insert(0, str(SERVER / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import python as _oracle_python  # noqa: E402
+
+API = _oracle_api_dir()
+DJANGO = _oracle_python()
 
 PROJECT = "plane-cutover"
 COMPOSE = HERE / "compose.yml"

@@ -45,24 +45,35 @@ from botocore.exceptions import ClientError
 
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = SERVER_DIR.parent.parent
-API_DIR = REPO_ROOT / "apps" / "api"
-API_PYTHON = API_DIR / ".venv" / "bin" / "python"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import python as _oracle_python  # noqa: E402
+
+API_DIR = _oracle_api_dir()
+API_PYTHON = _oracle_python()
 ADMIN = SERVER_DIR / "target" / "debug" / "plane-admin"
 TOOLS = SERVER_DIR / "tools"
 GITHUB = TOOLS / "boot" / "fake_github.py"
 FAKE_SMTP = TOOLS / "mail" / "fake_smtp.py"
 COMPARE_SMTP = TOOLS / "mail" / "compare_smtp_logs.py"
 
-A_DB = "t_p8boot_boot_a"
-B_DB = "t_p8boot_boot_b"
-A_REDIS = 7
-B_REDIS = 8
-BUCKET = "p8boot-boot"
-GITHUB_PORT = 18420
-SMTP_LOG_A = Path("/tmp/p8boot-smtp-a.jsonl")
-SMTP_LOG_B = Path("/tmp/p8boot-smtp-b.jsonl")
-SMTP_PORT_A = Path("/tmp/p8boot-smtp-a.port")
-SMTP_PORT_B = Path("/tmp/p8boot-smtp-b.port")
+# The defaults are the original single-agent names. Concurrent agents override
+# every one of them (`P8BOOT_A_DB`, `P8BOOT_B_DB`, `P8BOOT_A_REDIS`,
+# `P8BOOT_B_REDIS`, `P8BOOT_BUCKET`, `P8BOOT_GITHUB_PORT`), because the boot
+# check creates and drops databases by fixed name, flushes Redis DBs and binds
+# ports; two runs sharing them terminate each other's connections.
+A_DB = os.environ.get("P8BOOT_A_DB", "t_p8boot_boot_a")
+B_DB = os.environ.get("P8BOOT_B_DB", "t_p8boot_boot_b")
+A_REDIS = int(os.environ.get("P8BOOT_A_REDIS", "7"))
+B_REDIS = int(os.environ.get("P8BOOT_B_REDIS", "8"))
+BUCKET = os.environ.get("P8BOOT_BUCKET", "p8boot-boot")
+GITHUB_PORT = int(os.environ.get("P8BOOT_GITHUB_PORT", "18420"))
+SMTP_LOG_A = Path(f"/tmp/p8boot-smtp-a-{A_DB}.jsonl")
+SMTP_LOG_B = Path(f"/tmp/p8boot-smtp-b-{B_DB}.jsonl")
+SMTP_PORT_A = Path(f"/tmp/p8boot-smtp-a-{A_DB}.port")
+SMTP_PORT_B = Path(f"/tmp/p8boot-smtp-b-{B_DB}.port")
 
 USER_ID = "6f1e7a52-2f5e-4c4a-9d38-2c0e2a9b6a11"
 USER_EMAIL = "p8boot-user@example.test"

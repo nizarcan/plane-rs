@@ -4,7 +4,8 @@
 # See the LICENSE file for details.
 """Phase 2 exit check: password hashes round-trip between Rust and Django.
 
-Runs three comparisons against Django 5.2.17 in `apps/api/.venv`:
+Runs three comparisons against Django 5.2.17 in the oracle virtualenv
+(`apps/api` at the UPSTREAM.toml pin; see tools/upstream/oracle.sh):
 
 1. 100 random passwords hashed by Rust (`pbkdf2_sha256`) are verified with
    Django's `check_password`.
@@ -37,11 +38,17 @@ from pathlib import Path
 HERE = Path(__file__).resolve()
 SERVER_DIR = HERE.parents[2]
 REPO_ROOT = SERVER_DIR.parents[1]
-API_DIR = REPO_ROOT / "apps" / "api"
-VENV_PYTHON = API_DIR / ".venv" / "bin" / "python"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import python as _oracle_python  # noqa: E402
+
+API_DIR = _oracle_api_dir()
+VENV_PYTHON = _oracle_python()
 COUNT = 100
 
-# Django lives in apps/api/.venv. Re-exec with that interpreter when this was
+# Django lives in the oracle venv. Re-exec with that interpreter when this was
 # started with the system python3, so `tools/auth/hash_roundtrip.py` works with
 # either one.
 if importlib.util.find_spec("django") is None and VENV_PYTHON.exists():

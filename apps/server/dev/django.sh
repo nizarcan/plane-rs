@@ -9,7 +9,8 @@
 #   PLANE_DB=t_task_1 apps/server/dev/django.sh showmigrations --plan
 #
 # The environment comes from django-env.sh. The current directory is switched
-# to apps/api so `manage.py` and the `plane` package resolve.
+# to the oracle's apps/api so `manage.py` and the `plane` package resolve (see
+# tools/upstream/oracle.sh).
 
 set -euo pipefail
 
@@ -21,7 +22,7 @@ source "$PLANE_DEV_DIR/django-env.sh"
 
 [[ $# -ge 1 ]] || die "usage: $(basename "$0") <manage.py args...>"
 [[ -x "$PLANE_DJANGO_PYTHON" ]] ||
-  die "Django virtualenv not found at $PLANE_DJANGO_PYTHON (the orchestrator creates it with uv)"
+  die "Django oracle not ready at $PLANE_DJANGO_PYTHON; run apps/server/tools/upstream/oracle.sh fetch"
 
 cd "$PLANE_API_DIR"
 exec "$PLANE_DJANGO_PYTHON" manage.py "$@"

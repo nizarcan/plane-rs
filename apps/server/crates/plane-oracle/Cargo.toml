@@ -1,0 +1,17 @@
+# Copyright (c) 2023-present Plane Software, Inc. and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+# See the LICENSE file for details.
+#
+# Locates the Django oracle at the UPSTREAM.toml pin (see src/lib.rs). Used by
+# the differential harness and by the cargo tests that spawn Django; no
+# dependency, so adding it to a test crate costs nothing.
+[package]
+name = "plane-oracle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

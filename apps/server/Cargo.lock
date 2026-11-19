@@ -2511,6 +2511,7 @@ dependencies = [
  "plane-db",
  "plane-jobs",
  "plane-net",
+ "plane-oracle",
  "plane-serde",
  "plane-storage",
  "regex",
@@ -2554,6 +2555,7 @@ dependencies = [
  "plane-jobs",
  "plane-mail",
  "plane-net",
+ "plane-oracle",
  "plane-storage",
  "serde",
  "serde_json",
@@ -2572,6 +2574,7 @@ dependencies = [
  "md-5 0.10.6",
  "percent-encoding",
  "plane-core",
+ "plane-oracle",
  "plane-serde",
  "redis",
  "rustls",
@@ -2798,6 +2801,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "plane-oracle"
+version = "0.1.0"
+
+[[package]]
 name = "plane-permissions"
 version = "0.1.0"
 dependencies = [
@@ -2897,6 +2904,7 @@ dependencies = [
  "plane-jobs",
  "plane-mail",
  "plane-net",
+ "plane-oracle",
  "plane-serde",
  "plane-storage",
  "plane-xlsx",
@@ -2917,6 +2925,7 @@ dependencies = [
  "plane-auth",
  "plane-cache",
  "plane-core",
+ "plane-oracle",
  "plane-serde",
  "serde",
  "serde_json",

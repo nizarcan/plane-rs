@@ -38,7 +38,13 @@ from pathlib import Path
 TOOLS_DIR = Path(__file__).resolve().parent
 SERVER_DIR = TOOLS_DIR.parents[1]
 REPO_ROOT = SERVER_DIR.parents[1]
-CONTRACT_DIR = REPO_ROOT / "apps" / "api" / "plane" / "tests" / "contract"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
+CONTRACT_DIR = API_DIR / "plane" / "tests" / "contract"
 PROXY_DIR = SERVER_DIR / "tools" / "proxy"
 
 METHODS = ("get", "post", "put", "patch", "delete", "head", "options")
@@ -265,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
                     detail = ", ".join(f"{method} {template} -> {group}" for method, template, group in matches[:4])
                     print(f"# {path.relative_to(CONTRACT_DIR)}: {len(matches)} rust-owned call(s): {detail}", file=sys.stderr)
     for path in selected:
-        print(path.relative_to(REPO_ROOT / "apps" / "api"))
+        print(path.relative_to(API_DIR))
     return 0
 
 

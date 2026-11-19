@@ -1033,11 +1033,17 @@ mod tests {
 
     #[test]
     fn the_embedded_seeds_are_the_django_files() {
-        // `apps/api` is the specification: the copies here must not drift.
-        // The test reads the Django tree only when it is present (CI checks
-        // out the whole repository; a distroless worker does not run tests).
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
-        if !root.join("apps/api/plane/seeds/data").is_dir() {
+        // `apps/api` is the specification: the copies here must not drift. The
+        // test reads the oracle (the cached tree at the UPSTREAM.toml pin);
+        // without it, it prints a notice and skips, so a plain `cargo test` in
+        // a fresh checkout still works.
+        let root = plane_oracle::api_dir();
+        let seeds = root.join("plane/seeds/data");
+        if !seeds.is_dir() {
+            eprintln!(
+                "workspace seed test: {} is absent; run tools/upstream/oracle.sh fetch",
+                seeds.display()
+            );
             return;
         }
         for (name, embedded) in [
@@ -1050,7 +1056,7 @@ mod tests {
             ("views.json", VIEWS),
             ("pages.json", PAGES),
         ] {
-            let path = root.join("apps/api/plane/seeds/data").join(name);
+            let path = seeds.join(name);
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };

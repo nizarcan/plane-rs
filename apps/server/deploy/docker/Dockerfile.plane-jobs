@@ -28,10 +28,9 @@
 # name inside the image is an implementation detail of the image; the entrypoint
 # selects it.
 #
-# The build context is the repository root for the same reason as
-# `Dockerfile.plane-api` (the binaries embed one file from `apps/api` and cargo
-# resolves it from the real tree layout); its own ignore file keeps the rest of
-# the checkout out of the context. The builder stage uses the same base,
+# The build context is the repository root, like `Dockerfile.plane-api`; its
+# own ignore file keeps the rest of the checkout out of the context. The
+# builder stage uses the same base,
 # packages and target cache as `Dockerfile.plane-api`'s, so a machine that
 # built that image reuses the cargo caches and only links the binaries here.
 #
@@ -73,7 +72,6 @@ COPY apps/server/vendor ./vendor
 # compile-time dependencies.
 COPY apps/server/deploy/openapi ./deploy/openapi
 COPY apps/server/deploy/schema ./deploy/schema
-COPY apps/api/templates/csrf_failure.html /build/apps/api/templates/csrf_failure.html
 
 ARG CARGO_BUILD_JOBS=2
 ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}

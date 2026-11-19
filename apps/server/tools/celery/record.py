@@ -38,9 +38,12 @@ from datetime import datetime
 from typing import Any
 
 HERE = pathlib.Path(__file__).resolve()
-API_ROOT = HERE.parents[3] / "api"  # apps/server/tools/celery -> apps/api
-if not (API_ROOT / "manage.py").exists():  # pragma: no cover - safety net
-    raise SystemExit(f"cannot find apps/api relative to {HERE}")
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(HERE.parents[2] / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_ROOT = _oracle_api_dir()
 sys.path.insert(0, str(API_ROOT))
 sys.path.insert(0, str(HERE.parent))
 

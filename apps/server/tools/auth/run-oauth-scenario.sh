@@ -35,7 +35,9 @@ PROVIDER_PORT="${FAKE_PROVIDER_PORT:-18400}"
 MITM_PORT="${OAUTH_MITM_PORT:-18401}"
 CA_DIR="${OAUTH_MITM_CA_DIR:-$SERVER_DIR/target/oauth-mitm}"
 MITM_LOG="$CA_DIR/requests.jsonl"
-PYTHON="${PLANE_PYTHON:-$SERVER_DIR/../../apps/api/.venv/bin/python}"
+# shellcheck source=../upstream/oracle.sh
+source "$SERVER_DIR/tools/upstream/oracle.sh"
+PYTHON="${PLANE_PYTHON:-$(oracle_python)}"
 
 if [[ ! -x "$PYTHON" ]]; then
   echo "run-oauth-scenario: no interpreter at $PYTHON (set PLANE_PYTHON)" >&2

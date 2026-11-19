@@ -64,7 +64,12 @@ from uuid import UUID
 HERE = Path(__file__).resolve().parent
 SERVER_DIR = HERE.parents[1]
 REPO_ROOT = HERE.parents[3]
-API_DIR = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 GOLDEN_DIR = SERVER_DIR / "crates" / "plane-serializers" / "tests" / "golden"
 GOLDEN_FILE = GOLDEN_DIR / "serializers.jsonl"
 

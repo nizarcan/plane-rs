@@ -31,5 +31,9 @@ tokio-postgres.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
+[dev-dependencies]
+# The Django oracle (apps/api at the UPSTREAM.toml pin) for the version test.
+plane-oracle = { path = "../plane-oracle" }
+
 [lints]
 workspace = true

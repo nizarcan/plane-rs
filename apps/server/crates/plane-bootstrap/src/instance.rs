@@ -299,13 +299,21 @@ pub async fn configure_instance(client: &Client, settings: &Settings) -> Result<
 mod tests {
     use super::*;
 
-    /// The embedded version is `apps/api/package.json`'s, read at build time
-    /// from the checkout (the release build embeds only the constant above).
+    /// The embedded version is the oracle's `apps/api/package.json` version.
+    /// The test reads the cached oracle; without it (a plain `cargo test` in a
+    /// checkout that never ran `oracle.sh fetch`) it prints a notice and skips.
     #[test]
     fn package_version_matches_apps_api() {
+        let path = plane_oracle::api_dir().join("package.json");
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            eprintln!(
+                "package version test: {} is absent; run tools/upstream/oracle.sh fetch",
+                path.display()
+            );
+            return;
+        };
         let package: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../api/package.json"))
-                .expect("apps/api/package.json");
+            serde_json::from_str(&text).expect("apps/api/package.json parses");
         assert_eq!(package["version"], PACKAGE_VERSION);
     }
 

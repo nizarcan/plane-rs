@@ -51,7 +51,12 @@ import psycopg
 
 HERE = pathlib.Path(__file__).resolve()
 SERVER_DIR = HERE.parents[2]
-API_DIR = HERE.parents[3] / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 OUT_DIR = SERVER_DIR / "crates" / "plane-serde" / "tests" / "golden"
 
 sys.path.insert(0, str(API_DIR))

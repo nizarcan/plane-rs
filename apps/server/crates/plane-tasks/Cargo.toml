@@ -43,6 +43,9 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+# The Django oracle (apps/api at the UPSTREAM.toml pin) for the hard-delete
+# order test, which reads the Python task.
+plane-oracle = { path = "../plane-oracle" }
 serde_json.workspace = true
 
 [lints]

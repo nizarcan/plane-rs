@@ -44,7 +44,11 @@ import os
 import pathlib
 import sys
 
-API_DIR = pathlib.Path(__file__).resolve().parents[3] / "api"
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 OUT = (
     pathlib.Path(__file__).resolve().parents[2]
     / "crates/plane-http-app/tests/golden/estimate-list-errors.json"

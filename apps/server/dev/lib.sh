@@ -20,8 +20,13 @@ fi
 PLANE_DEV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLANE_SERVER_DIR="$(cd "$PLANE_DEV_DIR/.." && pwd)"
 PLANE_REPO_ROOT="$(cd "$PLANE_SERVER_DIR/../.." && pwd)"
-PLANE_API_DIR="$PLANE_REPO_ROOT/apps/api"
-PLANE_DJANGO_PYTHON="$PLANE_API_DIR/.venv/bin/python"
+
+# Django is not in this tree. The oracle is `apps/api` at the commit pinned in
+# UPSTREAM.toml, materialised by tools/upstream/oracle.sh under the home cache.
+# shellcheck source=../tools/upstream/oracle.sh
+source "$PLANE_SERVER_DIR/tools/upstream/oracle.sh"
+PLANE_API_DIR="$(oracle_api_dir)"
+PLANE_DJANGO_PYTHON="$(oracle_python)"
 PLANE_GUNICORN="$PLANE_API_DIR/.venv/bin/gunicorn"
 PLANE_COMPOSE_FILE="$PLANE_DEV_DIR/compose.yml"
 PLANE_COMPOSE_PROJECT="plane-rs-dev"

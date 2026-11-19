@@ -1,17 +1,16 @@
 name: Rust server
 
-# Checks for the Rust rewrite under apps/server (see RUST_REWRITE.md and
-# apps/server/AGENTS.md): the Rust workspaces, the route inventory and proxy
-# config, the Django schema the Rust code has to match, the differential tests
-# that need a real database or Redis (permission oracle, throttle interop), and
-# licence headers.
+# Checks for the Rust backend under apps/server (see AGENTS.md,
+# apps/server/AGENTS.md and UPSTREAM.toml): the Rust workspaces, the route and
+# task inventories, the Django schema the Rust code has to match, the
+# differential-adjacent tests that need a real database or Redis, the generated
+# corpora, and licence headers.
 #
-# The Rust crates are being added crate by crate, so the steps that need a
-# crate (the plane-api release build, the database-backed and Redis-backed
-# differential tests) are guarded by a file-existence check and are skipped,
-# not failed, until the crate lands. The fmt/clippy/test steps of the main
-# workspace are guarded the same way because Cargo errors out on a virtual
-# workspace with no members.
+# Django is not in this tree. Every step that needs it fetches the oracle at the
+# commit in UPSTREAM.toml (apps/api exported into ~/.cache/plane-rs/oracle,
+# with its virtualenv built from that commit's uv.lock) and runs it through
+# apps/server/tools/upstream/oracle.sh. The cache key is the content of
+# UPSTREAM.toml, so a pin move rebuilds it and ordinary pushes reuse it.
 
 on:
   workflow_dispatch:
@@ -26,12 +25,14 @@ on:
       - "reopened"
     paths:
       - "apps/server/**"
+      - "UPSTREAM.toml"
       - ".github/workflows/server-ci.yml"
   push:
     branches:
       - "preview"
     paths:
       - "apps/server/**"
+      - "UPSTREAM.toml"
       - ".github/workflows/server-ci.yml"
 
 concurrency:
@@ -91,7 +92,7 @@ jobs:
       - name: Clippy (server)
         if: steps.server-workspace.outputs.has-members == 'true'
         working-directory: apps/server
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Test (server)
         if: steps.server-workspace.outputs.has-members == 'true'
@@ -128,10 +129,10 @@ jobs:
   schema:
     name: Django schema and Rust DB tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     services:
-      # Same versions as docker-compose-test.yml and apps/server/dev/compose.yml.
+      # Same versions as apps/server/dev/compose.yml.
       postgres:
         image: postgres:15.7-alpine
         env:
@@ -155,10 +156,10 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      # The minimal Django environment from apps/server/dev/django-env.sh.
-      # There is no MinIO or RabbitMQ service here: `migrate`, the fixture and
-      # oracle builders and the throttle interop only read settings, and none
-      # of them connects to either.
+      # The minimal environment from apps/server/dev/django-env.sh. There is no
+      # MinIO or RabbitMQ service here: `migrate`, the fixture and oracle
+      # builders and the throttle interop only read settings, and none of them
+      # connects to either.
       DJANGO_SETTINGS_MODULE: plane.settings.production
       DEBUG: "0"
       IS_TEST: "0"
@@ -188,39 +189,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # The oracle is Django at the commit in UPSTREAM.toml: apps/api exported
+      # into the home cache, with its venv built from that commit's uv.lock.
+      - name: Cache the Django oracle
+        id: oracle-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/plane-rs/oracle
+          key: plane-rs-oracle-${{ hashFiles('UPSTREAM.toml') }}
+          restore-keys: plane-rs-oracle-
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
-          # uv version comes from [tool.uv] required-version.
-          version-file: "apps/api/pyproject.toml"
-          # Same patch release as the production image (python:3.12.12-alpine).
-          python-version: "3.12.12"
           enable-cache: true
-          cache-dependency-glob: "apps/api/uv.lock"
 
-      - name: Install API dependencies
-        working-directory: apps/api
-        run: uv sync --locked
-
-      # Django owns migrations until cutover; the Rust crates adapt to the
-      # schema this produces.
-      - name: Migrate the CI database
-        working-directory: apps/api
-        run: uv run --no-sync python manage.py migrate --noinput
-
-      # `plane-migrator` owns the schema from a checked-in `pg_dump` of the
-      # pinned Django migration set (`plans/CUTOVER.md` §4). `--check` migrates
-      # a second, fresh database with the venv's Django and compares the dump
-      # and the `django_migrations` rows with `deploy/schema/`. pg_dump must be
-      # the server's major version, so it runs inside the service container.
-      - name: Check the plane-migrator baseline is current
-        working-directory: apps/api
-        run: |
-          uv run --no-sync python ../server/tools/schema/baseline.py --check \
-            --database t_baseline_check \
-            --database-url postgresql://plane:plane@127.0.0.1:5432/plane_ci \
-            --dump-url "postgresql://plane:plane@127.0.0.1:5432/<db>" \
-            --pg-dump "docker exec ${{ job.services.postgres.id }} pg_dump"
+      - name: Fetch the Django oracle
+        run: apps/server/tools/upstream/oracle.sh fetch
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -230,6 +215,29 @@ jobs:
         with:
           workspaces: apps/server -> target
           key: schema
+
+      # Deployments create the schema with the migrator, not with Django; the
+      # schema checks below then run against exactly the structure that ships.
+      - name: Create the CI database with plane-migrator
+        working-directory: apps/server
+        run: |
+          cargo build -p plane-migrator
+          ./target/debug/plane-migrator
+
+      # `plane-migrator` owns the schema from the checked-in `pg_dump` of the
+      # pinned Django migration set (`plans/CUTOVER.md` §4). `--check` migrates
+      # a second, fresh database with the oracle's Django and compares the dump
+      # and the `django_migrations` rows with `deploy/schema/`. pg_dump must be
+      # the server's major version, so it runs inside the service container.
+      - name: Check the plane-migrator baseline is current
+        working-directory: apps/server
+        run: |
+          PY="$(tools/upstream/oracle.sh python)"
+          "$PY" tools/schema/baseline.py --check \
+            --database t_baseline_check \
+            --database-url postgresql://plane:plane@127.0.0.1:5432/plane_ci \
+            --dump-url "postgresql://plane:plane@127.0.0.1:5432/<db>" \
+            --pg-dump "docker exec ${{ job.services.postgres.id }} pg_dump"
 
       # Every crate that talks to the database carries its own
       # `tests/schema_check.rs`; a glob finds them so a new crate is checked
@@ -266,10 +274,9 @@ jobs:
           hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
           hashFiles('apps/server/tools/permissions/oracle.py') != ''
         run: |
-          # `mkdb.sh` clones the local dev template; in CI the migrated
-          # database is the template. `CREATE DATABASE ... TEMPLATE` needs no
-          # session attached to the template, so terminate leftovers and retry
-          # (the postgres service healthcheck connects to plane_ci too).
+          # CREATE DATABASE ... TEMPLATE needs no session attached to the
+          # template, so terminate leftovers and retry (the postgres service
+          # healthcheck connects to plane_ci too).
           for attempt in 1 2 3 4 5; do
             docker exec -i "${{ job.services.postgres.id }}" \
               psql --no-psqlrc -X -q -U plane -d postgres -v ON_ERROR_STOP=1 \
@@ -286,21 +293,22 @@ jobs:
           echo "::error::could not clone plane_ci to t_perms_fixture."
           exit 1
 
-      # mkdb.sh clones plane_tpl, which bootstrap.sh seeds with exactly one
-      # instance row. CI clones the migrated database instead, so create that
-      # row here; fixture.py refuses zero or two. Directly, not through
-      # `register_instance`: that command queries the GitHub API and publishes
-      # a Celery task, and this job has no broker.
+      # The fixture expects exactly one instance row; the migrator baseline is
+      # structure-only. Directly, not through `register_instance`: that command
+      # queries the GitHub API and publishes a Celery task, and this job has no
+      # broker. Run it with the oracle's Django against the clone.
       - name: Seed the fixture clone with the instance row
         if: >-
           hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
           hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
           hashFiles('apps/server/tools/permissions/oracle.py') != ''
-        working-directory: apps/api
         env:
           DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/t_perms_fixture
         run: |
-          uv run --no-sync python manage.py shell <<'PY'
+          API="$(apps/server/tools/upstream/oracle.sh api-dir)"
+          PY="$(apps/server/tools/upstream/oracle.sh python)"
+          cd "$API"
+          "$PY" manage.py shell <<'PY'
           from django.utils import timezone
 
           from plane.license.models import Instance
@@ -322,24 +330,26 @@ jobs:
           hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
           hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
           hashFiles('apps/server/tools/permissions/oracle.py') != ''
-        working-directory: apps/api
         env:
-          # These scripts live outside the Django project, so `plane` has to be
-          # importable by path (what run.sh sets on PYTHONPATH).
-          PYTHONPATH: ${{ github.workspace }}/apps/api
           DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/t_perms_fixture
-        run: uv run --no-sync python ../server/tools/permissions/fixture.py
+        run: |
+          API="$(apps/server/tools/upstream/oracle.sh api-dir)"
+          PY="$(apps/server/tools/upstream/oracle.sh python)"
+          (cd "$API" && PYTHONPATH="$API" DATABASE_URL="$DATABASE_URL" \
+            "$PY" "${{ github.workspace }}/apps/server/tools/permissions/fixture.py")
 
       - name: Run the permission oracle
         if: >-
           hashFiles('apps/server/crates/plane-permissions/Cargo.toml') != '' &&
           hashFiles('apps/server/tools/permissions/fixture.py') != '' &&
           hashFiles('apps/server/tools/permissions/oracle.py') != ''
-        working-directory: apps/api
         env:
-          PYTHONPATH: ${{ github.workspace }}/apps/api
           DATABASE_URL: postgresql://plane:plane@127.0.0.1:5432/t_perms_fixture
-        run: uv run --no-sync python ../server/tools/permissions/oracle.py
+        run: |
+          API="$(apps/server/tools/upstream/oracle.sh api-dir)"
+          PY="$(apps/server/tools/upstream/oracle.sh python)"
+          (cd "$API" && PYTHONPATH="$API" DATABASE_URL="$DATABASE_URL" \
+            "$PY" "${{ github.workspace }}/apps/server/tools/permissions/oracle.py")
 
       # The database name is fixed to t_perms_fixture so the `database` field
       # in both golden files is the one committed; no field is filtered out.
@@ -366,8 +376,8 @@ jobs:
 
       # Runs the real DRF throttle classes through Django against the Valkey
       # service, then the same steps through plane-throttle, and compares the
-      # decision, key, raw pickle bytes and TTLs. Needs apps/api/.venv (the
-      # test spawns apps/api/.venv/bin/python) and DB 9, which it FLUSHDBs.
+      # decision, key, raw pickle bytes and TTLs. Needs the oracle's virtualenv
+      # (the test spawns its python) and DB 9, which it FLUSHDBs.
       - name: Throttle interop against Valkey
         if: >-
           hashFiles('apps/server/crates/plane-throttle/Cargo.toml') != '' &&
@@ -381,7 +391,7 @@ jobs:
       # the bare `silo` binary, which prints usage, so a running server needs
       # both an entrypoint and arguments (the bucket must exist). `options:`
       # can pass --entrypoint but not the arguments, so the container is
-      # started directly, with the same entrypoint docker-compose-test.yml
+      # started directly, with the same entrypoint apps/server/dev/compose.yml
       # uses. Objects live under t_storage/<uuid>/ and are deleted by the test.
       - name: Start MinIO (silo) for the live storage tests
         if: hashFiles('apps/server/crates/plane-storage/Cargo.toml') != ''
@@ -430,12 +440,12 @@ jobs:
         run: docker rm -f plane-rs-ci-minio >/dev/null 2>&1 || true
 
   inventory:
-    name: Route inventory and proxy config
+    name: Route inventory and generated corpora
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
-      # Same environment as the regeneration command in ROUTES.md. The script
+      # Same environment as the regeneration commands in ROUTES.md. The script
       # sets these itself if they are absent; being explicit keeps CI immune to
       # a change in those defaults. No database or Redis connection is opened.
       DJANGO_SETTINGS_MODULE: plane.settings.production
@@ -446,17 +456,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # The oracle is Django at the commit in UPSTREAM.toml. The cache key is
+      # the file's content, so a pin move builds a new tree and ordinary pushes
+      # reuse the existing one.
+      - name: Cache the Django oracle
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/plane-rs/oracle
+          key: plane-rs-oracle-${{ hashFiles('UPSTREAM.toml') }}
+          restore-keys: plane-rs-oracle-
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
-          version-file: "apps/api/pyproject.toml"
-          python-version: "3.12.12"
           enable-cache: true
-          cache-dependency-glob: "apps/api/uv.lock"
 
-      - name: Install API dependencies
-        working-directory: apps/api
-        run: uv sync --locked
+      - name: Fetch the Django oracle
+        run: apps/server/tools/upstream/oracle.sh fetch
 
       # Both corpora are generated by CPython itself (`tools/net/*_corpus.py`)
       # and are replayed by cargo tests. --check regenerates into memory, so a
@@ -465,20 +481,22 @@ jobs:
       # has no check mode (it writes tests/golden/presign.json and verifies
       # determinism internally), so it is not checked here.
       - name: Check the generated golden corpora are current
-        working-directory: apps/api
+        working-directory: apps/server
         run: |
-          uv run --no-sync python ../server/tools/net/ssrf_corpus.py --check
-          uv run --no-sync python ../server/tools/net/ip_network_corpus.py --check
+          PY="$(tools/upstream/oracle.sh python)"
+          "$PY" tools/net/ssrf_corpus.py --check
+          "$PY" tools/net/ip_network_corpus.py --check
 
       # The committed commit field is the pin: passing it back means the run is
       # reproducible on a branch where HEAD has moved, so any diff below is a
       # real staleness, not a newer commit hash.
       - name: Regenerate routes.json and ROUTES.md
-        working-directory: apps/api
+        working-directory: apps/server
         run: |
-          PINNED="$(uv run --no-sync python -c 'import json; print(json.load(open("../server/routes.json"))["generated_from"]["commit"])')"
+          PY="$(tools/upstream/oracle.sh python)"
+          PINNED="$("$PY" -c 'import json; print(json.load(open("routes.json"))["generated_from"]["commit"])')"
           echo "Pinned commit: $PINNED"
-          uv run --no-sync python ../server/tools/inventory/routes.py --commit "$PINNED"
+          "$PY" tools/inventory/routes.py --commit "$PINNED"
 
       - name: Fail on a stale inventory
         run: |
@@ -493,8 +511,9 @@ jobs:
       # from Django's own model metadata. A hand edit, a model change without a
       # regeneration, or a removed generated file fails here.
       - name: Check the generated model snapshot is current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/codegen/models.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/codegen/models.py --check"
 
       # apps/server/serializers.json, SERIALIZERS.md and
       # crates/plane-serializers/src/generated/** come from DRF's own
@@ -502,70 +521,84 @@ jobs:
       # fields=/expand=). A hand edit, a serializer change without a
       # regeneration, or a removed generated module fails here.
       - name: Check the generated serializer inventory is current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/inventory/serializers.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/inventory/serializers.py --check"
 
       # The app attachment upload route compares against
       # `settings.ATTACHMENT_MIME_TYPES` itself; Rust carries the generated
       # copy in plane-http-app. A hand edit or a Django list change without a
       # regeneration fails here.
       - name: Check the generated attachment MIME types are current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/inventory/attachment_mime_types.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/inventory/attachment_mime_types.py --check"
 
       # `crates/plane-http-public/src/common/html_tables.rs` is generated from
       # the libxml2 table lxml links against and CPython's `html.entities`
       # (rustfmt-formatted). A hand edit or a toolchain change fails here.
       - name: Check the generated HTML parser tables are current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/inventory/lxml_html_tables.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/inventory/lxml_html_tables.py --check"
 
       # `crates/plane-tasks/src/versions.rs` parses page components with the
       # same `html.parser` behaviour `page_transaction_task.extract_all_components`
       # has; the corpus is Django's output for the parser's case list.
       - name: Check the page component corpus is current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/jobs/gen_component_corpus.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/jobs/gen_component_corpus.py --check"
 
-      # The published v1 document is a committed artefact (Phase 7 exit: "the
-      # docs stay accurate"). `check.py --check` re-renders through Django and
-      # compares byte for byte, then asserts the document's path+method set
-      # equals the v1 route table in routes.json.
       # The SMTP port reproduces Django's `EmailMultiAlternatives` bytes; the
       # corpus is recorded from Django and compared by
       # `crates/plane-http-app/tests/email_message_golden.rs`.
       - name: Check the e-mail golden corpus is current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/mail/email_message_corpus.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/mail/email_message_corpus.py --check"
 
       # `crates/plane-mail` renders the embedded minijinja templates; the
       # corpus is Django's `render_to_string` output for the same contexts.
       - name: Check the e-mail template corpus is current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/mail/email_template_corpus.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/mail/email_template_corpus.py --check"
 
       # `plane-bootstrap` embeds the 36 `InstanceConfiguration` defaults and the
       # eight `/static/` files; both generators parse/compare Django's copies so
-      # a change in apps/api cannot drift from the Rust assets silently.
+      # a pin move cannot drift from the Rust assets silently.
       - name: Check the instance-configuration seed is current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/boot/gen_instance_config.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/boot/gen_instance_config.py --check"
 
       - name: Check the embedded static files are byte-identical
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/boot/static_files.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/boot/static_files.py --check"
+
+      - name: Check the environment inventory
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/inventory/env_vars.py --check-md ENV.md"
 
       - name: Check the OpenAPI goldens are current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/openapi/check.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/openapi/check.py --check"
 
       - name: Check the generated proxy snippet is current
-        working-directory: apps/api
-        run: uv run --no-sync python ../server/tools/proxy/gen_caddy.py --check
+        working-directory: apps/server
+        run: |
+          "$(tools/upstream/oracle.sh python)" tools/proxy/gen_caddy.py --check"
 
       - name: Proxy generator tests
-        working-directory: apps/api
-        run: uv run --no-sync python -m pytest ../server/tools/proxy/test_gen_caddy.py -q
+        working-directory: apps/server
+        # `-p no:django`: the generator test is plain Python, and pytest-django
+        # would otherwise look for the oracle's manage.py next to this cwd.
+        run: |
+          "$(tools/upstream/oracle.sh python)" -m pytest -p no:django tools/proxy/test_gen_caddy.py -q"
 
   license:
     name: Licence headers

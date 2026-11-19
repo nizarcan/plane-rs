@@ -39,7 +39,12 @@ from pg_dump_hint import hint as pg_dump_hint
 
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = SERVER_DIR.parent.parent
-API_DIR = REPO_ROOT / "apps" / "api"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 MIGRATOR = SERVER_DIR / "target" / "debug" / "plane-migrator"
 
 
@@ -336,7 +341,7 @@ def main() -> int:
                     "WHERE app = 'db' AND name = '0125_reset_project_deploy_board_identity'"
                 )
         ok = expect_refusal(
-            "older database", run_migrator(url, refusal), "docker-entrypoint-migrator.sh"
+            "older database", run_migrator(url, refusal), "UPGRADING.md"
         ) and ok
 
         print(f"== refusal: one extra migration row ({refusal})")

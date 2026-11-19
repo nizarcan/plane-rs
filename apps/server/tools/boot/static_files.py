@@ -24,7 +24,12 @@ from pathlib import Path
 
 SERVER_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = SERVER_DIR.parent.parent
-SOURCE = REPO_ROOT / "apps" / "api" / "plane" / "static"
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(SERVER_DIR / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+SOURCE = _oracle_api_dir() / "plane" / "static"
 TARGET = SERVER_DIR / "crates" / "plane-bootstrap" / "assets" / "static"
 
 

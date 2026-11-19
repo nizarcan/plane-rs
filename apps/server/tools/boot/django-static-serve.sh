@@ -9,8 +9,8 @@
 # WhiteNoise has no `STATIC_ROOT` and every `/static/*` request 404s. This
 # wrapper builds the collected tree under `${TMPDIR:-/tmp}/p8boot-static-root`
 # and starts gunicorn with an ASGI shim that points Django's `STATIC_ROOT`
-# there. Nothing under `apps/api` is written (the default `STATIC_ROOT` lives in
-# the source tree and is not gitignored).
+# there. Nothing under the oracle's `apps/api` is written (the default
+# `STATIC_ROOT` would live in the source tree and is not gitignored).
 #
 #   tools/boot/django-static-serve.sh <port>
 #
@@ -20,8 +20,9 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="$(cd "$HERE/../.." && pwd)"
-REPO="$(cd "$SERVER/../.." && pwd)"
-API="$REPO/apps/api"
+# shellcheck source=../upstream/oracle.sh
+source "$SERVER/tools/upstream/oracle.sh"
+API="$(oracle_api_dir)"
 
 port="${1:-}"
 [[ -n "$port" ]] || { echo "usage: $(basename "$0") <port>" >&2; exit 2; }

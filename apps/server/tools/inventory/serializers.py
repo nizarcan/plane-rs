@@ -115,7 +115,12 @@ from typing import Any
 SCRIPT_PATH = Path(__file__).resolve()
 SERVER_DIR = SCRIPT_PATH.parents[2]
 REPO_ROOT = SCRIPT_PATH.parents[4]
-API_DIR = REPO_ROOT / "apps" / "api"
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(REPO_ROOT / "apps" / "server" / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+from oracle import display_path as _oracle_display_path  # noqa: E402
+
+API_DIR = _oracle_api_dir()
 
 GENERATED_DIR = SERVER_DIR / "crates" / "plane-serializers" / "src" / "generated"
 
@@ -269,18 +274,10 @@ def model_label(model: Any) -> str | None:
 def relative_source(path: str | Path | None) -> str | None:
     if not path:
         return None
-    path = Path(path).resolve()
-    # A worktree's `apps/api/.venv` is a symlink into the main checkout, so the
-    # resolved path is outside `REPO_ROOT`. The committed inventory uses the
-    # logical path; keep it stable across checkouts.
-    text = str(path)
-    venv = "/apps/api/.venv/"
-    if venv in text:
-        return "apps/api/.venv/" + text.split(venv, 1)[1]
-    try:
-        return str(path.relative_to(REPO_ROOT))
-    except ValueError:
-        return text
+    # Django and its libraries live in the oracle, outside this checkout; the
+    # committed inventory keeps the logical `apps/api/...` path so it does not
+    # depend on where the cache is.
+    return _oracle_display_path(Path(path).resolve())
 
 
 def source_line(fn: Any) -> dict[str, Any] | None:

@@ -6,9 +6,12 @@ is how work is done day to day. When they disagree, `RUST_REWRITE.md` wins.
 
 ## Hard rules (repeated from the brief because they are the ones that get broken)
 
-1. Never modify anything under `apps/api`, `apps/web`, `apps/admin`, `apps/space`,
-   `apps/live` or `packages/`. Django is the specification and the test oracle.
-   Generated, gitignored artefacts (`apps/api/.venv`, `apps/api/logs/`) are fine.
+1. Never modify anything under `apps/web`, `apps/admin`, `apps/space`,
+   `apps/live`, `apps/proxy` or `packages/`: they are upstream's, verbatim
+   (`UPSTREAM.toml`). `apps/api` is **not in this checkout**; Django is the
+   specification and the test oracle, materialised by
+   `tools/upstream/oracle.sh` into the home cache. Read it there, never copy it
+   back into the tree.
 2. Never push, never deploy, never connect to any database, Redis, broker or bucket other
    than the dev stack described below. In particular the machine already runs unrelated
    containers on ports 5432, 6379, 9000, 9001, 9092 and a Redis on 6390: never touch them.
@@ -36,8 +39,11 @@ apps/server/
   dev/              local dev stack: compose file and scripts
   tools/            Python/shell helpers (inventory generators, fixture builders)
   scenarios/        differential-test scenarios (recorded request sessions)
+  tools/upstream/   oracle.sh (fetch/locate Django at the pin), oracle.py, diff.py
   ROUTES.md  MODEL_HOOKS.md  TASKS.md  ENV.md  HTTP_CONTRACT.md  BENCH.md  PROGRESS.md
 ```
+
+`UPSTREAM.toml` at the repository root is the pin; `UPGRADING.md` moves it.
 
 ## Dev stack
 
@@ -49,25 +55,37 @@ Everything binds to 127.0.0.1 on these ports only. Compose project name: `plane-
 | Valkey | `valkey/valkey:7.2.11-alpine` | 56379 |
 | RabbitMQ | `rabbitmq:3.13.6-management-alpine` | 55672 (AMQP), 55673 (management) |
 | MinIO (silo) | `docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z` | 59000 (S3), 59090 (console) |
-| Django instances (native, via uv) | | 18000-18099 |
+| Django oracle instances (native, from the cache) | | 18000-18099 |
 | Rust `plane-api` instances | | 18100-18199 |
 | Dev proxy (Caddy) | `caddy` | 18080 |
 
 The Docker VM has 2 CPUs and about 2 GB of memory (temporarily 6 CPUs / 10 GB during
-Phase 3; see `PROGRESS.md`). Keep containers lean and never start
-the full `docker-compose-local.yml` stack.
+Phase 3; see `PROGRESS.md`). Keep containers lean and never start the
+release-shaped `docker-compose.yml` stack alongside the dev one.
 
-Python for Django runs natively on the host from the already-synced virtualenv. Call the
-interpreter directly so concurrent agents never trigger a uv sync:
+Django is not in this tree. It runs natively from the **oracle**: `apps/api`
+exported from the commit in `UPSTREAM.toml` into
+`${PLANE_RS_ORACLE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/plane-rs/oracle/<commit>}`.
+Fetch it once (idempotent, ~30 s; network is allowed for this and nothing else):
 
+```bash
+apps/server/tools/upstream/oracle.sh fetch
+apps/server/tools/upstream/oracle.sh check
 ```
-cd apps/api && .venv/bin/python manage.py ...
+
+Call the cached interpreter directly so concurrent agents never trigger a sync:
+
+```bash
+"$(apps/server/tools/upstream/oracle.sh python)" manage.py ...
+# cwd: "$(apps/server/tools/upstream/oracle.sh api-dir)"
 ```
 
-If the venv ever needs re-syncing (only the orchestrator does this): `apps/api` pins uv
-0.12.21 and the host uv is newer, so use `uvx --from 'uv==0.12.21' uv sync --locked`
-inside `apps/api`. The dev scripts in `apps/server/dev/` wrap all of this; prefer them
-once they exist.
+The oracle venv is built with the uv version the pinned `apps/api/pyproject.toml`
+requires (`uvx --from 'uv==<required-version>' uv sync --locked`) plus gunicorn
+from the production group; `oracle.sh fetch --force` rebuilds it. The dev scripts
+in `apps/server/dev/` wrap all of this; prefer them. `PLANE_RS_UPSTREAM_COMMIT` and
+`PLANE_RS_ORACLE_DIR` point one process at a *target* commit while moving the pin
+(`UPGRADING.md`); the tools read the pin from `UPSTREAM.toml` otherwise.
 
 Isolation between concurrent agents: create your own databases with a unique prefix
 (for example `t_<task>_<n>`), cloned from the template database, use your own Redis DB
@@ -85,6 +103,8 @@ The owner wants short iterations. Unless a task says otherwise:
   shared code (`plane-query`, `plane-drf`, `plane-auth`, `bins/plane-api`,
   `plane-testkit`, `normalize.yaml`). Re-run only failing files, never passing ones.
 - **Django vs Django baselines.** Once per new or changed scenario file, not per run.
+  The baseline's Django is the oracle; a target ref is selected with the two
+  `PLANE_RS_*` variables above.
 - **Gates.** fmt, clippy, `cargo test` and schema_check run once at the end, not after
   every edit (`cargo check -p <crate>` while iterating).
 - **Measurements.** 50 sequential requests per route for latency and round trips; load

@@ -44,17 +44,18 @@ against the local stack. The dev script writes its own gitignored copy,
 2. Regenerate the inventory (it preserves Owner and Status):
 
    ```sh
-   cd apps/api
+   oracle="$(apps/server/tools/upstream/oracle.sh python)"
    DJANGO_SETTINGS_MODULE=plane.settings.production SECRET_KEY=inventory \
    DATABASE_URL=postgresql://x:x@127.0.0.1:1/x REDIS_URL=redis://127.0.0.1:1/0 \
-   ENABLE_DRF_SPECTACULAR=0 .venv/bin/python ../server/tools/inventory/routes.py
+   ENABLE_DRF_SPECTACULAR=0 "$oracle" apps/server/tools/inventory/routes.py
    ```
 
-3. Regenerate the proxy fragment and check it:
+3. Regenerate the proxy fragment and check it (the oracle is `apps/api` at the
+   `UPSTREAM.toml` pin; fetch it with `tools/upstream/oracle.sh fetch`):
 
    ```sh
-   apps/api/.venv/bin/python apps/server/tools/proxy/gen_caddy.py
-   apps/api/.venv/bin/python apps/server/tools/proxy/gen_caddy.py --check
+   "$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/proxy/gen_caddy.py
+   "$(apps/server/tools/upstream/oracle.sh python)" apps/server/tools/proxy/gen_caddy.py --check
    ```
 
 4. Reload the proxy. Development/harness: `apps/server/dev/proxy.sh reload`
@@ -108,7 +109,7 @@ handle @plane_rs_<group> {
 ```
 
 - Paths are anchored `^...$` RE2 regexes built from Django's converter regexes
-  (`apps/api/.venv/lib/python3.12/site-packages/django/urls/converters.py`;
+  (the oracle venv's `django/urls/converters.py`;
   uuid is lowercase-only), DRF's `.format` regex, and DRF's optional trailing
   slash. `path_regexp` matches the URI-decoded path after Caddy's `cleanPath`
   (double slashes merged, dot segments removed); Django's resolver also works

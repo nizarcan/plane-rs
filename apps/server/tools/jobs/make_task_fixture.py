@@ -31,6 +31,13 @@ import argparse
 import os
 import sys
 from datetime import datetime, timedelta, timezone as dt_timezone
+from pathlib import Path
+
+# The Django oracle (apps/api at the UPSTREAM.toml pin); see tools/upstream/oracle.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "upstream"))
+from oracle import api_dir as _oracle_api_dir  # noqa: E402
+
+sys.path.insert(0, str(_oracle_api_dir()))
 
 # Deterministic UUIDs. The first byte encodes the fixture group so a reader can
 # see at a glance which fixture a row belongs to.
