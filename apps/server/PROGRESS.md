@@ -2346,8 +2346,12 @@ The ai-assistant routes (51/52) and the held methods 34/75/82/107 are not planne
        dev-signed sessions); the AIO image isn't built here (needs frontend images); the Helm
        chart (separate repo) is documented only; `docker-compose-local.yml`/`-test.yml` are
        developer stacks and still run Django.
-   - **Verification of `d9eedf323e` (partial):** gates, baseline `--check`, `verify_migrator`
-     (all PASS), `compare_boot` PASS, 242/242 task cases, OAuth, SMTP, `beat_exactly_once` and
+   - **Verification of `d9eedf323e`:** fmt, clippy, 1404 tests, testkit 210, selftest 141,
+     schema_check (5 crates), `plane-jobs` DB test 8/8, nine generator checks, baseline
+     `--check` PASS (needs `--dump-url` with the in-container port for a `docker exec`
+     `pg_dump`; the script's version-mismatch hint on a connection failure is misleading,
+     fix assigned to `rs/p8-bootfix`), `verify_migrator`
+     (all PASS), contract 984/2, `compare_boot` PASS, 242/242 task cases, OAuth, SMTP, `beat_exactly_once` and
      `beat_handover` PASS; sweeps 125/128: `boot/static.yaml` 0/9 (needs the static-serving
      Django target, which a normal targets file lacks) and `read/instances.yaml` 27/30,
      `write/instances-write.yaml` 23/25, `write/instances-signup.yaml` 9/10:
