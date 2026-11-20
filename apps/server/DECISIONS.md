@@ -870,6 +870,35 @@ workspace `Cargo.toml` and upgrade deliberately.
   the database; startup window 5 min for the boot steps), web `/`, space `/spaces/`, admin
   `/god-mode/`, live TCP; worker, beat and the migrator have none (no HTTP, distroless).
 
+## D39. The Django oracle is fetched at the pin, not kept in the tree (decided 2026-11-20)
+
+- `apps/api` is removed. `UPSTREAM.toml` records the upstream repository, commit, describe,
+  date and the Django/Python/uv pins, the `[verbatim]` paths (byte-identical to the pin, checked
+  by `tools/upstream/diff.py --check-verbatim` in CI) and the `[modified]` files (the two
+  Caddyfiles, D36). No other file hard-codes the commit.
+- `tools/upstream/oracle.sh` exports the pin's `apps/api` from a bare mirror into
+  `${PLANE_RS_ORACLE_DIR:-~/.cache/plane-rs/oracle/<commit>}` (under home: the Docker VM mounts
+  only home), builds its virtualenv with the pin's uv (`uv sync --locked`) plus the production
+  gunicorn, and stamps it. Python tools locate it with `tools/upstream/oracle.py`, Rust tests with
+  `crates/plane-oracle`, shell with `dev/lib.sh`. Citations in code still read `apps/api/...`
+  (paths inside the oracle). CI caches it by `UPSTREAM.toml`.
+- `tools/upstream/diff.py <ref>` classifies upstream changes since the pin and regenerates the
+  route and task inventories at the target; `UPGRADING.md` is the pin-move procedure.
+  `plane-migrator` applies ordered, immutable post-baseline `UPGRADE_STEPS` (SQL from
+  `manage.py sqlmigrate` at the new pin, then the `django_migrations` rows, then the marker), one
+  transaction each; fresh installs use the refreshed baseline (`tools/schema/upgrade_step.py`).
+- Rejected: vendoring the Python tree (drift, two sources of truth), a submodule (still a Python
+  tree), one shared virtualenv (two pins need two).
+
+## D40. Secret scanning allowlists test material by path and rule (decided 2026-11-20)
+
+- The parity proofs need committed golden tokens, codec vectors, fixture sessions and one
+  throwaway TLS key. `.gitleaks.toml` extends the default rules and scopes each allowlist entry to
+  a path set and `targetRules`, so a different detector on the same file still fires.
+  `.github/workflows/gitleaks.yml` scans the full history on every push and pull request. Before
+  publishing, `290383d7f9..HEAD` scanned clean with the config (2,403 candidates without it, all
+  that test material; the dev `SECRET_KEY` occurs nowhere in history).
+
 ## Open owner decisions
 
 See "Open decisions for the owner" in `RUST_REWRITE.md`. Defaults are assumed until the

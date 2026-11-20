@@ -2490,10 +2490,19 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
   deadline, drop, metadata, gzip, a 281 KB body; HTTP gzip), `--set all` 308/308, `compare_boot`
   50/50, `plane-jobs` DB test 9/9, 1439 tests, testkit 223.
 
-Running:
-`rs/rs-upstream` (`UPSTREAM.toml`, oracle fetched to `~/.cache/plane-rs/oracle/<commit>`,
-`apps/api` and the Django dev stacks removed, `tools/upstream/diff.py`, `UPGRADING.md` with
-the migrator's post-baseline steps, `.gitleaks.toml` + CI scan; 18020/18120, Redis 5/6/15;
-waits for telemetry before its full verification). Next: upstream pin + oracle fetch + `apps/api` removal, README,
-secret scan, publish, homelab.
+- **`apps/api` removed; oracle fetched at the pin (`db220a1b1e`), D39, D40.** `UPSTREAM.toml`,
+  `tools/upstream/{oracle.sh,oracle.py,diff.py}`, `crates/plane-oracle`, `UPGRADING.md`, migrator
+  `UPGRADE_STEPS` (synthetic two-step chain test), `.gitleaks.toml` + CI, `run-phase8.sh` building
+  Django from the oracle, root `AGENTS.md` rewritten, Django dev/test compose files removed.
+  Agent's full verification on the combined tree (`11a9d10ba0`): 1444 tests, testkit 223, every
+  generator, `--check-verbatim`, baseline, migrator, boot, **308/308 task cases**, **129 files
+  clean**, OAuth 57/57 + 52/52, SMTP, contract 984/2, strict exit check 102/0/0, gitleaks 0.
+  Sample `diff.py upstream/preview`: 186 files (18 routes, 3 permission changes on deploy-board
+  writes, 0 migrations). Main checkout's leftover ignored `apps/api` (old venv, caches, dev logs)
+  deleted.
+- README rewritten for plane-rs (unofficial/trademark/AGPL notice, pin, measured numbers,
+  images, install, proof, known limitations, map).
+
+Running: the orchestrator's verification of the publishing head. Then push `main`, rename, images,
+homelab, revert.
 

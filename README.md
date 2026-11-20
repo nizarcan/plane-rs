@@ -1,174 +1,128 @@
-<br /><br />
+# plane-rs
 
-<p align="center">
-<a href="https://plane.so">
-  <img src="https://media.docs.plane.so/logo/plane_github_readme.png" alt="Plane Logo" width="400">
-</a>
-</p>
-<p align="center"><b>Modern project management for all teams</b></p>
+**plane-rs** is [Plane](https://github.com/makeplane/plane) (Community Edition) with its
+Django/Celery backend replaced by a Rust implementation that is behaviourally identical:
+the same PostgreSQL schema, the same HTTP API byte for byte, and the same side effects
+(database rows, background jobs, e-mails, webhooks, stored files). The browser frontends are
+upstream's, unchanged, so the web app, the admin console and public spaces work as they do
+on Plane.
 
-<p align="center">
-    <a href="https://plane.so/"><b>Website</b></a> •
-    <a href="https://forum.plane.so"><b>Forum</b></a> •
-    <a href="https://x.com/planepowers"><b>X</b></a> •
-    <a href="https://docs.plane.so/"><b>Documentation</b></a>
-</p>
+> **Unofficial.** plane-rs is an independent fork. It is not made, endorsed or supported by
+> Plane Software, Inc. "Plane" and the Plane logo are trademarks of Plane Software, Inc.;
+> they are used here only to say which project this fork is derived from. Report plane-rs
+> issues here, not upstream.
 
-<p>
-    <a href="https://app.plane.so/#gh-light-mode-only" target="_blank">
-      <img
-        src="https://media.docs.plane.so/GitHub-readme/github-top.webp"
-        alt="Plane Screens"
-        width="100%"
-      />
-    </a>
-</p>
+## Which Plane it matches
 
-Meet [Plane](https://plane.so/), an open-source project management tool to track issues, run ~sprints~ cycles, and manage product roadmaps without the chaos of managing the tool itself. 🧘‍♀️
+plane-rs corresponds to one upstream commit, recorded in [`UPSTREAM.toml`](./UPSTREAM.toml):
+`makeplane/plane@290383d7f9` (`v1.5.0-rc2`, 2026-11-13). The frontends in `apps/web`,
+`apps/space`, `apps/admin`, `apps/live` and `packages/` are that commit's code, unchanged.
+Moving to a newer Plane is a deliberate, verified step described in
+[`UPGRADING.md`](./UPGRADING.md).
 
-> **This is plane-rs.** A fork of Plane whose backend is a Rust reimplementation
-> of upstream's Django API. The frontends are upstream's, verbatim, and the
-> commit this repository corresponds to is in [`UPSTREAM.toml`](./UPSTREAM.toml).
-> Start with [`AGENTS.md`](./AGENTS.md) for the repository map and
-> [`apps/server/AGENTS.md`](./apps/server/AGENTS.md) for the backend; moving the
-> upstream pin is [`UPGRADING.md`](./UPGRADING.md).
+## Why
 
-> Plane is evolving every day. Your suggestions, ideas, and reported bugs help us immensely. Do not hesitate to join in the conversation on [Forum](https://forum.plane.so) or raise a GitHub issue. We read everything and respond to most.
+A single-user self-hosted Plane idles at about 3.5 GB, and the Python services are most of
+it. Measured with identical container limits ([`apps/server/BENCH.md`](./apps/server/BENCH.md),
+"Phase 8 — final"):
 
-## 🚀 Installation
+| | Django / Celery | plane-rs |
+| --- | ---: | ---: |
+| API idle memory | 143 MiB | 59 MiB |
+| Worker idle memory | 360 MiB (Celery, 4 processes) | 1.6 MiB |
+| Scheduler idle memory | 146 MiB | 0.9 MiB |
+| Message broker | RabbitMQ (~140 MiB) | none (Postgres queue) |
+| Reads, one at a time | 24–74 req/s | 246–1,311 req/s |
+| Mixed reads, 8 concurrent, p99 | 353 ms | 16 ms |
+| Background jobs | 94 jobs/s | 773 jobs/s |
 
-Getting started with Plane is simple. Choose the setup that works best for you:
+## What's in the box
 
-- **Plane Cloud**
-  Sign up for a free account on [Plane Cloud](https://app.plane.so)—it's the fastest way to get up and running without worrying about infrastructure.
+| Service | Image | Replaces |
+| --- | --- | --- |
+| `plane-api` | `ghcr.io/nizarcan/plane-rs-api` | Django API (gunicorn) |
+| `plane-worker` | `ghcr.io/nizarcan/plane-rs-worker` | Celery worker |
+| `plane-beat` | `ghcr.io/nizarcan/plane-rs-beat` | Celery beat |
+| `plane-migrator` | `ghcr.io/nizarcan/plane-rs-migrator` | Django `migrate` |
+| web, space, admin, live, proxy | `ghcr.io/nizarcan/plane-rs-{web,space,admin,live,proxy}` | upstream's, rebuilt from this tree |
 
-- **Self-host Plane**
-  Prefer full control over your data and infrastructure? Install and run Plane on your own servers. Follow our detailed [deployment guides](https://developers.plane.so/self-hosting/overview) to get started.
+Background jobs run on a PostgreSQL queue (`plane_jobs` schema), so RabbitMQ is gone. Images
+are published for `linux/amd64` and `linux/arm64`.
 
-| Installation methods | Docs link                                                                                                                                                                               |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Docker               | [![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://developers.plane.so/self-hosting/methods/docker-compose)         |
-| Kubernetes           | [![Kubernetes](https://img.shields.io/badge/kubernetes-%23326ce5.svg?style=for-the-badge&logo=kubernetes&logoColor=white)](https://developers.plane.so/self-hosting/methods/kubernetes) |
-| All-in-one Docker    | [deployments/aio/community](./deployments/aio/community/README.md) · [docs](https://developers.plane.so/self-hosting/methods/docker-aio)                                                |
+## Install
 
-`Instance admins` can configure instance settings with [God mode](https://developers.plane.so/self-hosting/govern/instance-admin).
+- **Kubernetes:** the Helm chart in [`charts/plane-rs`](./charts/plane-rs) (bundled or
+  external PostgreSQL, Valkey and MinIO; existing Secrets for External Secrets; ArgoCD-safe).
+- **Docker Compose:** [`deployments/cli/community`](./deployments/cli/community) and the root
+  [`docker-compose.yml`](./docker-compose.yml).
 
-## 🌟 Features
+The migrator installs a fresh database, or upgrades an existing Plane database **only if it
+is exactly at the pinned migration set** (`v1.5.0-rc2`); it refuses older, newer and
+unrecognised databases with a message saying what to do. Back up before pointing it at real
+data.
 
-- **Work Items**
-  Efficiently create and manage tasks with a robust rich text editor that supports file uploads. Enhance organization and tracking by adding sub-properties and referencing related issues.
+## How it is proven
 
-- **Cycles**
-  Maintain your team’s momentum with Cycles. Track progress effortlessly using burn-down charts and other insightful tools.
+Nothing here counts as done on the strength of reading code. Every route, background task,
+schedule, boot step and the schema itself is compared against upstream's Django at the pinned
+commit, which the tooling fetches into a local cache
+([`apps/server/tools/upstream`](./apps/server/tools/upstream)):
 
-- **Modules**
-  Simplify complex projects by dividing them into smaller, manageable modules.
+- a differential harness replays 131 scenario files (6,345 requests) against Django and
+  plane-rs from the same database snapshot and compares status, headers, body bytes, the
+  database diff, cache keys, published jobs, stored objects, mail and outbound requests;
+- 308 background-task cases compare each task's full effect the same way;
+- upstream's own contract tests run against plane-rs;
+- the migrator's schema is dump-identical to Django's;
+- a scripted exit check installs fresh and upgrades a Django database with no Python
+  process anywhere, then walks sign-in through work items, uploads, exports, invitations and
+  webhooks.
 
-- **Views**
-  Customize your workflow by creating filters to display only the most relevant issues. Save and share these views with ease.
+Upstream bugs are reproduced, not fixed, so that plane-rs behaves exactly like the Plane it
+pins; each one is listed in [`apps/server/PROGRESS.md`](./apps/server/PROGRESS.md).
 
-- **Pages**
-  Capture and organize ideas using Plane Pages, complete with AI capabilities and a rich text editor. Format text, insert images, add hyperlinks, or convert your notes into actionable items.
+## Known limitations
 
-- **Analytics**
-  Access real-time insights across all your Plane data. Visualize trends, remove blockers, and keep your projects moving forward.
+- `apps/live` (real-time collaboration) is still upstream's Node service.
+- A handful of documented, contract-invisible differences: webhook-log header-name casing
+  (D33), some boot-time behaviour (D34), telemetry exporter options listed in
+  [`apps/server/ENV.md`](./apps/server/ENV.md). See
+  [`apps/server/DECISIONS.md`](./apps/server/DECISIONS.md).
+- Some error-path follow-ups are tracked in `apps/server/PROGRESS.md`.
+- No independent security review has been done. Authentication, permissions, rate limits and
+  the SSRF guards are ported from Django and tested for parity, not audited.
+- Upgrades have been proven on fixture databases, not on large production datasets.
+- The all-in-one image is not published.
 
-## 🛠️ Local development
+## Repository map
 
-See [CONTRIBUTING](./CONTRIBUTING.md)
+| Path | What |
+| --- | --- |
+| `apps/server/` | the Rust backend: library crates, the four binaries, the harness, tools ([`AGENTS.md`](./apps/server/AGENTS.md)) |
+| `apps/web`, `apps/space`, `apps/admin`, `apps/live`, `packages/` | upstream frontends, unchanged |
+| `apps/proxy/` | Caddy, routing the API paths to `plane-api` |
+| `charts/plane-rs/` | Helm chart |
+| `deployments/` | Compose, Swarm and all-in-one deployments |
+| [`UPSTREAM.toml`](./UPSTREAM.toml) | the upstream pin |
+| [`UPGRADING.md`](./UPGRADING.md) | moving to a newer upstream |
+| [`PLAYBOOK.md`](./PLAYBOOK.md) | how this rewrite was evaluated and executed, as a reusable method |
+| [`RUST_REWRITE.md`](./RUST_REWRITE.md) | the original brief |
 
-## ⚙️ Built with
+## Development
 
-[![React Router](https://img.shields.io/badge/-React%20Router-CA4245?logo=react-router&style=for-the-badge&logoColor=white)](https://reactrouter.com/)
-[![Django](https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=green)](https://www.djangoproject.com/)
-[![Node JS](https://img.shields.io/badge/node.js-339933?style=for-the-badge&logo=Node.js&logoColor=white)](https://nodejs.org/en)
+See [`AGENTS.md`](./AGENTS.md) and [`apps/server/AGENTS.md`](./apps/server/AGENTS.md). In short:
 
-## 📸 Screenshots
-
-  <p>
-    <a href="https://plane.so" target="_blank">
-      <img
-        src="https://media.docs.plane.so/GitHub-readme/github-work-items.webp"
-        alt="Plane Views"
-        width="100%"
-      />
-    </a>
-  </p>
-  <p>
-    <a href="https://plane.so" target="_blank">
-      <img
-        src="https://media.docs.plane.so/GitHub-readme/github-cycles.webp"
-        width="100%"
-      />
-    </a>
-  </p>
-  <p>
-    <a href="https://plane.so" target="_blank">
-      <img
-        src="https://media.docs.plane.so/GitHub-readme/github-modules.webp"
-        alt="Plane Cycles and Modules"
-        width="100%"
-      />
-    </a>
-  </p>
-  <p>
-    <a href="https://plane.so" target="_blank">
-      <img
-        src="https://media.docs.plane.so/GitHub-readme/github-views.webp"
-        alt="Plane Analytics"
-        width="100%"
-      />
-    </a>
-  </p>
-   <p>
-    <a href="https://plane.so" target="_blank">
-      <img
-        src="https://media.docs.plane.so/GitHub-readme/github-analytics.webp"
-        alt="Plane Pages"
-        width="100%"
-      />
-    </a>
-  </p>
-</p>
-
-## 📝 Documentation
-
-Explore Plane's [product documentation](https://docs.plane.so/) and [developer documentation](https://developers.plane.so/) to learn about features, setup, and usage.
-
-## ❤️ Community
-
-Join the Plane community on our [Forum](https://forum.plane.so), and use [GitHub issues](https://github.com/makeplane/plane/issues) for bug reports and feature requests. We follow a [Code of conduct](./CODE_OF_CONDUCT.md) in all our community channels.
-
-Feel free to ask questions, report bugs, participate in discussions, share ideas, request features, or showcase your projects. We’d love to hear from you!
-
-## 🛡️ Security
-
-If you discover a security vulnerability in Plane, please report it responsibly instead of opening a public issue. We take all legitimate reports seriously and will investigate them promptly. See [Security policy](./SECURITY.md) for more info.
-
-To disclose any security issues, please [report them privately on GitHub](https://github.com/makeplane/plane/security/advisories/new) or email us at security@plane.so.
-
-## 🤝 Contributing
-
-There are many ways you can contribute to Plane:
-
-- Report [bugs](https://github.com/makeplane/plane/issues/new?template=--bug-report.yaml) or submit [feature requests](https://github.com/makeplane/plane/issues/new?template=--feature-request.yaml).
-- Review the [documentation](https://docs.plane.so/) and tell us on the [Forum](https://forum.plane.so) or in a GitHub issue where it is wrong or incomplete.
-- Add or update [translations](./CONTRIBUTING.md#contributing-to-language-support).
-- Talk or write about Plane or any other ecosystem integration and [let us know](https://forum.plane.so)!
-- Show your support by upvoting [popular feature requests](https://github.com/makeplane/plane/issues).
-
-Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for details on the process for submitting pull requests to us.
-
-### Repo activity
-
-![Plane Repo Activity](https://repobeats.axiom.co/api/embed/2523c6ed2f77c082b7908c33e2ab208981d76c39.svg "Repobeats analytics image")
-
-### We couldn't have done this without you.
-
-<a href="https://github.com/makeplane/plane/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=makeplane/plane" />
-</a>
+```bash
+cd apps/server
+tools/upstream/oracle.sh fetch          # upstream Django at the pin, into ~/.cache/plane-rs
+dev/up.sh                               # local Postgres, Valkey, RabbitMQ, MinIO (see dev/)
+dev/bootstrap.sh && dev/bootstrap-fixture.sh   # template databases the harness clones
+cargo test --workspace
+./target/debug/difftest run --scenario scenarios/read/projects.yaml --a django --b rust
+```
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](./LICENSE.txt).
+AGPL-3.0-only, as upstream ([`LICENSE.txt`](./LICENSE.txt)). Source files keep upstream's
+copyright header. If you run a modified plane-rs as a network service, the AGPL requires you
+to offer its source to its users.
