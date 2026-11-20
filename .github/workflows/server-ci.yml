@@ -54,6 +54,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Some unit tests read the oracle's Python source (e.g. the hard-delete
+      # step order in plane-tasks), so this job needs it too.
+      - name: Cache the Django oracle
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/plane-rs/oracle
+          key: plane-rs-oracle-${{ hashFiles('UPSTREAM.toml') }}
+          restore-keys: plane-rs-oracle-
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Fetch the Django oracle
+        run: apps/server/tools/upstream/oracle.sh fetch
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -629,7 +646,9 @@ jobs:
       - name: Check apps/server sources
         run: |
           set -euo pipefail
-          mapfile -t FILES < <(git ls-files 'apps/server/**/*.rs' 'apps/server/**/*.py' 'apps/server/**/*.sh')
+          # apps/server/vendor holds third-party crates under their own
+          # licences (VENDORED.md); they keep their original headers.
+          mapfile -t FILES < <(git ls-files 'apps/server/**/*.rs' 'apps/server/**/*.py' 'apps/server/**/*.sh' ':!apps/server/vendor/**')
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No apps/server .rs, .py or .sh files to check."
             exit 0
