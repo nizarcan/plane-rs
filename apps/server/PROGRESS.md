@@ -2517,5 +2517,22 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
   `sha-` image tags, bundled PostgreSQL/Valkey/MinIO on `nfs-data`, no ingress); `./hl validate`
   clean; `setup-vault-secrets.sh` gains plane-rs placeholders (never run whole).
 
-Running: publish (`main`, rename, images), then Vault + homelab, then revert.
+- **Published (2026-11-20).** Repository renamed `nizarcan/plane` → `nizarcan/plane-rs` (still a
+  fork of makeplane/plane; local `origin` updated); `main` created from the verified head, pushed,
+  and made the default branch; `preview` left as the upstream mirror. No tags pushed.
+  - Branch Build: all nine images published, **public** (anonymous pulls work), `linux/amd64` +
+    `linux/arm64`, tags `main` and `sha-<7>` (first: `sha-6a908d8`). Helm chart CI and the secret
+    scan pass.
+  - CI fixes found by the first runs on `main`: every workflow's branch filter pointed at
+    upstream's `preview`/`master`/`canary` (now `main`); gitleaks scanned all 7,191 commits incl.
+    upstream's history (10 findings, all upstream placeholder defaults from 2023) and now scans
+    from the `UPSTREAM.toml` pin; the unit-test job needed the oracle (a `plane-tasks` test reads
+    `deletion_task.py`); the licence-header check flagged the vendored MIT `zxcvbn` crate (now
+    excluded).
+- **Homelab skipped by the owner for now.** `VAULT_ADDR` in the orchestrator's shell points at a
+  non-homelab Vault (connection reset; nothing read or written). The prepared change stays
+  uncommitted in `../homelab`; since the images are public, its `ghcr-pull` component,
+  `imagePullSecrets` and the `kv-infra/github/registry` policy line can be dropped.
+
+Running: Server CI on `main`. Then the environment revert.
 
