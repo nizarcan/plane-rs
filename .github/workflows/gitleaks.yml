@@ -6,7 +6,10 @@ name: Secret scan
 # key, dev-stack curl credentials); anything else is a finding.
 #
 # Full history is fetched because the scan is `gitleaks git`: a secret removed
-# from the working tree but still in a commit must fail too.
+# from the working tree but still in a commit must fail too. The range starts at
+# the upstream pin in UPSTREAM.toml: everything before it is upstream Plane's
+# public history (it carries placeholder defaults gitleaks flags, e.g. 2023's
+# settings files), and everything this fork added comes after it.
 
 on:
   push:
@@ -30,8 +33,13 @@ jobs:
 
       - name: Scan the history with the committed configuration
         run: |
+          PIN=$(sed -nE 's/^commit = "([0-9a-f]{40})"$/\1/p' UPSTREAM.toml)
+          test -n "$PIN" || { echo "no upstream commit in UPSTREAM.toml"; exit 1; }
+          git cat-file -e "${PIN}^{commit}" || { echo "pin ${PIN} is not in this history"; exit 1; }
+          echo "scanning ${PIN}..HEAD"
           docker run --rm \
             -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
             -w "$GITHUB_WORKSPACE" \
             zricethezav/gitleaks:latest \
-            git --config .gitleaks.toml --no-banner --redact --verbose "$GITHUB_WORKSPACE"
+            git --config .gitleaks.toml --no-banner --redact --verbose \
+            --log-opts="${PIN}..HEAD" "$GITHUB_WORKSPACE"
