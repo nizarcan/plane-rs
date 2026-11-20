@@ -2534,5 +2534,12 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
   uncommitted in `../homelab`; since the images are public, its `ghcr-pull` component,
   `imagePullSecrets` and the `kv-infra/github/registry` policy line can be dropped.
 
-Running: Server CI on `main`. Then the environment revert.
+- Server CI on `main` found one more Linux-only bug: the bench sampler took CPU from `ps`'s
+  `time`, whole seconds on Linux, so a 300 ms test burn read as 0. Fixed (`b7e8159ac4`): on Linux
+  the sampler reads `/proc/<pid>/stat` (clock-tick resolution); proven in a Linux container;
+  BENCH.md updated (all its figures were measured on macOS, where `ps` has centiseconds).
+- **Environment reverted (2026-11-20):** dev Postgres recreated at its 640M compose limit
+  (templates intact); RabbitMQ `docker update` 320M, restart `no` (it OOM-stopped again at that
+  limit; `dev/up.sh` starts it fresh); Colima back to 2 CPU / 2 GiB; `vmif` started; the owner's
+  cc-cost containers came back on their own.
 
