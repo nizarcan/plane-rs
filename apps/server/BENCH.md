@@ -102,16 +102,20 @@ Both are measured for the **whole target process group**, not for the process th
 happened to spawn. Managed targets are started in their own process group, so the gunicorn
 master, every uvicorn worker, and anything they fork share it.
 
-* **Idle RSS**: after a 10 s settle (`--settle`), the median of three `ps -A -o
-  pgid=,pid=,rss=,time=` samples 250 ms apart, summed over the group, in MiB. It is taken
+* **Idle RSS**: after a 10 s settle (`--settle`), the median of three process-table
+  samples 250 ms apart, summed over the group, in MiB. The sampler reads
+  `ps -A -o pgid=,pid=,rss=,time=` on macOS and `/proc/<pid>/stat` (process group,
+  `utime`+`stime`, `rss`) on Linux, where `ps`'s `time` has only whole-second resolution
+  (changed 2026-11-20; every figure in this file was measured on macOS). It is taken
   before any load in that repetition.
 * **Peak RSS**: the maximum summed RSS seen by the 250 ms sampler during the measured
   window, plus the final sample.
 * **After RSS**: the summed RSS at the end of the measured window, before the target is
   stopped.
 * **CPU seconds**: consumed CPU time (user + system) of the whole group, the difference
-  between the `ps` `time` column sampled just before the measured window (after warm-up)
-  and just after it. `ps` reports it at centisecond resolution on macOS, which is ample
+  between the group's CPU time sampled just before the measured window (after warm-up)
+  and just after it. `ps` reports it at centisecond resolution on macOS (`/proc` at clock-tick
+  resolution, usually 10 ms, on Linux), which is ample
   over a 20 s window. Because a process's CPU time disappears from `ps` when it exits, a
   target that restarts a worker mid-window under-reports; the report records
   `process_missing` when the group is empty at the end.
