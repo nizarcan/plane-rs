@@ -2503,6 +2503,19 @@ Helm chart verified on the homelab k3s cluster as a separate, internal-only Argo
 - README rewritten for plane-rs (unofficial/trademark/AGPL notice, pin, measured numbers,
   images, install, proof, known limitations, map).
 
-Running: the orchestrator's verification of the publishing head. Then push `main`, rename, images,
-homelab, revert.
+- **Orchestrator's verification of the publishing head `8501e82c6f` (oracle fetched at the pin,
+  no `apps/api` in the tree): passed.** fmt, clippy, 1444 tests, testkit 223, selftest 141,
+  schema_check (5 crates), `plane-jobs` DB test 9/9, all 18 CI generator checks incl.
+  `--check-verbatim` (a first run failed only because the loop ran under zsh, which doesn't
+  word-split), baseline `--check`, `verify_migrator`, `compare_boot`, **308/308 task cases**,
+  **131 files / 6345 steps** (`write/auth-session-throttle.yaml` 9/10 once, clean alone: the
+  throttle-window race), OAuth 57/57 + 52/52, SMTP, both beat scripts, contract 984/2, strict
+  `exit_check.py all` 102/0/0.
+- Homelab manifests prepared in `../homelab` (uncommitted): ApplicationSet child `plane-rs`
+  (namespace, vault-auth, ExternalSecrets for the three chart Secret groups, `ghcr-pull`) and a
+  standalone `plane-rs-helm` Application (chart from `nizarcan/plane-rs` at a pinned commit,
+  `sha-` image tags, bundled PostgreSQL/Valkey/MinIO on `nfs-data`, no ingress); `./hl validate`
+  clean; `setup-vault-secrets.sh` gains plane-rs placeholders (never run whole).
+
+Running: publish (`main`, rename, images), then Vault + homelab, then revert.
 
