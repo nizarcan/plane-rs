@@ -10,22 +10,32 @@
 //! that PGID. Sampling the group therefore measures the tree, not just the
 //! process the harness happened to spawn.
 //!
-//! The data comes from `ps -A -o pgid=,pid=,rss=,time=`, which is the
-//! portable way to get both numbers:
+//! Where the numbers come from:
 //!
-//! * `rss` is in KiB on macOS and Linux and is summed over the tree. That
-//!   deliberately over-counts shared pages (gunicorn workers share the parent's
-//!   copy-on-write pages, and every process maps the same libraries), so the
-//!   number is a conservative upper bound, not a PSS. `BENCH.md` says so.
-//! * `time` is consumed CPU time (user + system) at centisecond resolution on
-//!   macOS, which is ample for a 20 s window. Taking the difference between the
-//!   first and last sample gives the CPU seconds of the measured window.
+//! * On Linux, one read of `/proc/<pid>/stat` per process: `pgrp` (field 5),
+//!   `utime` + `stime` (14 and 15) and `rss` (24). The kernel renders the file
+//!   when it is read, so a process's CPU and memory come from one instant, and
+//!   CPU is in clock ticks — 10 ms at the usual `USER_HZ` of 100. `ps`'s `time`
+//!   column is `[DD-]hh:mm:ss` on Linux (whole seconds), so it loses every
+//!   sub-second burst.
+//! * Everywhere else the bench runs (macOS) it reads `ps -A -o
+//!   pgid=,pid=,rss=,time=`, whose `time` is consumed CPU time at centisecond
+//!   resolution — ample for a 20 s window.
 //!
-//! The harness itself is not in the target's process group, so `ps` and the
-//! harness's own work never appear in the numbers.
+//! In both cases `rss` is in KiB and is summed over the tree. That deliberately
+//! over-counts shared pages (gunicorn workers share the parent's copy-on-write
+//! pages, and every process maps the same libraries), so the number is a
+//! conservative upper bound, not a PSS. `BENCH.md` says so. Taking the
+//! difference between the first and last sample gives the CPU seconds of the
+//! measured window.
+//!
+//! The harness itself is not in the target's process group, so neither `ps`
+//! nor the harness's own work ever appears in the numbers.
 
 use std::io;
 use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -33,7 +43,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-/// One `ps` row, reduced to what the bench needs.
+/// One process in the sampled tree, reduced to what the bench needs.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProcessRow {
     pub pgid: u32,
@@ -73,11 +83,12 @@ pub struct SamplerSummary {
     pub processes_peak: u64,
     /// True when the final sample found no process in the group, which means
     /// the target exited during the window and both `after_rss_bytes` and
-    /// `cpu_secs` under-report (a dead process's CPU time disappears from `ps`).
+    /// `cpu_secs` under-report (a dead process's CPU time is no longer visible
+    /// to the sampler).
     pub process_missing: bool,
 }
 
-/// Parse the `ps -A -o pgid=,pid=,rss=,time=` table.
+/// Parse the `ps -A -o pgid=,pid=,rss=,time=` table used on non-Linux hosts.
 pub fn parse_ps_table(text: &str) -> Vec<ProcessRow> {
     let mut rows = Vec::new();
     for line in text.lines() {
@@ -131,8 +142,109 @@ pub fn parse_ps_time(text: &str) -> Option<f64> {
     Some(days as f64 * 86_400.0 + hours as f64 * 3600.0 + minutes as f64 * 60.0 + seconds)
 }
 
-/// Sample one process group with `ps`. An empty group is not an error: it
-/// means the target has exited, which the caller reports as `process_missing`.
+/// Parse `/proc/<pid>/stat` into the fields the bench needs.
+///
+/// `comm` (field 2) is the executable name in parentheses and may itself
+/// contain spaces and `)` — a process can rename itself to anything — so the
+/// numeric fields start after the *last* `)`, not the first. After that point
+/// field 3 (`state`) is index 0, so `pgrp` (5) is index 2, `utime` and `stime`
+/// (14 and 15) are 11 and 12, and `rss` in pages (24) is index 21.
+#[cfg(target_os = "linux")]
+fn parse_proc_stat(text: &str, ticks_per_second: u64, page_size: u64) -> Option<ProcessRow> {
+    if ticks_per_second == 0 || page_size == 0 {
+        return None;
+    }
+    let (pid, rest) = text.split_once(' ')?;
+    let pid = pid.parse::<u32>().ok()?;
+    let rest = rest.strip_prefix('(')?;
+    let (_, fields) = rest.rsplit_once(')')?;
+    let fields: Vec<&str> = fields.split_whitespace().collect();
+    let pgid = fields.get(2)?.parse::<u32>().ok()?;
+    let utime = fields.get(11)?.parse::<u64>().ok()?;
+    let stime = fields.get(12)?.parse::<u64>().ok()?;
+    let rss_pages = fields.get(21)?.parse::<u64>().ok()?;
+    Some(ProcessRow {
+        pgid,
+        pid,
+        rss_kib: rss_pages * page_size / 1024,
+        cpu_secs: (utime + stime) as f64 / ticks_per_second as f64,
+    })
+}
+
+/// `USER_HZ` is 100 for every Linux userspace ABI (the kernel scales
+/// `utime`/`stime` to it), so 100 is only a fallback for an image without
+/// `getconf`.
+#[cfg(target_os = "linux")]
+const FALLBACK_CLK_TCK: u64 = 100;
+
+/// 4096 is the base page size everywhere except 16K/64K arm64 and ppc64
+/// kernels, which do ship `getconf`; the fallback is for exotic images only.
+#[cfg(target_os = "linux")]
+const FALLBACK_PAGE_SIZE: u64 = 4096;
+
+/// One `getconf` lookup, used instead of `libc::sysconf` because the crate
+/// forbids `unsafe`.
+#[cfg(target_os = "linux")]
+fn getconf(name: &str, fallback: u64) -> u64 {
+    let parsed = match Command::new("getconf").arg(name).output() {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .ok(),
+        _ => None,
+    };
+    parsed.filter(|value| *value > 0).unwrap_or(fallback)
+}
+
+#[cfg(target_os = "linux")]
+fn clock_ticks_per_second() -> u64 {
+    static TICKS: OnceLock<u64> = OnceLock::new();
+    *TICKS.get_or_init(|| getconf("CLK_TCK", FALLBACK_CLK_TCK))
+}
+
+#[cfg(target_os = "linux")]
+fn page_size() -> u64 {
+    static SIZE: OnceLock<u64> = OnceLock::new();
+    *SIZE.get_or_init(|| getconf("PAGE_SIZE", FALLBACK_PAGE_SIZE))
+}
+
+/// Sample one process group. An empty group is not an error: it means the
+/// target has exited, which the caller reports as `process_missing`.
+///
+/// On Linux every field comes from `/proc/<pid>/stat`, so one process's RSS and
+/// CPU are always from the same read, and no subprocess is spawned per sample.
+#[cfg(target_os = "linux")]
+pub fn sample_process_tree(pgid: u32) -> io::Result<ProcessSample> {
+    let ticks = clock_ticks_per_second();
+    let page_size = page_size();
+    let mut sample = ProcessSample::default();
+    for entry in std::fs::read_dir("/proc")? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let name = entry.file_name();
+        let Some(pid) = name.to_str().and_then(|name| name.parse::<u32>().ok()) else {
+            continue;
+        };
+        // A process can exit between `read_dir` and this read; that is the
+        // same "not there any more" case as one that exited just before the
+        // sample, so it is skipped rather than counted with zero RSS.
+        let Ok(text) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        let Some(row) = parse_proc_stat(&text, ticks, page_size) else {
+            continue;
+        };
+        if row.pid == pid && row.pgid == pgid {
+            sample.add(&row);
+        }
+    }
+    Ok(sample)
+}
+
+/// Sample one process group with `ps`. An empty group is not an error: it means
+/// the target has exited, which the caller reports as `process_missing`.
+#[cfg(not(target_os = "linux"))]
 pub fn sample_process_tree(pgid: u32) -> io::Result<ProcessSample> {
     let output = Command::new("ps")
         .args(["-A", "-o", "pgid=,pid=,rss=,time="])
@@ -163,7 +275,7 @@ struct State {
 }
 
 /// Background sampler for one measured window. Sampling runs on a plain
-/// thread: `ps` is a blocking subprocess and must never block the async
+/// thread: reading `ps` or `/proc` is blocking and must never block the async
 /// runtime that is driving the load.
 pub struct TreeSampler {
     pgid: u32,
@@ -236,8 +348,8 @@ impl TreeSampler {
             .unwrap_or_default()
     }
 
-    /// Stop sampling and produce the summary. The final `ps` sample is taken
-    /// after the thread is joined so it reflects the post-load tree.
+    /// Stop sampling and produce the summary. The final sample is taken after
+    /// the thread is joined so it reflects the post-load tree.
     pub fn finish(mut self) -> io::Result<SamplerSummary> {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(handle) = self.handle.take() {
@@ -296,11 +408,49 @@ mod tests {
         assert!((sample.cpu_secs - (559.31 + 20.62 + 0.05)).abs() < 1e-9);
     }
 
+    /// `/proc/<pid>/stat` is `pid (comm) state ...`: `comm` can contain spaces
+    /// and `)`, so the numeric fields must be taken after the last `)`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn proc_stat_keeps_a_comm_with_spaces_and_parentheses() {
+        let stat = "4242 (uvicorn worker (forked)) S 4100 4242 4242 0 -1 4194560 \
+                    1234 0 0 0 350 120 0 0 20 0 4 0 12345 123456789 2048 \
+                    18446744073709551615";
+        let row = parse_proc_stat(stat, 100, 4096).expect("a valid /proc/<pid>/stat line");
+        assert_eq!(row.pid, 4242);
+        assert_eq!(row.pgid, 4242);
+        // 2048 pages at 4 KiB.
+        assert_eq!(row.rss_kib, 2048 * 4);
+        // 350 user + 120 system ticks at 100 Hz.
+        assert!((row.cpu_secs - 4.70).abs() < 1e-9);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn proc_stat_uses_the_given_tick_and_page_size() {
+        let stat = "7 (a process) R 1 7 7 0 -1 0 0 0 0 0 3 2 0 0 20 0 1 0 0 0 1 0";
+        let row = parse_proc_stat(stat, 250, 16_384).expect("a valid /proc/<pid>/stat line");
+        assert_eq!(row.rss_kib, 16);
+        assert!((row.cpu_secs - 5.0 / 250.0).abs() < 1e-9);
+
+        // A line that is not a full stat line is skipped rather than guessed at.
+        assert_eq!(parse_proc_stat("garbage", 100, 4096), None);
+        assert_eq!(parse_proc_stat("1 (short) R 1", 100, 4096), None);
+        assert_eq!(
+            parse_proc_stat(
+                "1 (zero ticks) R 1 1 1 0 -1 0 0 0 0 0 3 2 0 0 20 0 1 0 0 0 1 0",
+                0,
+                4096
+            ),
+            None
+        );
+    }
+
     #[test]
     fn an_empty_process_group_is_an_empty_sample() {
         // PID 0 is the kernel and PID 1 is launchd; neither is a group the
         // harness can start, so pick a group id that cannot exist.
-        let sample = sample_process_tree(u32::MAX).expect("ps must run");
+        let sample = sample_process_tree(u32::MAX).expect("the sampler must run");
         assert_eq!(sample, ProcessSample::default());
     }
 
@@ -312,7 +462,7 @@ mod tests {
             return;
         }
         // Touch 96 MiB so it is resident rather than lazily mapped, then burn
-        // CPU for long enough that `ps`'s centisecond clock sees it.
+        // CPU for long enough that the sampler's clock sees it.
         let mut memory = vec![0_u8; 96 * 1024 * 1024];
         for offset in (0..memory.len()).step_by(4096) {
             memory[offset] = 1;
